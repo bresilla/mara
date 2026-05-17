@@ -15,7 +15,19 @@
     flake-utils.lib.eachDefaultSystem (
       system:
       let
-        overlays = [ (import rust-overlay) ];
+        overlays = [
+          # nixGL still references these legacy xorg.* attribute names.
+          # Map them to the renamed top-level packages here so evaluating the
+          # flake stays quiet on current nixpkgs.
+          (final: prev: {
+            xorg = prev.xorg // {
+              libX11 = final.libx11;
+              libxcb = final.libxcb;
+              libxshmfence = final.libxshmfence;
+            };
+          })
+          (import rust-overlay)
+        ];
 
         pkgs = import nixpkgs {
           inherit system overlays;
@@ -25,20 +37,18 @@
           };
         };
 
-        # .envrc exports MARA_NVIDIA_VERSION from /proc/driver/nvidia/version
+        # `use nvidia` exports NVIDIA_VERSION from /proc/driver/nvidia/version
         # before direnv loads the flake. We read it via getEnv (works because
         # --impure is wired into .envrc). Reading from a file under .direnv/
         # doesn't work: flakes in a git repo only expose git-tracked files to
         # the evaluator, and .direnv/ is globally gitignored.
-        nvidiaVersion = let v = builtins.getEnv "MARA_NVIDIA_VERSION";
+        nvidiaVersion = let v = builtins.getEnv "NVIDIA_VERSION";
         in if v != "" then v
-           else throw "bevy_mara: MARA_NVIDIA_VERSION is unset — is direnv loaded and is the NVIDIA driver running?";
+           else throw "bevy_mara: NVIDIA_VERSION is unset — is direnv loaded and is the NVIDIA driver running?";
 
         # Build nixGL pinned to the detected version. `nvidiaHash = null`
         # makes it fetch the matching .run impurely (--impure is wired into
         # .envrc), so this stays automatic as the host driver changes.
-        # Note: nixGL still refs xorg.libX11/libxcb/libxshmfence internally,
-        # which prints deprecation warnings during eval — upstream bug.
         nixglPkgs = import "${nixgl}/default.nix" {
           inherit pkgs nvidiaVersion;
           nvidiaHash = null;

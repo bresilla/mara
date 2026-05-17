@@ -310,4 +310,4 @@ make build-web
 
 Inside nix/direnv, the development shell provides Rust, Bevy runtime libraries,
 `trunk`, and the wasm target. If running nix commands without direnv, make sure
-`MARA_NVIDIA_VERSION` is exported; `.envrc` normally does this automatically.
+`NVIDIA_VERSION` is exported; `.envrc` normally does this automatically.
