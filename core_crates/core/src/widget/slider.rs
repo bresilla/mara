@@ -1,11 +1,11 @@
-//! Frost-styled slider — caption on top, full-width interactive
+//! Mara-styled slider — caption on top, full-width interactive
 //! value bar below. Click or drag anywhere on the bar to set
 //! the value. 2-row stacked layout, same row height as
 //! [`crate::widget::progressbar`] so paired sliders + progress bars
 //! line up.
 //!
-//! Mirrors `frostcore::widgets::slider::pretty_slider` —
-//! the frost_core version drops the trailing-separator side-effect
+//! Mirrors `maracore::widgets::slider::pretty_slider` —
+//! the mara_core version drops the trailing-separator side-effect
 //! (separators are container/pod chrome here, not row-level).
 
 use crate::style::{
@@ -13,9 +13,9 @@ use crate::style::{
     on_track, radius_for, stroke_for, theme,
 };
 
-/// Bar row height — matches `frostcore::widgets::slider::BAR_H = 18`.
+/// Bar row height — matches `maracore::widgets::slider::BAR_H = 18`.
 pub const SLIDER_ROW_H: f32 = 18.0;
-/// Inline value-readout font size — matches frostcore's `VALUE_FONT = 11`.
+/// Inline value-readout font size — matches maracore's `VALUE_FONT = 11`.
 pub const SLIDER_VALUE_FONT: f32 = 11.0;
 
 /// Default labelled slider (2 × [`SLIDER_ROW_H`] = 36 px total).
@@ -65,7 +65,7 @@ pub fn slider_h(
         egui::pos2(rect.left(), rect.top() + row_height),
         egui::vec2(total_w, row_height),
     );
-    let bar_id = ui.id().with(("frost_slider_bar", label));
+    let bar_id = ui.id().with(("mara_slider_bar", label));
     let mut bar_resp = ui.interact(bar_rect, bar_id, egui::Sense::click_and_drag());
     let (lo, hi) = (*range.start(), *range.end());
     let denom = (hi - lo).max(f64::EPSILON);

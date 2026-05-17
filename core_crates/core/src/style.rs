@@ -1,6 +1,6 @@
 //! One-shot egui theme setup — palette, typography, and a single
 //! `apply_theme` function. **Framework-agnostic** — no bevy or
-//! bevy_egui imports here. The `bevy_frost` crate wraps these in
+//! bevy_egui imports here. The `bevy_mara` crate wraps these in
 //! Bevy `Resource`s + a `Plugin` that runs `apply_theme` every
 //! frame; plain-egui callers call `apply_theme(ctx, accent,
 //! opacity)` directly from their UI body.
@@ -16,14 +16,14 @@
 // ─── Sizing fundamentals ───────────────────────────────────────────
 
 /// Body text size, in pixels. Drives the [`UNIT`] derivation below
-/// — change here only if the entire frost type ramp moves. Matches
-/// `frostcore::style::apply_theme`'s body text style (13 px), so
-/// frost_core and frostcore widgets line up side-by-side at the same
+/// — change here only if the entire mara type ramp moves. Matches
+/// `maracore::style::apply_theme`'s body text style (13 px), so
+/// mara_core and maracore widgets line up side-by-side at the same
 /// scale.
 pub const BODY_FONT_SIZE: f32 = 13.0;
 
 /// Foundational row-height unit, in pixels. The canonical "1 row"
-/// measurement for every frost widget — derived as body font size
+/// measurement for every mara widget — derived as body font size
 /// plus 25 % padding above and 25 % padding below
 /// (`BODY_FONT_SIZE × 1.5`). With body text at 14 px, `UNIT = 21 px`.
 ///
@@ -64,7 +64,7 @@ use core::sync::atomic::{AtomicU8, Ordering};
 /// Shadow copy of the current opacity value. Plain helper functions
 /// (`section`, `floating_window`, etc.) read this to derive glass
 /// alphas without plumbing state through every UI call. Hosts
-/// (bevy_frost, egui_frost) are responsible for keeping it in sync
+/// (bevy_mara, egui_mara) are responsible for keeping it in sync
 /// with their chosen source of truth — either call
 /// [`set_glass_opacity`] every frame or on change.
 static GLASS_OPACITY: AtomicU8 = AtomicU8::new(100);
@@ -84,8 +84,8 @@ impl Default for GlassOpacity {
 }
 
 /// Push a new opacity value into the shared atomic. Call every
-/// frame before laying out UI (bevy_frost does this via a Bevy
-/// system; egui_frost callers do it manually from their app's
+/// frame before laying out UI (bevy_mara does this via a Bevy
+/// system; egui_mara callers do it manually from their app's
 /// update loop).
 pub fn set_glass_opacity(value: u8) {
     GLASS_OPACITY.store(value.clamp(1, 100), Ordering::Relaxed);
@@ -199,7 +199,7 @@ pub fn outline_base() -> egui::Color32 {
     )
 }
 
-/// The canonical border colour used by **every** frost surface —
+/// The canonical border colour used by **every** mara surface —
 /// foldable cards, sub-section frames, inputs, toggles, buttons.
 /// Built on top of [`outline_base`]: starts with the mode-aware base,
 /// blends in `border_accent_tint` of accent (PRO 6 %, GAME 0 %),
@@ -447,7 +447,7 @@ pub fn title_weight() -> FontWeight {
 /// `widgets::foldable::section_header`) ask for. The body family
 /// stays as `FontFamily::Proportional` so every other widget keeps
 /// the body weight without changes.
-pub const TITLE_FAMILY_NAME: &str = "frost-title";
+pub const TITLE_FAMILY_NAME: &str = "mara-title";
 
 /// `true` once `install_fonts` has pushed a `FontDefinitions` that
 /// binds [`TITLE_FAMILY_NAME`] AND egui has begun the next pass
@@ -527,9 +527,9 @@ pub fn install_fonts(ctx: &egui::Context, body: FontWeight, title: FontWeight) {
     ctx.request_repaint();
 }
 
-/// Apply the frost theme to the given egui context. Pure egui —
-/// no framework deps. Hosts call this once per frame (bevy_frost
-/// does it from a system; egui_frost callers call it from their
+/// Apply the mara theme to the given egui context. Pure egui —
+/// no framework deps. Hosts call this once per frame (bevy_mara
+/// does it from a system; egui_mara callers call it from their
 /// `update` / `show` body). The function de-dupes internally via a
 /// static cache so re-calling with the same `(accent, opacity)`
 /// skips the `ctx.set_style` / `ctx.set_fonts` work.
@@ -628,7 +628,7 @@ pub fn apply_theme(ctx: &egui::Context, accent: AccentColor, opacity: GlassOpaci
     apply_theme_to(ctx, accent, opacity);
 }
 
-/// Apply the frost theme's *visuals* to `ctx` unconditionally,
+/// Apply the mara theme's *visuals* to `ctx` unconditionally,
 /// bypassing `apply_theme`'s global de-dup cache. Useful for
 /// *secondary* `egui::Context`s — `apply_theme`'s cache is keyed
 /// on the theme state, not on the context, so once the parent
@@ -724,7 +724,7 @@ pub fn apply_theme_to(
     // Checkbox, RadioButton, ComboBox header, …) all paint their
     // background from `widgets.inactive.bg_fill` / `weak_bg_fill`.
     // Routing it through `track_fill` keeps these inputs at the
-    // same brightness tier as the frost search field / dropdown
+    // same brightness tier as the mara search field / dropdown
     // trigger / slider track instead of dropping to the dark
     // `bg_raised` panel colour. PRO unchanged (track_fill returns
     // `bg_input`); GAME now lifts inputs to `panel + 10 % white`.
@@ -922,7 +922,7 @@ pub fn high_contrast_accent(accent: egui::Color32) -> egui::Color32 {
 
     // Single-slot memo: if the (accent, is_light) input matches the
     // last call, skip the HSL roundtrip and return the cached
-    // output. Frostcore's section bracket paint calls this on
+    // output. Maracore's section bracket paint calls this on
     // every section every frame; with N sections at 60 fps that's
     // N × 60 pastel conversions / second otherwise.
     static CACHE: HighContrastAccentCache = std::sync::OnceLock::new();
@@ -970,8 +970,8 @@ pub fn fg_dim() -> egui::Color32 {
 /// appearance gets a clean animation cycle instead of replaying
 /// the previous session's locked-in state.
 pub fn appearance_session(ctx: &egui::Context, id: egui::Id) -> u64 {
-    let key_seen = id.with("frost_last_seen_pass");
-    let key_sess = id.with("frost_session_count");
+    let key_seen = id.with("mara_last_seen_pass");
+    let key_sess = id.with("mara_session_count");
     let now = ctx.cumulative_pass_nr();
     let last: Option<u64> = ctx.data(|d| d.get_temp(key_seen));
     let mut sess: u64 = ctx.data(|d| d.get_temp(key_sess)).unwrap_or(0);
@@ -1010,7 +1010,7 @@ const SCRAMBLE_CHARS: &[char] = &[
 /// (or while gated, so the random glyphs keep cycling).
 pub fn scramble_text(ctx: &egui::Context, id: egui::Id, current: &str, active: bool) -> String {
     /// Staggered delay between adjacent characters' lock times.
-    /// `0.07` was the frostcore default, but with `Pane`'s
+    /// `0.07` was the maracore default, but with `Pane`'s
     /// per-section staggered fade-in landing the last container at
     /// ~0.81 s, the first container's cipher finished too early —
     /// most letters had already locked by the time the user could
@@ -1048,8 +1048,8 @@ pub fn scramble_text(ctx: &egui::Context, id: egui::Id, current: &str, active: b
             .collect();
     }
 
-    let key_start = id.with("frost_scramble_start");
-    let key_prev = id.with("frost_scramble_prev");
+    let key_start = id.with("mara_scramble_start");
+    let key_prev = id.with("mara_scramble_prev");
     let prev: Option<String> = ctx.data(|d| d.get_temp(key_prev));
     let mut start: f64 = ctx.data(|d| d.get_temp(key_start)).unwrap_or(now);
     // Restart scramble whenever the text changes (or on first sight,
@@ -1103,8 +1103,8 @@ pub fn scramble_active(ctx: &egui::Context, scramble_id: egui::Id, current: &str
     // Keep these in sync with `scramble_text`.
     const STAGGER: f64 = 0.10;
     const MIN_DUR: f64 = 0.65;
-    let key_start = scramble_id.with("frost_scramble_start");
-    let key_prev = scramble_id.with("frost_scramble_prev");
+    let key_start = scramble_id.with("mara_scramble_start");
+    let key_prev = scramble_id.with("mara_scramble_prev");
     let prev: Option<String> = ctx.data(|d| d.get_temp(key_prev));
     if prev.as_deref() != Some(current) {
         return true;
@@ -1448,7 +1448,7 @@ pub struct ViewTheme {
 
 /// Theme-owned native-window chrome hit-test geometry.
 ///
-/// Facades use these values when a Frost app opts into custom
+/// Facades use these values when a Mara app opts into custom
 /// borderless decorations. Keeping the metrics in the theme prevents
 /// hard-coded demo constants from becoming the de facto resize feel.
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -1732,7 +1732,7 @@ pub struct WidgetTheme {
 
 /// Theme-owned chrome icon treatment. Domain/content icon names
 /// still come from callers; this group controls the recurring
-/// structural icons frost itself paints.
+/// structural icons mara itself paints.
 #[derive(Copy, Clone, Debug)]
 pub struct IconTheme {
     pub section_inline_scale: f32,
@@ -1806,7 +1806,7 @@ pub struct MotionTheme {
 
 /// Theme-owned graph canvas and node chrome. This keeps the
 /// `extras::graph` adapter generic: it translates these tokens to
-/// `frost_graph::GraphStyle` without knowing which theme family is
+/// `mara_graph::GraphStyle` without knowing which theme family is
 /// active.
 #[derive(Copy, Clone, Debug)]
 pub struct GraphTheme {
@@ -1857,7 +1857,7 @@ pub struct OverlayTheme {
     pub ghost_stroke_width: f32,
 }
 
-/// A complete visual profile for the frost UI kit. Built-in
+/// A complete visual profile for the mara UI kit. Built-in
 /// profiles: [`theme_pro`] (the default — soft glass, rounded
 /// corners, accent-tinted titles on a dark panel) and [`theme_game`]
 /// (square corners, no borders, no padding, accent-coloured panel
@@ -2165,7 +2165,7 @@ pub struct Theme {
     pub border_alpha: u8,
     /// Fraction of the accent colour blended into [`widget_border`].
     pub border_accent_tint: f32,
-    /// Stroke width used for every frost surface (sections,
+    /// Stroke width used for every mara surface (sections,
     /// subsections, group frames, inputs, …). `0.0` paints no border
     /// at all — handy for the GAME profile.
     pub border_width: f32,
@@ -2254,7 +2254,7 @@ pub struct Theme {
     /// Graph graph pin stroke width. PRO `1.0`, GAME `0.0`.
     pub graph_pin_width: f32,
     /// Bloom intensity for graph wires (`0.0` = no glow, `1.0+`
-    /// = strong neon halo). Read by `frost_node_graph_style` and
+    /// = strong neon halo). Read by `mara_node_graph_style` and
     /// passed straight through to `GraphStyle::wire_glow`. PRO
     /// 0.6 (vibrant but tasteful), GAME 1.0 (full neon).
     pub graph_wire_glow: f32,
@@ -2479,7 +2479,7 @@ fn write_unpoisoned<T>(lock: &std::sync::RwLock<T>) -> std::sync::RwLockWriteGua
 }
 
 /// Replace the active theme. Takes effect on the next paint —
-/// frostcore's de-dup cache in [`apply_theme`] uses `theme.name` to
+/// maracore's de-dup cache in [`apply_theme`] uses `theme.name` to
 /// detect the switch and re-push the egui style. Call this when the
 /// user picks a profile from a settings UI.
 pub fn set_theme(t: Theme) {
@@ -2654,7 +2654,7 @@ pub fn section_show_frame() -> bool {
     theme().container.show_frame
 }
 
-/// Semantic fill roles for common frost surfaces. Use these in
+/// Semantic fill roles for common mara surfaces. Use these in
 /// modules before constructing a custom `Color32` recipe directly.
 #[derive(Copy, Clone, Debug)]
 pub enum FillRole {
@@ -2666,7 +2666,7 @@ pub enum FillRole {
     DragGhost,
 }
 
-/// Semantic stroke roles for common frost outlines and separators.
+/// Semantic stroke roles for common mara outlines and separators.
 #[derive(Copy, Clone, Debug)]
 pub enum StrokeRole {
     WidgetBorder,
@@ -3010,7 +3010,7 @@ pub fn popup_fill(accent: egui::Color32) -> egui::Color32 {
 
 // ─── Theme-aware text colours ───────────────────────────────────────
 //
-// Six no-arg helpers covering the three frost surfaces (panel,
+// Six no-arg helpers covering the three mara surfaces (panel,
 // section, track) × two intensities (primary / dim). Each picks a
 // luma-contrasted text colour against the surface fill the active
 // theme + the active accent produce, so a yellow accent on PRO and

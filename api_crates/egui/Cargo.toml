@@ -1,6 +1,6 @@
 [package]
-name = "egui_frost"
-description = "Plain-egui facade for the frost glass-themed editor UI kit. Wraps `frost_core` with helpers for installing the theme + ribbon state into a standalone egui host (eframe, etc.) — no Bevy dependency."
+name = "egui_mara"
+description = "Plain-egui facade for the mara glass-themed editor UI kit. Wraps `mara_core` with helpers for installing the theme + ribbon state into a standalone egui host (eframe, etc.) — no Bevy dependency."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -8,16 +8,16 @@ repository.workspace = true
 readme = "README.md"
 
 [dependencies]
-# `frost_core` is the entire UI core — pane / ribbon / container / pod
-# systems, widgets, theme runtime, vendored fonts. `egui_frost` is
+# `mara_core` is the entire UI core — pane / ribbon / container / pod
+# systems, widgets, theme runtime, vendored fonts. `egui_mara` is
 # the egui-only convenience layer on top: helpers for one-line
 # theme install in eframe / standalone egui apps, plus a thin
 # `RibbonState` aggregate so consumers can pass a single struct
 # through their app instead of juggling four separate state types.
 #
-# No `bevy` feature on `frost_core` here — this crate compiles in any
+# No `bevy` feature on `mara_core` here — this crate compiles in any
 # environment where egui works, and stays free of Bevy types.
-frost_core = { workspace = true }
+mara_core = { workspace = true }
 egui = { workspace = true }
 # Used by `EframeNodeViewBackend` to register the secondary-context
 # wgpu texture into eframe's egui_wgpu::Renderer via
@@ -27,7 +27,7 @@ egui-wgpu = { workspace = true }
 wgpu = { workspace = true }
 
 [dev-dependencies]
-# `eframe` pairs the same egui version that frost_core builds against
+# `eframe` pairs the same egui version that mara_core builds against
 # (0.33).
 #
 # `default-features = false` so we drop `wayland` — winit prefers
@@ -35,7 +35,7 @@ wgpu = { workspace = true }
 # is set, which forces a `NoCompositor` error in environments
 # (nix, sandboxes) where the wayland socket isn't accessible even
 # though the env var leaks through. Sticking to `x11` matches
-# `bevy_frost`'s demo path (`make run` uses `DISPLAY=:1`).
+# `bevy_mara`'s demo path (`make run` uses `DISPLAY=:1`).
 eframe = { version = "0.33", default-features = false, features = [
     "default_fonts",
     "wgpu",
@@ -47,7 +47,7 @@ eframe = { version = "0.33", default-features = false, features = [
 # itself, `wgpu::Instance::new` panics at runtime with "No wgpu
 # backend feature ... was enabled".
 #
-# We only enable `vulkan` — matches `bevy_frost`'s demo, which
+# We only enable `vulkan` — matches `bevy_mara`'s demo, which
 # runs under the `nixVulkan` wrapper and the same Vulkan path
 # Bevy uses. With `gl` compiled in, wgpu also tries to init an
 # EGL context, which on nix systems panics inside `khronos-egl`

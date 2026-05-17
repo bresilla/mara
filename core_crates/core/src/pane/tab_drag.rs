@@ -47,27 +47,27 @@ pub struct TabStripEntry {
 // ─── ctx-data keys ─────────────────────────────────────────────────
 
 fn drag_key(pane_id: Id) -> Id {
-    pane_id.with("frost_tab_drag")
+    pane_id.with("mara_tab_drag")
 }
 fn strip_cache_key(pane_id: Id) -> Id {
-    pane_id.with("frost_tab_strip_cache")
+    pane_id.with("mara_tab_strip_cache")
 }
 fn button_cache_key(pane_id: Id) -> Id {
-    pane_id.with("frost_tab_button_cache")
+    pane_id.with("mara_tab_button_cache")
 }
 /// Per-pane: which container each tab id currently belongs to.
 fn owner_key(pane_id: Id) -> Id {
-    pane_id.with("frost_tab_owner")
+    pane_id.with("mara_tab_owner")
 }
 fn moved_out_key(container_id: Id) -> Id {
-    container_id.with("frost_tab_moved_out")
+    container_id.with("mara_tab_moved_out")
 }
 /// Per-pane: per-container ordered tab id list.
 fn order_key(pane_id: Id) -> Id {
-    pane_id.with("frost_tab_order")
+    pane_id.with("mara_tab_order")
 }
 fn active_tab_key(container_id: Id) -> Id {
-    container_id.with("frost_normal_active_tab")
+    container_id.with("mara_normal_active_tab")
 }
 fn active_tab_id_key(container_id: Id) -> Id {
     active_tab_key(container_id).with("tab_id")
@@ -459,7 +459,7 @@ pub fn paint_drag_preview(
         cursor.x - button_size.x * 0.5,
         cursor.y - button_size.y * 0.5,
     );
-    let area_id = pane_id.with("frost_tab_drag_preview");
+    let area_id = pane_id.with("mara_tab_drag_preview");
     egui::Area::new(area_id)
         .order(egui::Order::Tooltip)
         .fixed_pos(pos)

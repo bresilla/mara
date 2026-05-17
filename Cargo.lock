@@ -707,20 +707,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "bevy_frost"
-version = "0.0.1"
-dependencies = [
- "bevy",
- "bevy_egui",
- "bevy_glacial",
- "egui",
- "egui_plot",
- "frost_core",
- "mimalloc",
- "wgpu",
-]
-
-[[package]]
 name = "bevy_gizmos"
 version = "0.18.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -950,6 +936,20 @@ dependencies = [
  "quote",
  "syn",
  "toml_edit 0.23.10+spec-1.0.0",
+]
+
+[[package]]
+name = "bevy_mara"
+version = "0.0.1"
+dependencies = [
+ "bevy",
+ "bevy_egui",
+ "bevy_glacial",
+ "egui",
+ "egui_plot",
+ "mara_core",
+ "mimalloc",
+ "wgpu",
 ]
 
 [[package]]
@@ -2186,31 +2186,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "egui_frost"
-version = "0.0.1"
-dependencies = [
- "eframe",
- "egui",
- "egui-wgpu",
- "frost_core",
- "wgpu",
-]
-
-[[package]]
-name = "egui_frost_web"
-version = "0.0.1"
-dependencies = [
- "eframe",
- "egui_frost",
- "egui_plot",
- "frost_core",
- "getrandom 0.3.4",
- "log",
- "wasm-bindgen-futures",
- "wgpu",
-]
-
-[[package]]
 name = "egui_glow"
 version = "0.33.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2225,6 +2200,31 @@ dependencies = [
  "wasm-bindgen",
  "web-sys",
  "winit",
+]
+
+[[package]]
+name = "egui_mara"
+version = "0.0.1"
+dependencies = [
+ "eframe",
+ "egui",
+ "egui-wgpu",
+ "mara_core",
+ "wgpu",
+]
+
+[[package]]
+name = "egui_mara_web"
+version = "0.0.1"
+dependencies = [
+ "eframe",
+ "egui_mara",
+ "egui_plot",
+ "getrandom 0.3.4",
+ "log",
+ "mara_core",
+ "wasm-bindgen-futures",
+ "wgpu",
 ]
 
 [[package]]
@@ -2595,55 +2595,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cb4cb245038516f5f85277875cdaa4f7d2c9a0fa0468de06ed190163b1581fcf"
 dependencies = [
  "percent-encoding",
-]
-
-[[package]]
-name = "frost_canvas"
-version = "0.0.1"
-dependencies = [
- "egui",
- "frost_core",
-]
-
-[[package]]
-name = "frost_code"
-version = "0.0.1"
-dependencies = [
- "egui",
- "serde",
-]
-
-[[package]]
-name = "frost_core"
-version = "0.0.1"
-dependencies = [
- "bevy",
- "egui",
- "frost_code",
- "frost_graph",
- "iconflow",
- "pastel",
-]
-
-[[package]]
-name = "frost_graph"
-version = "0.0.1"
-dependencies = [
- "egui",
- "egui-scale",
- "egui-wgpu",
- "serde",
- "slab",
- "smallvec",
- "wgpu",
-]
-
-[[package]]
-name = "frost_image"
-version = "0.0.1"
-dependencies = [
- "egui",
- "frost_core",
 ]
 
 [[package]]
@@ -3421,6 +3372,55 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "62bb907fe88d54d8d9ce32a3cceab4218ed2f6b7d35617cafe9adf84e43919cb"
 dependencies = [
  "libc",
+]
+
+[[package]]
+name = "mara_canvas"
+version = "0.0.1"
+dependencies = [
+ "egui",
+ "mara_core",
+]
+
+[[package]]
+name = "mara_code"
+version = "0.0.1"
+dependencies = [
+ "egui",
+ "serde",
+]
+
+[[package]]
+name = "mara_core"
+version = "0.0.1"
+dependencies = [
+ "bevy",
+ "egui",
+ "iconflow",
+ "mara_code",
+ "mara_graph",
+ "pastel",
+]
+
+[[package]]
+name = "mara_graph"
+version = "0.0.1"
+dependencies = [
+ "egui",
+ "egui-scale",
+ "egui-wgpu",
+ "serde",
+ "slab",
+ "smallvec",
+ "wgpu",
+]
+
+[[package]]
+name = "mara_image"
+version = "0.0.1"
+dependencies = [
+ "egui",
+ "mara_core",
 ]
 
 [[package]]

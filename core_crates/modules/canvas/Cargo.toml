@@ -1,6 +1,6 @@
 [package]
-name = "frost_canvas"
-description = "Whiteboard/canvas proof module for the Frost View + Module architecture."
+name = "mara_canvas"
+description = "Whiteboard/canvas proof module for the Mara View + Module architecture."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -8,4 +8,4 @@ repository.workspace = true
 
 [dependencies]
 egui = { workspace = true }
-frost_core = { workspace = true }
+mara_core = { workspace = true }

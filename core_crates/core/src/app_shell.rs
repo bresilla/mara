@@ -52,7 +52,7 @@ pub enum WindowControlsPolicy {
 
 /// API-level app chrome contract.
 ///
-/// Frost has exactly one persistent top main bar. Active views/workspaces
+/// Mara has exactly one persistent top main bar. Active views/workspaces
 /// may override or explicitly hide individual slots, but they do not
 /// rebuild the main bar by passing additional permanent ribbons.
 #[derive(Clone, Debug, PartialEq, Eq)]

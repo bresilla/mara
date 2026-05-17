@@ -138,7 +138,7 @@ fn draw_one_slot_ribbon(
         vec2(span, chrome.button_size)
     };
     let pos = ribbon_origin(screen, ribbon.edge, ribbon.cluster, size, chrome.edge_gap);
-    let area_id = Id::new(("frost_slot_ribbon", ribbon.id));
+    let area_id = Id::new(("mara_slot_ribbon", ribbon.id));
 
     egui::Area::new(area_id)
         .order(egui::Order::Foreground)

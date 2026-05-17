@@ -22,7 +22,7 @@
 //! * Maximised: paints a placeholder in the current `Ui` so the
 //!   surrounding layout keeps its footprint, then renders the
 //!   body inside an `egui::Area` at the highest order covering
-//!   the full `ctx.content_rect()` with a frost glass frame.
+//!   the full `ctx.content_rect()` with a mara glass frame.
 //! * Paints a 24 px chip in the top-left of whichever rect holds
 //!   the body — ribbon-button styling (accent fill on active,
 //!   accent border), glyph = two diagonal arrows joined by a line
@@ -95,11 +95,11 @@ impl OverlayOpts {
 /// maximise-flag for a given `id_salt`. Exposed so callers can do
 /// context-sensitive routing without poking inside the widget.
 pub fn maximize_state_key(id_salt: impl std::hash::Hash) -> egui::Id {
-    egui::Id::new(("frost_maximize", id_salt))
+    egui::Id::new(("mara_maximize", id_salt))
 }
 
 fn pending_restore_fullscreen_key() -> egui::Id {
-    egui::Id::new("frost_pending_restore_fullscreen")
+    egui::Id::new("mara_pending_restore_fullscreen")
 }
 
 /// Globally unique id used by the maximizer to track "is some
@@ -112,7 +112,7 @@ fn pending_restore_fullscreen_key() -> egui::Id {
 /// the egui UI (other panes, ribbons) AND skip the Bevy 3D scene
 /// behind, so the fullscreen view truly owns the screen.
 pub fn fullscreen_owner(ctx: &egui::Context) -> Option<egui::Id> {
-    let global_key = egui::Id::new("frost_maximize_global");
+    let global_key = egui::Id::new("mara_maximize_global");
     let pass_nr = ctx.cumulative_pass_nr();
     let stored: Option<(u64, egui::Id)> = ctx.data(|d| d.get_temp(global_key));
     match stored {
@@ -128,7 +128,7 @@ pub fn is_any_fullscreen(ctx: &egui::Context) -> bool {
 }
 
 fn suppress_fullscreen_minimize_chip_key() -> egui::Id {
-    egui::Id::new("frost_suppress_fullscreen_minimize_chip")
+    egui::Id::new("mara_suppress_fullscreen_minimize_chip")
 }
 
 /// Hide/show the built-in fullscreen restore chip for this frame.
@@ -203,7 +203,7 @@ pub fn maximizable_with_opts(
         ui.ctx().data_mut(|d| {
             d.insert_temp::<bool>(max_id, false);
             d.remove::<egui::Id>(pending_restore_fullscreen_key());
-            d.remove::<(u64, egui::Id)>(egui::Id::new("frost_maximize_global"));
+            d.remove::<(u64, egui::Id)>(egui::Id::new("mara_maximize_global"));
         });
     }
     let mut toggle = false;
@@ -216,7 +216,7 @@ pub fn maximizable_with_opts(
     // full-window — otherwise `Order::Tooltip` button areas from
     // inline-in-a-pane widgets would still paint on top of the
     // overlay.
-    let global_key = egui::Id::new("frost_maximize_global");
+    let global_key = egui::Id::new("mara_maximize_global");
     let pass_nr = ui.ctx().cumulative_pass_nr();
     let stored_global: Option<(u64, egui::Id)> = ui.ctx().data(|d| d.get_temp(global_key));
     let some_other_maximized = match stored_global {
@@ -259,7 +259,7 @@ pub fn maximizable_with_opts(
         let ctx = ui.ctx().clone();
         let screen = ctx.content_rect();
         let content = opts.content_avoidance.apply_to_rect(screen);
-        egui::Area::new(ui.id().with(("frost_maximize_overlay", id_salt)))
+        egui::Area::new(ui.id().with(("mara_maximize_overlay", id_salt)))
             .order(egui::Order::Foreground)
             .fixed_pos(screen.min)
             .show(&ctx, |ui| {
@@ -272,7 +272,7 @@ pub fn maximizable_with_opts(
                     .rect_filled(bg_rect, egui::CornerRadius::ZERO, opaque_bg);
                 ui.allocate_rect(bg_rect, egui::Sense::hover());
             });
-        egui::Area::new(ui.id().with(("frost_maximize_overlay_content", id_salt)))
+        egui::Area::new(ui.id().with(("mara_maximize_overlay_content", id_salt)))
             .order(egui::Order::Foreground)
             .fixed_pos(content.min)
             .show(&ctx, |ui| {
@@ -351,7 +351,7 @@ fn max_button_overlay(
     id_salt: impl Hash + Copy,
 ) -> egui::Response {
     let btn = crate::style::theme().overlay.inline_chip_size;
-    let area_id = egui::Id::new("frost_maximize_btn").with(id_salt);
+    let area_id = egui::Id::new("mara_maximize_btn").with(id_salt);
     let inner = egui::Area::new(area_id)
         .order(egui::Order::Tooltip)
         .fixed_pos(pos)
@@ -441,13 +441,13 @@ fn fullscreen_minimize_button(
 ) -> bool {
     // Persisted user-chosen anchor (set on drag-release). When
     // empty, fall back to the caller-supplied `opts`.
-    let anchor_key = egui::Id::new("frost_maximize_chip_anchor").with(id_salt);
+    let anchor_key = egui::Id::new("mara_maximize_chip_anchor").with(id_salt);
     let stored: Option<(RibbonEdge, RibbonCluster)> = ctx.data(|d| d.get_temp(anchor_key));
     let active_anchor = stored.unwrap_or((opts.minimize_edge, opts.minimize_cluster));
     // While the user is mid-drag, override the chip position with
     // the cursor (so the chip follows the pointer) — keyed by the
     // SAME id so the value clears on release.
-    let drag_pos_key = egui::Id::new("frost_maximize_chip_drag_pos").with(id_salt);
+    let drag_pos_key = egui::Id::new("mara_maximize_chip_drag_pos").with(id_salt);
     let drag_cursor: Option<egui::Pos2> = ctx.data(|d| d.get_temp(drag_pos_key));
     let chip_pos = if let Some(c) = drag_cursor {
         egui::pos2(c.x - btn_size * 0.5, c.y - btn_size * 0.5)
@@ -455,7 +455,7 @@ fn fullscreen_minimize_button(
         compute_chip_pos(screen, active_anchor.0, active_anchor.1, btn_size, edge_gap)
     };
 
-    let area_id = egui::Id::new("frost_maximize_minimize").with(id_salt);
+    let area_id = egui::Id::new("mara_maximize_minimize").with(id_salt);
     let inner = egui::Area::new(area_id)
         .order(egui::Order::Tooltip)
         .fixed_pos(chip_pos)
@@ -529,7 +529,7 @@ fn fullscreen_minimize_button(
             if let Some(g) = ghost_target {
                 let ghost_layer = egui::LayerId::new(
                     egui::Order::Tooltip,
-                    egui::Id::new(("frost_maximize_chip_ghost", id_salt)),
+                    egui::Id::new(("mara_maximize_chip_ghost", id_salt)),
                 );
                 let ghost_painter = egui::Painter::new(ui.ctx().clone(), ghost_layer, screen);
                 let overlay = crate::style::theme().overlay;

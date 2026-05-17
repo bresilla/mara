@@ -1,4 +1,4 @@
-//! Frost-styled single-line text input.
+//! Mara-styled single-line text input.
 //!
 //! Shape:
 //!
@@ -12,7 +12,7 @@
 //! * A leading magnifier glyph painted inside the field.
 //! * A trailing `✕` glyph that clears the buffer when clicked.
 //! * Accent-tinted border using the same [`widget_border`] recipe
-//!   every other frost input wears.
+//!   every other mara input wears.
 //! * Height = 20 px so it sits flush with a pane title row or a
 //!   container header.
 //!
@@ -20,8 +20,8 @@
 //! to each keystroke (the clear button also marks the response as
 //! changed when clicked).
 //!
-//! Ported verbatim from `frostcore::widgets::search::search_field`,
-//! minus the `flush_pending_separator` glue (frost_core doesn't carry
+//! Ported verbatim from `maracore::widgets::search::search_field`,
+//! minus the `flush_pending_separator` glue (mara_core doesn't carry
 //! that side-channel).
 
 use egui;
@@ -98,7 +98,7 @@ pub fn text_input_h(
         let clear_resp = ui
             .interact(
                 clear_rect,
-                ui.id().with("frost_text_input_clear"),
+                ui.id().with("mara_text_input_clear"),
                 egui::Sense::click(),
             )
             .on_hover_cursor(egui::CursorIcon::PointingHand);

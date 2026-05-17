@@ -1,17 +1,17 @@
 //! Standalone foldable section — a chevron-on-header collapsible
-//! frame with a frost-glass background. Used outside of the
+//! frame with a mara-glass background. Used outside of the
 //! pane/container system as a tiered group inside ad-hoc panels
 //! (e.g. nested variant browsers, debug overlays).
 //!
 //! The pane/container path uses [`crate::container::Normal`]
 //! instead — this helper is a thin shim for callers that just want
-//! "an egui collapsible with frost paint".
+//! "an egui collapsible with mara paint".
 
 use egui::collapsing_header::CollapsingState;
 
 use crate::style::{FrameRole, frame_for, on_section, section_caps};
 
-/// Render a frost-styled collapsible section. `id_salt` makes the
+/// Render a mara-styled collapsible section. `id_salt` makes the
 /// section's open/closed state distinct from siblings; `title` is
 /// the header label; `default_open` is the initial state on first
 /// paint.
@@ -23,7 +23,7 @@ pub fn section(
     default_open: bool,
     body: impl FnOnce(&mut egui::Ui),
 ) {
-    let id = ui.id().with(("frost_section", id_salt));
+    let id = ui.id().with(("mara_section", id_salt));
     let mut state = CollapsingState::load_with_default_open(ui.ctx(), id, default_open);
 
     let frame = frame_for(FrameRole::Section, accent);

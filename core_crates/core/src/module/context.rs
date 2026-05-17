@@ -26,7 +26,7 @@ impl Default for ModuleInlineOptions {
     }
 }
 
-/// Context passed to `FrostModule::inline`.
+/// Context passed to `MaraModule::inline`.
 pub struct ModuleInlineCtx<'a> {
     pub pod_id: Id,
     pub slot_index: usize,
@@ -68,7 +68,7 @@ impl ModuleResponse {
     }
 }
 
-/// Context passed to `FrostModule::workspace`.
+/// Context passed to `MaraModule::workspace`.
 ///
 /// This is intentionally small for the first implementation slice:
 /// it carries workspace identity, policy, bars, accent, and stack

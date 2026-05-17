@@ -1,6 +1,6 @@
-//! `bevy_frost` widget gallery + layout showcase, reimplemented on
-//! top of `frost_core` (the new pane / ribbon / container / pod /
-//! widget stack). Mirrors the layout of the legacy frostcore demo
+//! `bevy_mara` widget gallery + layout showcase, reimplemented on
+//! top of `mara_core` (the new pane / ribbon / container / pod /
+//! widget stack). Mirrors the layout of the legacy maracore demo
 //! one panel at a time:
 //!
 //! * **Widgets** — Flags / Numbers / Bars / Buttons / Animated.
@@ -11,7 +11,7 @@
 //! * **Keys** — keybinding rows (readouts).
 //! * **About** — version + dependency readouts.
 //!
-//! Run: `cargo run -p bevy_frost --example demo`.
+//! Run: `cargo run -p bevy_mara --example demo`.
 
 #![allow(
     clippy::collapsible_if,
@@ -32,27 +32,27 @@ use bevy_glacial::prelude::*;
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
-use frost_core::container::SeparatorStyle;
-use frost_core::pane::{Pane, PaneAnchor, PaneBody, RailZone};
-use frost_core::pod::Pod;
-use frost_core::ribbon::{
+use mara_core::container::SeparatorStyle;
+use mara_core::pane::{Pane, PaneAnchor, PaneBody, RailZone};
+use mara_core::pod::Pod;
+use mara_core::ribbon::{
     ResolvedSlotRibbon, RibbonAction, RibbonCluster, RibbonDrag, RibbonEdge, RibbonGlyph,
     RibbonMode, RibbonOpen, RibbonPlacement, RibbonRole, RibbonSlotClick, RibbonSlotItem,
     draw_slot_ribbons_featureful,
 };
-use frost_core::shelf::{ShelfContainer, ShelfDef, ShelfEdge, ShelfState};
-use frost_core::style::{AccentColor, GlassOpacity, Mode, srgb_to_egui};
-use frost_core::widget::{FillStyle, TreeIconKind, TreeIconSlot};
+use mara_core::shelf::{ShelfContainer, ShelfDef, ShelfEdge, ShelfState};
+use mara_core::style::{AccentColor, GlassOpacity, Mode, srgb_to_egui};
+use mara_core::widget::{FillStyle, TreeIconKind, TreeIconSlot};
 // Vendored extras — node graph (`egui-graph`) and code editor
-// (`egui_code_editor`). Both live under `bevy_frost::extras`.
+// (`egui_code_editor`). Both live under `bevy_mara::extras`.
 use bevy::ecs::system::SystemParam;
 use bevy::render::renderer::{RenderDevice, RenderQueue};
 use bevy_egui::EguiUserTextures;
-use bevy_frost::extras::code::Syntax;
-use bevy_frost::extras::graph::{
+use bevy_mara::extras::code::Syntax;
+use bevy_mara::extras::graph::{
     Graph, InPin, InPinId, NodePin, NodeViewState, NodeViewer, OutPin, OutPinId, PinInfo,
 };
-use bevy_frost::node_view_backend::{BevyNodeViewBackend, NodeViewSlots, PendingNodeViewCopies};
+use bevy_mara::node_view_backend::{BevyNodeViewBackend, NodeViewSlots, PendingNodeViewCopies};
 
 // ─── Ribbon / pane ids ──────────────────────────────────────────────
 
@@ -66,7 +66,7 @@ const RIBBON_BOTTOM: &str = "demo_ribbon_bottom";
 // by `is_any_fullscreen(ctx)` in the per-frame top-level callback
 // below. Uses the SAME ribbon API as the regular rails, so the
 // fullscreen view looks like a fresh canvas built from the same
-// frost UI primitives.
+// mara UI primitives.
 const RIBBON_FS_LEFT: &str = "demo_ribbon_fs_left";
 
 const PANE_WIDGETS: &str = "demo_pane_widgets";
@@ -355,7 +355,7 @@ const RIBBON_ITEMS: &[RibbonButtonSpec] = &[
         role: Some(RibbonRole::Icon),
     },
     // BOTTOM rail — Editor (placeholder; the legacy graph + code
-    // wrappers lived in `frostcore` which has been removed) and the
+    // wrappers lived in `maracore` which has been removed) and the
     // one-shot cube-cycle action buttons in the End cluster.
     RibbonButtonSpec {
         id: PANE_EDITOR,
@@ -526,7 +526,7 @@ const RIBBON_ITEMS_ROOT_VIEW: &[RibbonButtonSpec] = &[
 // in its fullscreen overlay — branched in the per-frame paint via
 // `is_graph_fullscreen` / `is_code_fullscreen`. Each set uses the
 // SAME ribbon API as the regular rails, so the fullscreen view is
-// a fresh canvas built from the same frost UI primitives.
+// a fresh canvas built from the same mara UI primitives.
 
 // Shared rail-definitions reused by both fullscreen flavours. Items
 // reference these by id; the per-widget `RIBBON_ITEMS_FS_*` slices
@@ -840,7 +840,7 @@ mod tests {
                 RibbonGlyph::Icon(icon) | RibbonGlyph::Text(icon) | RibbonGlyph::Svg(icon) => icon,
             };
             assert!(
-                frost_core::icons::is_icon_payload(icon),
+                mara_core::icons::is_icon_payload(icon),
                 "demo ribbon item {} uses a non-renderable icon payload {:?}",
                 item.id,
                 icon
@@ -918,11 +918,11 @@ fn draw_unified_ribbons(
     draw_slot_ribbons_featureful(ctx, accent, &resolved, open, placement, drag)
 }
 
-fn demo_ribbon_scope(ribbon_id: &'static str) -> frost_core::RibbonScope {
+fn demo_ribbon_scope(ribbon_id: &'static str) -> mara_core::RibbonScope {
     if ribbon_id == RIBBON_TOP {
-        frost_core::RibbonScope::Permanent
+        mara_core::RibbonScope::Permanent
     } else {
-        frost_core::RibbonScope::View(frost_core::ViewId::new("demo.local_ribbons"))
+        mara_core::RibbonScope::View(mara_core::ViewId::new("demo.local_ribbons"))
     }
 }
 
@@ -977,7 +977,7 @@ struct CanvasShelfState(ShelfState);
 
 /// Per-graph sharp-zoom state (secondary egui::Context, pan, zoom,
 /// wgpu render target). Held as a Bevy resource so the SAME state
-/// instance is passed to `frost_node_graph` every frame for the same
+/// instance is passed to `mara_node_graph` every frame for the same
 /// editor pane — recreating it would drop the cached wgpu texture
 /// and renderer.
 #[derive(Resource)]
@@ -1023,8 +1023,8 @@ const CLOUD_ALTITUDE_M: f32 = 4_000.0;
 // ─── App ───────────────────────────────────────────────────────────
 
 fn main() {
-    let geometry = WindowGeometry::load("bevy_frost_demo");
-    let mut primary_window = geometry.to_window("bevy_frost — demo");
+    let geometry = WindowGeometry::load("bevy_mara_demo");
+    let mut primary_window = geometry.to_window("bevy_mara — demo");
     primary_window.decorations = false;
     App::new()
         .add_plugins(
@@ -1040,11 +1040,11 @@ fn main() {
                 }),
         )
         .add_plugins(bevy_egui::EguiPlugin::default())
-        .add_plugins(bevy_frost::EguiInputAbsorbPlugin)
-        .add_plugins(bevy_frost::window_chrome::FrostWindowChromePlugin)
-        .add_plugins(bevy_frost::node_view_backend::NodeViewPlugin)
+        .add_plugins(bevy_mara::EguiInputAbsorbPlugin)
+        .add_plugins(bevy_mara::window_chrome::MaraWindowChromePlugin)
+        .add_plugins(bevy_mara::node_view_backend::NodeViewPlugin)
         .add_plugins(GlacialPlugins)
-        .add_plugins(WindowSettingsPlugin::new("bevy_frost_demo"))
+        .add_plugins(WindowSettingsPlugin::new("bevy_mara_demo"))
         .insert_resource(ClearColor(Color::srgb(0.06, 0.08, 0.12)))
         .insert_resource(GroundGrid {
             visible: true,
@@ -1070,8 +1070,8 @@ fn main() {
         .add_systems(
             EguiPrimaryContextPass,
             ui_system
-                .after(bevy_frost::window_chrome::FrostWindowChromeSet::ReleaseClaim)
-                .before(bevy_frost::window_chrome::FrostWindowChromeSet::SyncRegions),
+                .after(bevy_mara::window_chrome::MaraWindowChromeSet::ReleaseClaim)
+                .before(bevy_mara::window_chrome::MaraWindowChromeSet::SyncRegions),
         )
         .run();
     // NOTE: an earlier revision of this file gated the 3D camera's
@@ -1349,7 +1349,7 @@ fn ui_system(
     mut root_view: ResMut<DemoRootView>,
     mut canvas_view: ResMut<CanvasViewState>,
     mut canvas_shelves: ResMut<CanvasShelfState>,
-    chrome_input_claim: Res<bevy_frost::window_chrome::FrostWindowChromeInputClaim>,
+    chrome_input_claim: Res<bevy_mara::window_chrome::MaraWindowChromeInputClaim>,
     mut app_exit: MessageWriter<AppExit>,
     // ── Sharp-zoom node-graph plumbing (bundled to stay under
     //    Bevy's 16-system-param cap) ──
@@ -1361,22 +1361,22 @@ fn ui_system(
     let ctx = egui_ctx.get_mut();
 
     let mut active_theme = match (family.0, mode.0) {
-        (0, 0) => frost_core::style::theme_pro(Mode::Dark),
-        (0, 1) => frost_core::style::theme_pro(Mode::Light),
-        (1, 0) => frost_core::style::theme_game(Mode::Dark),
-        (1, 1) => frost_core::style::theme_game(Mode::Light),
-        (2, 0) => frost_core::style::theme_flat(Mode::Dark),
-        (2, 1) => frost_core::style::theme_flat(Mode::Light),
-        _ => frost_core::style::theme_pro(Mode::Dark),
+        (0, 0) => mara_core::style::theme_pro(Mode::Dark),
+        (0, 1) => mara_core::style::theme_pro(Mode::Light),
+        (1, 0) => mara_core::style::theme_game(Mode::Dark),
+        (1, 1) => mara_core::style::theme_game(Mode::Light),
+        (2, 0) => mara_core::style::theme_flat(Mode::Dark),
+        (2, 1) => mara_core::style::theme_flat(Mode::Light),
+        _ => mara_core::style::theme_pro(Mode::Dark),
     };
     active_theme.pastel_accent = pastel.0;
-    frost_core::style::set_theme(active_theme);
-    frost_core::style::apply_theme(ctx, *accent, *glass);
+    mara_core::style::set_theme(active_theme);
+    mara_core::style::apply_theme(ctx, *accent, *glass);
 
-    let accent_col = frost_core::style::active_accent();
-    frost_core::publish_shelf_layout(
+    let accent_col = mara_core::style::active_accent();
+    mara_core::publish_shelf_layout(
         ctx,
-        frost_core::ShelfLayout {
+        mara_core::ShelfLayout {
             viewport: ctx.content_rect(),
             left: None,
             right: None,
@@ -1385,7 +1385,7 @@ fn ui_system(
     );
 
     // Actual root/L0 canvas switch:
-    // - BevyScene is the normal demo: Bevy 3D scene plus Frost panes/ribbons.
+    // - BevyScene is the normal demo: Bevy 3D scene plus Mara panes/ribbons.
     // - Canvas owns the whole egui canvas and replaces the Bevy scene visually.
     if *root_view == DemoRootView::Canvas {
         canvas_root_view(
@@ -1404,14 +1404,14 @@ fn ui_system(
     // — graph and code get their own toolsets, picked via the
     // module-supplied `is_graph_fullscreen` / `is_code_fullscreen`
     // helpers.
-    let fs_active = frost_core::extras::maximize::is_any_fullscreen(ctx);
-    let graph_fs = bevy_frost::extras::graph::is_graph_fullscreen(ctx);
-    let code_fs = bevy_frost::extras::code::is_code_fullscreen(ctx, cid(PANE_EDITOR, "code_state"));
+    let fs_active = mara_core::extras::maximize::is_any_fullscreen(ctx);
+    let graph_fs = bevy_mara::extras::graph::is_graph_fullscreen(ctx);
+    let code_fs = bevy_mara::extras::code::is_code_fullscreen(ctx, cid(PANE_EDITOR, "code_state"));
     if fs_active {
         // The persistent main bar owns module restore in L1/fullscreen.
         // Suppress the old floating restore chip so it does not stack
         // above the top-right system-control slot.
-        frost_core::embed::set_fullscreen_minimize_chip_visible(ctx, false);
+        mara_core::embed::set_fullscreen_minimize_chip_visible(ctx, false);
     }
     let allow_persistent_panes_over_fullscreen = fs_active
         && open.get(RIBBON_TOP).is_some_and(|id| {
@@ -1498,7 +1498,7 @@ fn ui_system(
         let now = ctx.input(|i| i.time);
         let mut viewer = DemoViewer { time: now };
         Pane::new(PANE_EDITOR, "Editor", anchor, accent_col)
-            .resize(frost_core::pane::PaneResize::SPAN)
+            .resize(mara_core::pane::PaneResize::SPAN)
             .show(ctx, |body| {
                 editor_pane(
                     body,
@@ -1564,7 +1564,7 @@ fn ui_system(
             let now = ctx.input(|i| i.time);
             let mut viewer = DemoViewer { time: now };
             Pane::new(button_id, label, anchor, accent_col)
-                .resize(frost_core::pane::PaneResize::SPAN)
+                .resize(mara_core::pane::PaneResize::SPAN)
                 .show(ctx, |body| {
                     editor_pane(
                         body,
@@ -1577,7 +1577,7 @@ fn ui_system(
             continue;
         }
         Pane::new(button_id, label, anchor, accent_col)
-            .resize(frost_core::pane::PaneResize::SPAN)
+            .resize(mara_core::pane::PaneResize::SPAN)
             .order(if fs_active {
                 egui::Order::Foreground
             } else {
@@ -1620,8 +1620,8 @@ fn ui_system(
         } else {
             RIBBON_ITEMS_FS_GRAPH
         };
-        let mut fs_placement = frost_core::ribbon::RibbonPlacement::default();
-        let mut fs_drag = frost_core::ribbon::RibbonDrag::default();
+        let mut fs_placement = mara_core::ribbon::RibbonPlacement::default();
+        let mut fs_drag = mara_core::ribbon::RibbonDrag::default();
         draw_unified_ribbons(
             ctx,
             accent_col,
@@ -1662,20 +1662,20 @@ fn ui_system(
     for click in clicks {
         if click.item == egui::Id::new(ACTION_VIEW_BEVY) {
             if fs_active {
-                frost_core::embed::restore_fullscreen(ctx);
+                mara_core::embed::restore_fullscreen(ctx);
             }
             *root_view = DemoRootView::BevyScene;
             continue;
         }
         if click.item == egui::Id::new(ACTION_VIEW_CANVAS) {
             if fs_active {
-                frost_core::embed::restore_fullscreen(ctx);
+                mara_core::embed::restore_fullscreen(ctx);
             }
             *root_view = DemoRootView::Canvas;
             continue;
         }
         if click.item == egui::Id::new(ACTION_RESTORE_FULLSCREEN) {
-            frost_core::embed::restore_fullscreen(ctx);
+            mara_core::embed::restore_fullscreen(ctx);
             continue;
         }
         if click.item == egui::Id::new(ACTION_CLOSE_APP) {
@@ -1715,9 +1715,8 @@ fn canvas_root_view(
     native_chrome_claimed: bool,
 ) {
     let shelves = canvas_shelves(accent);
-    let shelf_theme = *frost_core::style::theme().shelf();
-    let layout =
-        frost_core::layout_shelves(ctx.content_rect(), &shelves, shelf_state, &shelf_theme);
+    let shelf_theme = *mara_core::style::theme().shelf();
+    let layout = mara_core::layout_shelves(ctx.content_rect(), &shelves, shelf_state, &shelf_theme);
 
     egui::CentralPanel::default()
         .frame(egui::Frame::new().fill(egui::Color32::TRANSPARENT))
@@ -1731,14 +1730,14 @@ fn canvas_root_view(
                 canvas.drawing = false;
             }
 
-            painter.rect_filled(screen_rect, 0, frost_core::style::theme().palette.bg_panel);
-            painter.rect_filled(canvas_rect, 0, frost_core::style::theme().palette.bg_window);
+            painter.rect_filled(screen_rect, 0, mara_core::style::theme().palette.bg_panel);
+            painter.rect_filled(canvas_rect, 0, mara_core::style::theme().palette.bg_window);
 
             let grid = 32.0;
             let grid_col = egui::Color32::from_rgba_unmultiplied(
-                frost_core::style::on_panel_dim().r(),
-                frost_core::style::on_panel_dim().g(),
-                frost_core::style::on_panel_dim().b(),
+                mara_core::style::on_panel_dim().r(),
+                mara_core::style::on_panel_dim().g(),
+                mara_core::style::on_panel_dim().b(),
                 34,
             );
             let mut x = canvas_rect.left() + grid;
@@ -1796,12 +1795,12 @@ fn canvas_root_view(
                     egui::Align2::CENTER_CENTER,
                     "Canvas root view\ndrag to draw",
                     egui::FontId::proportional(24.0),
-                    frost_core::style::on_panel_dim(),
+                    mara_core::style::on_panel_dim(),
                 );
             }
         });
 
-    frost_core::show_shelves(ctx, layout, shelves, shelf_state);
+    mara_core::show_shelves(ctx, layout, shelves, shelf_state);
 }
 
 fn canvas_shelves(accent: egui::Color32) -> Vec<ShelfDef<'static>> {
@@ -1814,7 +1813,7 @@ fn canvas_shelves(accent: egui::Color32) -> Vec<ShelfDef<'static>> {
                 "Canvas Tools",
                 "draw-shape",
                 vec![
-                    frost_core::container::Tab::new("paint.brush", "Brush", "paint-brush").pods(
+                    mara_core::container::Tab::new("paint.brush", "Brush", "paint-brush").pods(
                         vec![
                             Pod::new(pid(CANVAS_SHELF_LEFT, "brush", 0))
                                 .with_separator(SeparatorStyle::Line)
@@ -1827,7 +1826,7 @@ fn canvas_shelves(accent: egui::Color32) -> Vec<ShelfDef<'static>> {
                                 .with_button("Clear strokes", accent),
                         ],
                     ),
-                    frost_core::container::Tab::new("paint.layers", "Layers", "square-multiple")
+                    mara_core::container::Tab::new("paint.layers", "Layers", "square-multiple")
                         .pods(vec![
                             Pod::new(pid(CANVAS_SHELF_LEFT, "layers", 0))
                                 .with_separator(SeparatorStyle::Line)
@@ -1844,7 +1843,7 @@ fn canvas_shelves(accent: egui::Color32) -> Vec<ShelfDef<'static>> {
                                 .with_separator(SeparatorStyle::None)
                                 .with_toggle_initial("show grid", accent, true),
                         ]),
-                    frost_core::container::Tab::new("paint.assets", "Assets", "image").pods(vec![
+                    mara_core::container::Tab::new("paint.assets", "Assets", "image").pods(vec![
                         Pod::new(pid(CANVAS_SHELF_LEFT, "assets", 0))
                             .with_separator(SeparatorStyle::Line)
                             .with_search("search images…", accent),
@@ -1859,7 +1858,7 @@ fn canvas_shelves(accent: egui::Color32) -> Vec<ShelfDef<'static>> {
                 "Document",
                 "document",
                 vec![
-                    frost_core::container::Tab::new("paint.info", "Info", "info").pods(vec![
+                    mara_core::container::Tab::new("paint.info", "Info", "info").pods(vec![
                         Pod::new(pid(CANVAS_SHELF_LEFT, "info", 0))
                             .with_separator(SeparatorStyle::Line)
                             .with_readout("view", "Canvas"),
@@ -1870,11 +1869,11 @@ fn canvas_shelves(accent: egui::Color32) -> Vec<ShelfDef<'static>> {
                             .with_separator(SeparatorStyle::None)
                             .with_readout("content", "multiple tabbed containers"),
                     ]),
-                    frost_core::container::Tab::new("paint.export", "Export", "save").pods(vec![
+                    mara_core::container::Tab::new("paint.export", "Export", "save").pods(vec![
                         Pod::new(pid(CANVAS_SHELF_LEFT, "export", 0))
                             .with_separator(SeparatorStyle::Line)
                             .with_dropdown(
-                                vec!["PNG".to_owned(), "SVG".to_owned(), "Frost Scene".to_owned()],
+                                vec!["PNG".to_owned(), "SVG".to_owned(), "Mara Scene".to_owned()],
                                 0,
                                 accent,
                             ),
@@ -1889,7 +1888,7 @@ fn canvas_shelves(accent: egui::Color32) -> Vec<ShelfDef<'static>> {
                 "History",
                 "history",
                 vec![
-                    frost_core::container::Tab::new("paint.undo", "Undo", "arrow-undo").pods(vec![
+                    mara_core::container::Tab::new("paint.undo", "Undo", "arrow-undo").pods(vec![
                         Pod::new(pid(CANVAS_SHELF_LEFT, "undo", 0))
                             .with_separator(SeparatorStyle::Line)
                             .with_readout("last action", "Brush stroke"),
@@ -1897,7 +1896,7 @@ fn canvas_shelves(accent: egui::Color32) -> Vec<ShelfDef<'static>> {
                             .with_separator(SeparatorStyle::None)
                             .with_button("Revert action", accent),
                     ]),
-                    frost_core::container::Tab::new("paint.timeline", "Timeline", "clock").pods(
+                    mara_core::container::Tab::new("paint.timeline", "Timeline", "clock").pods(
                         vec![
                             Pod::new(pid(CANVAS_SHELF_LEFT, "timeline", 0))
                                 .with_separator(SeparatorStyle::Line)
@@ -1911,7 +1910,7 @@ fn canvas_shelves(accent: egui::Color32) -> Vec<ShelfDef<'static>> {
                 "Properties",
                 "settings",
                 vec![
-                    frost_core::container::Tab::new("paint.stroke", "Stroke", "pen").pods(vec![
+                    mara_core::container::Tab::new("paint.stroke", "Stroke", "pen").pods(vec![
                         Pod::new(pid(CANVAS_SHELF_LEFT, "stroke", 0))
                             .with_separator(SeparatorStyle::Line)
                             .with_dropdown(
@@ -2090,7 +2089,7 @@ fn containers_pane(body: &mut PaneBody) {
         "Transform",
         "cube",
         vec![
-            frost_core::container::Tab::new("xform.position", "Position", "arrow-move").pods(vec![
+            mara_core::container::Tab::new("xform.position", "Position", "arrow-move").pods(vec![
                 Pod::new(pid(PANE_CONTAINERS, "pos", 0))
                     .with_separator(SeparatorStyle::Line)
                     .with_drag_value("X", 0.0, 0.05, -1000.0..=1000.0, 3, " m"),
@@ -2101,7 +2100,7 @@ fn containers_pane(body: &mut PaneBody) {
                     .with_separator(SeparatorStyle::None)
                     .with_drag_value("Z", 0.0, 0.05, -1000.0..=1000.0, 3, " m"),
             ]),
-            frost_core::container::Tab::new("xform.rotation", "Rotation", "arrow-rotate-clockwise")
+            mara_core::container::Tab::new("xform.rotation", "Rotation", "arrow-rotate-clockwise")
                 .pods(vec![
                     Pod::new(pid(PANE_CONTAINERS, "rot", 0))
                         .with_separator(SeparatorStyle::Line)
@@ -2113,7 +2112,7 @@ fn containers_pane(body: &mut PaneBody) {
                         .with_separator(SeparatorStyle::None)
                         .with_drag_value("Z", 0.0, 1.0, -360.0..=360.0, 2, "°"),
                 ]),
-            frost_core::container::Tab::new("xform.scale", "Scale", "maximize").pods(vec![
+            mara_core::container::Tab::new("xform.scale", "Scale", "maximize").pods(vec![
                 Pod::new(pid(PANE_CONTAINERS, "scl", 0))
                     .with_separator(SeparatorStyle::Line)
                     .with_drag_value("X", 1.0, 0.01, 0.01..=100.0, 3, "×"),
@@ -2131,7 +2130,7 @@ fn containers_pane(body: &mut PaneBody) {
         "Velocity",
         "flash",
         vec![
-            frost_core::container::Tab::new("vel.linear", "Linear", "arrow-trending").pods(vec![
+            mara_core::container::Tab::new("vel.linear", "Linear", "arrow-trending").pods(vec![
                 Pod::new(pid(PANE_CONTAINERS, "vlin", 0))
                     .with_separator(SeparatorStyle::Line)
                     .with_drag_value("X", 0.0, 0.05, -100.0..=100.0, 2, " m/s"),
@@ -2142,7 +2141,7 @@ fn containers_pane(body: &mut PaneBody) {
                     .with_separator(SeparatorStyle::None)
                     .with_drag_value("Z", 0.0, 0.05, -100.0..=100.0, 2, " m/s"),
             ]),
-            frost_core::container::Tab::new(
+            mara_core::container::Tab::new(
                 "vel.angular",
                 "Angular",
                 "arrow-rotate-counterclockwise",
@@ -2168,10 +2167,10 @@ fn scene_pane(body: &mut PaneBody) {
     let tree_root = cid(PANE_SCENE, "tree_root");
     let search_pod_id = pid(PANE_SCENE, "scene", 0);
     let tree_filter =
-        frost_core::pod::Pod::search_query(body.ctx(), search_pod_id, 0).to_lowercase();
+        mara_core::pod::Pod::search_query(body.ctx(), search_pod_id, 0).to_lowercase();
     let selected_path: String = body
         .ctx()
-        .data(|d| d.get_temp::<String>(tree_root.with("frost_demo_tree_selected")))
+        .data(|d| d.get_temp::<String>(tree_root.with("mara_demo_tree_selected")))
         .unwrap_or_default();
     let selected_display = if selected_path.is_empty() {
         "—".to_string()
@@ -2399,7 +2398,7 @@ fn about_pane(body: &mut PaneBody) {
     let accent = body.accent();
     body.add_normal(
         cid(PANE_ABOUT, "info"),
-        "bevy_frost",
+        "bevy_mara",
         "info",
         vec![
             Pod::new(pid(PANE_ABOUT, "info", 0))
@@ -2425,20 +2424,17 @@ fn about_pane(body: &mut PaneBody) {
                 .with_separator(SeparatorStyle::None)
                 .with_tag_items(
                     vec![
-                        frost_core::pod::TagItem::new("widgets"),
-                        frost_core::pod::TagItem::new("ribbons"),
-                        frost_core::pod::TagItem::new("panes"),
-                        frost_core::pod::TagItem::new("pods"),
-                        frost_core::pod::TagItem::new("graph-graph"),
-                        frost_core::pod::TagItem::new("code-editor"),
-                        frost_core::pod::TagItem::new("theme/PRO"),
-                        frost_core::pod::TagItem::new("theme/GAME"),
-                        frost_core::pod::TagItem::new("theme/FLAT"),
-                        frost_core::pod::TagItem::colored(
-                            "experimental",
-                            frost_core::style::WARNING,
-                        ),
-                        frost_core::pod::TagItem::colored("stable-api", frost_core::style::SUCCESS),
+                        mara_core::pod::TagItem::new("widgets"),
+                        mara_core::pod::TagItem::new("ribbons"),
+                        mara_core::pod::TagItem::new("panes"),
+                        mara_core::pod::TagItem::new("pods"),
+                        mara_core::pod::TagItem::new("graph-graph"),
+                        mara_core::pod::TagItem::new("code-editor"),
+                        mara_core::pod::TagItem::new("theme/PRO"),
+                        mara_core::pod::TagItem::new("theme/GAME"),
+                        mara_core::pod::TagItem::new("theme/FLAT"),
+                        mara_core::pod::TagItem::colored("experimental", mara_core::style::WARNING),
+                        mara_core::pod::TagItem::colored("stable-api", mara_core::style::SUCCESS),
                     ],
                     accent,
                 ),
@@ -2466,9 +2462,9 @@ fn about_pane(body: &mut PaneBody) {
                 .with_badge_row_items(
                     "physics",
                     vec![
-                        frost_core::pod::TagItem::new("1 scene"),
-                        frost_core::pod::TagItem::new("12 rb"),
-                        frost_core::pod::TagItem::colored("broken", frost_core::style::WARNING),
+                        mara_core::pod::TagItem::new("1 scene"),
+                        mara_core::pod::TagItem::new("12 rb"),
+                        mara_core::pod::TagItem::colored("broken", mara_core::style::WARNING),
                     ],
                     accent,
                 ),
@@ -2597,13 +2593,13 @@ fn canvas_export_pane(body: &mut PaneBody) {
 /// **Editor pane** — node graph (top) + code editor (bottom),
 /// each in its own container with a fill pod so they soak up the
 /// pane's available space. Mirrors the legacy demo's Editor pane,
-/// now driven by the vendored `bevy_frost::extras` wrappers.
+/// now driven by the vendored `bevy_mara::extras` wrappers.
 ///
 /// The graph container is rendered via `Normal::show_raw` rather
 /// than the standard `with_custom_units` pod path so we can pass
 /// `&mut NodeViewState`, `&mut Graph`, `&mut Viewer`, and the
 /// Bevy-side `&mut dyn NodeViewBackend` straight through to
-/// `frost_node_graph`. The pod-path closure has a `'static` bound
+/// `mara_node_graph`. The pod-path closure has a `'static` bound
 /// that those refs can't satisfy.
 #[allow(clippy::too_many_arguments)]
 fn editor_pane<'spec>(
@@ -2618,7 +2614,7 @@ fn editor_pane<'spec>(
 
     // Node graph uses the typed `add_node_graph` PaneBody method
     // (feature-gated under `graph`) — internally a `ContainerSpec`
-    // with a raw closure, but the closure is owned by frost_core
+    // with a raw closure, but the closure is owned by mara_core
     // and cannot smuggle arbitrary egui through.
     body.add_node_graph(
         cid_graph,
@@ -2690,7 +2686,7 @@ impl PinType {
     ///   * Bool    → Bool         `#960000` (deep maroon).
     ///   * Text    → String       `#FF38C9` (hot pink).
     /// Combined with `WireColorMode::FromSource` in
-    /// `frost_node_graph_style`, every wire takes the colour of its
+    /// `mara_node_graph_style`, every wire takes the colour of its
     /// source pin uniformly — the "Unreal Blueprint" look.
     fn color(self) -> egui::Color32 {
         match self {
@@ -3251,7 +3247,7 @@ impl Category {
 impl GraphNode {
     /// Small Fluent-UI icon glyph painted to the left of the
     /// title in the header band. Picked from the set bundled in
-    /// `frost_core::icons` so missing-glyph fallback never kicks in.
+    /// `mara_core::icons` so missing-glyph fallback never kicks in.
     fn icon_name(&self) -> &'static str {
         match self {
             // Sources
@@ -4042,7 +4038,7 @@ fn rgb_to_hsv(r: f64, g: f64, b: f64) -> (f64, f64, f64) {
 fn eval_input_at(
     graph: &Graph<GraphNode>,
     time: f64,
-    node: frost_core::extras::graph::NodeId,
+    node: mara_core::extras::graph::NodeId,
     input: usize,
 ) -> Value {
     let in_pin = graph.in_pin(InPinId { node, input });
@@ -4094,7 +4090,7 @@ impl NodeViewer<GraphNode> for DemoViewer {
     fn header_frame(
         &mut self,
         default: egui::Frame,
-        node: frost_core::extras::graph::NodeId,
+        node: mara_core::extras::graph::NodeId,
         _inputs: &[InPin],
         _outputs: &[OutPin],
         graph: &Graph<GraphNode>,
@@ -4126,7 +4122,7 @@ impl NodeViewer<GraphNode> for DemoViewer {
     /// node is identifiable at a glance even when zoomed out.
     fn show_header(
         &mut self,
-        node: frost_core::extras::graph::NodeId,
+        node: mara_core::extras::graph::NodeId,
         _inputs: &[InPin],
         _outputs: &[OutPin],
         ui: &mut egui::Ui,
@@ -4151,7 +4147,7 @@ impl NodeViewer<GraphNode> for DemoViewer {
 
             // Icon — large enough to span both text rows so it
             // visually centres against the title+subtitle stack.
-            if let Some(rt) = frost_core::icons::icon_text(n.icon_name(), 22.0, title_color) {
+            if let Some(rt) = mara_core::icons::icon_text(n.icon_name(), 22.0, title_color) {
                 ui.add(egui::Label::new(rt).wrap_mode(no_wrap).selectable(false));
             } else {
                 ui.add(
@@ -4259,7 +4255,7 @@ impl NodeViewer<GraphNode> for DemoViewer {
 
     fn show_body(
         &mut self,
-        node: frost_core::extras::graph::NodeId,
+        node: mara_core::extras::graph::NodeId,
         _inputs: &[InPin],
         _outputs: &[OutPin],
         ui: &mut egui::Ui,
@@ -4271,19 +4267,19 @@ impl NodeViewer<GraphNode> for DemoViewer {
         // grow per-frame when a value changes.
 
         let time = self.time;
-        let accent = frost_core::style::active_accent();
+        let accent = mara_core::style::active_accent();
         let Some(n) = graph.get_node_mut(node) else {
             return;
         };
         match n {
             // ── Source-node value editors (UE: Make-* nodes) ──
             GraphNode::Number(v) => {
-                let h = frost_core::widget::drag_value::DRAG_VALUE_ROW_H;
+                let h = mara_core::widget::drag_value::DRAG_VALUE_ROW_H;
                 ui.allocate_ui_with_layout(
                     egui::vec2(125.0, h),
                     egui::Layout::left_to_right(egui::Align::Center),
                     |ui| {
-                        frost_core::widget::drag_value::drag_value(
+                        mara_core::widget::drag_value::drag_value(
                             ui,
                             "",
                             v,
@@ -4296,13 +4292,13 @@ impl NodeViewer<GraphNode> for DemoViewer {
                 );
             }
             GraphNode::Integer(i) => {
-                let h = frost_core::widget::drag_value::DRAG_VALUE_ROW_H;
+                let h = mara_core::widget::drag_value::DRAG_VALUE_ROW_H;
                 let mut tmp = *i as f64;
                 ui.allocate_ui_with_layout(
                     egui::vec2(125.0, h),
                     egui::Layout::left_to_right(egui::Align::Center),
                     |ui| {
-                        frost_core::widget::drag_value::drag_value(
+                        mara_core::widget::drag_value::drag_value(
                             ui,
                             "",
                             &mut tmp,
@@ -4316,13 +4312,13 @@ impl NodeViewer<GraphNode> for DemoViewer {
                 *i = tmp as i64;
             }
             GraphNode::Vector(v) => {
-                let h = frost_core::widget::drag_value::DRAG_VALUE_ROW_H;
+                let h = mara_core::widget::drag_value::DRAG_VALUE_ROW_H;
                 for (axis, comp) in ["x", "y", "z"].iter().zip(v.iter_mut()) {
                     ui.allocate_ui_with_layout(
                         egui::vec2(125.0, h),
                         egui::Layout::left_to_right(egui::Align::Center),
                         |ui| {
-                            frost_core::widget::drag_value::drag_value(
+                            mara_core::widget::drag_value::drag_value(
                                 ui,
                                 axis,
                                 comp,
@@ -4339,12 +4335,12 @@ impl NodeViewer<GraphNode> for DemoViewer {
                 ui.color_edit_button_srgba(c);
             }
             GraphNode::Bool(b) => {
-                let h = frost_core::widget::toggle::TOGGLE_ROW_H;
+                let h = mara_core::widget::toggle::TOGGLE_ROW_H;
                 ui.allocate_ui_with_layout(
                     egui::vec2(125.0, h),
                     egui::Layout::left_to_right(egui::Align::Center),
                     |ui| {
-                        frost_core::widget::toggle::toggle(ui, "", b, accent);
+                        mara_core::widget::toggle::toggle(ui, "", b, accent);
                     },
                 );
             }
@@ -4449,16 +4445,16 @@ impl NodeViewer<GraphNode> for DemoViewer {
             GraphNode::Perlin { seed, frequency } => {
                 // Both widgets in a fixed 140-px slot so the
                 // Perlin body can't grow horizontally with the
-                // node — frost drag_value / slider both consume
+                // node — mara drag_value / slider both consume
                 // `available_width`. Slider is 2 rows tall.
                 const SLOT_W: f32 = 140.0;
-                let drag_h = frost_core::widget::drag_value::DRAG_VALUE_ROW_H;
+                let drag_h = mara_core::widget::drag_value::DRAG_VALUE_ROW_H;
                 let mut seed_f = *seed as f64;
                 ui.allocate_ui_with_layout(
                     egui::vec2(SLOT_W, drag_h),
                     egui::Layout::left_to_right(egui::Align::Center),
                     |ui| {
-                        frost_core::widget::drag_value::drag_value(
+                        mara_core::widget::drag_value::drag_value(
                             ui,
                             "seed",
                             &mut seed_f,
@@ -4474,7 +4470,7 @@ impl NodeViewer<GraphNode> for DemoViewer {
                     egui::vec2(SLOT_W, drag_h * 2.0),
                     egui::Layout::left_to_right(egui::Align::Center),
                     |ui| {
-                        frost_core::widget::slider::slider(
+                        mara_core::widget::slider::slider(
                             ui,
                             "freq",
                             frequency,
@@ -4488,13 +4484,13 @@ impl NodeViewer<GraphNode> for DemoViewer {
             }
             GraphNode::WhiteNoise { seed } => {
                 const SLOT_W: f32 = 140.0;
-                let drag_h = frost_core::widget::drag_value::DRAG_VALUE_ROW_H;
+                let drag_h = mara_core::widget::drag_value::DRAG_VALUE_ROW_H;
                 let mut seed_f = *seed as f64;
                 ui.allocate_ui_with_layout(
                     egui::vec2(SLOT_W, drag_h),
                     egui::Layout::left_to_right(egui::Align::Center),
                     |ui| {
-                        frost_core::widget::drag_value::drag_value(
+                        mara_core::widget::drag_value::drag_value(
                             ui,
                             "seed",
                             &mut seed_f,
@@ -4524,7 +4520,7 @@ impl NodeViewer<GraphNode> for DemoViewer {
                 use egui_plot::{Line, Plot, PlotPoints};
                 const HISTORY: usize = 256;
                 let v = eval_input_at(graph, time, node, 0).as_number();
-                let key = egui::Id::new(("frost_demo_plotxy", node));
+                let key = egui::Id::new(("mara_demo_plotxy", node));
                 let mut buf: Vec<f64> = ui
                     .ctx()
                     .data(|d| d.get_temp::<Vec<f64>>(key))
@@ -4542,7 +4538,7 @@ impl NodeViewer<GraphNode> for DemoViewer {
                 let line = Line::new(format!("plot_{:?}", node), points)
                     .color(egui::Color32::from_rgb(0xA4, 0xFF, 0x34))
                     .width(1.5);
-                Plot::new(("frost_demo_plot", node))
+                Plot::new(("mara_demo_plot", node))
                     .height(80.0)
                     .width(220.0)
                     .show_axes([false, true])
@@ -4579,7 +4575,7 @@ impl NodeViewer<GraphNode> for DemoViewer {
                 let seed = *seed;
                 let scale = *scale;
                 let offset = eval_input_at(graph, time, node, 0).as_number();
-                let key = egui::Id::new(("frost_demo_noise_image", node));
+                let key = egui::Id::new(("mara_demo_noise_image", node));
                 // Cache the previous frame's parameters so we
                 // only regenerate the texture when something
                 // actually changed (otherwise this would burn a
@@ -4612,7 +4608,7 @@ impl NodeViewer<GraphNode> for DemoViewer {
                         source_size: egui::vec2(W as f32, H as f32),
                     };
                     let tex = ui.ctx().load_texture(
-                        format!("frost_demo_noise_{:?}", node),
+                        format!("mara_demo_noise_{:?}", node),
                         img,
                         egui::TextureOptions::NEAREST,
                     );
@@ -4725,7 +4721,7 @@ impl NodeViewer<GraphNode> for DemoViewer {
 
                 // Cache + render the image. Re-roll only when any
                 // param changed — otherwise blit the texture.
-                let key = egui::Id::new(("frost_demo_noise_field", node));
+                let key = egui::Id::new(("mara_demo_noise_field", node));
                 let new_state = (
                     seed,
                     octaves,
@@ -4764,7 +4760,7 @@ impl NodeViewer<GraphNode> for DemoViewer {
                         source_size: egui::vec2(W as f32, H as f32),
                     };
                     let tex = ui.ctx().load_texture(
-                        format!("frost_demo_noise_field_{:?}", node),
+                        format!("mara_demo_noise_field_{:?}", node),
                         img,
                         egui::TextureOptions::NEAREST,
                     );
@@ -4799,7 +4795,7 @@ impl NodeViewer<GraphNode> for DemoViewer {
                     egui::Color32::from_rgb(0xFF, 0xA0, 0xFF), // pink
                     egui::Color32::from_rgb(0x6E, 0xC0, 0xFF), // cyan
                 ];
-                let key = egui::Id::new(("frost_demo_multiplot", node));
+                let key = egui::Id::new(("mara_demo_multiplot", node));
                 let mut buf: Vec<[f64; 4]> = ui
                     .ctx()
                     .data(|d| d.get_temp::<Vec<[f64; 4]>>(key))
@@ -4816,7 +4812,7 @@ impl NodeViewer<GraphNode> for DemoViewer {
                 buf.push(sample);
                 ui.ctx().data_mut(|d| d.insert_temp(key, buf.clone()));
 
-                Plot::new(("frost_demo_multiplot", node))
+                Plot::new(("mara_demo_multiplot", node))
                     .height(110.0)
                     .width(260.0)
                     .show_axes([false, true])
@@ -5057,9 +5053,9 @@ fn inline_value_readout(v: &Value, ty: PinType, ui: &mut egui::Ui) {
     }
 }
 
-/// Frost-styled operator dropdown for body op pickers — wrapped
+/// Mara-styled operator dropdown for body op pickers — wrapped
 /// in a fixed 140-px slot mirroring UE Slate's
-/// `SBox.MinDesiredWidth(125)` default-value column. Frost's
+/// `SBox.MinDesiredWidth(125)` default-value column. Mara's
 /// `dropdown` consumes `ui.available_width()`, so without the
 /// slot it'd grow the node arbitrarily wide; the slot caps it
 /// at a stable column.
@@ -5072,17 +5068,17 @@ where
         .position(|(_, v)| *v == *current)
         .unwrap_or(0);
     let labels: Vec<&str> = options.iter().map(|(l, _)| *l).collect();
-    let accent = frost_core::style::active_accent();
+    let accent = mara_core::style::active_accent();
     const SLOT_W: f32 = 140.0;
-    let h = frost_core::widget::dropdown::DROPDOWN_ROW_H;
+    let h = mara_core::widget::dropdown::DROPDOWN_ROW_H;
     let mut changed = false;
     ui.allocate_ui_with_layout(
         egui::vec2(SLOT_W, h),
         egui::Layout::left_to_right(egui::Align::Center),
         |ui| {
-            let resp = frost_core::widget::dropdown::dropdown(
+            let resp = mara_core::widget::dropdown::dropdown(
                 ui,
-                ("frost_demo_op_dropdown", current as *const T as usize),
+                ("mara_demo_op_dropdown", current as *const T as usize),
                 &mut idx,
                 &labels,
                 accent,
@@ -5102,13 +5098,13 @@ where
 /// the graph node id so it survives across frames without leaking.
 fn draw_sparkline(
     graph: &Graph<GraphNode>,
-    node: frost_core::extras::graph::NodeId,
+    node: mara_core::extras::graph::NodeId,
     ui: &mut egui::Ui,
     current: f64,
 ) {
     let _ = graph; // signature parity for future inline-editor use
     const HISTORY: usize = 96;
-    let key = egui::Id::new(("frost_demo_sparkline", node));
+    let key = egui::Id::new(("mara_demo_sparkline", node));
     let mut buf: Vec<f32> = ui
         .ctx()
         .data(|d| d.get_temp::<Vec<f32>>(key))
@@ -5413,7 +5409,7 @@ fn default_graph() -> Graph<GraphNode> {
     g
 }
 
-const DEFAULT_CODE: &str = "// Frost code editor demo — Rust syntax highlighting.
+const DEFAULT_CODE: &str = "// Mara code editor demo — Rust syntax highlighting.
 fn fibonacci(n: u64) -> u64 {
     if n < 2 {
         return n;
@@ -5501,12 +5497,12 @@ fn demo_tree_node(path: &str) -> Option<&'static DemoTreeRow> {
 }
 
 fn demo_tree(
-    tree: &mut frost_core::widget::TreeBody,
+    tree: &mut mara_core::widget::TreeBody,
     root_id: egui::Id,
     accent: egui::Color32,
     filter: &str,
 ) {
-    let sel_key = root_id.with("frost_demo_tree_selected");
+    let sel_key = root_id.with("mara_demo_tree_selected");
     let mut selected: String = tree
         .ctx()
         .data(|d| d.get_temp::<String>(sel_key))
@@ -5549,7 +5545,7 @@ fn demo_tree_passes(path: &'static str, filter: &str) -> bool {
 }
 
 fn walk_demo_tree(
-    tree: &mut frost_core::widget::TreeBody,
+    tree: &mut mara_core::widget::TreeBody,
     root_id: egui::Id,
     path: &'static str,
     depth: u32,
@@ -5565,9 +5561,9 @@ fn walk_demo_tree(
         return;
     }
     let is_branch = !children.is_empty();
-    let exp_key = root_id.with(("frost_demo_tree_expanded", *p));
-    let eye_key = root_id.with(("frost_demo_tree_eye", *p));
-    let lock_key = root_id.with(("frost_demo_tree_lock", *p));
+    let exp_key = root_id.with(("mara_demo_tree_expanded", *p));
+    let eye_key = root_id.with(("mara_demo_tree_eye", *p));
+    let lock_key = root_id.with(("mara_demo_tree_lock", *p));
     let mut expanded: bool = tree
         .ctx()
         .data_mut(|d| d.get_persisted::<bool>(exp_key))

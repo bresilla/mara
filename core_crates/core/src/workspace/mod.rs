@@ -1,4 +1,4 @@
-//! Recursive Frost workspace primitives.
+//! Recursive Mara workspace primitives.
 //!
 //! A workspace level is one full composition environment: bars,
 //! panes, containers, pods, widgets, and modules. `L0` is the root

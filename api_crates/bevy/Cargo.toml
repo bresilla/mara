@@ -1,6 +1,6 @@
 [package]
-name = "bevy_frost"
-description = "Bevy integration for the frost glass-themed editor UI kit. Wraps `frost_core` with `Resource`s, a `Plugin` that installs the theme, and the transform-gizmo always-on-top material."
+name = "bevy_mara"
+description = "Bevy integration for the mara glass-themed editor UI kit. Wraps `mara_core` with `Resource`s, a `Plugin` that installs the theme, and the transform-gizmo always-on-top material."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -8,15 +8,15 @@ repository.workspace = true
 readme = "README.md"
 
 [dependencies]
-# `frost_core` is the entire UI core — pane / ribbon / container /
-# pod systems, widgets, theme runtime, vendored fonts. `bevy_frost`
+# `mara_core` is the entire UI core — pane / ribbon / container /
+# pod systems, widgets, theme runtime, vendored fonts. `bevy_mara`
 # is now just the Bevy-specific glue (resource registration, input
 # firewall, gizmo material) plus the vendored extras (node graph +
-# code editor) under `bevy_frost::extras::*`.
-frost_core = { workspace = true, features = ["bevy"] }
+# code editor) under `bevy_mara::extras::*`.
+mara_core = { workspace = true, features = ["bevy"] }
 # Direct egui dep — needed by the input-firewall plugin and the
-# `gizmo_material` shader. The vendored extras (`frost_graph` +
-# `frost_code`) ship as standalone crates so their transitive deps
+# `gizmo_material` shader. The vendored extras (`mara_graph` +
+# `mara_code`) ship as standalone crates so their transitive deps
 # move with them — no `egui-scale`/`slab`/`smallvec` here anymore.
 egui = { workspace = true }
 # Used by `BevyNodeViewBackend` to expose the wgpu device / queue
@@ -68,17 +68,17 @@ bevy_egui = { workspace = true, features = [
 
 # Faster allocator for the example/demo binary — see the
 # `mimalloc` workspace dep doc for rationale. Pulled into
-# `bevy_frost` directly so the framework-agnostic `corekit` stays
+# `bevy_mara` directly so the framework-agnostic `corekit` stays
 # allocator-neutral.
 mimalloc = { workspace = true }
 
 [features]
-# Forward to frost_core's matching feature flags so consumers can
-# pick which standalone extras (`frost_graph`, `frost_code`) and
-# their frost-tinted wrappers compile in.
+# Forward to mara_core's matching feature flags so consumers can
+# pick which standalone extras (`mara_graph`, `mara_code`) and
+# their mara-tinted wrappers compile in.
 default = ["graph", "code"]
-graph = ["frost_core/graph"]
-code = ["frost_core/code"]
+graph = ["mara_core/graph"]
+code = ["mara_core/code"]
 
 [dev-dependencies]
 # `bevy_glacial` — used by the demo example only (camera /

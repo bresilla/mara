@@ -1,4 +1,4 @@
-//! Frost-styled select rows.
+//! Mara-styled select rows.
 //!
 //! Two variants ship from the same paint primitive:
 //!
@@ -87,7 +87,7 @@ pub fn select_row_h(
     let w = ui.available_width();
     let resp = ui.interact(
         egui::Rect::from_min_size(ui.cursor().min, egui::vec2(w, height)),
-        ui.id().with(("frost_select_body", &id_salt)),
+        ui.id().with(("mara_select_body", &id_salt)),
         egui::Sense::click(),
     );
     let (rect, _) = ui.allocate_exact_size(egui::vec2(w, height), egui::Sense::hover());
@@ -157,12 +157,12 @@ pub fn hybrid_select_row_h(
 
     let body = ui.interact(
         body_rect,
-        ui.id().with(("frost_hybrid_body", &id_salt)),
+        ui.id().with(("mara_hybrid_body", &id_salt)),
         egui::Sense::click(),
     );
     let radio = ui.interact(
         radio_rect,
-        ui.id().with(("frost_hybrid_radio", &id_salt)),
+        ui.id().with(("mara_hybrid_radio", &id_salt)),
         egui::Sense::click(),
     );
 

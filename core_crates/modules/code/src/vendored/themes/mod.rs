@@ -13,8 +13,8 @@
 //!
 //! Only one built-in theme (`GRUVBOX`) ships with the vendored
 //! code; the other four that upstream shipped were removed when we
-//! vendored — we build our own theme in `frostcore::code` from
-//! the frost palette. Add more as named `ColorTheme` constants in
+//! vendored — we build our own theme in `maracore::code` from
+//! the mara palette. Add more as named `ColorTheme` constants in
 //! `gruvbox.rs` (or a new sibling file) if you want a theme
 //! picker later.
 

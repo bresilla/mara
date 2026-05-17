@@ -1,5 +1,5 @@
-use frost_core::{
-    AppShellError, FrostView, RibbonAction, RibbonCluster, RibbonEdge, RibbonOverrideLayer,
+use mara_core::{
+    AppShellError, MaraView, RibbonAction, RibbonCluster, RibbonEdge, RibbonOverrideLayer,
     RibbonOverridePolicy, RibbonScope, RibbonSlot, RibbonSlotDef, RibbonSlotId, RibbonSlotItem,
     RibbonSlotOverride, ViewCtx, ViewId, ViewRouter, WindowControlsPolicy,
     dispatch_app_shell_action, permanent_system_control_slot, resolve_app_shell_ribbons,
@@ -28,7 +28,7 @@ impl ShellView {
     }
 }
 
-impl FrostView for ShellView {
+impl MaraView for ShellView {
     fn id(&self) -> ViewId {
         self.id
     }
@@ -138,7 +138,7 @@ fn app_shell_chrome_rejects_duplicate_permanent_slot_ids_when_merging() {
     );
 
     let result = std::panic::catch_unwind(|| {
-        let _ = frost_core::AppShellChrome::new(first).with_permanent_ribbon(second);
+        let _ = mara_core::AppShellChrome::new(first).with_permanent_ribbon(second);
     });
 
     assert!(result.is_err());
@@ -147,7 +147,7 @@ fn app_shell_chrome_rejects_duplicate_permanent_slot_ids_when_merging() {
 #[test]
 fn app_shell_chrome_rejects_non_permanent_merged_ribbon() {
     let result = std::panic::catch_unwind(|| {
-        let _ = frost_core::AppShellChrome::new(empty_permanent_ribbon("main.bar"))
+        let _ = mara_core::AppShellChrome::new(empty_permanent_ribbon("main.bar"))
             .with_permanent_ribbon(RibbonSlotDef::new(
                 egui::Id::new("view.local.bar"),
                 RibbonScope::View(ViewId::new("canvas")),
@@ -237,7 +237,7 @@ fn app_shell_rejects_active_view_ribbons_with_wrong_scope() {
         ribbon: RibbonSlotDef,
     }
 
-    impl FrostView for WrongScopedView {
+    impl MaraView for WrongScopedView {
         fn id(&self) -> ViewId {
             self.id
         }
@@ -337,7 +337,7 @@ fn l1_workspace_overrides_permanent_close_slot_with_restore() {
 #[test]
 fn deepest_workspace_override_beats_active_view_override_in_app_shell() {
     let override_slot = RibbonSlotOverride::new(
-        frost_core::system_close_or_restore_slot_id(),
+        mara_core::system_close_or_restore_slot_id(),
         RibbonSlotItem::new(
             egui::Id::new("view.close.override"),
             "settings",
@@ -388,7 +388,7 @@ fn workspace_supplied_layers_can_override_active_l1_slots() {
         .push_module(egui::Id::new("graph"));
     let permanent = permanent_main_with_system_control();
     let workspace_layer = RibbonOverrideLayer::new(vec![RibbonSlotOverride::new(
-        frost_core::system_close_or_restore_slot_id(),
+        mara_core::system_close_or_restore_slot_id(),
         RibbonSlotItem::new(
             egui::Id::new("module.custom.restore"),
             "arrow-minimize",
@@ -409,7 +409,7 @@ fn workspace_supplied_layers_can_override_active_l1_slots() {
 
 #[test]
 fn workspace_local_ribbons_participate_in_shell_resolution() {
-    use frost_core::{
+    use mara_core::{
         RibbonAction, RibbonCluster, RibbonEdge, RibbonOverridePolicy, RibbonScope, RibbonSlot,
         RibbonSlotDef, RibbonSlotId, RibbonSlotItem,
     };
@@ -437,7 +437,7 @@ fn workspace_local_ribbons_participate_in_shell_resolution() {
         )],
     );
 
-    let resolved = frost_core::resolve_app_shell_ribbons_with_workspace_chrome(
+    let resolved = mara_core::resolve_app_shell_ribbons_with_workspace_chrome(
         &mut router,
         &permanent_main_with_system_control(),
         &[workspace_ribbon],
@@ -455,7 +455,7 @@ fn workspace_local_ribbons_participate_in_shell_resolution() {
 
 #[test]
 fn app_shell_calls_workspace_renderer_for_l1() {
-    use frost_core::{
+    use mara_core::{
         RibbonAction, RibbonCluster, RibbonEdge, RibbonOverridePolicy, RibbonScope, RibbonSlot,
         RibbonSlotDef, RibbonSlotId, RibbonSlotItem,
     };
@@ -468,7 +468,7 @@ fn app_shell_calls_workspace_renderer_for_l1() {
         .push_module(egui::Id::new("graph-module"));
     let mut called = false;
 
-    let (resolved, _) = frost_core::show_app_shell_with_workspace_renderer(
+    let (resolved, _) = mara_core::show_app_shell_with_workspace_renderer(
         &egui_ctx,
         &mut router,
         &permanent_main_with_system_control(),
@@ -503,8 +503,8 @@ fn app_shell_calls_workspace_renderer_for_l1() {
     ));
 }
 
-fn main_bar_with_slots(slots: Vec<RibbonSlot>) -> frost_core::AppShellChrome {
-    frost_core::AppShellChrome::new(RibbonSlotDef::new(
+fn main_bar_with_slots(slots: Vec<RibbonSlot>) -> mara_core::AppShellChrome {
+    mara_core::AppShellChrome::new(RibbonSlotDef::new(
         egui::Id::new("main.bar"),
         RibbonScope::Permanent,
         RibbonEdge::Top,
@@ -530,12 +530,12 @@ fn app_shell_chrome_enforces_persistent_main_bar() {
     );
     let chrome = main_bar_with_slots(vec![slot]);
 
-    let initial = frost_core::resolve_app_shell_chrome(&mut router, &chrome).unwrap();
+    let initial = mara_core::resolve_app_shell_chrome(&mut router, &chrome).unwrap();
     assert_eq!(initial.ribbons[0].scope, RibbonScope::Permanent);
     assert_eq!(initial.ribbons[0].items[0].icon, "cube");
 
     router.set_active(canvas).unwrap();
-    let switched = frost_core::resolve_app_shell_chrome(&mut router, &chrome).unwrap();
+    let switched = mara_core::resolve_app_shell_chrome(&mut router, &chrome).unwrap();
     assert_eq!(switched.ribbons[0].scope, RibbonScope::Permanent);
     assert_eq!(switched.ribbons[0].items[0].icon, "cube");
 }
@@ -543,7 +543,7 @@ fn app_shell_chrome_enforces_persistent_main_bar() {
 #[test]
 fn app_shell_chrome_rejects_non_permanent_main_bar() {
     let result = std::panic::catch_unwind(|| {
-        let _ = frost_core::AppShellChrome::new(RibbonSlotDef::new(
+        let _ = mara_core::AppShellChrome::new(RibbonSlotDef::new(
             egui::Id::new("main.view.scoped.bar"),
             RibbonScope::View(ViewId::new("canvas")),
             RibbonEdge::Top,
@@ -574,7 +574,7 @@ fn persistent_main_bar_slot_requires_explicit_hide_override() {
     );
     let chrome = main_bar_with_slots(vec![slot]);
 
-    let resolved = frost_core::resolve_app_shell_chrome(&mut router, &chrome).unwrap();
+    let resolved = mara_core::resolve_app_shell_chrome(&mut router, &chrome).unwrap();
     assert!(
         resolved.ribbons[0]
             .items
@@ -600,7 +600,7 @@ fn app_shell_chrome_includes_mandatory_close_controls_by_default() {
         chrome.window_controls_policy(),
         WindowControlsPolicy::Enabled
     );
-    let resolved = frost_core::resolve_app_shell_chrome(&mut router, &chrome).unwrap();
+    let resolved = mara_core::resolve_app_shell_chrome(&mut router, &chrome).unwrap();
 
     assert_eq!(
         resolved
@@ -625,7 +625,7 @@ fn app_shell_chrome_includes_mandatory_close_controls_by_default() {
 fn app_shell_chrome_rejects_non_top_main_bars() {
     for edge in [RibbonEdge::Left, RibbonEdge::Right, RibbonEdge::Bottom] {
         let result = std::panic::catch_unwind(|| {
-            let _ = frost_core::AppShellChrome::new(RibbonSlotDef::new(
+            let _ = mara_core::AppShellChrome::new(RibbonSlotDef::new(
                 egui::Id::new(("main.non.top.bar", format!("{edge:?}"))),
                 RibbonScope::Permanent,
                 edge,
@@ -641,7 +641,7 @@ fn app_shell_chrome_rejects_non_top_main_bars() {
 #[test]
 fn app_shell_chrome_rejects_main_bar_that_accepts_icon_drops() {
     let result = std::panic::catch_unwind(|| {
-        let _ = frost_core::AppShellChrome::new(
+        let _ = mara_core::AppShellChrome::new(
             RibbonSlotDef::new(
                 egui::Id::new("main.drop.target.bar"),
                 RibbonScope::Permanent,
@@ -682,7 +682,7 @@ fn app_shell_chrome_can_opt_out_of_window_controls_for_games() {
         chrome.window_controls_policy(),
         WindowControlsPolicy::Hidden
     );
-    let resolved = frost_core::resolve_app_shell_chrome(&mut router, &chrome).unwrap();
+    let resolved = mara_core::resolve_app_shell_chrome(&mut router, &chrome).unwrap();
 
     let permanent = resolved
         .ribbons

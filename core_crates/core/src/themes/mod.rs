@@ -1,4 +1,4 @@
-//! Built-in themes for the frost UI kit.
+//! Built-in themes for the mara UI kit.
 //!
 //! Each theme is a single data file under
 //! `core_crates/core/src/themes/` that exports
@@ -72,7 +72,7 @@
 //!    uses:
 //!
 //!    ```ignore
-//!    frost_core::style::set_theme(theme_neon(Mode::Dark));
+//!    mara_core::style::set_theme(theme_neon(Mode::Dark));
 //!    ```
 //!
 //!    The de-dup cache in `apply_theme` keys on `Theme::name`, so

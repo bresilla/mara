@@ -62,7 +62,7 @@ pub(super) struct ShelfContainerLocation {
 }
 
 pub(super) fn detached_shelf_id(source_shelf: Id, container_id: Id) -> Id {
-    source_shelf.with("frost_detached_shelf").with(container_id)
+    source_shelf.with("mara_detached_shelf").with(container_id)
 }
 
 /// Persistent Shelf UI state: user sizes and per-Shelf active group.

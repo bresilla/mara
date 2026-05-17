@@ -1,4 +1,4 @@
-use frost_core::{WorkspaceLevelState, WorkspaceOwner, WorkspaceStack, WorkspaceStackError};
+use mara_core::{WorkspaceLevelState, WorkspaceOwner, WorkspaceStack, WorkspaceStackError};
 
 #[test]
 fn workspace_stack_tracks_root_and_module_levels() {

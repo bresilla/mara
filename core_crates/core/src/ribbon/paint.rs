@@ -120,7 +120,7 @@ pub const SIDE_BTN_SIZE: f32 = 34.0;
 pub const SIDE_BTN_GAP: f32 = 4.0;
 /// Distance from the screen edge to the near edge of each button.
 ///
-/// Keep this tight: Frost owns the whole decorationless chrome, so
+/// Keep this tight: Mara owns the whole decorationless chrome, so
 /// bars should feel attached to the window corners rather than
 /// floating far inside the canvas.
 pub const EDGE_GAP: f32 = 4.8;
@@ -228,6 +228,6 @@ pub(crate) fn paint_ribbon_button(
 }
 
 // `ribbon_button_area` (the static-ribbon button area helper) lived
-// here in `frostcore::ribbon::paint`. It was only called from the
+// here in `maracore::ribbon::paint`. It was only called from the
 // retired `static_ribbon` and `declare` modules are gone; the unified
 // ribbon chrome builds draggable Areas directly.

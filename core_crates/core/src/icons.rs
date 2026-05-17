@@ -1,6 +1,6 @@
 //! Filled Fluent UI System Icons via the [`iconflow`] crate.
 //!
-//! frostcore registers every Fluent UI font variant in
+//! maracore registers every Fluent UI font variant in
 //! [`crate::style::apply_theme`]'s font install pass so widgets can
 //! render an icon glyph anywhere a `RichText` or `painter().text(..)`
 //! call lands. Lookup is by string name (e.g. `"search"`,
@@ -31,7 +31,7 @@ use iconflow::{IconRef, Pack, Size, Style, fonts, try_icon};
 /// [`paint_section_icon`] so they SKIP rendering when fonts aren't
 /// ready (rather than panicking inside epaint when a `FontFamily`
 /// hasn't been bound). Without this, ribbon buttons painted on the
-/// FIRST frame — before bevy_frost's `apply_theme_system` runs —
+/// FIRST frame — before bevy_mara's `apply_theme_system` runs —
 /// would crash with "FontFamily::Name(...) is not bound to any
 /// fonts".
 pub(crate) static ICONFLOW_FONTS_READY: AtomicBool = AtomicBool::new(false);
@@ -94,7 +94,7 @@ impl<'a> From<&'a str> for Icon<'a> {
     }
 }
 
-/// `true` when `payload` can render as a Frost icon: either raw SVG
+/// `true` when `payload` can render as a Mara icon: either raw SVG
 /// markup or a bundled Fluent UI System Icon name.
 #[must_use]
 pub fn is_icon_payload(payload: &str) -> bool {
@@ -129,7 +129,7 @@ pub fn paint_section_icon(
             for b in svg.as_bytes() {
                 h = h.wrapping_mul(33).wrapping_add(*b as u64);
             }
-            let uri = format!("bytes://frost_svg_icon_{:016x}.svg", h);
+            let uri = format!("bytes://mara_svg_icon_{:016x}.svg", h);
             let img = egui::Image::from_bytes(uri, svg.as_bytes().to_vec())
                 .tint(color)
                 .fit_to_exact_size(rect.size());
@@ -154,7 +154,7 @@ pub fn icon(name: &str) -> Option<(char, egui::FontFamily)> {
 /// callers can `.unwrap_or_else(|| RichText::new("?"))` or similar.
 ///
 /// ```ignore
-/// if let Some(t) = frostcore::icons::icon_text("search", 14.0, accent) {
+/// if let Some(t) = maracore::icons::icon_text("search", 14.0, accent) {
 ///     ui.label(t);
 /// }
 /// ```

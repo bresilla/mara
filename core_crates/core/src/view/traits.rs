@@ -6,8 +6,8 @@ use super::{ViewCtx, ViewId};
 ///
 /// A view is selected by root/permanent chrome. It owns the L0
 /// workspace for that screen. If something is also embeddable, it
-/// can implement both this trait and [`crate::module::FrostModule`].
-pub trait FrostView {
+/// can implement both this trait and [`crate::module::MaraModule`].
+pub trait MaraView {
     fn id(&self) -> ViewId;
     fn title(&self) -> &str;
     fn icon(&self) -> &'static str;

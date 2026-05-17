@@ -16,7 +16,7 @@ pub struct WorkspaceStack {
 
 impl Default for WorkspaceStack {
     fn default() -> Self {
-        Self::new(Id::new("frost_root_workspace"))
+        Self::new(Id::new("mara_root_workspace"))
     }
 }
 
@@ -62,7 +62,7 @@ impl WorkspaceStack {
             "workspace stack depth cannot exceed L255"
         );
         let depth = self.levels.len().min(u8::MAX as usize) as u8;
-        let level_id = Id::new(("frost_module_workspace", module_id, depth));
+        let level_id = Id::new(("mara_module_workspace", module_id, depth));
         let level = WorkspaceLevelState::module(level_id, depth, module_id);
         self.levels.push(level);
         level

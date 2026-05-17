@@ -1,11 +1,11 @@
 //! Host-agnostic borderless-window chrome contracts.
 //!
-//! `frost_core` cannot move or resize a native window by itself:
+//! `mara_core` cannot move or resize a native window by itself:
 //! Bevy, eframe, web, and embedded hosts all expose different window
 //! APIs. This module owns the shared contract instead:
 //!
 //! * theme-owned resize hit-test metrics,
-//! * published drag/exclusion regions from Frost chrome, and
+//! * published drag/exclusion regions from Mara chrome, and
 //! * host-neutral hit-test results that a facade can map onto the
 //!   native window operations it supports.
 
@@ -33,10 +33,10 @@ pub enum WindowChromeHit {
     Resize(WindowResizeDirection),
 }
 
-/// Frost-owned native-window interaction regions.
+/// Mara-owned native-window interaction regions.
 ///
 /// `drag_regions` are areas where a primary press should start moving
-/// the native window. `exclusion_rects` are interactive Frost controls
+/// the native window. `exclusion_rects` are interactive Mara controls
 /// inside those regions (and near resize edges) that must keep their
 /// normal click/drag behavior instead of being stolen by native chrome.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -50,17 +50,17 @@ pub struct WindowChromeRegions {
 /// Browser/web hosts should leave this at the default `false` values:
 /// the browser already owns window movement and resizing. Native
 /// facades such as Bevy or eframe can publish `true` values before
-/// rendering Frost chrome for a frame.
+/// rendering Mara chrome for a frame.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct WindowChromeHostCapabilities {
     pub native_move: bool,
     pub native_resize: bool,
 }
 
-/// Host-neutral switches for Frost-owned native-window chrome.
+/// Host-neutral switches for Mara-owned native-window chrome.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct WindowChromePolicy {
-    /// Whether Frost should produce native move/resize actions.
+    /// Whether Mara should produce native move/resize actions.
     pub enabled: bool,
     /// Allow corner resize hit-testing.
     pub resize: bool,
@@ -105,7 +105,7 @@ pub struct WindowChromeUpdate {
     pub claimed: bool,
 }
 
-/// Reusable host-neutral state machine for Frost window chrome.
+/// Reusable host-neutral state machine for Mara window chrome.
 ///
 /// Facades own the actual native calls (`start_drag_move`,
 /// `start_drag_resize`, eframe viewport commands, etc.). This state
@@ -189,15 +189,15 @@ impl WindowChromeState {
 }
 
 fn regions_key() -> egui::Id {
-    egui::Id::new("frost_window_chrome_regions")
+    egui::Id::new("mara_window_chrome_regions")
 }
 
 fn host_capabilities_key() -> egui::Id {
-    egui::Id::new("frost_window_chrome_host_capabilities")
+    egui::Id::new("mara_window_chrome_host_capabilities")
 }
 
 fn input_claimed_key() -> egui::Id {
-    egui::Id::new("frost_window_chrome_input_claimed")
+    egui::Id::new("mara_window_chrome_input_claimed")
 }
 
 /// Mark the current input press as owned by native-window chrome.
@@ -317,10 +317,10 @@ pub fn resize_direction(
     }
 }
 
-/// Hit-test the complete Frost window-chrome contract.
+/// Hit-test the complete Mara window-chrome contract.
 ///
 /// Resize corners win over move regions, except where an interactive
-/// exclusion rect says the pointer belongs to Frost UI controls.
+/// exclusion rect says the pointer belongs to Mara UI controls.
 #[must_use]
 pub fn hit_test_window_chrome(
     ctx: &egui::Context,
@@ -332,7 +332,7 @@ pub fn hit_test_window_chrome(
     hit_test_window_chrome_regions(&regions, pos, window_size, metrics)
 }
 
-/// Hit-test against an explicit set of Frost window-chrome regions.
+/// Hit-test against an explicit set of Mara window-chrome regions.
 ///
 /// Host facades use this from their native input schedules without
 /// touching `egui::Context`, avoiding cross-schedule egui locks.
@@ -390,20 +390,32 @@ pub fn paint_resize_corner_hover(
     accent: Color32,
     metrics: WindowChromeTheme,
 ) -> Option<WindowResizeDirection> {
-    let window_rect = ctx.content_rect();
+    let window_rect = ctx.viewport_rect();
     let direction = hovered_resize_corner(ctx, window_rect, metrics)?;
-    let extent = metrics.resize_corner_extent.max(0.0);
-    let edge = metrics.resize_corner_edge_width.max(0.0).min(extent);
-    if extent <= 0.0 || edge <= 0.0 {
-        return Some(direction);
-    }
+    let (horizontal, vertical) = resize_corner_paint_rects(window_rect, direction, metrics)?;
 
     let painter = ctx.layer_painter(crate::layer::layer_id(
-        "frost_window_resize_corner_hover",
+        "mara_window_resize_corner_hover",
         crate::layer::z::WINDOW_CHROME,
     ));
     let fill = accent;
-    let (horizontal, vertical) = match direction {
+    painter.rect_filled(horizontal, 0.0, fill);
+    painter.rect_filled(vertical, 0.0, fill);
+    Some(direction)
+}
+
+fn resize_corner_paint_rects(
+    window_rect: Rect,
+    direction: WindowResizeDirection,
+    metrics: WindowChromeTheme,
+) -> Option<(Rect, Rect)> {
+    let extent = metrics.resize_corner_extent.max(0.0);
+    let edge = metrics.resize_corner_edge_width.max(0.0).min(extent);
+    if extent <= 0.0 || edge <= 0.0 {
+        return None;
+    }
+
+    let rects = match direction {
         WindowResizeDirection::NorthWest => (
             Rect::from_min_size(window_rect.min, Vec2::new(extent, edge)),
             Rect::from_min_size(window_rect.min, Vec2::new(edge, extent)),
@@ -444,11 +456,9 @@ pub fn paint_resize_corner_hover(
         WindowResizeDirection::North
         | WindowResizeDirection::East
         | WindowResizeDirection::South
-        | WindowResizeDirection::West => return Some(direction),
+        | WindowResizeDirection::West => return None,
     };
-    painter.rect_filled(horizontal, 0.0, fill);
-    painter.rect_filled(vertical, 0.0, fill);
-    Some(direction)
+    Some(rects)
 }
 
 #[cfg(test)]
@@ -460,14 +470,26 @@ mod tests {
         resize_corner_edge_width: 4.8,
     };
 
+    fn vec2_nearly_eq(a: Vec2, b: Vec2) -> bool {
+        (a.x - b.x).abs() <= 0.001 && (a.y - b.y).abs() <= 0.001
+    }
+
     #[test]
     fn only_resize_corners_are_hit_tested() {
         let size = Vec2::new(800.0, 600.0);
         assert_eq!(resize_direction(Pos2::new(3.0, 300.0), size, METRICS), None);
         assert_eq!(resize_direction(Pos2::new(300.0, 3.0), size, METRICS), None);
         assert_eq!(
+            resize_direction(Pos2::new(797.0, 3.0), size, METRICS),
+            Some(WindowResizeDirection::NorthEast)
+        );
+        assert_eq!(
             resize_direction(Pos2::new(797.0, 597.0), size, METRICS),
             Some(WindowResizeDirection::SouthEast)
+        );
+        assert_eq!(
+            resize_direction(Pos2::new(3.0, 597.0), size, METRICS),
+            Some(WindowResizeDirection::SouthWest)
         );
         assert_eq!(
             resize_direction(Pos2::new(20.0, 4.0), size, METRICS),
@@ -481,6 +503,40 @@ mod tests {
         assert_eq!(resize_direction(Pos2::new(5.0, 20.0), size, METRICS), None);
         assert_eq!(resize_direction(Pos2::new(20.0, 20.0), size, METRICS), None);
         assert_eq!(resize_direction(Pos2::new(80.0, 80.0), size, METRICS), None);
+    }
+
+    #[test]
+    fn resize_corner_paint_rects_are_symmetric_l_shapes() {
+        let rect = Rect::from_min_size(Pos2::new(10.0, 20.0), Vec2::new(800.0, 600.0));
+        for direction in [
+            WindowResizeDirection::NorthWest,
+            WindowResizeDirection::NorthEast,
+            WindowResizeDirection::SouthEast,
+            WindowResizeDirection::SouthWest,
+        ] {
+            let (horizontal, vertical) = resize_corner_paint_rects(rect, direction, METRICS)
+                .expect("diagonal resize corner should paint an L affordance");
+            assert!(
+                vec2_nearly_eq(
+                    horizontal.size(),
+                    Vec2::new(
+                        METRICS.resize_corner_extent,
+                        METRICS.resize_corner_edge_width
+                    )
+                ),
+                "{direction:?} horizontal strip size"
+            );
+            assert!(
+                vec2_nearly_eq(
+                    vertical.size(),
+                    Vec2::new(
+                        METRICS.resize_corner_edge_width,
+                        METRICS.resize_corner_extent
+                    )
+                ),
+                "{direction:?} vertical strip size"
+            );
+        }
     }
 
     #[test]

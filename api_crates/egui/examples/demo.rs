@@ -1,5 +1,5 @@
 use eframe::egui;
-use egui_frost::{
+use egui_mara::{
     AccentColor, GlassOpacity, ResolvedSlotRibbon, RibbonAction, RibbonCluster, RibbonEdge,
     RibbonOpen, RibbonScope, RibbonSlotClick, RibbonSlotItem, apply_theme, draw_slot_ribbons,
 };
@@ -15,7 +15,7 @@ impl eframe::App for DemoApp {
         apply_theme(ctx, accent, GlassOpacity(82));
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            ui.heading("egui_frost demo");
+            ui.heading("egui_mara demo");
             ui.label("This demo uses the single RibbonSlot API.");
         });
 
@@ -35,8 +35,8 @@ impl eframe::App for DemoApp {
             chrome_id: None,
             scope: RibbonScope::Permanent,
             edge: RibbonEdge::Top,
-            role: egui_frost::RibbonRole::Panel,
-            mode: egui_frost::RibbonMode::ThreeSided,
+            role: egui_mara::RibbonRole::Panel,
+            mode: egui_mara::RibbonMode::ThreeSided,
             cluster: RibbonCluster::Start,
             accepts: &[],
             items: vec![about],
@@ -53,7 +53,7 @@ impl eframe::App for DemoApp {
 
 fn main() -> eframe::Result<()> {
     eframe::run_native(
-        "egui_frost demo",
+        "egui_mara demo",
         eframe::NativeOptions::default(),
         Box::new(|_| Ok(Box::<DemoApp>::default())),
     )

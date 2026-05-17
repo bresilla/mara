@@ -119,7 +119,7 @@ impl Body {
                 // auto-fits to include it.
                 let end_pad = crate::style::theme().section_body_inner_end_pad;
                 let scroll = egui::ScrollArea::vertical()
-                    .id_salt("frost_body_scroll_v")
+                    .id_salt("mara_body_scroll_v")
                     .auto_shrink([false, false])
                     .min_scrolled_height(0.0)
                     .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)

@@ -6,7 +6,7 @@
 //! Variants:
 //!
 //! * [`normal`] — single title bar above a single body. The default
-//!   building block; matches frostcore's `Section`.
+//!   building block; matches maracore's `Section`.
 //! * [`tabbed`] — multiple labelled bodies behind a tab strip
 //!   (placeholder; not yet implemented).
 
@@ -59,7 +59,7 @@ fn container_flow_key(cid: Id) -> Id {
     // user has dragged the resize handle). Presence of this key
     // means "user has overridden the auto-fit"; absence means
     // "auto-fit from measured content".
-    cid.with("frost_container_flow")
+    cid.with("mara_container_flow")
 }
 
 fn container_intrinsic_key(cid: Id) -> Id {
@@ -69,7 +69,7 @@ fn container_intrinsic_key(cid: Id) -> Id {
     // when no explicit user value is persisted, capped at
     // [`CONTAINER_AUTOFIT_CAP`] so very tall content scrolls
     // rather than ballooning the container.
-    cid.with("frost_container_intrinsic")
+    cid.with("mara_container_intrinsic")
 }
 
 fn container_initial_flow_key(cid: Id) -> Id {
@@ -78,7 +78,7 @@ fn container_initial_flow_key(cid: Id) -> Id {
     // by `Normal::initial_flow` and read by `container_flow`. If
     // unset, the global `CONTAINER_AUTOFIT_CAP` /
     // `CONTAINER_HORIZONTAL_DEFAULT_FLOW` apply.
-    cid.with("frost_container_initial_flow")
+    cid.with("mara_container_initial_flow")
 }
 
 /// Read the per-container override for the autofit cap / default

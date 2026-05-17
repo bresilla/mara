@@ -1,4 +1,4 @@
-# `frost_code` — third-party acknowledgements
+# `mara_code` — third-party acknowledgements
 
 This crate vendors a fork of `egui_code_editor` so we can modify
 the editor in-place without upstream round-trips. The upstream

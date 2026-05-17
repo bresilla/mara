@@ -1,10 +1,10 @@
-use frost_core::{
-    FrostModule, FrostView, ModuleInlineCtx, ModuleResponse, ViewCtx, ViewId, WorkspaceCtx,
+use mara_core::{
+    MaraModule, MaraView, ModuleInlineCtx, ModuleResponse, ViewCtx, ViewId, WorkspaceCtx,
 };
 
 struct DualSurface;
 
-impl FrostView for DualSurface {
+impl MaraView for DualSurface {
     fn id(&self) -> ViewId {
         ViewId::new("dual")
     }
@@ -20,7 +20,7 @@ impl FrostView for DualSurface {
     fn show(&mut self, _ctx: &mut ViewCtx<'_>) {}
 }
 
-impl FrostModule for DualSurface {
+impl MaraModule for DualSurface {
     fn id(&self) -> egui::Id {
         egui::Id::new("dual-module")
     }
@@ -40,8 +40,8 @@ impl FrostModule for DualSurface {
     fn workspace(&mut self, _ws: &mut WorkspaceCtx<'_>) {}
 }
 
-fn assert_view<T: FrostView>(_value: &T) {}
-fn assert_module<T: FrostModule>(_value: &T) {}
+fn assert_view<T: MaraView>(_value: &T) {}
+fn assert_module<T: MaraModule>(_value: &T) {}
 
 #[test]
 fn one_surface_can_be_both_view_and_module() {

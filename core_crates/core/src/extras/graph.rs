@@ -1,17 +1,17 @@
 //! Node-graph integration — thin glue around [`egui_graph`] so graph
-//! widgets inherit the frost palette and border language without
+//! widgets inherit the mara palette and border language without
 //! every consumer having to hand-tune a `GraphStyle`.
 //!
 //! Two pieces of surface:
 //!
-//! * [`frost_node_graph_style`] — builds a [`GraphStyle`] configured with
-//!   frost's `BG_*` / `widget_border` / accent colours, the same
+//! * [`mara_node_graph_style`] — builds a [`GraphStyle`] configured with
+//!   mara's `BG_*` / `widget_border` / accent colours, the same
 //!   corner radius as [`section`](crate::widgets::foldable::section),
 //!   and a pin/wire width that matches the border stroke. Pass the
 //!   returned style straight into
 //!   [`GraphWidget::style`](egui_graph::ui::GraphWidget::style).
 //! * `pub use egui_graph` re-export — callers don't need a second
-//!   direct dep. `use bevy_frost::graph::{Graph, NodeViewer,
+//!   direct dep. `use bevy_mara::graph::{Graph, NodeViewer,
 //!   GraphWidget, NodeId, InPin, OutPin, ...};` lands the full
 //!   upstream surface.
 //!
@@ -21,7 +21,7 @@
 //! section(ui, "graph", "Graph", accent, true, |ui| {
 //!     GraphWidget::new()
 //!         .id_salt("my_graph")
-//!         .style(frost_node_graph_style(accent))
+//!         .style(mara_node_graph_style(accent))
 //!         .min_size(egui::vec2(320.0, 260.0))
 //!         .show(&mut state.graph, &mut state.viewer, ui);
 //! });
@@ -29,13 +29,13 @@
 
 use egui;
 
-pub use frost_graph::{
+pub use mara_graph::{
     AnyPins, BackgroundPattern, Dots, Graph, GraphState, GraphStyle, GraphWidget, Grid, Hex, InPin,
     InPinId, NodeHalo, NodeId, NodeLayout, NodePin, NodeViewBackend, NodeViewState, NodeViewer,
     OutPin, OutPinId, PinInfo, PinPlacement, PinShape, WireColorMode,
 };
 
-// `frost_node_graph` / `frost_node_graph_with_opts` route through
+// `mara_node_graph` / `mara_node_graph_with_opts` route through
 // `crate::embed::maximizable_with_opts` for the fullscreen chip
 // + overlay swap. `OverlayOpts` is re-exported so callers pick up
 // the chip-placement type from the same module.
@@ -45,17 +45,17 @@ use crate::style::{
     glass_fill, radius_for, stroke_for,
 };
 
-/// Build a [`GraphStyle`] that inherits the frost palette + border
+/// Build a [`GraphStyle`] that inherits the mara palette + border
 /// language. Call per-frame with the current accent so the graph
 /// re-tints when the user swaps accent colour (the same way every
-/// other frost surface does).
+/// other mara surface does).
 ///
 /// What the returned style pins down:
 ///
 /// * **Node frame** — `BG_2_RAISED` glass fill + `widget_border`
 ///   stroke + `crate::style::theme().radius_md` corner, matching
 ///   [`section`](crate::widgets::foldable::section) so nodes look
-///   like first-class frost surfaces.
+///   like first-class mara surfaces.
 /// * **Background** — `BG_1_PANEL` glass fill behind everything,
 ///   the same colour a floating window uses, so the graph canvas
 ///   sits cleanly in an editor panel.
@@ -64,7 +64,7 @@ use crate::style::{
 ///
 /// Everything else stays at the library default so scroll / zoom /
 /// selection interactions remain familiar to upstream users.
-pub fn frost_node_graph_style(accent: egui::Color32) -> GraphStyle {
+pub fn mara_node_graph_style(accent: egui::Color32) -> GraphStyle {
     // ── Blender-style geometry ──
     // Blender (4.x) measures all node geometry off `widget_unit = 20 px`:
     //   * NODE_DY (header height, row height) = widget_unit = 20 px
@@ -73,14 +73,14 @@ pub fn frost_node_graph_style(accent: egui::Color32) -> GraphStyle {
     //   * NODE_DYS (half-row, gutter)         = widget_unit / 2  = 10 px
     //   * NODE_SOCKSIZE (pin radius)          = 0.25 × widget_unit = 5 px
     // We mirror those constants so the node geometry feels
-    // proportionally identical, with frost's glass-fill background.
+    // proportionally identical, with mara's glass-fill background.
     // Horizontal padding shared by body AND header so the header
     // band lines up with the body edges (graph sizes each frame as
     // content + 2 × inner_margin, so any divergence here makes the
     // header poke out like a hat).
     let graph = crate::style::theme().graph;
 
-    // Body uses the frost section recipe — same fill, border and
+    // Body uses the mara section recipe — same fill, border and
     // corner radius every foldable section / container in the
     // kit uses, so a node and a section sit at the same visual
     // tier instead of looking like a separate widget family.
@@ -101,7 +101,7 @@ pub fn frost_node_graph_style(accent: egui::Color32) -> GraphStyle {
     // painted PER-NODE inside `NodeViewer::show_header` (see the
     // demo's `show_header` impl) by reading the node's category +
     // smearing a Unreal-style left-anchored gradient across the
-    // header rect. That keeps `frost_node_graph_style` host-agnostic
+    // header rect. That keeps `mara_node_graph_style` host-agnostic
     // (no fixed colour palette baked in) and lets each app's
     // viewer decide which colour to spill.
     let header_frame = egui::Frame::new()
@@ -263,26 +263,26 @@ pub fn frost_node_graph_style(accent: egui::Color32) -> GraphStyle {
 /// the graph is "gone" to the overlay — the hole is filled with a
 /// small "(maximised)" caption.
 ///
-/// Render an `egui-graph` node graph through frost's sharp-zoom
+/// Render an `egui-graph` node graph through mara's sharp-zoom
 /// pipeline: a SECONDARY `egui::Context` with `pixels_per_point`
 /// compensated for zoom, painted into a wgpu texture by the
 /// [`NodeViewBackend`] and composited back into the parent UI. The
 /// graph stays sharp at any zoom level (text + shape edges
 /// rasterise at the zoomed size, never up-scaled) and stays
 /// host-agnostic — the backend trait has impls for `bevy_egui`
-/// (`bevy_frost::node_view_backend::BevyNodeViewBackend`) and
-/// `eframe` (`egui_frost::EframeNodeViewBackend`).
+/// (`bevy_mara::node_view_backend::BevyNodeViewBackend`) and
+/// `eframe` (`egui_mara::EframeNodeViewBackend`).
 ///
 /// `state` carries the per-graph camera (`pan`, `zoom`) plus the
 /// secondary egui context and wgpu texture across frames; pass the
 /// SAME `NodeViewState` each frame for the same graph instance.
 ///
 /// Use this in place of [`GraphWidget::new().show`] whenever you
-/// want the frost styling + the fullscreen affordance. The
+/// want the mara styling + the fullscreen affordance. The
 /// fullscreen chip lands top-right by default;
-/// [`frost_node_graph_with_opts`] takes an [`OverlayOpts`] for custom
+/// [`mara_node_graph_with_opts`] takes an [`OverlayOpts`] for custom
 /// chip placement.
-pub fn frost_node_graph<T, V: NodeViewer<T>>(
+pub fn mara_node_graph<T, V: NodeViewer<T>>(
     ui: &mut egui::Ui,
     state: &mut NodeViewState,
     backend: &mut dyn NodeViewBackend,
@@ -291,7 +291,7 @@ pub fn frost_node_graph<T, V: NodeViewer<T>>(
     accent: egui::Color32,
     desired_size: egui::Vec2,
 ) {
-    frost_node_graph_with_opts(
+    mara_node_graph_with_opts(
         ui,
         state,
         backend,
@@ -303,7 +303,7 @@ pub fn frost_node_graph<T, V: NodeViewer<T>>(
     )
 }
 
-/// Like [`frost_node_graph`] but accepts [`OverlayOpts`] so the caller
+/// Like [`mara_node_graph`] but accepts [`OverlayOpts`] so the caller
 /// The maximise-state key the node-graph wrapper registers with
 /// [`crate::embed`]. Compare against
 /// [`crate::embed::fullscreen_owner`] to detect "is the graph the
@@ -313,7 +313,7 @@ pub fn frost_node_graph<T, V: NodeViewer<T>>(
 /// ribbon assembly.
 #[must_use]
 pub fn graph_fullscreen_key() -> egui::Id {
-    crate::embed::maximize_state_key(egui::Id::new("frost_node_graph_widget"))
+    crate::embed::maximize_state_key(egui::Id::new("mara_node_graph_widget"))
 }
 
 /// `true` while the node-graph widget is currently in its
@@ -327,7 +327,7 @@ pub fn is_graph_fullscreen(ctx: &egui::Context) -> bool {
 /// picks where the fullscreen / minimize chip lands on the overlay
 /// (which edge + which cluster along that edge).
 #[allow(clippy::too_many_arguments)]
-pub fn frost_node_graph_with_opts<T, V: NodeViewer<T>>(
+pub fn mara_node_graph_with_opts<T, V: NodeViewer<T>>(
     ui: &mut egui::Ui,
     state: &mut NodeViewState,
     backend: &mut dyn NodeViewBackend,
@@ -337,7 +337,7 @@ pub fn frost_node_graph_with_opts<T, V: NodeViewer<T>>(
     desired_size: egui::Vec2,
     fs_opts: OverlayOpts,
 ) {
-    let id_for_graph_base = egui::Id::new("frost_node_graph_widget");
+    let id_for_graph_base = egui::Id::new("mara_node_graph_widget");
     // Auto-recentre bookkeeping. The `version` is folded into the
     // GraphWidget's id below; bumping it invalidates egui-graph's
     // saved transform so `GraphState::initial` runs again and
@@ -352,13 +352,9 @@ pub fn frost_node_graph_with_opts<T, V: NodeViewer<T>>(
     // mid-resolve rect.
     const RESIZE_THRESHOLD: f32 = 8.0;
     const SETTLE_FRAMES: u32 = 2;
-    let version_id = ui
-        .id()
-        .with(("frost_node_graph_version", id_for_graph_base));
-    let last_sz_id = ui
-        .id()
-        .with(("frost_node_graph_last_sz", id_for_graph_base));
-    let settle_id = ui.id().with(("frost_node_graph_settle", id_for_graph_base));
+    let version_id = ui.id().with(("mara_node_graph_version", id_for_graph_base));
+    let last_sz_id = ui.id().with(("mara_node_graph_last_sz", id_for_graph_base));
+    let settle_id = ui.id().with(("mara_node_graph_settle", id_for_graph_base));
 
     // `maximizable_with_opts` paints the maximize chip and, when
     // active, swaps to a fullscreen body — its body callback gets
@@ -375,9 +371,9 @@ pub fn frost_node_graph_with_opts<T, V: NodeViewer<T>>(
         fs_opts,
         |inner_ui| {
             let size = inner_ui.available_size();
-            // Sub-context theme bridge — `frost_graph::show_with_anchor`
+            // Sub-context theme bridge — `mara_graph::show_with_anchor`
             // is theme-neutral, so we install fonts + apply the active
-            // frost theme onto the secondary context here. First-frame
+            // mara theme onto the secondary context here. First-frame
             // install is one-shot; theme apply runs each frame so a
             // mid-session theme swap re-tints the sub-context too.
             if state.take_first_frame() {
@@ -444,7 +440,7 @@ pub fn frost_node_graph_with_opts<T, V: NodeViewer<T>>(
             // fit because the saved GraphStateData lookup misses.
             let id_for_graph = id_for_graph_base.with(version);
 
-            frost_graph::show_with_anchor(
+            mara_graph::show_with_anchor(
                 inner_ui,
                 state,
                 backend,
@@ -458,12 +454,12 @@ pub fn frost_node_graph_with_opts<T, V: NodeViewer<T>>(
                 // the updated translation and the scene point
                 // under the cursor stays under the cursor.
                 |sub_ctx, delta| {
-                    frost_graph::GraphState::nudge_saved_translation(sub_ctx, id_for_graph, delta);
+                    mara_graph::GraphState::nudge_saved_translation(sub_ctx, id_for_graph, delta);
                 },
                 |sub_ui| {
                     GraphWidget::new()
                         .id(id_for_graph)
-                        .style(frost_node_graph_style(accent))
+                        .style(mara_node_graph_style(accent))
                         .min_size(size)
                         .show(graph, viewer, sub_ui);
                 },
@@ -480,11 +476,11 @@ pub fn frost_node_graph_with_opts<T, V: NodeViewer<T>>(
 // to borrow `&mut NodeViewState` / `&mut Graph` / `&mut Viewer` /
 // `&mut dyn NodeViewBackend` (all non-`'static`), which is why this
 // goes through the crate-internal `raw_internal` escape — but the
-// closure is fully owned by frost_core, so external callers cannot
+// closure is fully owned by mara_core, so external callers cannot
 // smuggle arbitrary egui code through it.
 
 impl<'ui, 'spec> crate::pane::PaneBody<'ui, 'spec> {
-    /// Append a frost-themed node-graph container to the pane.
+    /// Append a mara-themed node-graph container to the pane.
     /// The graph borrows `state` / `graph` / `viewer` / `backend`
     /// for the duration of THIS call (they don't have to outlive
     /// the pane closure).
@@ -529,7 +525,7 @@ impl<'ui, 'spec> crate::pane::PaneBody<'ui, 'spec> {
             move |inner_ui| {
                 let avail = inner_ui.available_size_before_wrap();
                 let accent = crate::style::active_accent();
-                frost_node_graph(inner_ui, state, backend, graph, viewer, accent, avail);
+                mara_node_graph(inner_ui, state, backend, graph, viewer, accent, avail);
             },
         ))
     }
@@ -543,7 +539,7 @@ impl<'ui, 'spec> crate::pane::PaneBody<'ui, 'spec> {
 // traits without storing host-specific renderer state.
 
 /// A retained node-graph surface that can be routed as a top-level
-/// [`crate::FrostView`] or embedded as a [`crate::FrostModule`].
+/// [`crate::MaraView`] or embedded as a [`crate::MaraModule`].
 #[derive(Clone, Debug)]
 pub struct GraphSurface<T, V> {
     id: egui::Id,
@@ -603,7 +599,7 @@ where
         let size = ui.available_size_before_wrap();
         GraphWidget::new()
             .id(self.id)
-            .style(frost_node_graph_style(crate::style::active_accent()))
+            .style(mara_node_graph_style(crate::style::active_accent()))
             .min_size(size)
             .show(&mut self.graph, &mut self.viewer, ui);
     }
@@ -630,7 +626,7 @@ where
     }
 }
 
-impl<T, V> crate::FrostView for GraphSurface<T, V>
+impl<T, V> crate::MaraView for GraphSurface<T, V>
 where
     V: NodeViewer<T>,
 {
@@ -657,7 +653,7 @@ where
     }
 }
 
-impl<T, V> crate::FrostModule for GraphSurface<T, V>
+impl<T, V> crate::MaraModule for GraphSurface<T, V>
 where
     V: NodeViewer<T>,
 {
@@ -755,8 +751,8 @@ mod view_module_bridge_tests {
         }
     }
 
-    fn assert_view<T: crate::FrostView>(_value: &T) {}
-    fn assert_module<T: crate::FrostModule>(_value: &T) {}
+    fn assert_view<T: crate::MaraView>(_value: &T) {}
+    fn assert_module<T: crate::MaraModule>(_value: &T) {}
 
     #[test]
     fn graph_surface_is_both_view_and_module() {
@@ -765,7 +761,7 @@ mod view_module_bridge_tests {
         let surface = GraphSurface::new("graph-surface", "Graph", graph, TestViewer);
         assert_view(&surface);
         assert_module(&surface);
-        assert_eq!(crate::FrostView::title(&surface), "Graph");
-        assert_eq!(crate::FrostModule::icon(&surface), "node_tree");
+        assert_eq!(crate::MaraView::title(&surface), "Graph");
+        assert_eq!(crate::MaraModule::icon(&surface), "node_tree");
     }
 }

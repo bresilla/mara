@@ -1,12 +1,12 @@
 use egui::{Id, Rect, pos2};
-use frost_core::{
+use mara_core::{
     RibbonEdge, ShelfContainer, ShelfDef, ShelfEdge, ShelfEdgeError, ShelfState, layout_shelves,
     pane::{PaneAnchor, RailZone, TitleSide},
     shelf_insets, style,
 };
 
-fn test_tabs() -> Vec<frost_core::container::Tab> {
-    vec![frost_core::container::Tab::new("test.tab", "Tab", "box")]
+fn test_tabs() -> Vec<mara_core::container::Tab> {
+    vec![mara_core::container::Tab::new("test.tab", "Tab", "box")]
 }
 
 #[test]
@@ -373,7 +373,7 @@ fn shelf_container_api_is_typed_tabbed_only() {
         Id::new("tabbed"),
         "Inspector",
         "settings",
-        vec![frost_core::container::Tab::new(
+        vec![mara_core::container::Tab::new(
             "inspector.main",
             "Main",
             "settings",

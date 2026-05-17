@@ -1,6 +1,6 @@
 //! Anchor → screen position for [`super::Pane`].
 //!
-//! Mirrors `frostcore::floating::compute_pane_pos`'s recipe: the
+//! Mirrors `maracore::floating::compute_pane_pos`'s recipe: the
 //! caller decides the pane's expected size, and we compute its
 //! top-left from anchor + offset + screen rect. The pane is then
 //! shown in an `egui::Area` via `fixed_pos(pos)` (NOT
@@ -41,7 +41,7 @@ pub(crate) fn anchor_align(anchor: PaneAnchor) -> (Align2, Vec2) {
 }
 
 /// Compute a pane's top-left position. Mirrors
-/// `frostcore::floating::compute_pane_pos`. `size` is the expected
+/// `maracore::floating::compute_pane_pos`. `size` is the expected
 /// outer dimensions of the pane; the caller computes this in-frame
 /// from the animation `openness`, so the position has zero lag —
 /// unlike `egui::Area::anchor()` which uses last frame's

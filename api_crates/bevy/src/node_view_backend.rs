@@ -1,13 +1,13 @@
-//! Bevy host backend for `frost_core::extras::node_view`.
+//! Bevy host backend for `mara_core::extras::node_view`.
 //!
-//! Bridges the frost_core-side sharp-zoom node graph (secondary
+//! Bridges the mara_core-side sharp-zoom node graph (secondary
 //! `egui::Context` rendered to its own wgpu texture) into Bevy's
 //! render world, so `bevy_egui` can sample the result as a
 //! regular `egui::Image` in the parent UI.
 //!
 //! ## Pipeline
 //!
-//! 1. The `frost_node_graph` widget runs in main world. frost_core
+//! 1. The `mara_node_graph` widget runs in main world. mara_core
 //!    allocates a wgpu render target via the backend's
 //!    `wgpu()` (= Bevy's `RenderDevice` device clone), runs its
 //!    secondary egui context, tessellates, and paints the result
@@ -22,7 +22,7 @@
 //!    pushes a copy entry into [`PendingNodeViewCopies`].
 //! 4. [`PendingNodeViewCopies`] is extracted to render world.
 //! 5. The render-world system [`copy_node_view_textures`] queues
-//!    `CopyTextureToTexture` for each entry: frost_core-source →
+//!    `CopyTextureToTexture` for each entry: mara_core-source →
 //!    Bevy `GpuImage` of the registered handle.
 //! 6. `bevy_egui`'s normal renderer samples the GpuImage when
 //!    drawing the parent UI's `Image` widget.
@@ -43,9 +43,9 @@ use bevy::render::{
     texture::GpuImage,
 };
 use bevy_egui::{EguiTextureHandle, EguiUserTextures};
-use frost_core::extras::node_view::NodeViewBackend;
+use mara_core::extras::node_view::NodeViewBackend;
 
-/// Bevy plugin that wires the cross-world copy of frost_core's
+/// Bevy plugin that wires the cross-world copy of mara_core's
 /// node-view render into a Bevy `Image` asset for `bevy_egui` to
 /// sample. Add to your `App` once at startup.
 pub struct NodeViewPlugin;
@@ -79,7 +79,7 @@ pub struct PendingNodeViewCopies {
 /// One pending texture-to-texture copy.
 #[derive(Clone)]
 pub struct NodeViewCopy {
-    /// frost_core-allocated source texture (= what `egui-wgpu`
+    /// mara_core-allocated source texture (= what `egui-wgpu`
     /// rendered the secondary context's output into this frame).
     pub source_texture: wgpu::Texture,
     /// Bevy `Image` asset whose GpuImage receives the copy.
@@ -108,7 +108,7 @@ fn clear_pending_node_view_copies(mut pending: ResMut<PendingNodeViewCopies>) {
 }
 
 /// Render-world system. Walks `PendingNodeViewCopies` and, for
-/// each entry, queues a `CopyTextureToTexture` from the frost_core
+/// each entry, queues a `CopyTextureToTexture` from the mara_core
 /// source texture into the matching Bevy `GpuImage`. Submits the
 /// resulting command buffer immediately so the copy is visible
 /// to `bevy_egui`'s render pass downstream.
@@ -123,7 +123,7 @@ fn copy_node_view_textures(
     }
     let device = render_device.wgpu_device();
     let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-        label: Some("frost_node_view_copy_encoder"),
+        label: Some("mara_node_view_copy_encoder"),
     });
     let mut any = false;
     for copy in &pending.entries {
@@ -158,7 +158,7 @@ fn copy_node_view_textures(
 
 /// Backend instance. Construct fresh each frame from a Bevy
 /// system that has the necessary resources, then pass to
-/// `frost_node_graph`.
+/// `mara_node_graph`.
 pub struct BevyNodeViewBackend<'a> {
     device: wgpu::Device,
     queue: wgpu::Queue,

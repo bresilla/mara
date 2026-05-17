@@ -80,7 +80,7 @@ pub fn paint_container_dots(
         // X (= the flow axis). Same value either way.
         super::publish_body_extra_flow(ui.ctx(), pane_id, DOTS_STRIP_H);
     }
-    let id = ui.id().with(("frost_pane_container_dots", id_salt));
+    let id = ui.id().with(("mara_pane_container_dots", id_salt));
     let cursor = match orient {
         SeparatorOrient::Horizontal => egui::CursorIcon::ResizeVertical,
         SeparatorOrient::Vertical => egui::CursorIcon::ResizeHorizontal,
@@ -101,7 +101,7 @@ pub fn paint_container_dots(
 }
 
 fn dot_rects_key(pane_id: Id) -> Id {
-    pane_id.with("frost_pane_container_dot_rects")
+    pane_id.with("mara_pane_container_dot_rects")
 }
 
 pub(crate) fn clear_container_dot_rects(ctx: &Context, pane_id: Id) {

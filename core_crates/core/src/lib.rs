@@ -1,12 +1,12 @@
-//! # frost_core — modular UI core for `bevy_frost`
+//! # mara_core — modular UI core for `bevy_mara`
 //!
-//! Successor to `frostcore` (see `PLAN_NEWUI.md` at the repo root).
+//! Successor to `maracore` (see `PLAN_NEWUI.md` at the repo root).
 //! Self-contained: ships its own bundled Iosevka fonts, theme
 //! runtime, ribbon strip, and pane system. Nothing here depends on
-//! `frostcore`.
+//! `maracore`.
 //!
 //! Naming note: directory is `crates/core/` but the crate identifier
-//! is `frost_core`. Naming the package `core` would shadow Rust's std
+//! is `mara_core`. Naming the package `core` would shadow Rust's std
 //! `core`, breaking derive macros that expand to `::core::clone::Clone`.
 //!
 //! ## Modules
@@ -19,7 +19,7 @@
 //!   widgets / closures.
 //! * [`pod`] — composable content units; the only thing a
 //!   container's body accepts. Built-ins so far: `SearchPod`.
-//! * [`widget`] — frost-styled widgets (`text_input`, …).
+//! * [`widget`] — mara-styled widgets (`text_input`, …).
 //! * [`style`] — theme + colour + font runtime. `apply_theme` wires
 //!   the active `Theme` into egui's `Style`; `set_theme` swaps the
 //!   global theme.
@@ -49,19 +49,19 @@ pub mod window_chrome;
 pub mod workspace;
 
 // Foundational row-height unit — re-exported at crate root so the
-// canonical name is `frost_core::UNIT`. Every widget is sized in
+// canonical name is `mara_core::UNIT`. Every widget is sized in
 // multiples of this. See [`style::UNIT`] for the definition.
 pub use style::{BODY_FONT_SIZE, UNIT};
 
 // ─── Top-level convenience re-exports ─────────────────────────────
 //
-// `bevy_frost::prelude::*` glob-imports `frost_core::*`, so anything
+// `bevy_mara::prelude::*` glob-imports `mara_core::*`, so anything
 // re-exported here surfaces directly under the consumer's prelude
-// (`use bevy_frost::prelude::*;` → `RibbonOpen`, `AccentColor`, …
-// in scope). These are the names the old `frostcore` crate
+// (`use bevy_mara::prelude::*;` → `RibbonOpen`, `AccentColor`, …
+// in scope). These are the names the old `maracore` crate
 // surfaced — keeping them callable via the same paths means apps
 // that hadn't fully migrated to nested-module imports still
-// compile against frost_core without breakage.
+// compile against mara_core without breakage.
 
 pub use app_shell::{
     AppShellChrome, AppShellError, AppShellResolution, ResolvedRibbon, WindowControlsPolicy,
@@ -72,7 +72,7 @@ pub use app_shell::{
     show_app_shell_with_workspace_renderer,
 };
 pub use command_palette::{CommandPaletteState, PaletteItem, command_palette};
-pub use module::{FrostModule, ModuleInlineCtx, ModuleInlineOptions, ModuleResponse, WorkspaceCtx};
+pub use module::{MaraModule, ModuleInlineCtx, ModuleInlineOptions, ModuleResponse, WorkspaceCtx};
 pub use ribbon::{
     ResolvedSlotRibbon, RibbonAction, RibbonActionError, RibbonActionResult, RibbonAvoidance,
     RibbonCluster, RibbonDrag, RibbonEdge, RibbonGlyph, RibbonMode, RibbonOpen,
@@ -88,7 +88,7 @@ pub use shelf::{
     publish_shelf_layout, shelf_insets, show_shelves,
 };
 pub use style::{AccentColor, GlassOpacity, apply_theme, set_glass_opacity};
-pub use view::{FrostView, ViewCtx, ViewEntry, ViewId, ViewRouter, ViewRouterError};
+pub use view::{MaraView, ViewCtx, ViewEntry, ViewId, ViewRouter, ViewRouterError};
 pub use window_chrome::{
     WindowChromeHit, WindowChromeHostCapabilities, WindowChromeInput, WindowChromePolicy,
     WindowChromeRegions, WindowChromeState, WindowChromeUpdate, WindowResizeDirection,
@@ -103,9 +103,9 @@ pub use workspace::{
 };
 
 // Surface the free widget functions at the crate root so
-// `use bevy_frost::prelude::*;` brings every standalone widget
+// `use bevy_mara::prelude::*;` brings every standalone widget
 // (`wide_button`, `readout_row`, `chip`, `toggle`, `tree_row`,
-// `keybinding_row`, `badge_row`, `context_menu_frost`, …) into
+// `keybinding_row`, `badge_row`, `context_menu_mara`, …) into
 // scope. The TYPE-style names (`Button`, `TreeIconSlot`, …) sit
 // here too so trait-shaped widgets compose without a longer path.
 pub use widget::{
@@ -114,7 +114,7 @@ pub use widget::{
     HybridSelectResponse, KEYBINDING_ROW_H, LABEL_COL_WIDTH, READOUT_ROW_H, SELECT_ROW_H,
     TREE_INDENT, TREE_ROW_H, TreeIconKind, TreeIconSlot, TreeRowResponse, badge_row,
     badge_row_colored, button, button_h, card_button, chip, chip_colored, color_rgb, color_rgba,
-    context_menu_frost, drag_value, drag_value_h, dropdown, dropdown_control, dropdown_h,
+    context_menu_mara, drag_value, drag_value_h, dropdown, dropdown_control, dropdown_h,
     hybrid_select_row, hybrid_select_row_h, key_chip, keybinding_row, keybinding_row_h,
     labelled_row, labelled_row_custom_left, pretty_slider, progressbar, progressbar_h, readout,
     readout_h, readout_row, row_separator, search_field, select_row, select_row_h, slider,
@@ -123,7 +123,7 @@ pub use widget::{
 };
 
 // `widgets` is the legacy module name for `widget`. Several apps
-// still import `bevy_frost::widgets::*` — keep an alias so they
+// still import `bevy_mara::widgets::*` — keep an alias so they
 // compile.
 pub use widget as widgets;
 

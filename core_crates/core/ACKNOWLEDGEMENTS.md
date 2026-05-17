@@ -1,9 +1,9 @@
-# `frost_core` — third-party acknowledgements
+# `mara_core` — third-party acknowledgements
 
 The UI core crate ships bundled font assets in addition to its
 own code; this file lists what's embedded and where it came from.
-The standalone host widgets the kit ships with — `frost_graph`
-(node graph) and `frost_code` (code editor) — live in their own
+The standalone host widgets the kit ships with — `mara_graph`
+(node graph) and `mara_code` (code editor) — live in their own
 crates with their own acknowledgements; see
 [`../modules/graph/ACKNOWLEDGEMENTS.md`](../modules/graph/ACKNOWLEDGEMENTS.md) and
 [`../modules/code/ACKNOWLEDGEMENTS.md`](../modules/code/ACKNOWLEDGEMENTS.md).

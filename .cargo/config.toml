@@ -1,6 +1,6 @@
 # Cargo build configuration.
 #
-# wasm32 builds (the `egui_frost_web` host crate, built via Trunk):
+# wasm32 builds (the `egui_mara_web` host crate, built via Trunk):
 # egui pulls `ahash`, which pulls `getrandom` 0.3. On
 # wasm32-unknown-unknown getrandom 0.3 has no default entropy source
 # — a backend must be selected explicitly with this cfg. It is

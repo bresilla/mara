@@ -31,7 +31,7 @@
 //!    `wgpu::Queue` + the parent egui renderer hooks.
 //! 2. Each frame the host calls a render function that takes the
 //!    state + backend + viewer (e.g.
-//!    `bevy_frost::extras::frost_node_graph`) inside an `egui::Ui`.
+//!    `bevy_mara::extras::mara_node_graph`) inside an `egui::Ui`.
 //! 3. That function configures input for the secondary context
 //!    (forwarding pointer + key events from the parent), runs the
 //!    secondary context's frame, tessellates, asks the backend to
@@ -81,7 +81,7 @@ pub struct NodeViewState {
     renderer: Option<egui_wgpu::Renderer>,
     /// One-shot gate flipped by [`NodeViewState::take_first_frame`].
     /// Hosts use it to run sub-context setup (font install, theme
-    /// apply) exactly once per state instance — see the `frostui`
+    /// apply) exactly once per state instance — see the `maraui`
     /// graph wrapper for the canonical usage.
     fonts_installed: bool,
 }
@@ -131,10 +131,10 @@ impl NodeViewState {
     ///
     /// ```ignore
     /// if state.take_first_frame() {
-    ///     frostui::style::install_fonts(state.ctx(), ...);
+    ///     maraui::style::install_fonts(state.ctx(), ...);
     /// }
-    /// frostui::style::apply_theme_to(state.ctx(), ...);
-    /// frost_graph::show_with_anchor(...);
+    /// maraui::style::apply_theme_to(state.ctx(), ...);
+    /// mara_graph::show_with_anchor(...);
     /// ```
     pub fn take_first_frame(&mut self) -> bool {
         let v = !self.fonts_installed;
@@ -157,7 +157,7 @@ impl NodeViewState {
     /// Clamped to `[0.1, 10.0]` so the user can't zoom into a
     /// degenerate state. Sets BOTH the visible zoom and the
     /// smoothing target (so external callers — e.g. the
-    /// resize-fit reset in `frost_node_graph_with_opts` — snap
+    /// resize-fit reset in `mara_node_graph_with_opts` — snap
     /// immediately rather than animating to the new value).
     pub fn set_zoom(&mut self, z: f32) {
         let clamped = z.clamp(0.1, 10.0);
@@ -208,7 +208,7 @@ impl NodeViewState {
         let (device, _queue) = backend.wgpu();
         let format = backend.target_format();
         let texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("frost_node_view_target"),
+            label: Some("mara_node_view_target"),
             size: wgpu::Extent3d {
                 width: size_pixels[0].max(1),
                 height: size_pixels[1].max(1),
@@ -266,10 +266,10 @@ impl NodeViewState {
     }
 }
 
-/// Host-supplied hooks the frost_core-side widget calls to talk to
+/// Host-supplied hooks the mara_core-side widget calls to talk to
 /// the wgpu side. One implementation per host crate
-/// (`bevy_frost::extras::BevyNodeViewBackend`,
-/// `egui_frost::extras::EframeNodeViewBackend`).
+/// (`bevy_mara::extras::BevyNodeViewBackend`,
+/// `egui_mara::extras::EframeNodeViewBackend`).
 pub trait NodeViewBackend {
     /// `wgpu::Device` + `wgpu::Queue` used to allocate the
     /// offscreen texture and submit the secondary context's
@@ -304,11 +304,11 @@ pub trait NodeViewBackend {
     fn unregister_native(&mut self, id: egui::TextureId);
 
     /// Hook called AFTER each frame's `egui-wgpu` render pass
-    /// finishes writing into the frost_core-allocated wgpu texture.
+    /// finishes writing into the mara_core-allocated wgpu texture.
     /// Default impl is a no-op (eframe doesn't need it — the
     /// render pass writes into the same texture egui samples
     /// directly). Bevy overrides this to queue a copy from the
-    /// frost_core-owned source texture into a Bevy `Image` asset's
+    /// mara_core-owned source texture into a Bevy `Image` asset's
     /// GpuImage in render world (= what `bevy_egui` actually
     /// samples on the parent UI side).
     fn after_render(
@@ -351,7 +351,7 @@ fn render_into_target(
         pixels_per_point,
     };
     let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-        label: Some("frost_node_view_encoder"),
+        label: Some("mara_node_view_encoder"),
     });
     let _cmd_buffers = renderer.update_buffers(
         &device,
@@ -363,7 +363,7 @@ fn render_into_target(
     {
         let mut rpass = encoder
             .begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("frost_node_view_pass"),
+                label: Some("mara_node_view_pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &target.view,
                     resolve_target: None,
@@ -426,8 +426,8 @@ pub fn show_with_anchor<R>(
 ) -> egui::Response {
     // Sub-context setup (font install, theme bridging) is the
     // caller's responsibility — see [`NodeViewState::take_first_frame`]
-    // and [`NodeViewState::ctx`]. The frost-themed wrapper in
-    // `frostui::extras::graph` runs `frostui::style::install_fonts`
+    // and [`NodeViewState::ctx`]. The mara-themed wrapper in
+    // `maraui::extras::graph` runs `maraui::style::install_fonts`
     // + `apply_theme_to` against the sub-context before invoking
     // this function; standalone consumers can leave the sub-context
     // with egui's default visuals.
@@ -452,7 +452,7 @@ pub fn show_with_anchor<R>(
     // letting graph's `TSTransform` scale geometry, because a
     // bitmap glyph atlas stretched past 1× is the source of the
     // bilinear blur we're trying to avoid. Graph's scaling is
-    // locked to 1.0 (see `frost_node_graph_style`), so its
+    // locked to 1.0 (see `mara_node_graph_style`), so its
     // `register_pan_and_zoom` only updates translation — perfect
     // for drag-pan, but we own the zoom.
     //

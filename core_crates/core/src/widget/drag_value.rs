@@ -1,8 +1,8 @@
-//! Frost-styled numeric drag input. Label on the left, fixed-width
+//! Mara-styled numeric drag input. Label on the left, fixed-width
 //! `egui::DragValue` on the right — drag horizontally to change the
 //! value, click to type. 1U row.
 //!
-//! Mirrors `frostcore::widgets::drag::drag_value`. Drops the
+//! Mirrors `maracore::widgets::drag::drag_value`. Drops the
 //! row-layout opinion (70/30 dual-pane); pods compose drag-value
 //! widgets into rows themselves.
 
@@ -11,7 +11,7 @@ use std::ops::RangeInclusive;
 use crate::style::{BODY_FONT_SIZE, on_panel, theme};
 
 /// Fixed width of the value box. Matches
-/// `frostcore::widgets::drag::INPUT_WIDTH` so multiple drag-value
+/// `maracore::widgets::drag::INPUT_WIDTH` so multiple drag-value
 /// rows stack with their boxes aligned.
 pub const DRAG_VALUE_INPUT_WIDTH: f32 = 72.0;
 /// Default row height — same as toggle / progressbar / slider so

@@ -2,7 +2,7 @@ use super::{WorkspaceLevelState, WorkspaceOwner};
 
 /// Capability policy derived from the active workspace level.
 ///
-/// L1+ workspaces should feel as capable as L0 for Frost composition
+/// L1+ workspaces should feel as capable as L0 for Mara composition
 /// (panes, containers, pods, modules), but they must not expose
 /// app/window-level controls.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

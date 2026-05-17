@@ -1,14 +1,14 @@
-# egui_frost_web
+# egui_mara_web
 
-The frost UI kit compiled to WebAssembly and run in a browser via
+The mara UI kit compiled to WebAssembly and run in a browser via
 [`eframe`]'s `WebRunner`.
 
-`frost_core` (the UI core — panes, ribbons, containers, widgets,
-theme) is host-agnostic egui. `bevy_frost` renders it inside a Bevy
-app; `egui_frost`'s native examples render it in an `eframe` window.
+`mara_core` (the UI core — panes, ribbons, containers, widgets,
+theme) is host-agnostic egui. `bevy_mara` renders it inside a Bevy
+app; `egui_mara`'s native examples render it in an `eframe` window.
 This crate is just the third host: **eframe on `wasm32`**. The UI
 itself is unchanged — see `src/demo.rs`, a port of
-`bevy_frost --example demo`: the full ribbon / pane / widget-gallery
+`bevy_mara --example demo`: the full ribbon / pane / widget-gallery
 / theme / canvas-whiteboard / node-graph / code-editor demo, with the
 Bevy 3D scene dropped and the Bevy `Resource`s / systems replaced by a
 single `DemoApp` struct driven from `eframe::App::update`.
@@ -44,7 +44,7 @@ cd api_crates/web && trunk serve
 ## How it differs from the native examples
 
 * **Entry point** — `eframe::WebRunner` mounting onto
-  `<canvas id="frost_canvas">` in `index.html`, instead of
+  `<canvas id="mara_canvas">` in `index.html`, instead of
   `eframe::run_native`.
 * **Renderer** — eframe's wgpu backend pinned to WebGL2. `wgpu` is
   built with only the `webgl` feature, and `src/main.rs` forces

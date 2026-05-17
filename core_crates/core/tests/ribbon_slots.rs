@@ -1,4 +1,4 @@
-use frost_core::{
+use mara_core::{
     RibbonAction, RibbonActionError, RibbonActionResult, RibbonOverrideLayer, RibbonOverridePolicy,
     RibbonSlot, RibbonSlotId, RibbonSlotItem, RibbonSlotOverride, ViewId, ViewRouter,
     dispatch_ribbon_action, permanent_system_control_slot, permanent_view_switcher_ribbon,
@@ -6,7 +6,7 @@ use frost_core::{
 };
 
 mod support {
-    use frost_core::{FrostView, ViewCtx, ViewId};
+    use mara_core::{MaraView, ViewCtx, ViewId};
 
     pub struct MockView {
         id: ViewId,
@@ -24,7 +24,7 @@ mod support {
         }
     }
 
-    impl FrostView for MockView {
+    impl MaraView for MockView {
         fn id(&self) -> ViewId {
             self.id
         }
@@ -161,21 +161,21 @@ fn featureful_ribbon_items_require_chrome_metadata() {
 #[test]
 fn featureful_ribbon_defs_require_chrome_metadata() {
     let blank_chrome_id = std::panic::catch_unwind(|| {
-        let _ = frost_core::RibbonSlotDef::new(
+        let _ = mara_core::RibbonSlotDef::new(
             egui::Id::new("blank-chrome-ribbon"),
-            frost_core::RibbonScope::Permanent,
-            frost_core::RibbonEdge::Top,
-            frost_core::RibbonCluster::Start,
+            mara_core::RibbonScope::Permanent,
+            mara_core::RibbonEdge::Top,
+            mara_core::RibbonCluster::Start,
             Vec::new(),
         )
         .with_chrome_id(" ");
     });
     let blank_accept_tag = std::panic::catch_unwind(|| {
-        let _ = frost_core::RibbonSlotDef::new(
+        let _ = mara_core::RibbonSlotDef::new(
             egui::Id::new("blank-accept-ribbon"),
-            frost_core::RibbonScope::Permanent,
-            frost_core::RibbonEdge::Top,
-            frost_core::RibbonCluster::Start,
+            mara_core::RibbonScope::Permanent,
+            mara_core::RibbonEdge::Top,
+            mara_core::RibbonCluster::Start,
             Vec::new(),
         )
         .accepts(&["panel", " "]);
@@ -189,11 +189,11 @@ fn featureful_ribbon_defs_require_chrome_metadata() {
 fn ribbon_definitions_reject_duplicate_slot_ids() {
     let slot_id = RibbonSlotId::new("duplicate");
     let result = std::panic::catch_unwind(|| {
-        let _ = frost_core::RibbonSlotDef::new(
+        let _ = mara_core::RibbonSlotDef::new(
             egui::Id::new("broken-ribbon"),
-            frost_core::RibbonScope::Permanent,
-            frost_core::RibbonEdge::Top,
-            frost_core::RibbonCluster::Start,
+            mara_core::RibbonScope::Permanent,
+            mara_core::RibbonEdge::Top,
+            mara_core::RibbonCluster::Start,
             vec![
                 RibbonSlot::new(
                     slot_id,

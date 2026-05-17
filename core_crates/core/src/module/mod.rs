@@ -8,4 +8,4 @@ mod context;
 mod traits;
 
 pub use context::{ModuleInlineCtx, ModuleInlineOptions, ModuleResponse, WorkspaceCtx};
-pub use traits::FrostModule;
+pub use traits::MaraModule;

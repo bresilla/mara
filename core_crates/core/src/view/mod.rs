@@ -1,6 +1,6 @@
 //! Top-level view routing.
 //!
-//! A [`FrostView`] owns one L0 workspace. Root/permanent ribbon
+//! A [`MaraView`] owns one L0 workspace. Root/permanent ribbon
 //! actions can switch the active view without confusing that with
 //! module fullscreen, which pushes L1+ on the active view's
 //! [`WorkspaceStack`](crate::workspace::WorkspaceStack).
@@ -13,4 +13,4 @@ mod traits;
 pub use context::ViewCtx;
 pub use id::ViewId;
 pub use router::{ViewEntry, ViewRouter, ViewRouterError};
-pub use traits::FrostView;
+pub use traits::MaraView;

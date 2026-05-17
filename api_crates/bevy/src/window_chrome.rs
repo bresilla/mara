@@ -1,4 +1,4 @@
-//! Bevy host support for Frost-owned borderless window chrome.
+//! Bevy host support for Mara-owned borderless window chrome.
 //!
 //! The core crate owns the hit-test contract. This module maps those
 //! host-neutral results onto Bevy/winit native-window operations.
@@ -8,10 +8,10 @@ use bevy::prelude::*;
 use bevy::window::{CursorIcon, PrimaryWindow, SystemCursorIcon, Window};
 use bevy_egui::{EguiContext, EguiPreUpdateSet, EguiPrimaryContextPass, PrimaryEguiContext, egui};
 
-/// Runtime switches for Frost's borderless native-window chrome.
+/// Runtime switches for Mara's borderless native-window chrome.
 #[derive(Resource, Clone, Copy, Debug)]
-pub struct FrostWindowChromeSettings {
-    /// Whether Frost should drive native borderless move/resize.
+pub struct MaraWindowChromeSettings {
+    /// Whether Mara should drive native borderless move/resize.
     pub enabled: bool,
     /// Allow edge/corner resize hit-testing.
     pub resize: bool,
@@ -20,43 +20,43 @@ pub struct FrostWindowChromeSettings {
     pub move_from_drag_regions: bool,
 }
 
-/// Frost window-chrome regions copied out of egui during the egui
+/// Mara window-chrome regions copied out of egui during the egui
 /// pass, then consumed by Bevy's native window system in PreUpdate.
 ///
 /// This keeps native move/resize hit-testing out of `egui::Context`
 /// during Bevy's main schedules, avoiding egui lock contention.
 #[derive(Resource, Clone, Debug, Default)]
-pub struct FrostWindowChromeRegions {
-    pub regions: frost_core::WindowChromeRegions,
+pub struct MaraWindowChromeRegions {
+    pub regions: mara_core::WindowChromeRegions,
 }
 
 /// One-frame Bevy-side input claim for native window chrome.
 #[derive(Resource, Clone, Copy, Debug, Default)]
-pub struct FrostWindowChromeInputClaim {
-    state: frost_core::WindowChromeState,
+pub struct MaraWindowChromeInputClaim {
+    state: mara_core::WindowChromeState,
     claimed: bool,
 }
 
-impl FrostWindowChromeInputClaim {
+impl MaraWindowChromeInputClaim {
     #[must_use]
     pub fn claimed(self) -> bool {
         self.claimed
     }
 }
 
-/// Systems sets for Frost's Bevy window-chrome bridge.
+/// Systems sets for Mara's Bevy window-chrome bridge.
 ///
-/// Add app UI systems that publish Frost chrome regions before
+/// Add app UI systems that publish Mara chrome regions before
 /// `SyncRegions` when same-frame native hit-testing matters.
 #[derive(SystemSet, Clone, Hash, Debug, Eq, PartialEq)]
-pub enum FrostWindowChromeSet {
+pub enum MaraWindowChromeSet {
     /// Reconciles stale native claims from egui's pointer state.
     ReleaseClaim,
     /// Copies the egui-published chrome regions into Bevy resources.
     SyncRegions,
 }
 
-impl Default for FrostWindowChromeSettings {
+impl Default for MaraWindowChromeSettings {
     fn default() -> Self {
         Self {
             enabled: true,
@@ -66,78 +66,78 @@ impl Default for FrostWindowChromeSettings {
     }
 }
 
-/// Installs Bevy-native move/resize behavior for Frost borderless
+/// Installs Bevy-native move/resize behavior for Mara borderless
 /// window chrome.
 ///
 /// Apps still decide whether the OS window uses native decorations.
 /// This plugin is intended for windows with `Window::decorations =
-/// false`; it reads the Frost chrome regions published by the ribbon
-/// renderer and theme-owned resize metrics from `frost_core::style`.
-pub struct FrostWindowChromePlugin;
+/// false`; it reads the Mara chrome regions published by the ribbon
+/// renderer and theme-owned resize metrics from `mara_core::style`.
+pub struct MaraWindowChromePlugin;
 
-impl Plugin for FrostWindowChromePlugin {
+impl Plugin for MaraWindowChromePlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<FrostWindowChromeSettings>()
-            .init_resource::<FrostWindowChromeRegions>()
-            .init_resource::<FrostWindowChromeInputClaim>()
+        app.init_resource::<MaraWindowChromeSettings>()
+            .init_resource::<MaraWindowChromeRegions>()
+            .init_resource::<MaraWindowChromeInputClaim>()
             .add_systems(
                 PreUpdate,
-                frost_window_chrome_system
+                mara_window_chrome_system
                     .after(EguiPreUpdateSet::ProcessInput)
                     .before(crate::consume_egui_input_system),
             )
             .configure_sets(
                 EguiPrimaryContextPass,
                 (
-                    FrostWindowChromeSet::ReleaseClaim,
-                    FrostWindowChromeSet::SyncRegions,
+                    MaraWindowChromeSet::ReleaseClaim,
+                    MaraWindowChromeSet::SyncRegions,
                 )
                     .chain(),
             )
             .add_systems(
                 EguiPrimaryContextPass,
                 (
-                    release_window_chrome_claim_system.in_set(FrostWindowChromeSet::ReleaseClaim),
-                    sync_window_chrome_regions_system.in_set(FrostWindowChromeSet::SyncRegions),
+                    release_window_chrome_claim_system.in_set(MaraWindowChromeSet::ReleaseClaim),
+                    sync_window_chrome_regions_system.in_set(MaraWindowChromeSet::SyncRegions),
                 ),
             );
     }
 }
 
-fn resize_direction_to_compass(direction: frost_core::WindowResizeDirection) -> CompassOctant {
+fn resize_direction_to_compass(direction: mara_core::WindowResizeDirection) -> CompassOctant {
     match direction {
-        frost_core::WindowResizeDirection::North => CompassOctant::North,
-        frost_core::WindowResizeDirection::NorthEast => CompassOctant::NorthEast,
-        frost_core::WindowResizeDirection::East => CompassOctant::East,
-        frost_core::WindowResizeDirection::SouthEast => CompassOctant::SouthEast,
-        frost_core::WindowResizeDirection::South => CompassOctant::South,
-        frost_core::WindowResizeDirection::SouthWest => CompassOctant::SouthWest,
-        frost_core::WindowResizeDirection::West => CompassOctant::West,
-        frost_core::WindowResizeDirection::NorthWest => CompassOctant::NorthWest,
+        mara_core::WindowResizeDirection::North => CompassOctant::North,
+        mara_core::WindowResizeDirection::NorthEast => CompassOctant::NorthEast,
+        mara_core::WindowResizeDirection::East => CompassOctant::East,
+        mara_core::WindowResizeDirection::SouthEast => CompassOctant::SouthEast,
+        mara_core::WindowResizeDirection::South => CompassOctant::South,
+        mara_core::WindowResizeDirection::SouthWest => CompassOctant::SouthWest,
+        mara_core::WindowResizeDirection::West => CompassOctant::West,
+        mara_core::WindowResizeDirection::NorthWest => CompassOctant::NorthWest,
     }
 }
 
-fn resize_cursor_icon(direction: frost_core::WindowResizeDirection) -> SystemCursorIcon {
+fn resize_cursor_icon(direction: mara_core::WindowResizeDirection) -> SystemCursorIcon {
     match direction {
-        frost_core::WindowResizeDirection::North => SystemCursorIcon::NResize,
-        frost_core::WindowResizeDirection::NorthEast => SystemCursorIcon::NeResize,
-        frost_core::WindowResizeDirection::East => SystemCursorIcon::EResize,
-        frost_core::WindowResizeDirection::SouthEast => SystemCursorIcon::SeResize,
-        frost_core::WindowResizeDirection::South => SystemCursorIcon::SResize,
-        frost_core::WindowResizeDirection::SouthWest => SystemCursorIcon::SwResize,
-        frost_core::WindowResizeDirection::West => SystemCursorIcon::WResize,
-        frost_core::WindowResizeDirection::NorthWest => SystemCursorIcon::NwResize,
+        mara_core::WindowResizeDirection::North => SystemCursorIcon::NResize,
+        mara_core::WindowResizeDirection::NorthEast => SystemCursorIcon::NeResize,
+        mara_core::WindowResizeDirection::East => SystemCursorIcon::EResize,
+        mara_core::WindowResizeDirection::SouthEast => SystemCursorIcon::SeResize,
+        mara_core::WindowResizeDirection::South => SystemCursorIcon::SResize,
+        mara_core::WindowResizeDirection::SouthWest => SystemCursorIcon::SwResize,
+        mara_core::WindowResizeDirection::West => SystemCursorIcon::WResize,
+        mara_core::WindowResizeDirection::NorthWest => SystemCursorIcon::NwResize,
     }
 }
 
-fn frost_window_chrome_system(
+fn mara_window_chrome_system(
     mut commands: Commands,
     mut mouse: ResMut<ButtonInput<MouseButton>>,
-    settings: Res<FrostWindowChromeSettings>,
-    regions: Res<FrostWindowChromeRegions>,
-    mut input_claim: ResMut<FrostWindowChromeInputClaim>,
+    settings: Res<MaraWindowChromeSettings>,
+    regions: Res<MaraWindowChromeRegions>,
+    mut input_claim: ResMut<MaraWindowChromeInputClaim>,
     mut primary_window: Query<(Entity, &mut Window), With<PrimaryWindow>>,
-    mut last_resize_cursor: Local<Option<frost_core::WindowResizeDirection>>,
+    mut last_resize_cursor: Local<Option<mara_core::WindowResizeDirection>>,
 ) {
     let Ok((entity, mut window)) = primary_window.single_mut() else {
         return;
@@ -160,7 +160,7 @@ fn frost_window_chrome_system(
 
     let update = input_claim.state.update(
         &regions.regions,
-        frost_core::WindowChromeInput {
+        mara_core::WindowChromeInput {
             pointer_pos: Some(pos),
             window_size,
             primary_pressed: mouse.just_pressed(MouseButton::Left),
@@ -171,8 +171,8 @@ fn frost_window_chrome_system(
             // egui pass below.
             primary_down: None,
         },
-        frost_core::style::theme().window_chrome,
-        frost_core::WindowChromePolicy {
+        mara_core::style::theme().window_chrome,
+        mara_core::WindowChromePolicy {
             enabled: settings.enabled,
             resize: settings.resize,
             move_from_drag_regions: settings.move_from_drag_regions,
@@ -192,7 +192,7 @@ fn frost_window_chrome_system(
     }
 
     let resize_cursor = match hit {
-        Some(frost_core::WindowChromeHit::Resize(direction)) => Some(direction),
+        Some(mara_core::WindowChromeHit::Resize(direction)) => Some(direction),
         _ => None,
     };
     if resize_cursor != *last_resize_cursor {
@@ -210,11 +210,11 @@ fn frost_window_chrome_system(
     }
 
     let handled_native_chrome = match update.start {
-        Some(frost_core::WindowChromeHit::Resize(direction)) => {
+        Some(mara_core::WindowChromeHit::Resize(direction)) => {
             window.start_drag_resize(resize_direction_to_compass(direction));
             true
         }
-        Some(frost_core::WindowChromeHit::Move) => {
+        Some(mara_core::WindowChromeHit::Move) => {
             window.start_drag_move();
             true
         }
@@ -228,26 +228,26 @@ fn frost_window_chrome_system(
 
 fn sync_window_chrome_regions_system(
     mut egui_ctx_q: Query<&mut EguiContext, With<PrimaryEguiContext>>,
-    mut regions: ResMut<FrostWindowChromeRegions>,
+    mut regions: ResMut<MaraWindowChromeRegions>,
 ) {
     let Ok(mut egui_ctx) = egui_ctx_q.single_mut() else {
         return;
     };
-    regions.regions = frost_core::window_chrome_regions(egui_ctx.get_mut());
+    regions.regions = mara_core::window_chrome_regions(egui_ctx.get_mut());
 }
 
 fn release_window_chrome_claim_system(
     mut egui_ctx_q: Query<&mut EguiContext, With<PrimaryEguiContext>>,
-    settings: Res<FrostWindowChromeSettings>,
-    mut input_claim: ResMut<FrostWindowChromeInputClaim>,
+    settings: Res<MaraWindowChromeSettings>,
+    mut input_claim: ResMut<MaraWindowChromeInputClaim>,
 ) {
     let Ok(mut egui_ctx) = egui_ctx_q.single_mut() else {
         return;
     };
     let ctx = egui_ctx.get_mut();
-    frost_core::publish_window_chrome_host_capabilities(
+    mara_core::publish_window_chrome_host_capabilities(
         ctx,
-        frost_core::WindowChromeHostCapabilities {
+        mara_core::WindowChromeHostCapabilities {
             native_move: settings.enabled && settings.move_from_drag_regions,
             native_resize: settings.enabled && settings.resize,
         },

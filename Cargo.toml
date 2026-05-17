@@ -16,7 +16,7 @@ members = [
 version = "0.0.1"
 edition = "2024"
 license = "MIT"
-repository = "https://github.com/bresilla/bevy_frost"
+repository = "https://github.com/bresilla/bevy_mara"
 
 [workspace.dependencies]
 # Shared egui / egui-ecosystem dependency versions — every member
@@ -32,7 +32,7 @@ egui = { version = "0.33", default-features = false }
 # code host-agnostic.
 egui-wgpu = { version = "0.33", default-features = false }
 wgpu = { version = "27", default-features = false }
-# bevy + bevy_egui are only used by `bevy_frost`; listed here so
+# bevy + bevy_egui are only used by `bevy_mara`; listed here so
 # the version is managed in one place.
 bevy = { version = "0.18", default-features = false }
 bevy_egui = { version = "0.39", default-features = false }
@@ -44,31 +44,31 @@ bevy_egui = { version = "0.39", default-features = false }
 #   api_crates/   ← host-specific facades that wire the core crates
 #                    into Bevy / plain-egui apps
 #
-# `frost_core` — UI core (panes, ribbons, containers, pods, widgets,
-# theme, embed mechanism). Package id is `frost_core`, which avoids
+# `mara_core` — UI core (panes, ribbons, containers, pods, widgets,
+# theme, embed mechanism). Package id is `mara_core`, which avoids
 # shadowing Rust's std `core` in derive expansions.
-frost_core = { path = "core_crates/core", version = "0.0.1" }
-# `frost_graph` — standalone vendored node-graph crate (forked from
+mara_core = { path = "core_crates/core", version = "0.0.1" }
+# `mara_graph` — standalone vendored node-graph crate (forked from
 # `egui-snarl`, see `core_crates/modules/graph/ACKNOWLEDGEMENTS.md`
 # for upstream attribution). Usable in any egui app; ships
-# sensible defaults, no frost-theming dep.
-frost_graph = { path = "core_crates/modules/graph", version = "0.0.1" }
-# `frost_code` — standalone vendored egui_code_editor. Usable in
-# any egui app; ships sensible defaults, no frost-theming dep.
-frost_code = { path = "core_crates/modules/code", version = "0.0.1" }
-# `frost_image` — lightweight image viewer/editor proof module for
+# sensible defaults, no mara-theming dep.
+mara_graph = { path = "core_crates/modules/graph", version = "0.0.1" }
+# `mara_code` — standalone vendored egui_code_editor. Usable in
+# any egui app; ships sensible defaults, no mara-theming dep.
+mara_code = { path = "core_crates/modules/code", version = "0.0.1" }
+# `mara_image` — lightweight image viewer/editor proof module for
 # the new View + Module architecture.
-frost_image = { path = "core_crates/modules/image", version = "0.0.1" }
-# `frost_canvas` — retained-stroke whiteboard proof module for
+mara_image = { path = "core_crates/modules/image", version = "0.0.1" }
+# `mara_canvas` — retained-stroke whiteboard proof module for
 # recursive View + Module workspaces.
-frost_canvas = { path = "core_crates/modules/canvas", version = "0.0.1" }
+mara_canvas = { path = "core_crates/modules/canvas", version = "0.0.1" }
 
 # `mimalloc` — drop-in global allocator. egui's tessellator + shape
 # `Vec`s thrash the system allocator under heavy heap pressure;
 # Microsoft's `mimalloc` keeps fragmentation low and small-alloc
 # throughput high. egui issue #5587 documented going from
 # ~120 ms/frame to ~13 ms/frame purely by swapping allocator on
-# native targets. Wired up in `bevy_frost`'s demo via
+# native targets. Wired up in `bevy_mara`'s demo via
 # `#[global_allocator]`.
 mimalloc = { version = "0.1", default-features = false }
 

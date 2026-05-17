@@ -1,13 +1,13 @@
-//! `frost_canvas` — whiteboard/canvas proof module for Frost.
+//! `mara_canvas` — whiteboard/canvas proof module for Mara.
 //!
 //! The crate is intentionally small and host-agnostic. It proves the
 //! PLAN.md model where a document-like surface can be both a top-level
-//! [`frost_core::FrostView`] and an embeddable [`frost_core::FrostModule`]
+//! [`mara_core::MaraView`] and an embeddable [`mara_core::MaraModule`]
 //! that can enter L1/L2 module workspaces.
 
-use frost_core::{
-    FrostModule, FrostView, ModuleInlineCtx, ModuleResponse, RibbonAction, RibbonCluster,
-    RibbonEdge, RibbonOverrideLayer, RibbonOverridePolicy, RibbonScope, RibbonSlot, RibbonSlotDef,
+use mara_core::{
+    MaraModule, MaraView, ModuleInlineCtx, ModuleResponse, RibbonAction, RibbonCluster, RibbonEdge,
+    RibbonOverrideLayer, RibbonOverridePolicy, RibbonScope, RibbonSlot, RibbonSlotDef,
     RibbonSlotId, RibbonSlotItem, ViewCtx, ViewId, WorkspaceBar, WorkspaceBarCluster,
     WorkspaceBarEdge, WorkspaceBarItem, WorkspaceCtx,
 };
@@ -87,18 +87,18 @@ impl CanvasSurface {
         );
         let (response, painter) = ui.allocate_painter(desired, egui::Sense::drag());
         let rect = response.rect;
-        let accent = frost_core::style::active_accent();
-        let radius = frost_core::style::radius_for(frost_core::style::RadiusRole::Section);
+        let accent = mara_core::style::active_accent();
+        let radius = mara_core::style::radius_for(mara_core::style::RadiusRole::Section);
 
         painter.rect_filled(
             rect,
             radius,
-            frost_core::style::fill_for(frost_core::style::FillRole::Pane, accent),
+            mara_core::style::fill_for(mara_core::style::FillRole::Pane, accent),
         );
         painter.rect_stroke(
             rect,
             radius,
-            frost_core::style::stroke_for(frost_core::style::StrokeRole::WidgetBorder, accent),
+            mara_core::style::stroke_for(mara_core::style::StrokeRole::WidgetBorder, accent),
             egui::StrokeKind::Inside,
         );
 
@@ -142,7 +142,7 @@ impl CanvasSurface {
                 egui::Align2::CENTER_CENTER,
                 format!("{}\ndrag to draw", self.doc.title),
                 egui::FontId::proportional(13.0),
-                frost_core::style::on_panel_dim(),
+                mara_core::style::on_panel_dim(),
             );
         }
     }
@@ -183,7 +183,7 @@ impl CanvasSurface {
     }
 }
 
-impl FrostView for CanvasSurface {
+impl MaraView for CanvasSurface {
     fn id(&self) -> ViewId {
         ViewId(self.id)
     }
@@ -211,7 +211,7 @@ impl FrostView for CanvasSurface {
     }
 }
 
-impl FrostModule for CanvasSurface {
+impl MaraModule for CanvasSurface {
     fn id(&self) -> egui::Id {
         self.id
     }
@@ -266,16 +266,16 @@ impl FrostModule for CanvasSurface {
 mod tests {
     use super::*;
 
-    fn assert_view<T: FrostView>(_value: &T) {}
-    fn assert_module<T: FrostModule>(_value: &T) {}
+    fn assert_view<T: MaraView>(_value: &T) {}
+    fn assert_module<T: MaraModule>(_value: &T) {}
 
     #[test]
     fn canvas_surface_is_both_view_and_module() {
         let surface = CanvasSurface::new("canvas", CanvasDocument::new("Whiteboard"));
         assert_view(&surface);
         assert_module(&surface);
-        assert_eq!(FrostView::title(&surface), "Whiteboard");
-        assert_eq!(FrostModule::icon(&surface), "draw");
+        assert_eq!(MaraView::title(&surface), "Whiteboard");
+        assert_eq!(MaraModule::icon(&surface), "draw");
     }
 
     #[test]

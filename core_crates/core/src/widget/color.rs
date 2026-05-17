@@ -1,4 +1,4 @@
-//! Frost-styled colour swatch + inline picker.
+//! Mara-styled colour swatch + inline picker.
 //!
 //! Two entry points:
 //!
@@ -31,7 +31,7 @@ pub fn color_rgb(
     rgb: &mut [f32; 3],
     accent: egui::Color32,
 ) -> egui::Response {
-    let id = ui.id().with(("frost_color_expand", label));
+    let id = ui.id().with(("mara_color_expand", label));
     let mut open: bool = ui.ctx().data(|d| d.get_temp::<bool>(id).unwrap_or(false));
 
     let preview = egui::Color32::from_rgb(to_u8(rgb[0]), to_u8(rgb[1]), to_u8(rgb[2]));
@@ -72,7 +72,7 @@ pub fn color_rgba(
     rgba: &mut [f32; 4],
     accent: egui::Color32,
 ) -> egui::Response {
-    let id = ui.id().with(("frost_color_expand", label));
+    let id = ui.id().with(("mara_color_expand", label));
     let mut open: bool = ui.ctx().data(|d| d.get_temp::<bool>(id).unwrap_or(false));
 
     let preview = egui::Color32::from_rgba_unmultiplied(
@@ -145,7 +145,7 @@ fn labelled_swatch(
     );
     let resp = ui.interact(
         swatch_rect,
-        ui.id().with(("frost_color_swatch", label)),
+        ui.id().with(("mara_color_swatch", label)),
         egui::Sense::click(),
     );
     let border = if open || resp.hovered() {

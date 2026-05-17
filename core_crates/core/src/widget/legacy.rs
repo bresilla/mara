@@ -1,7 +1,7 @@
 //! Legacy free-function widget aliases — keeps source compatibility
-//! with apps written against `frostcore::widgets::*` while the new
+//! with apps written against `maracore::widgets::*` while the new
 //! pod-driven API stabilises. Each function here delegates to its
-//! frost_core equivalent (or wraps a small composite) so consumers can
+//! mara_core equivalent (or wraps a small composite) so consumers can
 //! keep calling the old names verbatim.
 
 use egui::Sense;
@@ -25,7 +25,7 @@ pub fn sub_caption(ui: &mut egui::Ui, text: &str) {
 // ─── Layout helper ──────────────────────────────────────────────────
 
 /// Width of the label column for [`labelled_row`]. Same value the
-/// legacy `frostcore::widgets::row` shipped with — wide enough for
+/// legacy `maracore::widgets::row` shipped with — wide enough for
 /// typical labels at body font size.
 pub const LABEL_COL_WIDTH: f32 = 140.0;
 
@@ -78,8 +78,8 @@ pub fn labelled_row_custom_left(
 
 // ─── Standalone widget aliases ─────────────────────────────────────
 //
-// These are name-only redirects to the canonical frost_core widgets
-// — provided so the old `frostcore::widgets::*` call sites compile
+// These are name-only redirects to the canonical mara_core widgets
+// — provided so the old `maracore::widgets::*` call sites compile
 // without source edits. New code should call the canonical name
 // (`button`, `readout`, `slider`, `dropdown`, `text_input`).
 
@@ -95,7 +95,7 @@ pub fn readout_row(ui: &mut egui::Ui, label: &str, value: &str) -> egui::Respons
 }
 
 /// Search-styled text input. Mirrors the legacy
-/// `frostcore::widgets::search_field` signature — caller provides a
+/// `maracore::widgets::search_field` signature — caller provides a
 /// mutable buffer + placeholder + accent and gets the underlying
 /// `egui::Response` back.
 pub fn search_field(
@@ -136,7 +136,7 @@ pub fn dropdown_control<H: std::hash::Hash>(
 }
 
 /// 1px hairline separator across the available row width — matches
-/// the legacy `frostcore::widgets::row_separator` look.
+/// the legacy `maracore::widgets::row_separator` look.
 pub fn row_separator(ui: &mut egui::Ui) {
     let avail_w = ui.available_width();
     let h = 1.0;
@@ -149,7 +149,7 @@ pub fn row_separator(ui: &mut egui::Ui) {
     );
 }
 
-/// Frosted-glass key chip used inline by [`crate::widget::keybinding_row`].
+/// Mara glass key chip used inline by [`crate::widget::keybinding_row`].
 /// Exposed standalone so apps can drop a single key chip into a
 /// custom row layout.
 pub fn key_chip(ui: &mut egui::Ui, keys: &str) -> egui::Response {

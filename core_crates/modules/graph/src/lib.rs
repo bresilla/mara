@@ -1,4 +1,4 @@
-//! # frost_graph
+//! # mara_graph
 //!
 //! Standalone node-graph crate for egui. Vendored fork upstream
 //! plus a sharp-zoom [`node_view`] helper that renders the graph
@@ -7,15 +7,15 @@
 //!
 //! The crate is theme-neutral: it ships [`default_graph_style`] as
 //! a sensible egui-default starting point, and lets the caller
-//! configure everything else. Frost-tinted styling lives in the
-//! `frost_core` crate behind the optional `graph` feature, which
+//! configure everything else. Mara-tinted styling lives in the
+//! `mara_core` crate behind the optional `graph` feature, which
 //! depends on this crate and wires the embed / maximise affordance
 //! on top.
 //!
 //! Use it standalone:
 //!
 //! ```ignore
-//! use frost_graph::{Graph, GraphWidget, NodeViewer, default_graph_style};
+//! use mara_graph::{Graph, GraphWidget, NodeViewer, default_graph_style};
 //!
 //! let style = default_graph_style();
 //! GraphWidget::new()
@@ -38,7 +38,7 @@ pub use vendored::{
 
 pub use node_view::{NodeViewBackend, NodeViewState, show, show_with_anchor};
 
-/// A [`GraphStyle`] with library defaults — no frost theming, just
+/// A [`GraphStyle`] with library defaults — no mara theming, just
 /// `GraphStyle::new()`. Use this for a vanilla node graph that
 /// inherits whatever style the parent `egui::Context` carries.
 #[must_use]

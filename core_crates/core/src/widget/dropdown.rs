@@ -1,4 +1,4 @@
-//! Frost-styled dropdown — a single-select trigger with a popup list.
+//! Mara-styled dropdown — a single-select trigger with a popup list.
 //!
 //! Shape:
 //!
@@ -161,7 +161,7 @@ pub fn dropdown_h(
 
     // Stable id for the popup so its open-state survives across
     // frames. `id_salt` disambiguates sibling dropdowns.
-    let trigger_id = ui.id().with(("frost_dropdown", &id_salt));
+    let trigger_id = ui.id().with(("mara_dropdown", &id_salt));
     let resp_with_id = egui::Response {
         id: trigger_id,
         ..resp.clone()

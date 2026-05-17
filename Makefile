@@ -32,7 +32,7 @@ EXAMPLE ?= demo
 # SAME package + example so `make check` doesn't drag the whole workspace
 # and then make `run` feel like a cold build. Full-workspace gates live
 # under `check-all` / `test-all` / `harden`.
-APP_PKG ?= bevy_frost
+APP_PKG ?= bevy_mara
 APP_TARGET := -p $(APP_PKG) --example $(EXAMPLE)
 
 # Per-backend launch env. X11: clear the Wayland vars so winit can't be
@@ -85,7 +85,7 @@ run:
 
 smoke-gui:
 	@set -euo pipefail; \
-	log="$${TMPDIR:-/tmp}/bevy_frost_gui_smoke.log"; \
+	log="$${TMPDIR:-/tmp}/bevy_mara_gui_smoke.log"; \
 	rm -f "$$log"; \
 	( $(X11_ENV) $(RUN_WITH) $(CARGO) run $(APP_TARGET) >"$$log" 2>&1 ) & \
 	pid=$$!; \
@@ -93,7 +93,7 @@ smoke-gui:
 	deadline=$$((SECONDS + 20)); \
 	found=""; \
 	while [ $$SECONDS -lt $$deadline ]; do \
-		if $(X11_ENV) xwininfo -root -tree 2>/dev/null | grep -F "bevy_frost — $(EXAMPLE)" >/dev/null; then \
+		if $(X11_ENV) xwininfo -root -tree 2>/dev/null | grep -F "bevy_mara — $(EXAMPLE)" >/dev/null; then \
 			found=1; \
 			break; \
 		fi; \
@@ -118,7 +118,7 @@ smoke-gui:
 		cat "$$log"; \
 		exit 1; \
 	fi; \
-	echo "GUI smoke passed: bevy_frost — $(EXAMPLE) window appeared and stayed alive"; \
+	echo "GUI smoke passed: bevy_mara — $(EXAMPLE) window appeared and stayed alive"; \
 	cat "$$log"
 
 # Phase 2 of `PLAN_NEWUI.md` — flex-based pane2 example. Empty
@@ -133,10 +133,10 @@ run-newui:
 # out of the box on nix systems; override with `RUN_WITH=` on
 # distros with a native Vulkan driver.
 run-egui:
-	@DISPLAY=$(DISPLAY) $(RUN_WITH) $(CARGO) run -p egui_frost --example egui_demo
+	@DISPLAY=$(DISPLAY) $(RUN_WITH) $(CARGO) run -p egui_mara --example egui_demo
 
-# Web (wasm32) target — `egui_frost` compiled to WebAssembly and
-# served in a browser via `trunk`. The frost UI core is host-agnostic
+# Web (wasm32) target — `egui_mara` compiled to WebAssembly and
+# served in a browser via `trunk`. The mara UI core is host-agnostic
 # egui, so the same ribbons / panes / widgets `run-egui` shows
 # natively render here unchanged. The nix devshell provides the
 # `wasm32-unknown-unknown` target + `trunk`; outside nix, run once:
@@ -192,7 +192,7 @@ help:
 	@echo "  build        Build the $(EXAMPLE) example"
 	@echo "  compile      Clean and rebuild"
 	@echo "  run          Run the $(EXAMPLE) example ($(BACKEND) backend, $(RUN_WITH) wrapper)"
-	@echo "  serve-web    Serve the egui_frost UI in a browser (trunk, wasm32)"
+	@echo "  serve-web    Serve the egui_mara UI in a browser (trunk, wasm32)"
 	@echo "  build-web    Build the wasm bundle to api_crates/web/dist"
 	@echo "  smoke-gui    Run the example briefly and verify its X11 window appears"
 	@echo "  test         Test the same app target as build/run ($(APP_PKG) example $(EXAMPLE))"

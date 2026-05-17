@@ -1,14 +1,14 @@
-//! # egui_frost — plain-egui facade for the frost UI kit.
+//! # egui_mara — plain-egui facade for the mara UI kit.
 //!
-//! Mirrors `bevy_frost`, minus the Bevy bits. Re-exports every
-//! public item from [`frost_core`] verbatim and adds a single
+//! Mirrors `bevy_mara`, minus the Bevy bits. Re-exports every
+//! public item from [`mara_core`] verbatim and adds a single
 //! convenience helper ([`apply_theme_now`]) so `eframe` apps can
-//! one-line the per-frame theme refresh that `bevy_frost`'s
+//! one-line the per-frame theme refresh that `bevy_mara`'s
 //! `ThemePlugin` does automatically.
 //!
 //! ```ignore
 //! use eframe::egui;
-//! use egui_frost::prelude::*;
+//! use egui_mara::prelude::*;
 //!
 //! struct App {
 //!     accent: AccentColor,
@@ -27,31 +27,31 @@
 //! ```
 //!
 //! Plain-egui hosts don't get the Bevy-side input firewall
-//! (`bevy_frost::EguiInputAbsorbPlugin`) — they don't need it,
+//! (`bevy_mara::EguiInputAbsorbPlugin`) — they don't need it,
 //! since `eframe` doesn't have a 3D scene competing for the same
 //! pointer events.
 
-pub use frost_core::*;
+pub use mara_core::*;
 
-/// Per-frame theme refresh — wraps [`frost_core::style::set_glass_opacity`]
-/// and [`frost_core::style::apply_theme`] so eframe `update` methods
+/// Per-frame theme refresh — wraps [`mara_core::style::set_glass_opacity`]
+/// and [`mara_core::style::apply_theme`] so eframe `update` methods
 /// can stay one-liners. Idempotent; safe to call every frame.
 pub fn apply_theme_now(
     ctx: &egui::Context,
-    accent: frost_core::style::AccentColor,
-    glass: frost_core::style::GlassOpacity,
+    accent: mara_core::style::AccentColor,
+    glass: mara_core::style::GlassOpacity,
 ) {
-    frost_core::style::set_glass_opacity(glass.0);
-    frost_core::style::apply_theme(ctx, accent, glass);
+    mara_core::style::set_glass_opacity(glass.0);
+    mara_core::style::apply_theme(ctx, accent, glass);
 }
 
-/// Glob-import. Mirrors `bevy_frost::prelude` — apps that flip
+/// Glob-import. Mirrors `bevy_mara::prelude` — apps that flip
 /// between Bevy and eframe hosts get the same module surface
 /// from `<facade>::prelude::*` and only the `main` differs.
 pub mod prelude {
     pub use super::EframeNodeViewBackend;
     pub use super::apply_theme_now;
-    pub use frost_core::*;
+    pub use mara_core::*;
 }
 
 /// `NodeViewBackend` impl backed by eframe's `egui_wgpu::RenderState`.
@@ -66,9 +66,9 @@ pub mod prelude {
 /// ```ignore
 /// fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
 ///     let render_state = frame.wgpu_render_state().expect("wgpu");
-///     let mut backend = egui_frost::EframeNodeViewBackend::new(render_state);
+///     let mut backend = egui_mara::EframeNodeViewBackend::new(render_state);
 ///     egui::CentralPanel::default().show(ctx, |ui| {
-///         frost_core::extras::graph::frost_node_graph(
+///         mara_core::extras::graph::mara_node_graph(
 ///             ui, &mut self.node_view_state, &mut backend,
 ///             &mut self.graph, &mut self.viewer,
 ///             accent, ui.available_size(),
@@ -86,7 +86,7 @@ impl<'a> EframeNodeViewBackend<'a> {
     }
 }
 
-impl<'a> frost_core::extras::node_view::NodeViewBackend for EframeNodeViewBackend<'a> {
+impl<'a> mara_core::extras::node_view::NodeViewBackend for EframeNodeViewBackend<'a> {
     fn wgpu(&self) -> (wgpu::Device, wgpu::Queue) {
         // `wgpu::Device` / `Queue` are cheap to clone in wgpu 27 —
         // internally Arc-counted handles to the same backend

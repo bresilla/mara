@@ -119,7 +119,7 @@ pub fn body_openness(ctx: &egui::Context, pane_id: Id) -> f32 {
 pub fn user_flow(ctx: &egui::Context, pane_id: Id) -> f32 {
     sanitize_user_extent(
         ctx.data_mut(|d| {
-            d.get_persisted::<f32>(pane_id.with("frost_pane_user_body_main"))
+            d.get_persisted::<f32>(pane_id.with("mara_pane_user_body_main"))
                 .unwrap_or(DEFAULT_FLOW_OPEN)
         }),
         DEFAULT_FLOW_OPEN,
@@ -133,7 +133,7 @@ pub fn user_flow(ctx: &egui::Context, pane_id: Id) -> f32 {
 pub fn set_user_flow(ctx: &egui::Context, pane_id: Id, value: f32) {
     let clamped = sanitize_user_extent(value, DEFAULT_FLOW_OPEN, MIN_USER_FLOW, MAX_USER_FLOW);
     ctx.data_mut(|d| {
-        d.insert_persisted(pane_id.with("frost_pane_user_body_main"), clamped);
+        d.insert_persisted(pane_id.with("mara_pane_user_body_main"), clamped);
     });
 }
 
@@ -144,7 +144,7 @@ pub fn set_user_flow(ctx: &egui::Context, pane_id: Id, value: f32) {
 pub fn user_span(ctx: &egui::Context, pane_id: Id) -> f32 {
     sanitize_user_extent(
         ctx.data_mut(|d| {
-            d.get_persisted::<f32>(pane_id.with("frost_pane_user_cross_main"))
+            d.get_persisted::<f32>(pane_id.with("mara_pane_user_cross_main"))
                 .unwrap_or(PANE_OUTER_SPAN)
         }),
         PANE_OUTER_SPAN,
@@ -158,7 +158,7 @@ pub fn user_span(ctx: &egui::Context, pane_id: Id) -> f32 {
 pub fn set_user_span(ctx: &egui::Context, pane_id: Id, value: f32) {
     let clamped = sanitize_user_extent(value, PANE_OUTER_SPAN, MIN_USER_SPAN, MAX_USER_SPAN);
     ctx.data_mut(|d| {
-        d.insert_persisted(pane_id.with("frost_pane_user_cross_main"), clamped);
+        d.insert_persisted(pane_id.with("mara_pane_user_cross_main"), clamped);
     });
 }
 
@@ -216,15 +216,15 @@ impl PaneResize {
 /// Multiple panes' bodies run sequentially within a frame so the
 /// pointer is well-defined while any one body callback runs.
 pub fn active_pane_key() -> Id {
-    Id::new("frost_active_pane_id")
+    Id::new("mara_active_pane_id")
 }
 
 pub(crate) fn active_tabbed_container_rect_key() -> Id {
-    Id::new("frost_active_tabbed_container_rect")
+    Id::new("mara_active_tabbed_container_rect")
 }
 
 pub(crate) fn active_container_frame_rect_key() -> Id {
-    Id::new("frost_active_container_frame_rect")
+    Id::new("mara_active_container_frame_rect")
 }
 
 /// Toggle the pane's body open state. Called from the container's
@@ -271,11 +271,11 @@ pub fn fold_version(ctx: &egui::Context, pane_id: Id) -> u64 {
 }
 
 fn container_mins_key(pane_id: Id) -> Id {
-    pane_id.with("frost_pane_container_min_widths")
+    pane_id.with("mara_pane_container_min_widths")
 }
 
 fn container_min_flows_key(pane_id: Id) -> Id {
-    pane_id.with("frost_pane_container_min_flows")
+    pane_id.with("mara_pane_container_min_flows")
 }
 
 /// Read the list of container min widths registered against `pane_id`
@@ -316,11 +316,11 @@ pub(crate) fn clear_container_min_widths(ctx: &egui::Context, pane_id: Id) {
 }
 
 fn container_cids_key(pane_id: Id) -> Id {
-    pane_id.with("frost_pane_container_cids")
+    pane_id.with("mara_pane_container_cids")
 }
 
 fn body_extra_flow_key(pane_id: Id) -> Id {
-    pane_id.with("frost_pane_body_extra_flow")
+    pane_id.with("mara_pane_body_extra_flow")
 }
 
 /// Read the list of container CIDs registered against `pane_id`
@@ -382,13 +382,13 @@ pub fn publish_body_extra_flow(ctx: &egui::Context, pane_id: Id, flow: f32) {
 
 /// Global ctx-data key under which every [`Pane::show`] call
 /// publishes its painted rect each frame. Read by host integrations
-/// (e.g. `bevy_frost::EguiInputAbsorbPlugin`) to decide whether the
-/// cursor is currently over an interactable frost pane — a
+/// (e.g. `bevy_mara::EguiInputAbsorbPlugin`) to decide whether the
+/// cursor is currently over an interactable mara pane — a
 /// reliable substitute for `egui::Context::layer_id_at`, which has
 /// too many edge cases (modal handling, ribbon button tooltip
 /// areas, …) to use as a "is the cursor over the UI?" check.
 fn published_pane_rects_key() -> Id {
-    Id::new("frost_published_pane_rects")
+    Id::new("mara_published_pane_rects")
 }
 
 /// Read every pane's painted rect that was published THIS FRAME.
@@ -402,7 +402,7 @@ pub fn published_pane_rects(ctx: &egui::Context) -> Vec<egui::Rect> {
 
 /// Clear the global pane-rects list unconditionally. Host
 /// integrations call this once per frame BEFORE any `Pane::show`
-/// runs (e.g. the bevy_frost firewall, after it has consumed the
+/// runs (e.g. the bevy_mara firewall, after it has consumed the
 /// previous frame's rects), so the list reflects ONLY panes that
 /// actually painted in the most recent egui pass — without this,
 /// closing every visible pane leaves the last-seen rects stuck in
@@ -432,7 +432,7 @@ fn publish_pane_rect(ctx: &egui::Context, rect: egui::Rect) {
 /// list resets the first time `Pane::show` is called in a new
 /// pass and stays accumulating until the next pass starts.
 fn maybe_reset_published_pane_rects(ctx: &egui::Context) {
-    let key = Id::new("frost_published_pane_rects_pass");
+    let key = Id::new("mara_published_pane_rects_pass");
     let now = ctx.cumulative_pass_nr();
     let last: u64 = ctx.data(|d| d.get_temp(key)).unwrap_or(u64::MAX);
     if last != now {
@@ -456,7 +456,7 @@ pub const RAIL_INSET: f32 = crate::ribbon::EDGE_GAP + crate::ribbon::SIDE_BTN_SI
 /// ribbons have been drawn yet (conservative default — reserve
 /// space for ribbons on every side until we know better).
 pub fn published_ribbon_edges(ctx: &egui::Context) -> [bool; 4] {
-    ctx.data(|d| d.get_temp::<[bool; 4]>(egui::Id::new("frost_published_ribbon_edges")))
+    ctx.data(|d| d.get_temp::<[bool; 4]>(egui::Id::new("mara_published_ribbon_edges")))
         .unwrap_or([true; 4])
 }
 
@@ -538,7 +538,7 @@ impl Pane {
             PANE_OUTER_SPAN
         };
 
-        // ── Per-pane staggered fade-in clock (port of frostcore's
+        // ── Per-pane staggered fade-in clock (port of maracore's
         //    `PaneBuilder::pane_open_elapsed`) ──
         //
         // Tracks elapsed seconds since this pane became visible.
@@ -548,8 +548,8 @@ impl Pane {
         // clock to 0. Stored under `self.id.with(...)` so each
         // pane has its own independent timer.
         let pane_open_elapsed: f32 = {
-            let frame_key = self.id.with("frost_pane_anim_frame");
-            let state_key = self.id.with("frost_pane_anim_elapsed");
+            let frame_key = self.id.with("mara_pane_anim_frame");
+            let state_key = self.id.with("mara_pane_anim_elapsed");
             let frame_now = ctx.cumulative_pass_nr();
             let last_frame: u64 = ctx.data(|d| d.get_temp(frame_key)).unwrap_or(0);
             let mut elapsed: f32 = ctx.data(|d| d.get_temp(state_key)).unwrap_or(99.0);
@@ -577,8 +577,8 @@ impl Pane {
         // CONTAINER's id, not Pane's) can find its parent pane.
         ctx.data_mut(|d| {
             d.insert_temp(active_pane_key(), self.id);
-            d.insert_temp(self.id.with("frost_pane_open_elapsed"), pane_open_elapsed);
-            d.insert_temp(self.id.with("frost_pane_section_idx"), 0u32);
+            d.insert_temp(self.id.with("mara_pane_open_elapsed"), pane_open_elapsed);
+            d.insert_temp(self.id.with("mara_pane_section_idx"), 0u32);
         });
         // Auto-grow the user-resized extents to satisfy the previous
         // frame's container min widths. Without this, a vertical-strip
@@ -846,7 +846,7 @@ impl Pane {
         // symptom. We keep `user_span` unmodified so the user's
         // drag intent survives a window-shrink + re-enlarge cycle.
         ctx.data_mut(|d| {
-            d.insert_temp::<f32>(self.id.with("frost_pane_effective_span"), span_outer);
+            d.insert_temp::<f32>(self.id.with("mara_pane_effective_span"), span_outer);
         });
 
         let outer_size = if horizontal_strip {
@@ -906,7 +906,7 @@ impl Pane {
         // bounds, so a single frame of growth still renders fully
         // — only growth that exceeds last frame's paint by more than
         // one frame would clip, which is the rare transient.
-        let clip_key = pane_id.with("frost_pane_painted_rect_for_clip");
+        let clip_key = pane_id.with("mara_pane_painted_rect_for_clip");
         let last_painted_rect: egui::Rect = ctx
             .data(|d| d.get_temp::<egui::Rect>(clip_key))
             .unwrap_or(pane_rect);
@@ -1030,8 +1030,8 @@ impl Pane {
                 }
                 // Publish this pane's painted rect to the global
                 // ctx-data list so host integrations (e.g.
-                // `bevy_frost::EguiInputAbsorbPlugin`) can ask
-                // "is the cursor over any frost pane?" without
+                // `bevy_mara::EguiInputAbsorbPlugin`) can ask
+                // "is the cursor over any mara pane?" without
                 // going through egui's quirky `layer_id_at`.
                 maybe_reset_published_pane_rects(outer_ui.ctx());
                 publish_pane_rect(outer_ui.ctx(), painted_rect.get());
@@ -1098,7 +1098,7 @@ impl Pane {
         // Cross axis = the dimension the title strip spans. Tracks
         // the SAME `span_outer` value `Pane::show` used to size
         // the pane Area. `Pane::show` publishes the post-clamp
-        // effective span under `frost_pane_effective_span` for this
+        // effective span under `mara_pane_effective_span` for this
         // pane id; that value already accounts for the screen-edge
         // / perpendicular-ribbon clamp so the Frame paints flush
         // with the Area's clipped rect. Falling back to the raw
@@ -1106,7 +1106,7 @@ impl Pane {
         // first frame before `show` has published.
         let span_outer = ui
             .ctx()
-            .data(|d| d.get_temp::<f32>(id.with("frost_pane_effective_span")))
+            .data(|d| d.get_temp::<f32>(id.with("mara_pane_effective_span")))
             .unwrap_or_else(|| {
                 if resize.span {
                     user_span(ui.ctx(), id)
@@ -1332,7 +1332,7 @@ fn paint_resize_handles(
     let title_side = anchor.title_side();
     let horizontal_strip = title_side.is_horizontal_strip();
     let zone = anchor.zone();
-    egui::Area::new(pane_id.with("frost_pane_resize_handles_area"))
+    egui::Area::new(pane_id.with("mara_pane_resize_handles_area"))
         .order(egui::Order::Middle)
         .fixed_pos(pane_rect.min)
         // Force the Area to cover the WHOLE pane every frame.
@@ -1493,7 +1493,7 @@ fn paint_resize_handles_inner(
                 egui::pos2(pane_rect.min.x + t, pane_rect.max.y),
             ),
         };
-        let id = pane_id.with("frost_pane_resize_main");
+        let id = pane_id.with("mara_pane_resize_main");
         let resp = ui.interact(handle_rect, id, Sense::click_and_drag());
         let hovered = resp.hovered();
         let dragged = resp.dragged();
@@ -1607,20 +1607,20 @@ fn paint_resize_handles_inner(
         match span_align {
             egui::Align::Min => {
                 // cross-min anchored → grow from cross-max edge.
-                handle_one(span_max_rect, "frost_pane_resize_cross_max", 1.0, 1.0);
+                handle_one(span_max_rect, "mara_pane_resize_cross_max", 1.0, 1.0);
             }
             egui::Align::Max => {
                 // cross-max anchored → grow from cross-min edge
                 // (drag in the negative direction = grow → flip
                 // sign).
-                handle_one(span_min_rect, "frost_pane_resize_cross_min", -1.0, 1.0);
+                handle_one(span_min_rect, "mara_pane_resize_cross_min", -1.0, 1.0);
             }
             egui::Align::Center => {
                 // Centred on cross — both edges move symmetrically
                 // about the centre, so each handle's drag delta
                 // contributes 2× to the cross extent.
-                handle_one(span_max_rect, "frost_pane_resize_cross_max", 1.0, 2.0);
-                handle_one(span_min_rect, "frost_pane_resize_cross_min", -1.0, 2.0);
+                handle_one(span_max_rect, "mara_pane_resize_cross_max", 1.0, 2.0);
+                handle_one(span_min_rect, "mara_pane_resize_cross_min", -1.0, 2.0);
             }
         }
     }

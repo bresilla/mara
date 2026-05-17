@@ -1,4 +1,4 @@
-//! Frost-styled separator. Two style variants × two orientations:
+//! Mara-styled separator. Two style variants × two orientations:
 //!
 //! * [`SeparatorStyle::Line`] — thin hairline rule. Pure visual cue,
 //!   no interaction.
@@ -54,7 +54,7 @@ const DOT_SPACING: f32 = 5.0;
 /// proportionate to the 1-px stroke width of the flanking rules.
 const DOT_R: f32 = 0.9;
 /// Stroke width for the line / flanking rules. Same width every
-/// other frost surface uses for its outline so the separator reads
+/// other mara surface uses for its outline so the separator reads
 /// as part of the same border family.
 const RULE_W: f32 = 1.0;
 /// Inset from the edge of the parent ui where the line / flanking
@@ -125,7 +125,7 @@ pub fn paint_separator_resize(
     accent: Color32,
 ) -> Response {
     let rect = allocate_strip(ui, orient);
-    let id = ui.id().with(("frost_separator_resize", id_salt));
+    let id = ui.id().with(("mara_separator_resize", id_salt));
     let cursor = match orient {
         SeparatorOrient::Horizontal => egui::CursorIcon::ResizeVertical,
         SeparatorOrient::Vertical => egui::CursorIcon::ResizeHorizontal,

@@ -1,9 +1,9 @@
-//! Frost-styled binary on/off toggle in a labelled row layout.
+//! Mara-styled binary on/off toggle in a labelled row layout.
 //! Label on the left, pill track + sliding knob on the right —
 //! row total height = 1U ([`crate::style::UNIT`]) by default.
 //!
-//! Mirrors `frostcore::widgets::toggle::toggle` (the row-with-label
-//! variant — `frostcore`'s naked `toggle_control` corresponds to
+//! Mirrors `maracore::widgets::toggle::toggle` (the row-with-label
+//! variant — `maracore`'s naked `toggle_control` corresponds to
 //! [`toggle_track_only`] here).
 
 use crate::style::{
@@ -12,10 +12,10 @@ use crate::style::{
 };
 
 /// Default toggle row height. Matches
-/// `frostcore::widgets::toggle::H = 18` so the frost_core toggle
-/// lines up with frostcore at the same scale.
+/// `maracore::widgets::toggle::H = 18` so the mara_core toggle
+/// lines up with maracore at the same scale.
 pub const TOGGLE_ROW_H: f32 = 18.0;
-/// Track width — matches `frostcore::widgets::toggle::W = 38`.
+/// Track width — matches `maracore::widgets::toggle::W = 38`.
 pub const TOGGLE_TRACK_W: f32 = 38.0;
 
 /// Default labelled toggle row.
@@ -41,7 +41,7 @@ pub fn toggle_h(
     let toggle = theme().widgets.toggle;
     let total_w = ui.available_width();
     let (row_rect, _) = ui.allocate_exact_size(egui::vec2(total_w, height), egui::Sense::hover());
-    // Track keeps the original 38×18 frostcore proportions when
+    // Track keeps the original 38×18 maracore proportions when
     // the row is at default height; scales linearly otherwise.
     let scale = height / toggle.row_h;
     let track_w = (toggle.track_w * scale).round();
@@ -49,7 +49,7 @@ pub fn toggle_h(
         egui::pos2(row_rect.right() - track_w, row_rect.top()),
         egui::vec2(track_w, height),
     );
-    let id = ui.id().with(("frost_toggle", label));
+    let id = ui.id().with(("mara_toggle", label));
     let mut resp = ui
         .interact(track_rect, id, egui::Sense::click())
         .on_hover_cursor(egui::CursorIcon::PointingHand);

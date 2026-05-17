@@ -1,6 +1,6 @@
 use crate::workspace::WorkspaceStack;
 
-use super::{FrostView, ViewId};
+use super::{MaraView, ViewId};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ViewRouterError {
@@ -13,14 +13,14 @@ pub struct ViewEntry {
     pub title: String,
     pub icon: &'static str,
     pub workspace: WorkspaceStack,
-    pub view: Box<dyn FrostView + Send + Sync>,
+    pub view: Box<dyn MaraView + Send + Sync>,
 }
 
 impl ViewEntry {
     #[must_use]
     pub fn new<V>(view: V) -> Self
     where
-        V: FrostView + Send + Sync + 'static,
+        V: MaraView + Send + Sync + 'static,
     {
         let id = view.id();
         let title = view.title().to_owned();
@@ -31,7 +31,7 @@ impl ViewEntry {
             id,
             title,
             icon,
-            workspace: WorkspaceStack::new(egui::Id::new(("frost_view_workspace", id.0))),
+            workspace: WorkspaceStack::new(egui::Id::new(("mara_view_workspace", id.0))),
             view: Box::new(view),
         }
     }
@@ -54,7 +54,7 @@ impl ViewRouter {
     #[must_use]
     pub fn new<V>(view: V) -> Self
     where
-        V: FrostView + Send + Sync + 'static,
+        V: MaraView + Send + Sync + 'static,
     {
         let mut router = Self::empty();
         router.register(view);
@@ -63,7 +63,7 @@ impl ViewRouter {
 
     pub fn register<V>(&mut self, view: V) -> ViewId
     where
-        V: FrostView + Send + Sync + 'static,
+        V: MaraView + Send + Sync + 'static,
     {
         let entry = ViewEntry::new(view);
         let id = entry.id;

@@ -4,7 +4,7 @@
 //! ## Usage with egui
 //!
 //! ```ignore
-//! use frost_code::{CodeEditor, ColorTheme, Syntax};
+//! use mara_code::{CodeEditor, ColorTheme, Syntax};
 //!
 //! CodeEditor::default()
 //!   .id_source("code editor")
@@ -30,7 +30,7 @@
 //!
 //! ```ignore
 //! use colorful::{Color, Colorful};
-//! use frost_code::{Syntax, Token, TokenType};
+//! use mara_code::{Syntax, Token, TokenType};
 //!
 //! fn color(token: TokenType) -> Color {
 //!     match token {

@@ -59,7 +59,7 @@ pub enum TreeIconKind {
     /// at `12 px`. Use for icons you don't want to hand-paint.
     Glyph { on: &'static str, off: &'static str },
     /// Read-only colour swatch — a filled rounded square in the
-    /// given colour, with the standard frost border stroke. The
+    /// given colour, with the standard mara border stroke. The
     /// slot's `state: &mut bool` is ignored for this variant
     /// (still required by the slice shape — pass any `&mut bool`);
     /// the icon response is returned in [`TreeRowResponse::icons`]
@@ -146,13 +146,13 @@ pub fn tree_row(
 
     let body = ui.interact(
         body_rect,
-        ui.id().with(("frost_tree_body", id_salt)),
+        ui.id().with(("mara_tree_body", id_salt)),
         egui::Sense::click(),
     );
     let chevron = chevron_rect_opt.map(|cr| {
         ui.interact(
             cr,
-            ui.id().with(("frost_tree_chevron", id_salt)),
+            ui.id().with(("mara_tree_chevron", id_salt)),
             egui::Sense::click(),
         )
     });
@@ -160,7 +160,7 @@ pub fn tree_row(
     for (i, slot_rect) in slot_rects.iter().enumerate() {
         let mut r = ui.interact(
             *slot_rect,
-            ui.id().with(("frost_tree_slot", id_salt, i)),
+            ui.id().with(("mara_tree_slot", id_salt, i)),
             egui::Sense::click(),
         );
         if let Some(tip) = slots[i].tooltip {
@@ -219,7 +219,7 @@ pub fn tree_row(
     if let (Some(exp), Some(cr)) = (expanded, chevron_rect_opt) {
         let how_open = ui
             .ctx()
-            .animate_bool_responsive(ui.id().with(("frost_tree_chev_anim", id_salt)), *exp);
+            .animate_bool_responsive(ui.id().with(("mara_tree_chev_anim", id_salt)), *exp);
         paint_chevron(ui, cr, how_open, glyph_col);
         if let Some(ref cresp) = chevron
             && cresp.clicked()

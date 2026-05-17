@@ -1,4 +1,4 @@
-# `frost_graph` — third-party acknowledgements
+# `mara_graph` — third-party acknowledgements
 
 This crate vendors a fork of `egui-snarl` so we can modify the
 node-graph implementation in-place without upstream round-trips.

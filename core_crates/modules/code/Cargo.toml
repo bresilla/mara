@@ -1,6 +1,6 @@
 [package]
-name = "frost_code"
-description = "Standalone egui code-editor crate. Vendored fork (see ACKNOWLEDGEMENTS.md for upstream attribution) so we can iterate without external dep churn. Theme-neutral — call sites pick a `ColorTheme` (default builder ships sensible egui defaults; frost-tinted styling lives in `frost_core` under the optional `code` feature)."
+name = "mara_code"
+description = "Standalone egui code-editor crate. Vendored fork (see ACKNOWLEDGEMENTS.md for upstream attribution) so we can iterate without external dep churn. Theme-neutral — call sites pick a `ColorTheme` (default builder ships sensible egui defaults; mara-tinted styling lives in `mara_core` under the optional `code` feature)."
 version.workspace = true
 edition.workspace = true
 license.workspace = true

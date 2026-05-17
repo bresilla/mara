@@ -16,7 +16,7 @@ use crate::style::{UNIT, on_section, theme};
 use crate::widget::chip::{chip, chip_colored};
 
 /// Width of the label column, in px. Same value the legacy
-/// `frostcore::widgets::row` shipped with — wide enough for typical
+/// `maracore::widgets::row` shipped with — wide enough for typical
 /// labels at body font size.
 pub const BADGE_LABEL_COL_W: f32 = 96.0;
 

@@ -21,7 +21,7 @@
 use egui::{Color32, Id, Ui};
 
 use crate::container::SeparatorStyle;
-use crate::module::{FrostModule, ModuleInlineCtx, ModuleInlineOptions};
+use crate::module::{MaraModule, ModuleInlineCtx, ModuleInlineOptions};
 use crate::style::{UNIT, theme};
 use crate::widget::{
     badge::badge_row_colored,
@@ -416,7 +416,7 @@ struct BadgesConfig {
 
 struct ModuleConfig {
     options: ModuleInlineOptions,
-    module: Box<dyn FrostModule + Send + Sync>,
+    module: Box<dyn MaraModule + Send + Sync>,
 }
 
 /// One ordered slot in the pod's widget stack. Painted in
@@ -680,7 +680,7 @@ impl Pod {
     /// share the same render path, just differ in where the height
     /// comes from.
     pub fn widget_height_key(id: Id) -> Id {
-        id.with("frost_pod_widget_height")
+        id.with("mara_pod_widget_height")
     }
 
     /// Read the current text in a `with_search` widget without
@@ -691,14 +691,14 @@ impl Pod {
     /// the search slot within `pod_id` — `0` for the first
     /// `with_search`, `1` for the second, etc.
     pub fn search_query(ctx: &egui::Context, pod_id: Id, search_idx: usize) -> String {
-        let key = pod_id.with(("frost_pod_search_buf", search_idx));
+        let key = pod_id.with(("mara_pod_search_buf", search_idx));
         ctx.data(|d| d.get_temp::<String>(key)).unwrap_or_default()
     }
 
     /// Ctx-data key the container writes the fill pod's computed
     /// height under. Pod::show reads this when `self.fill` is set.
     pub fn forced_height_key(id: Id) -> Id {
-        id.with("frost_pod_forced_height")
+        id.with("mara_pod_forced_height")
     }
 
     /// Number of widgets the pod will paint.
@@ -1242,7 +1242,7 @@ impl Pod {
         self
     }
 
-    /// Add a typed Frost module to this pod.
+    /// Add a typed Mara module to this pod.
     ///
     /// The module paints its inline representation in the pod flow.
     /// By default modules are allowed to request entry into a full
@@ -1252,7 +1252,7 @@ impl Pod {
     #[must_use]
     pub fn with_module<M>(self, module: M) -> Self
     where
-        M: FrostModule + Send + Sync + 'static,
+        M: MaraModule + Send + Sync + 'static,
     {
         self.with_module_options(module, ModuleInlineOptions::default())
     }
@@ -1261,7 +1261,7 @@ impl Pod {
     #[must_use]
     pub fn with_module_options<M>(mut self, module: M, options: ModuleInlineOptions) -> Self
     where
-        M: FrostModule + Send + Sync + 'static,
+        M: MaraModule + Send + Sync + 'static,
     {
         assert!(
             !module.title().trim().is_empty(),
@@ -1279,7 +1279,7 @@ impl Pod {
     }
 
     /// Typed pod constructor for hosting a recursive tree built
-    /// from frost [`tree_row`](crate::widget::tree_row)s. The
+    /// from mara [`tree_row`](crate::widget::tree_row)s. The
     /// closure receives a [`TreeBody`](crate::widget::TreeBody)
     /// wrapper that exposes only `row(...)` (forwarding to
     /// `tree_row`) and ctx-data access — no raw [`egui::Ui`]
@@ -1371,7 +1371,7 @@ impl Pod {
                 // `min_scrolled_height(0.0)` disables egui's default
                 // 64-px floor.
                 egui::ScrollArea::vertical()
-                    .id_salt(pod_id.with("frost_pod_scroll"))
+                    .id_salt(pod_id.with("mara_pod_scroll"))
                     .auto_shrink([false, false])
                     .min_scrolled_height(0.0)
                     .show(&mut child, |inner| {
@@ -1441,14 +1441,14 @@ fn paint_widgets(
         }
         // Each widget slot gets its own pushed id chain. This
         // is what keeps an explicit id derivation like
-        // `ui.id().with(("frost_toggle", label))` from
+        // `ui.id().with(("mara_toggle", label))` from
         // colliding across pods that happen to share the same
         // label — the pushed id (= pod_id ⊕ slot_idx) is
         // unique per (pod, widget slot), so every child id
         // inherits uniqueness.
         ui.push_id((pod_id, slot_idx), |ui| match spec {
             WidgetSpec::Search(cfg) => {
-                let buf_key = pod_id.with(("frost_pod_search_buf", search_idx));
+                let buf_key = pod_id.with(("mara_pod_search_buf", search_idx));
                 let mut buf: String = ui
                     .ctx()
                     .data(|d| d.get_temp::<String>(buf_key))
@@ -1511,7 +1511,7 @@ fn paint_widgets(
                 }
             }
             WidgetSpec::Toggle(cfg) => {
-                let state_key = pod_id.with(("frost_pod_toggle_state", toggle_idx));
+                let state_key = pod_id.with(("mara_pod_toggle_state", toggle_idx));
                 let mut on: bool = ui.ctx().data_mut(|d| {
                     if let Some(stored) = d.get_persisted::<bool>(state_key) {
                         stored
@@ -1552,7 +1552,7 @@ fn paint_widgets(
                 // Persist the current value so user drags
                 // accumulate across frames without the caller
                 // having to thread state.
-                let val_key = pod_id.with(("frost_pod_slider_val", slider_idx));
+                let val_key = pod_id.with(("mara_pod_slider_val", slider_idx));
                 let mut val: f64 = ui
                     .ctx()
                     .data_mut(|d| d.get_persisted::<f64>(val_key))
@@ -1578,7 +1578,7 @@ fn paint_widgets(
                 slider_idx += 1;
             }
             WidgetSpec::DragValue(cfg) => {
-                let val_key = pod_id.with(("frost_pod_drag_value_val", drag_value_idx));
+                let val_key = pod_id.with(("mara_pod_drag_value_val", drag_value_idx));
                 let mut val: f64 = ui
                     .ctx()
                     .data_mut(|d| d.get_persisted::<f64>(val_key))
@@ -1608,7 +1608,7 @@ fn paint_widgets(
                 drag_value_idx += 1;
             }
             WidgetSpec::Dropdown(cfg) => {
-                let val_key = pod_id.with(("frost_pod_dropdown_idx", dropdown_idx));
+                let val_key = pod_id.with(("mara_pod_dropdown_idx", dropdown_idx));
                 let mut sel: usize = ui
                     .ctx()
                     .data_mut(|d| d.get_persisted::<usize>(val_key))
@@ -1617,7 +1617,7 @@ fn paint_widgets(
                 let opts: Vec<&str> = cfg.options.iter().map(String::as_str).collect();
                 let resp = dropdown(
                     ui,
-                    ("frost_pod_dropdown", dropdown_idx),
+                    ("mara_pod_dropdown", dropdown_idx),
                     &mut sel,
                     &opts,
                     cfg.accent,
@@ -1634,14 +1634,14 @@ fn paint_widgets(
                 dropdown_idx += 1;
             }
             WidgetSpec::Select(cfg) => {
-                let sel_key = pod_id.with(("frost_pod_select_sel", select_idx));
+                let sel_key = pod_id.with(("mara_pod_select_sel", select_idx));
                 let mut selected: bool = ui
                     .ctx()
                     .data_mut(|d| d.get_persisted::<bool>(sel_key))
                     .unwrap_or(cfg.selected_initial);
                 let resp = select_row(
                     ui,
-                    ("frost_pod_select", select_idx),
+                    ("mara_pod_select", select_idx),
                     &cfg.label,
                     cfg.trailing.as_deref(),
                     selected,
@@ -1660,8 +1660,8 @@ fn paint_widgets(
                 select_idx += 1;
             }
             WidgetSpec::HybridSelect(cfg) => {
-                let sel_key = pod_id.with(("frost_pod_hybrid_sel", hybrid_select_idx));
-                let radio_key = pod_id.with(("frost_pod_hybrid_radio", hybrid_select_idx));
+                let sel_key = pod_id.with(("mara_pod_hybrid_sel", hybrid_select_idx));
+                let radio_key = pod_id.with(("mara_pod_hybrid_radio", hybrid_select_idx));
                 let mut selected: bool = ui
                     .ctx()
                     .data_mut(|d| d.get_persisted::<bool>(sel_key))
@@ -1672,7 +1672,7 @@ fn paint_widgets(
                     .unwrap_or(cfg.radio_initial);
                 let resp = hybrid_select_row(
                     ui,
-                    ("frost_pod_hybrid", hybrid_select_idx),
+                    ("mara_pod_hybrid", hybrid_select_idx),
                     &cfg.label,
                     cfg.trailing.as_deref(),
                     selected,
@@ -1703,7 +1703,7 @@ fn paint_widgets(
                 hybrid_select_idx += 1;
             }
             WidgetSpec::Color(cfg) => {
-                let val_key = pod_id.with(("frost_pod_color_val", color_idx));
+                let val_key = pod_id.with(("mara_pod_color_val", color_idx));
                 let mut rgba: [f32; 4] = ui
                     .ctx()
                     .data_mut(|d| d.get_persisted::<[f32; 4]>(val_key))
@@ -1735,7 +1735,7 @@ fn paint_widgets(
                 readout_idx += 1;
             }
             WidgetSpec::SelectList(cfg) => {
-                let sel_key = pod_id.with(("frost_pod_select_list_sel", select_list_idx));
+                let sel_key = pod_id.with(("mara_pod_select_list_sel", select_list_idx));
                 let mut selected: Option<usize> = ui
                     .ctx()
                     .data_mut(|d| d.get_persisted::<Option<usize>>(sel_key))
@@ -1746,7 +1746,7 @@ fn paint_widgets(
                     let trailing = cfg.trailing.as_ref().map(|t| t[i].as_str());
                     let resp = select_row(
                         ui,
-                        ("frost_pod_select_list", select_list_idx, i),
+                        ("mara_pod_select_list", select_list_idx, i),
                         label,
                         trailing,
                         selected == Some(i),
@@ -1772,9 +1772,9 @@ fn paint_widgets(
             }
             WidgetSpec::HybridSelectList(cfg) => {
                 let sel_key =
-                    pod_id.with(("frost_pod_hybrid_select_list_sel", hybrid_select_list_idx));
+                    pod_id.with(("mara_pod_hybrid_select_list_sel", hybrid_select_list_idx));
                 let pin_key =
-                    pod_id.with(("frost_pod_hybrid_select_list_pin", hybrid_select_list_idx));
+                    pod_id.with(("mara_pod_hybrid_select_list_pin", hybrid_select_list_idx));
                 let mut selected: Option<usize> = ui
                     .ctx()
                     .data_mut(|d| d.get_persisted::<Option<usize>>(sel_key))
@@ -1790,7 +1790,7 @@ fn paint_widgets(
                     let trailing = cfg.trailing.as_ref().map(|t| t[i].as_str());
                     let resp = hybrid_select_row(
                         ui,
-                        ("frost_pod_hybrid_select_list", hybrid_select_list_idx, i),
+                        ("mara_pod_hybrid_select_list", hybrid_select_list_idx, i),
                         label,
                         trailing,
                         selected == Some(i),
@@ -1908,7 +1908,7 @@ mod tests {
         }
     }
 
-    impl FrostModule for MockModule {
+    impl MaraModule for MockModule {
         fn id(&self) -> Id {
             Id::new(("mock-module", self.title, self.icon))
         }

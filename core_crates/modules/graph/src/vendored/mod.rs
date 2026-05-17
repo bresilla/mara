@@ -218,7 +218,7 @@ impl<T> Graph<T> {
     /// # Examples
     ///
     /// ```
-    /// # use frost_graph::Graph;
+    /// # use mara_graph::Graph;
     /// let graph = Graph::<()>::new();
     /// ```
     #[must_use]
@@ -235,7 +235,7 @@ impl<T> Graph<T> {
     /// # Examples
     ///
     /// ```
-    /// # use frost_graph::Graph;
+    /// # use mara_graph::Graph;
     /// let mut graph = Graph::<()>::new();
     /// graph.insert_node(egui::pos2(0.0, 0.0), ());
     /// ```
@@ -255,7 +255,7 @@ impl<T> Graph<T> {
     /// # Examples
     ///
     /// ```
-    /// # use frost_graph::Graph;
+    /// # use mara_graph::Graph;
     /// let mut graph = Graph::<()>::new();
     /// graph.insert_node_collapsed(egui::pos2(0.0, 0.0), ());
     /// ```
@@ -289,7 +289,7 @@ impl<T> Graph<T> {
     /// # Examples
     ///
     /// ```
-    /// # use frost_graph::Graph;
+    /// # use mara_graph::Graph;
     /// let mut graph = Graph::<()>::new();
     /// let node = graph.insert_node(egui::pos2(0.0, 0.0), ());
     /// graph.remove_node(node);

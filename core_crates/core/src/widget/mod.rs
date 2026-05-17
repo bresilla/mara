@@ -1,4 +1,4 @@
-//! Frost-styled widgets that go inside a
+//! Mara-styled widgets that go inside a
 //! [`crate::container::Normal`] body — leaf nodes that paint a
 //! single primitive (text input, button, slider, …).
 //!
@@ -30,7 +30,7 @@ pub use button::{
 };
 pub use chip::{CHIP_H, chip, chip_colored};
 pub use color::{COLOR_SWATCH_H, color_rgb, color_rgba};
-pub use context_menu::context_menu_frost;
+pub use context_menu::context_menu_mara;
 pub use drag_value::{axis_drag, axis_drag_h, drag_value, drag_value_h};
 pub use dropdown::{DROPDOWN_ROW_H, dropdown, dropdown_h};
 pub use foldable::section;

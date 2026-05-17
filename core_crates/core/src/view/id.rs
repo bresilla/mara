@@ -1,6 +1,6 @@
 use std::hash::Hash;
 
-/// Stable identifier for a top-level Frost view.
+/// Stable identifier for a top-level Mara view.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct ViewId(pub egui::Id);
 

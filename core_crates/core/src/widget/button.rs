@@ -1,4 +1,4 @@
-//! Frost-styled button — one widget that covers every shape the kit
+//! Mara-styled button — one widget that covers every shape the kit
 //! ships:
 //!
 //! * **Plain** — single-row, centred label.
@@ -78,7 +78,7 @@ pub enum FillStyle {
     CrissCross,
 }
 
-/// Builder for the unified frost button. Construct with
+/// Builder for the unified mara button. Construct with
 /// [`Button::new`], chain optional settings, paint with [`show`].
 ///
 /// [`show`]: Button::show
@@ -179,7 +179,7 @@ impl<'a> Button<'a> {
         let hover_t = if th.animations_enabled {
             let dur = 0.25 * th.button_anim_scale.max(0.01);
             ui.ctx()
-                .animate_bool_with_time(resp.id.with("frost_button_hover"), active, dur)
+                .animate_bool_with_time(resp.id.with("mara_button_hover"), active, dur)
         } else if active {
             1.0
         } else {
@@ -253,7 +253,7 @@ impl<'a> Button<'a> {
                 painted_rect.center().y,
             );
             // Treat `glyph` as an icon NAME first (Fluent UI lookup
-            // via frost_core::icons). Fall back to literal text paint
+            // via mara_core::icons). Fall back to literal text paint
             // when the name isn't bundled — that way callers can pass
             // either `"settings"` (looked up) or `"⊕"` (literal).
             if crate::icons::icon(g).is_some() {
@@ -436,7 +436,7 @@ fn press_depress_amount(ctx: &egui::Context, resp_id: egui::Id, pressed: bool, m
     }
     let scale = th.button_anim_scale.max(0.01);
     let dur = if pressed { 0.06 * scale } else { 0.09 * scale };
-    let t = ctx.animate_bool_with_time(resp_id.with("frost_button_press"), pressed, dur);
+    let t = ctx.animate_bool_with_time(resp_id.with("mara_button_press"), pressed, dur);
     t * max_px
 }
 
@@ -458,7 +458,7 @@ fn paint_click_pulse(
     if !th.animations_enabled {
         return;
     }
-    let click_id = resp.id.with("frost_button_click_at");
+    let click_id = resp.id.with("mara_button_click_at");
     if resp.clicked() {
         let now = ctx.input(|i| i.time);
         ctx.data_mut(|d| d.insert_temp(click_id, now));

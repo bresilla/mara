@@ -1,8 +1,8 @@
-//! Frost-styled read-only progress bar. Two-row stacked layout:
+//! Mara-styled read-only progress bar. Two-row stacked layout:
 //! caption on top, full-width filled bar below. Total height =
 //! 2 × [`crate::style::UNIT`] (= 2U) by default.
 //!
-//! Mirrors `frostcore::widgets::progressbar::pretty_progressbar` /
+//! Mirrors `maracore::widgets::progressbar::pretty_progressbar` /
 //! `pretty_progressbar_text`. Drops the digit-tumble + smoothed-
 //! fraction animations for v1; can be added back as polish.
 
@@ -11,9 +11,9 @@ use crate::style::{
     on_track, radius_for, stroke_for, theme,
 };
 
-/// Bar row height — matches `frostcore::widgets::progressbar::BAR_H`.
+/// Bar row height — matches `maracore::widgets::progressbar::BAR_H`.
 pub const PROGRESSBAR_ROW_H: f32 = 18.0;
-/// Inline readout font size — matches `frostcore`'s
+/// Inline readout font size — matches `maracore`'s
 /// `progressbar::VALUE_FONT = 11` (monospace).
 pub const PROGRESSBAR_VALUE_FONT: f32 = 11.0;
 

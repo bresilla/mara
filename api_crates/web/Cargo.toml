@@ -1,6 +1,6 @@
 [package]
-name = "egui_frost_web"
-description = "WebAssembly host for the frost UI kit — `egui_frost` mounted in a browser via eframe's WebRunner. wasm-only; an inert stub on native targets."
+name = "egui_mara_web"
+description = "WebAssembly host for the mara UI kit — `egui_mara` mounted in a browser via eframe's WebRunner. wasm-only; an inert stub on native targets."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -13,15 +13,15 @@ publish = false
 # `cargo check --workspace` stays fast and never pulls eframe / wgpu
 # / winit into a native build.
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-# The frost egui facade — re-exports all of `frost_core` (panes,
+# The mara egui facade — re-exports all of `mara_core` (panes,
 # ribbons, containers, widgets, theme) plus the `extras::graph` /
 # `extras::code` modules and `EframeNodeViewBackend`.
-egui_frost = { path = "../egui" }
-# The demo references `frost_core::*` paths verbatim (panes, ribbons,
+egui_mara = { path = "../egui" }
+# The demo references `mara_core::*` paths verbatim (panes, ribbons,
 # widgets, style, the `extras::graph` / `extras::code` modules). It is
-# the same crate `egui_frost` re-exports; a direct dep lets the ported
-# code keep its original `frost_core::` paths.
-frost_core = { workspace = true }
+# the same crate `egui_mara` re-exports; a direct dep lets the ported
+# code keep its original `mara_core::` paths.
+mara_core = { workspace = true }
 # eframe drives the egui frame loop. The `wgpu` backend (not `glow`)
 # is required: `EframeNodeViewBackend` needs `Frame::wgpu_render_state`
 # to render the node graph into an offscreen texture. `x11` /

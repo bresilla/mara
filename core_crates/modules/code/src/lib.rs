@@ -1,4 +1,4 @@
-//! # frost_code
+//! # mara_code
 //!
 //! Standalone code-editor crate for egui. Vendored fork of
 //! [`egui_code_editor`](https://crates.io/crates/egui_code_editor).
@@ -6,14 +6,14 @@
 //! The crate is theme-neutral: the bundled [`ColorTheme`] presets
 //! (`GRUVBOX`, `GITHUB_LIGHT`, `SONOKAI`, …) cover the common
 //! cases, and [`default_code_theme`] picks one as a starting
-//! point. Frost-tinted styling lives in the `frost_core` crate
+//! point. Mara-tinted styling lives in the `mara_core` crate
 //! behind the optional `code` feature, which depends on this crate
 //! and wires the embed / maximise affordance on top.
 //!
 //! Use it standalone:
 //!
 //! ```ignore
-//! use frost_code::{CodeEditor, ColorTheme, Syntax};
+//! use mara_code::{CodeEditor, ColorTheme, Syntax};
 //!
 //! CodeEditor::default()
 //!     .id_source("my_editor")

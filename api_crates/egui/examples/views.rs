@@ -4,11 +4,11 @@
 //! the PLAN.md app-shell path can be exercised without disturbing the
 //! older draggable ribbon/pane demo while migration continues.
 //!
-//! Run: `cargo run -p egui_frost --example views`.
+//! Run: `cargo run -p egui_mara --example views`.
 
 use eframe::egui;
-use egui_frost::{
-    AccentColor, AppShellChrome, FrostView, GlassOpacity, ViewCtx, ViewId, ViewRouter,
+use egui_mara::{
+    AccentColor, AppShellChrome, GlassOpacity, MaraView, ViewCtx, ViewId, ViewRouter,
     apply_theme_now, permanent_view_switcher_ribbon, show_app_shell_chrome_with_slot_ribbons,
 };
 
@@ -35,7 +35,7 @@ impl LabelView {
     }
 }
 
-impl FrostView for LabelView {
+impl MaraView for LabelView {
     fn id(&self) -> ViewId {
         self.id
     }
@@ -119,7 +119,7 @@ impl eframe::App for ViewShellApp {
 fn main() -> eframe::Result<()> {
     let opts = eframe::NativeOptions::default();
     eframe::run_native(
-        "egui_frost views",
+        "egui_mara views",
         opts,
         Box::new(|_cc| Ok(Box::<ViewShellApp>::default())),
     )

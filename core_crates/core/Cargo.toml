@@ -1,12 +1,12 @@
 [package]
-# Package is named `frost_core` rather than `core` — Rust's
+# Package is named `mara_core` rather than `core` — Rust's
 # standard library has a `core` crate that derive macros expand to
 # via `::core::clone::Clone` etc. Naming our local crate `core`
 # would shadow that path and break Bevy's `#[derive(SystemSet)]`.
 # The directory stays as `crates/core/`; the crate identifier is
-# `frost_core`, matching the `frost_graph` / `frost_code` siblings.
-name = "frost_core"
-description = "UI core for the frost editor kit — pane system, ribbon strips, containers, pods, widgets, theme runtime, bundled Iosevka fonts, and an embed mechanism that lets host widgets (node graph, code editor, …) toggle between inline and full-window. Optional `graph` and `code` features pull in `frost_graph` / `frost_code` and expose frost-tinted wrappers."
+# `mara_core`, matching the `mara_graph` / `mara_code` siblings.
+name = "mara_core"
+description = "UI core for the mara editor kit — pane system, ribbon strips, containers, pods, widgets, theme runtime, bundled Iosevka fonts, and an embed mechanism that lets host widgets (node graph, code editor, …) toggle between inline and full-window. Optional `graph` and `code` features pull in `mara_graph` / `mara_code` and expose mara-tinted wrappers."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -20,10 +20,10 @@ iconflow = { version = "1.0", default-features = false, features = ["pack-fluent
 # accents into the readable luma band per theme mode.
 pastel = { version = "0.12", default-features = false }
 # Optional standalone-extra crates. When the matching feature is
-# enabled, the corresponding `frost_core::extras::*` re-export + the
-# frost-tinted wrapper become available.
-frost_graph = { workspace = true, optional = true }
-frost_code = { workspace = true, optional = true }
+# enabled, the corresponding `mara_core::extras::*` re-export + the
+# mara-tinted wrapper become available.
+mara_graph = { workspace = true, optional = true }
+mara_code = { workspace = true, optional = true }
 # Optional Bevy integration. When OFF, the crate compiles as a
 # pure-egui crate. When ON, `AccentColor` / `GlassOpacity` /
 # ribbon resources derive `bevy::Resource`.
@@ -35,8 +35,8 @@ bevy = { workspace = true, optional = true }
 # before. Apps that want a slim UI-only build drop them via
 # `default-features = false`.
 default = ["graph", "code"]
-graph = ["dep:frost_graph"]
-code = ["dep:frost_code"]
+graph = ["dep:mara_graph"]
+code = ["dep:mara_code"]
 # Enables `#[derive(bevy::Resource)]` + `bevy::SystemSet` on state
 # types so they slot into a Bevy app as resources without wrappers.
 bevy = ["dep:bevy"]

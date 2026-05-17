@@ -277,7 +277,7 @@ pub struct RibbonDrag {
 }
 
 pub(crate) fn chrome_bounds_key() -> egui::Id {
-    egui::Id::new("frost_ribbon_chrome_bounds")
+    egui::Id::new("mara_ribbon_chrome_bounds")
 }
 
 fn chrome_rect(ctx: &egui::Context) -> egui::Rect {
@@ -294,7 +294,7 @@ fn ribbon_rect(ctx: &egui::Context, ribbon: &ResolvedSlotRibbon) -> egui::Rect {
 }
 
 fn main_bar_empty_drag_started_id() -> egui::Id {
-    egui::Id::new("frost_main_bar_empty_drag_started")
+    egui::Id::new("mara_main_bar_empty_drag_started")
 }
 
 #[must_use]
@@ -723,7 +723,7 @@ pub fn draw_unified_ribbon_chrome(
     ctx.data_mut(|d| {
         d.insert_temp(chrome_bounds_key(), chrome);
         d.insert_temp::<[bool; 4]>(
-            egui::Id::new("frost_published_ribbon_edges"),
+            egui::Id::new("mara_published_ribbon_edges"),
             [
                 edge_has_ribbon(ribbons, RibbonEdge::Left),
                 edge_has_ribbon(ribbons, RibbonEdge::Right),
@@ -951,7 +951,7 @@ pub fn draw_unified_ribbon_chrome(
             RibbonRole::Panel => open.is_open(rid, iid) || active(iid),
             RibbonRole::Icon => active(iid),
         };
-        let area_response = egui::Area::new(egui::Id::new(("frost_ribbon_btn", iid)))
+        let area_response = egui::Area::new(egui::Id::new(("mara_ribbon_btn", iid)))
             .order(order)
             .fixed_pos(paint_pos)
             .interactable(true)
@@ -1022,7 +1022,7 @@ pub fn draw_unified_ribbon_chrome(
                 insets_for_ribbon(ribbons, ribbon, insets),
             ),
         );
-        egui::Area::new(egui::Id::new("frost_ribbon_drop_outline"))
+        egui::Area::new(egui::Id::new("mara_ribbon_drop_outline"))
             .order(egui::Order::Foreground)
             .fixed_pos(rect.min)
             .interactable(false)

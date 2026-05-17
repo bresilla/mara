@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use frost_core::style::{
+use mara_core::style::{
     GraphCanvasPattern, Mode, TabLayout, ViewSwitcherLayout, theme_flat, theme_game, theme_pro,
 };
 

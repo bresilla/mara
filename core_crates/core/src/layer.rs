@@ -67,7 +67,7 @@ pub mod z {
     /// 999–1000 reserved for future top-of-stack overlays.
     pub const INSPECTOR: u16 = 998;
     /// Native window resize/move affordances. These must stay above
-    /// every Frost view because they describe host-level interaction
+    /// every Mara view because they describe host-level interaction
     /// zones, not normal app content.
     pub const WINDOW_CHROME: u16 = 1000;
 }
@@ -89,7 +89,7 @@ pub fn order_for(tier: u16) -> Order {
 /// tiers always resolve to distinct sublayers even if they share
 /// `salt`.
 pub fn layer_id(salt: impl Hash, tier: u16) -> LayerId {
-    LayerId::new(order_for(tier), Id::new(("frost_z", tier, salt)))
+    LayerId::new(order_for(tier), Id::new(("mara_z", tier, salt)))
 }
 
 /// Construct a [`Painter`] at the given tier, clipped to the

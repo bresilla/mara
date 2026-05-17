@@ -1,12 +1,12 @@
-//! Web entry point for the frost UI kit.
+//! Web entry point for the mara UI kit.
 //!
-//! Compiles to `wasm32-unknown-unknown` and mounts the frost demo
+//! Compiles to `wasm32-unknown-unknown` and mounts the mara demo
 //! onto an HTML `<canvas>` via eframe's [`WebRunner`]. Build and
 //! serve with `trunk` — see the repo Makefile's `serve-web` /
 //! `build-web` targets, or `api_crates/web/README.md`.
 //!
 //! The UI ([`demo::DemoApp`]) is host-agnostic egui ported from
-//! `bevy_frost --example demo` — the same ribbons, panes, widget
+//! `bevy_mara --example demo` — the same ribbons, panes, widget
 //! gallery, theme picker, canvas whiteboard, and node-graph / code
 //! editor, minus the Bevy 3D scene.
 //!
@@ -22,12 +22,12 @@ mod demo;
 #[cfg(not(target_arch = "wasm32"))]
 fn main() {
     eprintln!(
-        "egui_frost_web is a wasm-only crate — build it for the browser with \
+        "egui_mara_web is a wasm-only crate — build it for the browser with \
          `make serve-web` (trunk). See api_crates/web/README.md."
     );
 }
 
-/// wasm builds: hand the frost demo to eframe's `WebRunner`.
+/// wasm builds: hand the mara demo to eframe's `WebRunner`.
 #[cfg(target_arch = "wasm32")]
 fn main() {
     use eframe::wasm_bindgen::JsCast as _;
@@ -52,10 +52,10 @@ fn main() {
     wasm_bindgen_futures::spawn_local(async move {
         let canvas = eframe::web_sys::window()
             .and_then(|w| w.document())
-            .and_then(|d| d.get_element_by_id("frost_canvas"))
-            .expect("index.html must contain <canvas id=\"frost_canvas\">")
+            .and_then(|d| d.get_element_by_id("mara_canvas"))
+            .expect("index.html must contain <canvas id=\"mara_canvas\">")
             .dyn_into::<eframe::web_sys::HtmlCanvasElement>()
-            .expect("#frost_canvas must be a <canvas> element");
+            .expect("#mara_canvas must be a <canvas> element");
 
         let result = eframe::WebRunner::new()
             .start(
@@ -68,14 +68,14 @@ fn main() {
         // Surface a startup failure on the page itself — otherwise a
         // failed `start` just leaves a silent black canvas.
         if let Err(err) = result {
-            log::error!("egui_frost_web failed to start: {err:?}");
+            log::error!("egui_mara_web failed to start: {err:?}");
             if let Some(body) = eframe::web_sys::window()
                 .and_then(|w| w.document())
                 .and_then(|d| d.body())
             {
                 let _ = body.set_inner_html(&format!(
                     "<p style=\"color:#e2606a;font-family:monospace;padding:1.5rem;\
-                     line-height:1.5\">egui_frost_web failed to start:<br>{err:?}</p>"
+                     line-height:1.5\">egui_mara_web failed to start:<br>{err:?}</p>"
                 ));
             }
         }

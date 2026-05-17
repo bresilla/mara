@@ -51,7 +51,7 @@ const _BODY_PAD: f32 = 6.0;
 pub const CONTAINER_DEFAULT_WIDTH: f32 = 280.0;
 pub const CONTAINER_DEFAULT_HEIGHT: f32 = 280.0;
 /// Default lower bound on a container's WIDTH. Bumped 30 % above
-/// the old `frostcore::floating::MIN_PANEL_W` (= 220) so containers
+/// the old `maracore::floating::MIN_PANEL_W` (= 220) so containers
 /// don't open at a cramped slim width — vertical-strip panes
 /// stack containers side-by-side, so a too-small default leaves
 /// each one barely wider than its title strip until the user
@@ -85,7 +85,7 @@ pub struct Normal {
     /// inlined into the title `LayoutJob` at the reading-start. In
     /// GAME theme (`section_icon_at_end = true`) it floats at the
     /// strip's far end and grows when the body unfolds — matching
-    /// `frostcore::widgets::foldable::section_tracked`.
+    /// `maracore::widgets::foldable::section_tracked`.
     icon: Option<Icon<'static>>,
     /// Optional override for the body slot's flow-axis size. Default
     /// derives from `CONTAINER_DEFAULT_HEIGHT/WIDTH` minus chrome,
@@ -195,7 +195,7 @@ impl Normal {
     ///
     /// ```ignore
     /// Normal::new(title, anchor, accent, cid)
-    ///     .initial_flow(12.0 * frost_core::UNIT)
+    ///     .initial_flow(12.0 * mara_core::UNIT)
     ///     .show(ui, pods);
     /// ```
     pub fn initial_flow(mut self, flow: f32) -> Self {
@@ -323,7 +323,7 @@ impl Normal {
         let tab_meta: Vec<(String, Icon<'static>)> =
             tabs.iter().map(|t| (t.title.clone(), t.icon)).collect();
         let tab_ids: Vec<Id> = tabs.iter().map(|t| t.id).collect();
-        let active_idx_key = self.pane_id.with("frost_normal_active_tab");
+        let active_idx_key = self.pane_id.with("mara_normal_active_tab");
         let active_idx = resolve_active_tab_idx(ui.ctx(), active_idx_key, &tab_ids);
         let active_pods = std::mem::take(&mut tabs[active_idx].pods);
         let active_title = tab_meta[active_idx].0.clone();
@@ -524,7 +524,7 @@ impl Normal {
         let tab_meta: Vec<(String, Icon<'static>)> =
             tabs.iter().map(|t| (t.title.clone(), t.icon)).collect();
         let tab_ids: Vec<Id> = tabs.iter().map(|t| t.id).collect();
-        let active_idx_key = self.pane_id.with("frost_normal_active_tab");
+        let active_idx_key = self.pane_id.with("mara_normal_active_tab");
         let active_idx = resolve_active_tab_idx(ui.ctx(), active_idx_key, &tab_ids);
         let active_pods = std::mem::take(&mut tabs[active_idx].pods);
 
@@ -554,7 +554,7 @@ impl Normal {
         // the tab paint — there's nothing to overlay on.
         let title_rect: Option<egui::Rect> = ui
             .ctx()
-            .data(|d| d.get_temp(pane_id.with("frost_normal_title_rect")));
+            .data(|d| d.get_temp(pane_id.with("mara_normal_title_rect")));
         let Some(title_rect) = title_rect else {
             return out;
         };
@@ -640,8 +640,8 @@ impl Normal {
         // `Normal::new` and threaded through here as `pane_id`).
         let intrinsic_override_key = self
             .pane_id
-            .with("frost_container_intrinsic_natural_override");
-        let intrinsic_floor_key = self.pane_id.with("frost_container_intrinsic_natural_floor");
+            .with("mara_container_intrinsic_natural_override");
+        let intrinsic_floor_key = self.pane_id.with("mara_container_intrinsic_natural_floor");
         if fill_pod_idx.is_some() {
             ui.ctx().data_mut(|d| {
                 d.insert_temp::<f32>(intrinsic_override_key, body_flow_floor);
@@ -817,7 +817,7 @@ impl Normal {
             .min_width
             .unwrap_or_else(|| style::theme().container.default_min_width);
         ui.ctx().data_mut(|d| {
-            let key = parent_pane_id.with("frost_pane_container_min_widths");
+            let key = parent_pane_id.with("mara_pane_container_min_widths");
             let mut acc: Vec<f32> = d.get_temp(key).unwrap_or_default();
             acc.push(min_w);
             d.insert_temp(key, acc);
@@ -872,7 +872,7 @@ impl Normal {
             + outer_flow_for_min
             + stroke_for_min;
         ui.ctx().data_mut(|d| {
-            let key = parent_pane_id.with("frost_pane_container_min_flows");
+            let key = parent_pane_id.with("mara_pane_container_min_flows");
             let mut acc: Vec<f32> = d.get_temp(key).unwrap_or_default();
             acc.push(min_flow);
             d.insert_temp(key, acc);
@@ -994,14 +994,14 @@ impl Normal {
         let visible_body_flow = openness * full_body_flow;
 
         // ── Per-section staggered fade-in (verbatim port of
-        //    `frostcore::PaneBuilder::section_with`) ──
+        //    `maracore::PaneBuilder::section_with`) ──
         //
         // Look up the parent Pane's id via the global "active
         // pane" pointer (Normal's own `pane_id` field is the
         // container's body-open id, NOT Pane's id, so we can't
         // use it for the stagger lookup). Pane::show populates
-        // `frost_pane_open_elapsed` and resets
-        // `frost_pane_section_idx` to 0 on every frame; we
+        // `mara_pane_open_elapsed` and resets
+        // `mara_pane_section_idx` to 0 on every frame; we
         // post-increment to claim THIS container's index.
         const STAGGER_BASE: f32 = 0.18;
         const FADE_BASE: f32 = 0.45;
@@ -1013,9 +1013,9 @@ impl Normal {
             ui.ctx().data_mut(|d| {
                 let pane2_id: Id = d.get_temp::<Id>(pane::active_pane_key()).unwrap_or(pane_id);
                 let elapsed: f32 = d
-                    .get_temp(pane2_id.with("frost_pane_open_elapsed"))
+                    .get_temp(pane2_id.with("mara_pane_open_elapsed"))
                     .unwrap_or(99.0);
-                let idx_key = pane2_id.with("frost_pane_section_idx");
+                let idx_key = pane2_id.with("mara_pane_section_idx");
                 let idx: u32 = d.get_temp(idx_key).unwrap_or(0);
                 d.insert_temp(idx_key, idx + 1);
                 let start = (idx as f32) * stagger;
@@ -1032,7 +1032,7 @@ impl Normal {
         // bail out entirely — no layout slot, no paint. The other
         // containers below collapse upward to fill the gap, and
         // the floating preview painted by `Pane`'s finalize
-        // shows what's being held. Matches frostcore's
+        // shows what's being held. Matches maracore's
         // `section_with` early-return.
         let active = pane::active_drag(ui.ctx());
         let is_dragging_self = active
@@ -1224,15 +1224,13 @@ impl Normal {
                 //   widgets (color picker, etc.) still grow the
                 //   container.
                 let recorded_h = child.ctx().data(|d| {
-                    if let Some(exact) = d
-                        .get_temp::<f32>(pane_id.with("frost_container_intrinsic_natural_override"))
+                    if let Some(exact) =
+                        d.get_temp::<f32>(pane_id.with("mara_container_intrinsic_natural_override"))
                     {
                         exact
                     } else {
                         let floor = d
-                            .get_temp::<f32>(
-                                pane_id.with("frost_container_intrinsic_natural_floor"),
-                            )
+                            .get_temp::<f32>(pane_id.with("mara_container_intrinsic_natural_floor"))
                             .unwrap_or(0.0);
                         content_h.max(floor)
                     }
@@ -1368,7 +1366,7 @@ impl Normal {
         );
     }
 
-    /// Same recipe as `frostcore::widgets::foldable::section_tracked`'s
+    /// Same recipe as `maracore::widgets::foldable::section_tracked`'s
     /// outer frame: glass-card fill, accent-tinted border, theme
     /// `radius_md` corners. When the active theme has
     /// `section_show_frame = false` (GAME) we drop the visuals and
@@ -1719,7 +1717,7 @@ fn paint_folder_tabs(
         let paint_rect = if is_active { active_rect } else { base_rect };
         let resp = ui.interact(
             base_rect,
-            pane_id.with("frost_tab_btn").with(tab_id),
+            pane_id.with("mara_tab_btn").with(tab_id),
             Sense::click_and_drag(),
         );
         pane::tab_drag::push_button(
@@ -1909,7 +1907,7 @@ fn paint_top_tabs(
         let tab_id = tab_ids[i];
         let resp = ui.interact(
             cell_rect,
-            pane_id.with("frost_top_tab").with(tab_id),
+            pane_id.with("mara_top_tab").with(tab_id),
             Sense::click_and_drag(),
         );
         pane::tab_drag::push_button(
@@ -1963,7 +1961,7 @@ fn paint_top_tabs(
         let cx = cell_rect.center().x;
         let active_target = if is_active { 1.0 } else { 0.0 };
         let active_t = ui.ctx().animate_value_with_time(
-            pane_id.with("frost_top_tab_active").with(i),
+            pane_id.with("mara_top_tab_active").with(i),
             active_target,
             0.2,
         );
@@ -1982,7 +1980,7 @@ fn paint_top_tabs(
         // the move reads as an animation, not a teleport.
         let shift_target = if is_active { label_font_size } else { 0.0 };
         let label_shift = ui.ctx().animate_value_with_time(
-            pane_id.with("frost_top_tab_label_shift").with(i),
+            pane_id.with("mara_top_tab_label_shift").with(i),
             shift_target,
             0.2,
         );
@@ -2039,7 +2037,7 @@ fn paint_title(
     // `Normal::show_tabs` (GAME path) to overlay tab buttons on the
     // title row after the container has rendered.
     ui.ctx().data_mut(|d| {
-        d.insert_temp(pane_id.with("frost_normal_title_rect"), rect);
+        d.insert_temp(pane_id.with("mara_normal_title_rect"), rect);
     });
 
     let theme = style::theme();
@@ -2089,7 +2087,7 @@ fn paint_title(
     // makes `scramble_text` see no stored prev for this id and
     // restart the decode cycle from t = 0.
     let displayed = if theme.scramble_titles {
-        let session_id = ui.id().with(("frost_normal_title_session", title));
+        let session_id = ui.id().with(("mara_normal_title_session", title));
         let session = style::appearance_session(ui.ctx(), session_id);
         let fold_ver = pane::fold_version(ui.ctx(), pane_id);
         let scramble_id = session_id.with(session).with(fold_ver);
@@ -2299,7 +2297,7 @@ fn paint_title(
 
     // Floating icon (GAME mode) — paints AFTER the title text so it
     // rides on top of the banner. Same recipe as
-    // `frostcore::widgets::foldable::section_tracked`'s right-edge
+    // `maracore::widgets::foldable::section_tracked`'s right-edge
     // icon: small when folded so it tucks inside the collapsed
     // banner, big when open so it overflows the strip and reads as a
     // floating ornament. The growth is `smoothstep`-eased so it pops
@@ -2310,7 +2308,7 @@ fn paint_title(
 }
 
 /// Paint a "floating" icon on the title strip — small when folded,
-/// big when open. Mirrors `frostcore::widgets::foldable`'s
+/// big when open. Mirrors `maracore::widgets::foldable`'s
 /// right-edge icon: the icon overflows the strip's body-facing edge
 /// when fully open, framed by clipping +8 px around the painted
 /// rect. Vertical strips paint the icon centred (no rotation —
@@ -2332,7 +2330,7 @@ fn paint_floating_icon(
     if base_size <= 0.0 {
         return;
     }
-    // Constants pulled from `frostcore::widgets::foldable`'s tuned
+    // Constants pulled from `maracore::widgets::foldable`'s tuned
     // values — keep them in sync if either gets re-tuned.
     let folded_size = base_size * 0.85;
     let unfolded_size = base_size * 2.9106;
@@ -2441,7 +2439,7 @@ fn paint_floating_icon(
     // fading. Mirror the parent's opacity onto this layer's
     // painter so the icon fades with its container.
     let layer_id = crate::layer::layer_id(
-        ui.id().with("frost_floating_icon_layer"),
+        ui.id().with("mara_floating_icon_layer"),
         crate::layer::z::CONTAINER_FLOATING_ICON,
     );
     let parent_opacity = ui.opacity();
@@ -2468,7 +2466,7 @@ fn paint_floating_icon(
 
 /// Polynomial smoothstep, `t * t * (3 - 2t)`. Approximates
 /// `cubic-bezier(0.42, 0, 0.58, 1)` for a gentle ease-in-ease-out —
-/// matches the same helper in `frostcore::widgets::foldable`.
+/// matches the same helper in `maracore::widgets::foldable`.
 #[inline]
 fn smoothstep(t: f32) -> f32 {
     let t = t.clamp(0.0, 1.0);
@@ -2602,7 +2600,7 @@ fn paint_corner_ticks(
     /// opaque, then fly in. Gives the eye a beat to register
     /// "container has arrived" before the next motion starts.
     const DELAY_AFTER_FADE: f64 = 0.25;
-    let snap_id = container_id.with("frost_corner_snap");
+    let snap_id = container_id.with("mara_corner_snap");
     let prev_active_id = snap_id.with("prev_active");
     let prev_body_open_id = snap_id.with("prev_body_open");
     let first_seen_id = snap_id.with("first_seen");
@@ -2782,7 +2780,7 @@ fn paint_corner_ticks(
     // overlay (`FULLSCREEN` tier) and above tab-cell fills.
     let p = crate::layer::painter(
         ui,
-        container_id.with("frost_corner_ticks"),
+        container_id.with("mara_corner_ticks"),
         crate::layer::z::CONTAINER_TICKS,
     );
     p.extend(shapes);

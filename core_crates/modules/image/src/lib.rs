@@ -1,15 +1,15 @@
-//! `frost_image` — first proof module for the View + Module model.
+//! `mara_image` — first proof module for the View + Module model.
 //!
 //! This crate intentionally starts lightweight: it does not pull in
 //! image decoding or HTTP/file loaders yet. It proves the structural
 //! contract from `PLAN.md`: the same surface can be launched as a
-//! top-level [`frost_core::FrostView`] or embedded as a
-//! [`frost_core::FrostModule`].
+//! top-level [`mara_core::MaraView`] or embedded as a
+//! [`mara_core::MaraModule`].
 
-use frost_core::{
-    FrostModule, FrostView, ModuleInlineCtx, ModuleResponse, RibbonAction, RibbonCluster,
-    RibbonEdge, RibbonOverridePolicy, RibbonScope, RibbonSlot, RibbonSlotDef, RibbonSlotId,
-    RibbonSlotItem, ViewCtx, ViewId, WorkspaceCtx,
+use mara_core::{
+    MaraModule, MaraView, ModuleInlineCtx, ModuleResponse, RibbonAction, RibbonCluster, RibbonEdge,
+    RibbonOverridePolicy, RibbonScope, RibbonSlot, RibbonSlotDef, RibbonSlotId, RibbonSlotItem,
+    ViewCtx, ViewId, WorkspaceCtx,
 };
 
 #[derive(Clone, Debug, PartialEq)]
@@ -69,18 +69,18 @@ impl ImageSurface {
         let painter = ui.painter_at(rect);
         painter.rect_filled(
             rect,
-            frost_core::style::radius_for(frost_core::style::RadiusRole::Section),
-            frost_core::style::fill_for(
-                frost_core::style::FillRole::Pane,
-                frost_core::style::active_accent(),
+            mara_core::style::radius_for(mara_core::style::RadiusRole::Section),
+            mara_core::style::fill_for(
+                mara_core::style::FillRole::Pane,
+                mara_core::style::active_accent(),
             ),
         );
         painter.rect_stroke(
             rect,
-            frost_core::style::radius_for(frost_core::style::RadiusRole::Section),
-            frost_core::style::stroke_for(
-                frost_core::style::StrokeRole::WidgetBorder,
-                frost_core::style::active_accent(),
+            mara_core::style::radius_for(mara_core::style::RadiusRole::Section),
+            mara_core::style::stroke_for(
+                mara_core::style::StrokeRole::WidgetBorder,
+                mara_core::style::active_accent(),
             ),
             egui::StrokeKind::Inside,
         );
@@ -94,12 +94,12 @@ impl ImageSurface {
             egui::Align2::CENTER_CENTER,
             format!("{}\n{}", doc.title, detail),
             egui::FontId::proportional(13.0),
-            frost_core::style::on_panel(),
+            mara_core::style::on_panel(),
         );
     }
 }
 
-impl FrostView for ImageSurface {
+impl MaraView for ImageSurface {
     fn id(&self) -> ViewId {
         ViewId(self.id)
     }
@@ -140,7 +140,7 @@ impl FrostView for ImageSurface {
     }
 }
 
-impl FrostModule for ImageSurface {
+impl MaraModule for ImageSurface {
     fn id(&self) -> egui::Id {
         self.id
     }
@@ -170,10 +170,10 @@ impl FrostModule for ImageSurface {
     }
 
     fn workspace(&mut self, ws: &mut WorkspaceCtx<'_>) {
-        ws.add_bar(frost_core::WorkspaceBar::new(
+        ws.add_bar(mara_core::WorkspaceBar::new(
             egui::Id::new(("image.workspace.bar", self.id)),
-            frost_core::WorkspaceBarEdge::Top,
-            frost_core::WorkspaceBarCluster::Middle,
+            mara_core::WorkspaceBarEdge::Top,
+            mara_core::WorkspaceBarCluster::Middle,
         ));
         ws.add_ribbon(RibbonSlotDef::new(
             egui::Id::new(("image.workspace.ribbon", self.id)),
@@ -199,15 +199,15 @@ impl FrostModule for ImageSurface {
 mod tests {
     use super::*;
 
-    fn assert_view<T: FrostView>(_value: &T) {}
-    fn assert_module<T: FrostModule>(_value: &T) {}
+    fn assert_view<T: MaraView>(_value: &T) {}
+    fn assert_module<T: MaraModule>(_value: &T) {}
 
     #[test]
     fn image_surface_is_both_view_and_module() {
         let surface = ImageSurface::new("image", ImageDocument::empty("Image"));
         assert_view(&surface);
         assert_module(&surface);
-        assert_eq!(FrostView::title(&surface), "Image");
-        assert_eq!(FrostModule::icon(&surface), "image");
+        assert_eq!(MaraView::title(&surface), "Image");
+        assert_eq!(MaraModule::icon(&surface), "image");
     }
 }

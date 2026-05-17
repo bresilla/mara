@@ -3,11 +3,11 @@ use egui::Id;
 use super::{ModuleInlineCtx, ModuleResponse, WorkspaceCtx};
 use crate::RibbonAvoidance;
 
-/// A recursive Frost module.
+/// A recursive Mara module.
 ///
 /// Inline mode is rendered inside a pod. Workspace mode is rendered
 /// when the module owns the active L1+ workspace level.
-pub trait FrostModule {
+pub trait MaraModule {
     fn id(&self) -> Id;
     fn title(&self) -> &str;
     fn icon(&self) -> &'static str;

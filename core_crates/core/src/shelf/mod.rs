@@ -496,7 +496,7 @@ pub fn show_shelves<'a>(
         let shelf_edge = shelf.edge;
         let shelf_movable = shelf.movable;
 
-        let area = egui::Area::new(render_id.with("frost_shelf_area"))
+        let area = egui::Area::new(render_id.with("mara_shelf_area"))
             .order(egui::Order::Middle)
             .fixed_pos(rect.min)
             .interactable(true);
@@ -734,7 +734,7 @@ fn shelf_pane_id(shelf: &ShelfDef<'_>) -> Id {
 }
 
 fn shelf_tab_routing_id() -> Id {
-    Id::new("frost_shelf_tab_routing_scope")
+    Id::new("mara_shelf_tab_routing_scope")
 }
 
 fn shelf_active_container_key(shelf: &ShelfDef<'_>) -> Id {
@@ -787,8 +787,8 @@ fn render_shelf_body(input: ShelfBodyInput<'_, '_, '_, '_>) {
 
     ui.ctx().data_mut(|d| {
         d.insert_temp(active_pane_key(), pane_id);
-        d.insert_temp(pane_id.with("frost_pane_open_elapsed"), 99.0_f32);
-        d.insert_temp(pane_id.with("frost_pane_section_idx"), 0_u32);
+        d.insert_temp(pane_id.with("mara_pane_open_elapsed"), 99.0_f32);
+        d.insert_temp(pane_id.with("mara_pane_section_idx"), 0_u32);
     });
     pane::clear_container_min_widths(ui.ctx(), pane_id);
 
@@ -1313,7 +1313,7 @@ fn update_container_move_target_slot(
 }
 
 fn shelf_pane_info_key(edge: ShelfEdge) -> Id {
-    Id::new("frost_shelf_pane_info").with(edge)
+    Id::new("mara_shelf_pane_info").with(edge)
 }
 
 fn publish_shelf_pane_info(ctx: &egui::Context, info: ShelfPaneInfo) {
@@ -1333,7 +1333,7 @@ fn clear_published_shelf_pane_infos(ctx: &egui::Context) {
 }
 
 fn external_container_gap_key(pane_id: Id) -> Id {
-    pane_id.with("frost_shelf_external_container_gap")
+    pane_id.with("mara_shelf_external_container_gap")
 }
 
 fn mark_external_container_gap(ctx: &egui::Context, pane_id: Id) {
@@ -1825,7 +1825,7 @@ fn paint_shelf_move_ghost(
         return;
     };
 
-    egui::Area::new(egui::Id::new("frost_shelf_move_ghost"))
+    egui::Area::new(egui::Id::new("mara_shelf_move_ghost"))
         .order(egui::Order::Foreground)
         .fixed_pos(rect.min)
         .interactable(false)
@@ -1848,7 +1848,7 @@ fn paint_container_move_ghost(
         return;
     };
     if let Some((rect, accent)) = existing_shelf_container_slot_ghost(ctx, target, drag) {
-        egui::Area::new(egui::Id::new("frost_shelf_existing_container_slot_ghost"))
+        egui::Area::new(egui::Id::new("mara_shelf_existing_container_slot_ghost"))
             .order(egui::Order::Foreground)
             .fixed_pos(rect.min)
             .interactable(false)
@@ -1871,7 +1871,7 @@ fn paint_container_move_ghost(
         return;
     };
     let accent = style::active_accent();
-    egui::Area::new(egui::Id::new("frost_shelf_container_move_ghost"))
+    egui::Area::new(egui::Id::new("mara_shelf_container_move_ghost"))
         .order(egui::Order::Foreground)
         .fixed_pos(shelf_rect.min)
         .interactable(false)

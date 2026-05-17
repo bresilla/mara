@@ -1,10 +1,10 @@
-//! # bevy_frost — Bevy integration for the frost UI kit.
+//! # bevy_mara — Bevy integration for the mara UI kit.
 //!
 //! All UI primitives (widgets, ribbons, floating panels, node-graph
 //! wrapper, code editor, theme) live in the framework-agnostic
-//! [`frostcore`] crate. This crate adds:
+//! [`maracore`] crate. This crate adds:
 //!
-//! * [`FrostPlugin`] — one-line install that registers frostcore's
+//! * [`MaraPlugin`] — one-line install that registers maracore's
 //!   state types as Bevy `Resource`s and runs the theme + ghost
 //!   systems every frame.
 //! * [`ThemePlugin`] / [`RibbonPlugin`] — granular alternatives if
@@ -12,19 +12,19 @@
 //! * [`GizmoMaterial`] — always-on-top transform-gizmo material
 //!   extension (Bevy-specific).
 //!
-//! Consumers using `use bevy_frost::prelude::*;` keep the same API
+//! Consumers using `use bevy_mara::prelude::*;` keep the same API
 //! they had before the workspace split — this crate re-exports
-//! everything from `frostcore` verbatim and adds the plugins on top.
+//! everything from `maracore` verbatim and adds the plugins on top.
 //!
 //! ```ignore
 //! use bevy::prelude::*;
-//! use bevy_frost::prelude::*;
+//! use bevy_mara::prelude::*;
 //!
 //! fn main() {
 //!     App::new()
 //!         .add_plugins(DefaultPlugins)
 //!         .add_plugins(bevy_egui::EguiPlugin::default())
-//!         .add_plugins(FrostPlugin)
+//!         .add_plugins(MaraPlugin)
 //!         .run();
 //! }
 //! ```
@@ -35,15 +35,15 @@ pub mod prelude;
 pub mod window_chrome;
 
 // `extras` (vendored graph + code_editor + maximize) lives in
-// `frost_core` so the egui-only `egui_frost` facade can ship the same
+// `mara_core` so the egui-only `egui_mara` facade can ship the same
 // graph + code wrappers without dragging Bevy in. Re-exported here
-// at the legacy `bevy_frost::extras::*` path so existing call
+// at the legacy `bevy_mara::extras::*` path so existing call
 // sites stay put.
-pub use frost_core::extras;
+pub use mara_core::extras;
 
-// Re-export `frost_core` so apps can keep going through `bevy_frost::*`
+// Re-export `mara_core` so apps can keep going through `bevy_mara::*`
 // for state types, widgets, the pane / ribbon / pod systems, etc.
-pub use frost_core::*;
+pub use mara_core::*;
 
 use bevy::ecs::message::{MessageReader, Messages};
 use bevy::input::ButtonState;
@@ -57,31 +57,31 @@ use std::collections::HashSet;
 
 // ─── Theme ──────────────────────────────────────────────────────────
 
-/// Registers [`frost_core::style::AccentColor`] +
-/// [`frost_core::style::GlassOpacity`] as Bevy resources and runs
-/// [`frost_core::style::apply_theme`] every frame.
+/// Registers [`mara_core::style::AccentColor`] +
+/// [`mara_core::style::GlassOpacity`] as Bevy resources and runs
+/// [`mara_core::style::apply_theme`] every frame.
 pub struct ThemePlugin;
 
 impl Plugin for ThemePlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<frost_core::style::AccentColor>()
-            .init_resource::<frost_core::style::GlassOpacity>()
+        app.init_resource::<mara_core::style::AccentColor>()
+            .init_resource::<mara_core::style::GlassOpacity>()
             .add_systems(PreUpdate, sync_glass_opacity_system)
             .add_systems(EguiPrimaryContextPass, apply_theme_system);
     }
 }
 
-fn sync_glass_opacity_system(opacity: Res<frost_core::style::GlassOpacity>) {
-    frost_core::style::set_glass_opacity(opacity.0);
+fn sync_glass_opacity_system(opacity: Res<mara_core::style::GlassOpacity>) {
+    mara_core::style::set_glass_opacity(opacity.0);
 }
 
 fn apply_theme_system(
     mut contexts: EguiContexts,
-    accent: Res<frost_core::style::AccentColor>,
-    opacity: Res<frost_core::style::GlassOpacity>,
+    accent: Res<mara_core::style::AccentColor>,
+    opacity: Res<mara_core::style::GlassOpacity>,
 ) {
     let Ok(ctx) = contexts.ctx_mut() else { return };
-    frost_core::style::apply_theme(ctx, *accent, *opacity);
+    mara_core::style::apply_theme(ctx, *accent, *opacity);
 }
 
 // ─── Ribbons ────────────────────────────────────────────────────────
@@ -91,16 +91,16 @@ fn apply_theme_system(
 #[derive(SystemSet, Debug, Clone, Copy, Eq, PartialEq, Hash)]
 pub struct RibbonGhostSet;
 
-/// Registers the frost_core ribbon `Resource`s + the F12 debug toggle.
-/// [`FrostPlugin`] installs this transitively.
+/// Registers the mara_core ribbon `Resource`s + the F12 debug toggle.
+/// [`MaraPlugin`] installs this transitively.
 pub struct RibbonPlugin;
 
 impl Plugin for RibbonPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<frost_core::ribbon::RibbonOpen>()
-            .init_resource::<frost_core::ribbon::RibbonWidth>()
-            .init_resource::<frost_core::ribbon::RibbonPlacement>()
-            .init_resource::<frost_core::ribbon::RibbonDrag>()
+        app.init_resource::<mara_core::ribbon::RibbonOpen>()
+            .init_resource::<mara_core::ribbon::RibbonWidth>()
+            .init_resource::<mara_core::ribbon::RibbonPlacement>()
+            .init_resource::<mara_core::ribbon::RibbonDrag>()
             .configure_sets(
                 EguiPrimaryContextPass,
                 RibbonGhostSet.after(apply_theme_system),
@@ -117,7 +117,7 @@ impl Plugin for RibbonPlugin {
 /// `Style.debug` is `#[cfg(debug_assertions)]`-gated by egui itself,
 /// so this toggle only compiles in debug builds. `make run` runs
 /// `--release` — to use F12, run a debug build (e.g. `cargo run -p
-/// bevy_frost --example demo`) or override `debug-assertions = true`
+/// bevy_mara --example demo`) or override `debug-assertions = true`
 /// in the workspace release profile.
 fn debug_toggle_system(mut contexts: EguiContexts) {
     let Ok(_ctx) = contexts.ctx_mut() else { return };
@@ -137,7 +137,7 @@ fn debug_toggle_system(mut contexts: EguiContexts) {
 
 // ─── Pointer-event firewall ────────────────────────────────────────
 
-/// Pointer-event firewall for clicks / drags / scroll over a frost
+/// Pointer-event firewall for clicks / drags / scroll over a mara
 /// pane. Selectively blocks Bevy-side consumers from seeing input
 /// that's "for the UI", without breaking ongoing interactions that
 /// originated outside the UI.
@@ -145,7 +145,7 @@ fn debug_toggle_system(mut contexts: EguiContexts) {
 /// ## What it filters
 ///
 /// 1. **Mouse wheel**: cleared whenever the cursor sits inside any
-///    `frost_core::pane::published_pane_rects`. Wheel events are
+///    `mara_core::pane::published_pane_rects`. Wheel events are
 ///    one-shot and don't have an "ongoing" semantic, so a flat
 ///    cursor-over-pane gate is correct.
 ///
@@ -167,7 +167,7 @@ fn debug_toggle_system(mut contexts: EguiContexts) {
 /// ## Why not `is_pointer_over_area` / `layer_id_at`?
 ///
 /// `is_pointer_over_area` returns `false` for `Order::Background`
-/// layers when no `CentralPanel` is installed (frost panes are
+/// layers when no `CentralPanel` is installed (mara panes are
 /// Background; we don't install a CentralPanel). `layer_id_at`
 /// has modal / tooltip-area edge cases. The published-rects
 /// approach works for any pane order without those gotchas.
@@ -197,27 +197,27 @@ fn consume_egui_input_system(
     };
     let Ok(ctx) = contexts.ctx_mut() else { return };
     let pos = egui::pos2(cursor.x, cursor.y);
-    let pane_rects = frost_core::pane::published_pane_rects(ctx);
+    let pane_rects = mara_core::pane::published_pane_rects(ctx);
     let cursor_over_pane = pane_rects.iter().any(|r| r.contains(pos));
 
     // `egui.is_using_pointer()` is true whenever ANY egui widget has
     // claimed the pointer this frame — text-edit drag in the code
     // editor, graph canvas pan/wheel-zoom, slider drag, etc. Catches
-    // host widgets like `frost_node_graph` that use a secondary
+    // host widgets like `mara_node_graph` that use a secondary
     // `egui::Context` underneath (the parent's pane rect contains
     // the cursor, but the secondary ctx is the one with focus). We
     // also check `wants_pointer_input` so a fresh click landing on
     // an interactive widget is masked the same frame, not one frame
     // late.
     let egui_owns_pointer = ctx.is_using_pointer() || ctx.wants_pointer_input();
-    // When ANY frost widget is in its fullscreen overlay (graph or
+    // When ANY mara widget is in its fullscreen overlay (graph or
     // code editor maximised), the entire screen IS the UI — so the
     // Bevy 3D layer below must never see pointer events, no matter
     // where the cursor sits or whether the parent ctx has claimed
     // it (the graph drives input through a SECONDARY egui context,
     // so the parent's `is_using_pointer` stays false while the user
     // pans the graph).
-    let fs_active = frost_core::embed::is_any_fullscreen(ctx);
+    let fs_active = mara_core::embed::is_any_fullscreen(ctx);
     let ui_owns_pointer = cursor_over_pane || egui_owns_pointer || fs_active;
 
     // Track which mouse buttons were pressed while the cursor was
@@ -242,7 +242,7 @@ fn consume_egui_input_system(
     // `release` clears the `pressed` set; `clear_just_pressed` clears
     // the `just_pressed` set. Both are needed — `ButtonInput::release`
     // ALONE leaves `just_pressed(btn)` returning true on the press
-    // frame, so a click on a frost-pane button still fires viewport
+    // frame, so a click on a mara-pane button still fires viewport
     // pickers gated only by `just_pressed`.
     for &btn in pressed_over_pane.iter() {
         mouse_buttons.release(btn);
@@ -282,12 +282,12 @@ fn consume_egui_input_system(
     // this frame). Without this, closing every pane would leave the
     // last-seen rects stuck in ctx data — `Pane::show` is the only
     // other reset path, and it doesn't fire when no panes paint.
-    frost_core::pane::clear_published_pane_rects(ctx);
+    mara_core::pane::clear_published_pane_rects(ctx);
 }
 
 /// Standalone plugin that installs only the egui pointer-event
 /// firewall — useful for apps that can't take the full
-/// [`FrostPlugin`] (e.g. apps already wiring their own theme +
+/// [`MaraPlugin`] (e.g. apps already wiring their own theme +
 /// ribbon resources from a different source). Add this alone
 /// alongside `EguiPlugin` and you get the same input-absorption
 /// behaviour without dragging in `ThemePlugin` / `RibbonPlugin`.
@@ -310,12 +310,12 @@ impl Plugin for EguiInputAbsorbPlugin {
 
 // ─── Combined install ──────────────────────────────────────────────
 
-/// Full frost install — `ThemePlugin` + `RibbonPlugin` +
+/// Full mara install — `ThemePlugin` + `RibbonPlugin` +
 /// [`EguiInputAbsorbPlugin`]. Idempotent; safe to add alongside any
 /// other Bevy plugins.
-pub struct FrostPlugin;
+pub struct MaraPlugin;
 
-impl Plugin for FrostPlugin {
+impl Plugin for MaraPlugin {
     fn build(&self, app: &mut App) {
         if !app.is_plugin_added::<ThemePlugin>() {
             app.add_plugins(ThemePlugin);

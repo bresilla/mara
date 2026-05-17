@@ -5,7 +5,7 @@
 //!
 //! * [`ContainerSpec`] — one container ready to render. Its body
 //!   is one of a fixed set of kinds (a pod list, a tab list, or —
-//!   `pub(crate)` only — a raw closure used by frost's own extras
+//!   `pub(crate)` only — a raw closure used by mara's own extras
 //!   to host non-`'static` content like the node graph). External
 //!   callers can only build specs through the typed `normal` /
 //!   `tabbed` constructors.
@@ -35,7 +35,7 @@ use super::{PaneAnchor, TitleSide, active_drag, paint_container_dots, section_or
 ///   `Vec<Tab>`.
 ///
 /// Anything else (raw egui closures) lives behind `pub(crate)`
-/// constructors used only by `frost_core::extras::*` to host
+/// constructors used only by `mara_core::extras::*` to host
 /// host-widget integrations (node graph / code editor) without
 /// leaking arbitrary-closure access to consumer code.
 pub struct ContainerSpec<'a> {
@@ -162,9 +162,9 @@ impl<'a> ContainerSpec<'a> {
     }
 
     /// Crate-internal raw-closure constructor. Used by
-    /// `frost_core::extras::*` to wrap host-widget integrations
+    /// `mara_core::extras::*` to wrap host-widget integrations
     /// (node graph, code editor) that need non-`'static` borrows.
-    /// Not reachable from outside `frost_core`.
+    /// Not reachable from outside `mara_core`.
     #[must_use]
     pub(crate) fn raw_internal<F>(
         id: impl Into<Id>,
@@ -210,7 +210,7 @@ fn assert_container_icon(icon: &'static str) {
 
 /// Typed wrapper around a pane's body Ui. Only exposes operations
 /// that add containers — there is no way to get at the inner
-/// [`egui::Ui`] from outside `frost_core`, so the closure body
+/// [`egui::Ui`] from outside `mara_core`, so the closure body
 /// passed to [`super::Pane::show`] cannot paint raw egui widgets.
 ///
 /// Imperative builder: call [`add_normal`](Self::add_normal),
@@ -291,7 +291,7 @@ impl<'ui, 'spec> PaneBody<'ui, 'spec> {
     }
 
     /// Append a pre-built [`ContainerSpec`]. Useful when an
-    /// extension (e.g. `frost_core::extras::graph`) provides a
+    /// extension (e.g. `mara_core::extras::graph`) provides a
     /// typed constructor that returns a `ContainerSpec` for you
     /// to forward in.
     pub fn add(&mut self, spec: ContainerSpec<'spec>) -> &mut Self {
@@ -324,7 +324,7 @@ impl<'ui, 'spec> PaneBody<'ui, 'spec> {
 
 /// Render a stack of containers inside a pane body — same layout
 /// the demo's old `render_containers` performed, now owned by
-/// `frost_core` so every consumer gets identical behaviour:
+/// `mara_core` so every consumer gets identical behaviour:
 ///
 /// * Containers paint in the order from [`section_order_for`] so
 ///   drag-reorder persists.

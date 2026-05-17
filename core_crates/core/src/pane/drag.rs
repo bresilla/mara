@@ -1,6 +1,6 @@
 //! Drag-reorder for [`super::Pane`] containers.
 //!
-//! Direct port of `frostcore::floating::SectionDragState`. The
+//! Direct port of `maracore::floating::SectionDragState`. The
 //! pattern is:
 //!
 //! * **The dragged container `return`s early** in `Normal::show` —
@@ -43,12 +43,12 @@ pub struct RectEntry {
 // ─── ctx-data accessors ────────────────────────────────────────────
 
 fn drag_key(pane_id: Id) -> Id {
-    pane_id.with("frost_pane_drag")
+    pane_id.with("mara_pane_drag")
 }
 /// Cache of containers RENDERED THIS FRAME, populated by
 /// `Normal::show` as it paints. Cleared at body start.
 fn current_key(pane_id: Id) -> Id {
-    pane_id.with("frost_pane_drag_current")
+    pane_id.with("mara_pane_drag_current")
 }
 /// Snapshot of the PREVIOUS frame's full cache — including the
 /// dragged container's last-known rect (carried forward from
@@ -56,13 +56,13 @@ fn current_key(pane_id: Id) -> Id {
 /// sizing, preview) consult this so the dragged dimension stays
 /// available even though `Normal::show` skips the dragged item.
 fn snapshot_key(pane_id: Id) -> Id {
-    pane_id.with("frost_pane_drag_snapshot")
+    pane_id.with("mara_pane_drag_snapshot")
 }
 fn ghost_gap_suppressed_key(pane_id: Id) -> Id {
-    pane_id.with("frost_pane_drag_ghost_gap_suppressed")
+    pane_id.with("mara_pane_drag_ghost_gap_suppressed")
 }
 fn order_key(pane_id: Id) -> Id {
-    pane_id.with("frost_pane_section_order")
+    pane_id.with("mara_pane_section_order")
 }
 pub fn state(ctx: &Context, pane_id: Id) -> DragState {
     ctx.data(|d| d.get_temp(drag_key(pane_id)))
@@ -353,7 +353,7 @@ pub fn paint_drag_preview(
     };
     let size = entry.rect.size();
     let pos = egui::pos2(cursor.x - size.x * 0.5, cursor.y - size.y * 0.5);
-    let area_id = pane_id.with("frost_pane_drag_preview");
+    let area_id = pane_id.with("mara_pane_drag_preview");
     egui::Area::new(area_id)
         .order(egui::Order::Tooltip)
         .fixed_pos(pos)

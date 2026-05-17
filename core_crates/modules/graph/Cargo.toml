@@ -1,6 +1,6 @@
 [package]
-name = "frost_graph"
-description = "Standalone egui node-graph crate. Vendored fork of an upstream node-graph widget (see ACKNOWLEDGEMENTS.md for attribution) so we can iterate without external dep churn. Theme-neutral — call sites pick a `GraphStyle` (default builder ships sensible egui defaults; frost-tinted styling lives in `frost_core` under the optional `graph` feature)."
+name = "mara_graph"
+description = "Standalone egui node-graph crate. Vendored fork of an upstream node-graph widget (see ACKNOWLEDGEMENTS.md for attribution) so we can iterate without external dep churn. Theme-neutral — call sites pick a `GraphStyle` (default builder ships sensible egui defaults; mara-tinted styling lives in `mara_core` under the optional `graph` feature)."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -24,5 +24,5 @@ serde = ["dep:serde", "egui/serde"]
 # `egui-probe` stays as a no-op compatibility marker: the vendored
 # source keeps its annotations behind an impossible cfg predicate so
 # workspace `--all-features` remains a valid hardening gate without
-# pulling the optional upstream probe crate into Frost.
+# pulling the optional upstream probe crate into Mara.
 egui-probe = []

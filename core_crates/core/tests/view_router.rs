@@ -1,4 +1,4 @@
-use frost_core::{FrostView, ViewCtx, ViewId, ViewRouter, ViewRouterError};
+use mara_core::{MaraView, ViewCtx, ViewId, ViewRouter, ViewRouterError};
 
 struct MockView {
     id: ViewId,
@@ -21,7 +21,7 @@ impl MockView {
     }
 }
 
-impl FrostView for MockView {
+impl MaraView for MockView {
     fn id(&self) -> ViewId {
         self.id
     }

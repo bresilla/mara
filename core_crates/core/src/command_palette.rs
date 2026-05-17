@@ -130,7 +130,7 @@ pub fn command_palette(
     // Full-screen scrim so clicks outside the palette dismiss it.
     // `Order::Foreground` places it above panes, below the
     // palette itself (which we paint at `Tooltip`).
-    let scrim_clicked = egui::Area::new(egui::Id::new("frost_palette_scrim"))
+    let scrim_clicked = egui::Area::new(egui::Id::new("mara_palette_scrim"))
         .order(egui::Order::Foreground)
         .fixed_pos(screen.min)
         .show(ctx, |ui| {
@@ -162,7 +162,7 @@ pub fn command_palette(
         screen.center().x - WIDTH * 0.5,
         screen.min.y + screen.height() * 0.22,
     );
-    egui::Area::new(egui::Id::new(("frost_palette", items_sig)))
+    egui::Area::new(egui::Id::new(("mara_palette", items_sig)))
         .order(egui::Order::Tooltip)
         .fixed_pos(pos)
         .show(ctx, |ui| {
@@ -264,7 +264,7 @@ pub fn command_palette(
 
                 // Results list.
                 egui::ScrollArea::vertical()
-                    .id_salt(("frost_palette_list", items_sig))
+                    .id_salt(("mara_palette_list", items_sig))
                     .auto_shrink([false, true])
                     .max_height(320.0)
                     .show(ui, |ui| {

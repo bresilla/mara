@@ -57,7 +57,7 @@ pub fn permanent_view_switcher_ribbon(entries: &[ViewEntry]) -> RibbonSlotDef {
         .collect();
 
     RibbonSlotDef::new(
-        Id::new("frost.permanent.view_switcher"),
+        Id::new("mara.permanent.view_switcher"),
         RibbonScope::Permanent,
         RibbonEdge::Top,
         RibbonCluster::Start,

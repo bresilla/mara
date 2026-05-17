@@ -15,14 +15,14 @@
 //!
 //! 1. The host app toggles the inspector globally:
 //!    ```ignore
-//!    frost_core::debug::set_enabled(ctx, !frost_core::debug::is_enabled(ctx));
+//!    mara_core::debug::set_enabled(ctx, !mara_core::debug::is_enabled(ctx));
 //!    ```
 //! 2. Every interesting widget calls [`tag`] with its rect and a
 //!    descriptive label, e.g.
 //!    ```ignore
-//!    frost_core::debug::tag(ui, frame_rect, "Pane[settings]");
-//!    frost_core::debug::tag(ui, body_rect, "  Container[Settings 2] > body");
-//!    frost_core::debug::tag(ui, pod_rect,  "    SearchPod[…/newui_search_pod]");
+//!    mara_core::debug::tag(ui, frame_rect, "Pane[settings]");
+//!    mara_core::debug::tag(ui, body_rect, "  Container[Settings 2] > body");
+//!    mara_core::debug::tag(ui, pod_rect,  "    SearchPod[…/newui_search_pod]");
 //!    ```
 //!    Calls are CHEAP when the inspector is off (early return), and
 //!    when on, only one survives per frame — the smallest rect that
@@ -41,8 +41,8 @@
 
 use egui::{Color32, FontId, Id, Rect, Stroke, StrokeKind, Ui};
 
-const ENABLED_KEY: &str = "frost_debug_inspector_enabled";
-const BEST_KEY: &str = "frost_debug_inspector_best";
+const ENABLED_KEY: &str = "mara_debug_inspector_enabled";
+const BEST_KEY: &str = "mara_debug_inspector_best";
 
 #[derive(Clone)]
 struct Best {
