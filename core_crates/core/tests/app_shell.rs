@@ -1,9 +1,9 @@
 use mara_core::{
-    AppShellError, MaraView, RibbonAction, RibbonCluster, RibbonEdge, RibbonOverrideLayer,
-    RibbonOverridePolicy, RibbonScope, RibbonSlot, RibbonSlotDef, RibbonSlotId, RibbonSlotItem,
-    RibbonSlotOverride, ViewCtx, ViewId, ViewRouter, WindowControlsPolicy,
-    dispatch_app_shell_action, permanent_system_control_slot, resolve_app_shell_ribbons,
-    resolve_app_shell_ribbons_with_workspace_chrome,
+    AppMenuPolicy, AppShellError, MaraView, RibbonAction, RibbonCluster, RibbonEdge,
+    RibbonOverrideLayer, RibbonOverridePolicy, RibbonScope, RibbonSlot, RibbonSlotDef,
+    RibbonSlotId, RibbonSlotItem, RibbonSlotOverride, ViewCtx, ViewId, ViewRouter,
+    WindowControlsPolicy, dispatch_app_shell_action, permanent_system_control_slot,
+    resolve_app_shell_ribbons, resolve_app_shell_ribbons_with_workspace_chrome,
     resolve_app_shell_ribbons_with_workspace_layers,
 };
 
@@ -532,12 +532,22 @@ fn app_shell_chrome_enforces_persistent_main_bar() {
 
     let initial = mara_core::resolve_app_shell_chrome(&mut router, &chrome).unwrap();
     assert_eq!(initial.ribbons[0].scope, RibbonScope::Permanent);
-    assert_eq!(initial.ribbons[0].items[0].icon, "cube");
+    assert!(
+        initial.ribbons[0]
+            .items
+            .iter()
+            .any(|item| item.icon == "cube")
+    );
 
     router.set_active(canvas).unwrap();
     let switched = mara_core::resolve_app_shell_chrome(&mut router, &chrome).unwrap();
     assert_eq!(switched.ribbons[0].scope, RibbonScope::Permanent);
-    assert_eq!(switched.ribbons[0].items[0].icon, "cube");
+    assert!(
+        switched.ribbons[0]
+            .items
+            .iter()
+            .any(|item| item.icon == "cube")
+    );
 }
 
 #[test]
@@ -622,6 +632,33 @@ fn app_shell_chrome_includes_mandatory_close_controls_by_default() {
 }
 
 #[test]
+fn app_shell_chrome_includes_app_menu_by_default() {
+    let mut router = ViewRouter::new(ShellView::new("bevy", "Bevy"));
+    let chrome = main_bar_with_slots(vec![]);
+
+    assert_eq!(chrome.app_menu_policy(), AppMenuPolicy::Enabled);
+    let resolved = mara_core::resolve_app_shell_chrome(&mut router, &chrome).unwrap();
+    let permanent = resolved
+        .ribbons
+        .iter()
+        .find(|ribbon| matches!(ribbon.scope, RibbonScope::Permanent))
+        .unwrap();
+    let menu = permanent
+        .items
+        .iter()
+        .find(|item| item.id == egui::Id::new("system.app_menu.item"))
+        .unwrap();
+
+    assert_eq!(menu.icon, "line-horizontal-3");
+    assert_eq!(menu.label, "Menu");
+    assert_eq!(
+        menu.action,
+        RibbonAction::Command(mara_core::app_menu_command_id())
+    );
+    assert_eq!(permanent.items.first().unwrap().id, menu.id);
+}
+
+#[test]
 fn app_shell_chrome_rejects_non_top_main_bars() {
     for edge in [RibbonEdge::Left, RibbonEdge::Right, RibbonEdge::Bottom] {
         let result = std::panic::catch_unwind(|| {
@@ -676,12 +713,15 @@ fn app_shell_chrome_rejects_non_top_merged_permanent_ribbons() {
 #[test]
 fn app_shell_chrome_can_opt_out_of_window_controls_for_games() {
     let mut router = ViewRouter::new(ShellView::new("bevy", "Bevy"));
-    let chrome = main_bar_with_slots(vec![]).without_window_controls();
+    let chrome = main_bar_with_slots(vec![])
+        .without_window_controls()
+        .without_app_menu();
 
     assert_eq!(
         chrome.window_controls_policy(),
         WindowControlsPolicy::Hidden
     );
+    assert_eq!(chrome.app_menu_policy(), AppMenuPolicy::Hidden);
     let resolved = mara_core::resolve_app_shell_chrome(&mut router, &chrome).unwrap();
 
     let permanent = resolved
@@ -690,4 +730,31 @@ fn app_shell_chrome_can_opt_out_of_window_controls_for_games() {
         .find(|ribbon| matches!(ribbon.scope, RibbonScope::Permanent))
         .unwrap();
     assert!(permanent.items.is_empty());
+}
+
+#[test]
+fn app_shell_chrome_can_opt_out_of_app_menu_only() {
+    let mut router = ViewRouter::new(ShellView::new("bevy", "Bevy"));
+    let chrome = main_bar_with_slots(vec![]).without_app_menu();
+
+    assert_eq!(chrome.app_menu_policy(), AppMenuPolicy::Hidden);
+    let resolved = mara_core::resolve_app_shell_chrome(&mut router, &chrome).unwrap();
+
+    let permanent = resolved
+        .ribbons
+        .iter()
+        .find(|ribbon| matches!(ribbon.scope, RibbonScope::Permanent))
+        .unwrap();
+    assert!(
+        permanent
+            .items
+            .iter()
+            .all(|item| item.id != egui::Id::new("system.app_menu.item"))
+    );
+    assert!(
+        permanent
+            .items
+            .iter()
+            .any(|item| item.action == RibbonAction::CloseApp)
+    );
 }

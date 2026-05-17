@@ -8,6 +8,32 @@ use super::{
 };
 
 #[must_use]
+pub fn app_menu_slot_id() -> RibbonSlotId {
+    RibbonSlotId::new("system.app_menu")
+}
+
+#[must_use]
+pub fn app_menu_command_id() -> Id {
+    Id::new("system.app_menu")
+}
+
+#[must_use]
+pub fn permanent_app_menu_slot() -> RibbonSlot {
+    let menu = RibbonSlotItem::new(
+        Id::new("system.app_menu.item"),
+        "line-horizontal-3",
+        "Menu",
+        "Open application menu",
+        RibbonAction::Command(app_menu_command_id()),
+    );
+    RibbonSlot::new(
+        app_menu_slot_id(),
+        Some(menu),
+        RibbonOverridePolicy::LayerOverride,
+    )
+}
+
+#[must_use]
 pub fn system_close_or_restore_slot_id() -> RibbonSlotId {
     RibbonSlotId::new("system.close_or_restore")
 }

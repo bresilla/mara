@@ -62,9 +62,10 @@ pub use style::{BODY_FONT_SIZE, UNIT};
 // without needing deeply nested imports.
 
 pub use app_shell::{
-    AppShellChrome, AppShellError, AppShellResolution, ResolvedRibbon, WindowControlsPolicy,
-    dispatch_app_shell_action, resolve_app_shell_chrome, resolve_app_shell_chrome_with_workspace,
-    resolve_app_shell_ribbons, resolve_app_shell_ribbons_with_workspace_chrome,
+    AppMenuPolicy, AppShellChrome, AppShellError, AppShellResolution, ResolvedRibbon,
+    WindowControlsPolicy, dispatch_app_shell_action, resolve_app_shell_chrome,
+    resolve_app_shell_chrome_with_workspace, resolve_app_shell_ribbons,
+    resolve_app_shell_ribbons_with_workspace_chrome,
     resolve_app_shell_ribbons_with_workspace_layers, show_app_shell,
     show_app_shell_chrome_with_slot_ribbons, show_app_shell_with_slot_ribbons,
     show_app_shell_with_workspace_renderer,
@@ -76,10 +77,11 @@ pub use ribbon::{
     RibbonCluster, RibbonDrag, RibbonEdge, RibbonGlyph, RibbonMode, RibbonOpen,
     RibbonOverrideLayer, RibbonOverridePolicy, RibbonPlacement, RibbonRole, RibbonScope,
     RibbonSlot, RibbonSlotClick, RibbonSlotDef, RibbonSlotId, RibbonSlotItem, RibbonSlotOverride,
-    RibbonWidth, dispatch_ribbon_action, draw_slot_ribbons, draw_slot_ribbons_featureful,
-    main_bar_empty_drag_started, permanent_system_control_slot, permanent_view_switcher_ribbon,
-    resolve_slot_item, resolve_slot_items, restore_workspace_slot_override, ribbon_avoiding_rect,
-    ribbon_clearance, system_close_or_restore_slot_id,
+    RibbonWidth, app_menu_command_id, app_menu_slot_id, dispatch_ribbon_action, draw_slot_ribbons,
+    draw_slot_ribbons_featureful, main_bar_empty_drag_started, permanent_app_menu_slot,
+    permanent_system_control_slot, permanent_view_switcher_ribbon, resolve_slot_item,
+    resolve_slot_items, restore_workspace_slot_override, ribbon_avoiding_rect, ribbon_clearance,
+    system_close_or_restore_slot_id,
 };
 pub use shelf::{
     ShelfContainer, ShelfDef, ShelfEdge, ShelfEdgeError, ShelfLayout, ShelfState, layout_shelves,
