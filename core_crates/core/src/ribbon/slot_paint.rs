@@ -7,6 +7,13 @@ use super::{
     paint::{paint_ribbon_button, paint_ribbon_glyph, ribbon_button_fg},
 };
 
+const LEFT_SHELF_RIBBON_CHROME_ID: &str = "mara.system.left_shelf.ribbon";
+const LEFT_SHELF_ITEM_CHROME_ID: &str = "mara.system.left_shelf.item";
+const RIGHT_SHELF_RIBBON_CHROME_ID: &str = "mara.system.right_shelf.ribbon";
+const RIGHT_SHELF_ITEM_CHROME_ID: &str = "mara.system.right_shelf.item";
+const BOTTOM_SHELF_RIBBON_CHROME_ID: &str = "mara.system.bottom_shelf.ribbon";
+const BOTTOM_SHELF_ITEM_CHROME_ID: &str = "mara.system.bottom_shelf.item";
+
 #[derive(Clone, Debug)]
 pub struct ResolvedSlotRibbon {
     pub id: Id,
@@ -38,6 +45,16 @@ pub fn draw_slot_ribbons(
     accent: Color32,
     ribbons: &[ResolvedSlotRibbon],
 ) -> Vec<RibbonSlotClick> {
+    let augmented = shelf_augmented_ribbons(ctx, ribbons, ShelfButtonOrder::Simple);
+    let ribbons = augmented.as_deref().unwrap_or(ribbons);
+    draw_slot_ribbons_inner(ctx, accent, ribbons)
+}
+
+fn draw_slot_ribbons_inner(
+    ctx: &Context,
+    accent: Color32,
+    ribbons: &[ResolvedSlotRibbon],
+) -> Vec<RibbonSlotClick> {
     assert_resolved_ribbon_icons(ribbons);
     let mut clicks = Vec::new();
     for ribbon in ribbons {
@@ -62,10 +79,19 @@ pub fn draw_slot_ribbons_featureful(
     placement: &mut RibbonPlacement,
     drag: &mut RibbonDrag,
 ) -> Vec<RibbonSlotClick> {
-    assert_resolved_ribbon_icons(ribbons);
-    if !can_use_featureful_chrome(ribbons) {
-        return draw_slot_ribbons(ctx, accent, ribbons);
+    let featureful_augmented = shelf_augmented_ribbons(ctx, ribbons, ShelfButtonOrder::Featureful);
+    let featureful_ribbons = featureful_augmented.as_deref().unwrap_or(ribbons);
+    if !can_use_featureful_chrome(featureful_ribbons) {
+        let simple_augmented = shelf_augmented_ribbons(ctx, ribbons, ShelfButtonOrder::Simple);
+        return draw_slot_ribbons_inner(
+            ctx,
+            accent,
+            simple_augmented.as_deref().unwrap_or(ribbons),
+        );
     }
+
+    let ribbons = featureful_ribbons;
+    assert_resolved_ribbon_icons(ribbons);
     let clicks = draw_unified_ribbon_chrome(ctx, accent, ribbons, open, placement, drag, |id| {
         ribbons
             .iter()
@@ -93,6 +119,229 @@ pub fn draw_slot_ribbons_featureful(
                 })
         })
         .collect()
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ShelfButtonOrder {
+    /// Simple slot painting lays horizontal end-cluster items left to
+    /// right, so the close/restore button stays at the outer edge when
+    /// the shelf button is inserted before it.
+    Simple,
+    /// Featureful chrome lays end-cluster slot zero at the outer edge,
+    /// so the close/restore button stays at the outer edge when the
+    /// shelf button is inserted after it.
+    Featureful,
+}
+
+fn shelf_augmented_ribbons(
+    ctx: &Context,
+    ribbons: &[ResolvedSlotRibbon],
+    order: ShelfButtonOrder,
+) -> Option<Vec<ResolvedSlotRibbon>> {
+    let visible_layout = crate::shelf::shelf_layout(ctx);
+    augment_shelf_buttons(
+        ribbons,
+        crate::shelf::published_shelf_presence(ctx),
+        visible_layout.is_some_and(|layout| layout.left.is_some()),
+        visible_layout.is_some_and(|layout| layout.right.is_some()),
+        visible_layout.is_some_and(|layout| layout.bottom.is_some()),
+        order,
+    )
+}
+
+fn augment_shelf_buttons(
+    ribbons: &[ResolvedSlotRibbon],
+    presence: crate::shelf::ShelfPresence,
+    left_visible: bool,
+    right_visible: bool,
+    bottom_visible: bool,
+    order: ShelfButtonOrder,
+) -> Option<Vec<ResolvedSlotRibbon>> {
+    let has_left = presence.left;
+    let has_right = presence.right;
+    let has_bottom = presence.bottom;
+    if !has_left && !has_right && !has_bottom {
+        return None;
+    }
+
+    let mut out = ribbons.to_vec();
+    if !out.iter().any(is_top_permanent_ribbon) {
+        return None;
+    }
+
+    let mut changed = false;
+    if has_left && !contains_item(&out, left_shelf_item_id()) {
+        insert_left_shelf_button(&mut out, left_visible);
+        changed = true;
+    }
+    if has_right && !contains_item(&out, right_shelf_item_id()) {
+        insert_right_shelf_button(&mut out, right_visible, order);
+        changed = true;
+    }
+    if has_bottom && !contains_item(&out, bottom_shelf_item_id()) {
+        insert_bottom_shelf_button(&mut out, bottom_visible, order);
+        changed = true;
+    }
+    changed.then_some(out)
+}
+
+fn contains_item(ribbons: &[ResolvedSlotRibbon], item_id: Id) -> bool {
+    ribbons
+        .iter()
+        .any(|ribbon| ribbon.items.iter().any(|item| item.id == item_id))
+}
+
+fn insert_left_shelf_button(ribbons: &mut Vec<ResolvedSlotRibbon>, active: bool) {
+    let item = left_shelf_item(active);
+    if let Some(ribbon) = find_top_permanent_cluster_mut(ribbons, RibbonCluster::Start) {
+        let insert = ribbon
+            .items
+            .iter()
+            .position(|item| item.id == Id::new("system.app_menu.item"))
+            .map_or_else(|| (!ribbon.items.is_empty()) as usize, |idx| idx + 1);
+        ribbon.items.insert(insert, item);
+    } else {
+        ribbons.push(shelf_button_ribbon(
+            LEFT_SHELF_RIBBON_CHROME_ID,
+            RibbonCluster::Start,
+            item,
+        ));
+    }
+}
+
+fn insert_right_shelf_button(
+    ribbons: &mut Vec<ResolvedSlotRibbon>,
+    active: bool,
+    order: ShelfButtonOrder,
+) {
+    let item = right_shelf_item(active);
+    if let Some(ribbon) = find_top_permanent_cluster_mut(ribbons, RibbonCluster::End) {
+        let insert = match order {
+            ShelfButtonOrder::Simple => ribbon.items.len().saturating_sub(1),
+            ShelfButtonOrder::Featureful => 1.min(ribbon.items.len()),
+        };
+        ribbon.items.insert(insert, item);
+    } else {
+        ribbons.push(shelf_button_ribbon(
+            RIGHT_SHELF_RIBBON_CHROME_ID,
+            RibbonCluster::End,
+            item,
+        ));
+    }
+}
+
+fn insert_bottom_shelf_button(
+    ribbons: &mut Vec<ResolvedSlotRibbon>,
+    active: bool,
+    order: ShelfButtonOrder,
+) {
+    let item = bottom_shelf_item(active);
+    if let Some(ribbon) = find_top_permanent_cluster_mut(ribbons, RibbonCluster::End) {
+        let insert = match order {
+            ShelfButtonOrder::Simple => ribbon
+                .items
+                .iter()
+                .position(|item| item.id == right_shelf_item_id())
+                .unwrap_or_else(|| ribbon.items.len().saturating_sub(1)),
+            ShelfButtonOrder::Featureful => ribbon
+                .items
+                .iter()
+                .position(|item| item.id == right_shelf_item_id())
+                .map_or_else(|| 1.min(ribbon.items.len()), |idx| idx + 1),
+        };
+        ribbon.items.insert(insert, item);
+    } else {
+        ribbons.push(shelf_button_ribbon(
+            BOTTOM_SHELF_RIBBON_CHROME_ID,
+            RibbonCluster::End,
+            item,
+        ));
+    }
+}
+
+fn find_top_permanent_cluster_mut(
+    ribbons: &mut [ResolvedSlotRibbon],
+    cluster: RibbonCluster,
+) -> Option<&mut ResolvedSlotRibbon> {
+    ribbons
+        .iter_mut()
+        .find(|ribbon| is_top_permanent_ribbon(ribbon) && ribbon.cluster == cluster)
+}
+
+fn is_top_permanent_ribbon(ribbon: &ResolvedSlotRibbon) -> bool {
+    ribbon.scope == RibbonScope::Permanent && ribbon.edge == RibbonEdge::Top
+}
+
+fn shelf_button_ribbon(
+    chrome_id: &'static str,
+    cluster: RibbonCluster,
+    item: RibbonSlotItem,
+) -> ResolvedSlotRibbon {
+    ResolvedSlotRibbon {
+        id: Id::new(chrome_id),
+        chrome_id: Some(chrome_id),
+        scope: RibbonScope::Permanent,
+        edge: RibbonEdge::Top,
+        role: super::RibbonRole::Icon,
+        mode: super::RibbonMode::ThreeSided,
+        cluster,
+        accepts: &[],
+        items: vec![item],
+    }
+}
+
+fn left_shelf_item(active: bool) -> RibbonSlotItem {
+    let mut item = RibbonSlotItem::featureful(
+        LEFT_SHELF_ITEM_CHROME_ID,
+        "panel-left",
+        "Left shelf",
+        "Left shelf",
+        RibbonAction::Command(crate::ribbon::left_shelf_command_id()),
+    )
+    .with_role(super::RibbonRole::Icon);
+    item.id = left_shelf_item_id();
+    item.active = active;
+    item
+}
+
+fn right_shelf_item(active: bool) -> RibbonSlotItem {
+    let mut item = RibbonSlotItem::featureful(
+        RIGHT_SHELF_ITEM_CHROME_ID,
+        "panel-right",
+        "Right shelf",
+        "Right shelf",
+        RibbonAction::Command(crate::ribbon::right_shelf_command_id()),
+    )
+    .with_role(super::RibbonRole::Icon);
+    item.id = right_shelf_item_id();
+    item.active = active;
+    item
+}
+
+fn bottom_shelf_item(active: bool) -> RibbonSlotItem {
+    let mut item = RibbonSlotItem::featureful(
+        BOTTOM_SHELF_ITEM_CHROME_ID,
+        "panel-bottom",
+        "Bottom shelf",
+        "Bottom shelf",
+        RibbonAction::Command(crate::ribbon::bottom_shelf_command_id()),
+    )
+    .with_role(super::RibbonRole::Icon);
+    item.id = bottom_shelf_item_id();
+    item.active = active;
+    item
+}
+
+fn left_shelf_item_id() -> Id {
+    Id::new("system.left_shelf.item")
+}
+
+fn right_shelf_item_id() -> Id {
+    Id::new("system.right_shelf.item")
+}
+
+fn bottom_shelf_item_id() -> Id {
+    Id::new("system.bottom_shelf.item")
 }
 
 fn assert_resolved_ribbon_icons(ribbons: &[ResolvedSlotRibbon]) {
@@ -225,5 +474,249 @@ fn glyph_for_item(item: &RibbonSlotItem) -> super::RibbonGlyph {
         super::RibbonGlyph::Svg(item.icon)
     } else {
         super::RibbonGlyph::Icon(item.icon)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn presence(left: bool, right: bool, bottom: bool) -> crate::shelf::ShelfPresence {
+        crate::shelf::ShelfPresence {
+            left,
+            right,
+            bottom,
+        }
+    }
+
+    fn item(id: &'static str, icon: &'static str, action: RibbonAction) -> RibbonSlotItem {
+        RibbonSlotItem::featureful(id, icon, id, id, action)
+            .with_role(super::super::RibbonRole::Icon)
+    }
+
+    fn top_ribbon(cluster: RibbonCluster, items: Vec<RibbonSlotItem>) -> ResolvedSlotRibbon {
+        ResolvedSlotRibbon {
+            id: Id::new(("top", cluster)),
+            chrome_id: Some("top"),
+            scope: RibbonScope::Permanent,
+            edge: RibbonEdge::Top,
+            role: super::super::RibbonRole::Icon,
+            mode: super::super::RibbonMode::ThreeSided,
+            cluster,
+            accepts: &[],
+            items,
+        }
+    }
+
+    #[test]
+    fn shelf_buttons_are_absent_without_side_shelves() {
+        let ribbons = vec![top_ribbon(
+            RibbonCluster::Start,
+            vec![item(
+                "system.app_menu.item",
+                "line-horizontal-3",
+                RibbonAction::Noop,
+            )],
+        )];
+
+        assert!(
+            augment_shelf_buttons(
+                &ribbons,
+                presence(false, false, false),
+                false,
+                false,
+                false,
+                ShelfButtonOrder::Featureful
+            )
+            .is_none(),
+            "no published side shelves should not alter the top bar"
+        );
+    }
+
+    #[test]
+    fn shelf_buttons_need_an_existing_top_bar() {
+        let ribbons = vec![ResolvedSlotRibbon {
+            id: Id::new("left.rail"),
+            chrome_id: Some("left.rail"),
+            scope: RibbonScope::View(crate::ViewId::new("test.view")),
+            edge: RibbonEdge::Left,
+            role: super::super::RibbonRole::Icon,
+            mode: super::super::RibbonMode::ThreeSided,
+            cluster: RibbonCluster::Start,
+            accepts: &[],
+            items: vec![item("tool", "cube", RibbonAction::Noop)],
+        }];
+
+        assert!(
+            augment_shelf_buttons(
+                &ribbons,
+                presence(true, true, true),
+                true,
+                true,
+                true,
+                ShelfButtonOrder::Featureful
+            )
+            .is_none(),
+            "shelf buttons attach to an existing permanent top bar, not to side rails alone"
+        );
+    }
+
+    #[test]
+    fn left_shelf_button_is_inserted_after_menu_button() {
+        let ribbons = vec![top_ribbon(
+            RibbonCluster::Start,
+            vec![
+                item(
+                    "system.app_menu.item",
+                    "line-horizontal-3",
+                    RibbonAction::Noop,
+                ),
+                item("view.switch.item", "cube", RibbonAction::Noop),
+            ],
+        )];
+
+        let augmented = augment_shelf_buttons(
+            &ribbons,
+            presence(true, false, false),
+            true,
+            false,
+            false,
+            ShelfButtonOrder::Featureful,
+        )
+        .expect("left shelf should add a button");
+        let ids: Vec<_> = augmented[0].items.iter().map(|item| item.id).collect();
+        assert_eq!(
+            ids,
+            vec![
+                Id::new("system.app_menu.item"),
+                left_shelf_item_id(),
+                Id::new("view.switch.item"),
+            ]
+        );
+        assert_eq!(augmented[0].items[1].icon, "panel-left");
+        assert!(augmented[0].items[1].active);
+    }
+
+    #[test]
+    fn hidden_declared_shelf_keeps_inactive_top_bar_button() {
+        let ribbons = vec![top_ribbon(
+            RibbonCluster::Start,
+            vec![item(
+                "system.app_menu.item",
+                "line-horizontal-3",
+                RibbonAction::Noop,
+            )],
+        )];
+
+        let augmented = augment_shelf_buttons(
+            &ribbons,
+            presence(true, false, false),
+            false,
+            false,
+            false,
+            ShelfButtonOrder::Featureful,
+        )
+        .expect("declared hidden left shelf should keep a button for re-opening");
+        assert_eq!(augmented[0].items[1].id, left_shelf_item_id());
+        assert!(!augmented[0].items[1].active);
+    }
+
+    #[test]
+    fn right_shelf_button_keeps_close_at_outer_edge_for_featureful_chrome() {
+        let ribbons = vec![top_ribbon(
+            RibbonCluster::End,
+            vec![item("system.close_app", "dismiss", RibbonAction::CloseApp)],
+        )];
+
+        let augmented = augment_shelf_buttons(
+            &ribbons,
+            presence(false, true, false),
+            false,
+            true,
+            false,
+            ShelfButtonOrder::Featureful,
+        )
+        .expect("right shelf should add a button");
+        let ids: Vec<_> = augmented[0].items.iter().map(|item| item.id).collect();
+        assert_eq!(
+            ids,
+            vec![Id::new("system.close_app"), right_shelf_item_id()]
+        );
+        assert_eq!(augmented[0].items[1].icon, "panel-right");
+    }
+
+    #[test]
+    fn right_shelf_button_keeps_close_at_outer_edge_for_simple_painter() {
+        let ribbons = vec![top_ribbon(
+            RibbonCluster::End,
+            vec![item("system.close_app", "dismiss", RibbonAction::CloseApp)],
+        )];
+
+        let augmented = augment_shelf_buttons(
+            &ribbons,
+            presence(false, true, false),
+            false,
+            true,
+            false,
+            ShelfButtonOrder::Simple,
+        )
+        .expect("right shelf should add a button");
+        let ids: Vec<_> = augmented[0].items.iter().map(|item| item.id).collect();
+        assert_eq!(
+            ids,
+            vec![right_shelf_item_id(), Id::new("system.close_app")]
+        );
+        assert_eq!(augmented[0].items[0].icon, "panel-right");
+    }
+
+    #[test]
+    fn bottom_shelf_button_uses_right_side_of_permanent_bar() {
+        let ribbons = vec![top_ribbon(
+            RibbonCluster::End,
+            vec![item("system.close_app", "dismiss", RibbonAction::CloseApp)],
+        )];
+
+        let augmented = augment_shelf_buttons(
+            &ribbons,
+            presence(false, false, true),
+            false,
+            false,
+            true,
+            ShelfButtonOrder::Featureful,
+        )
+        .expect("bottom shelf should add a right-side top-bar button");
+        let ids: Vec<_> = augmented[0].items.iter().map(|item| item.id).collect();
+        assert_eq!(
+            ids,
+            vec![Id::new("system.close_app"), bottom_shelf_item_id()]
+        );
+        assert_eq!(augmented[0].items[1].icon, "panel-bottom");
+    }
+
+    #[test]
+    fn bottom_shelf_button_stays_left_of_right_shelf_button_when_both_exist() {
+        let ribbons = vec![top_ribbon(
+            RibbonCluster::End,
+            vec![item("system.close_app", "dismiss", RibbonAction::CloseApp)],
+        )];
+
+        let augmented = augment_shelf_buttons(
+            &ribbons,
+            presence(false, true, true),
+            false,
+            true,
+            true,
+            ShelfButtonOrder::Featureful,
+        )
+        .expect("right and bottom shelves should add right-side top-bar buttons");
+        let ids: Vec<_> = augmented[0].items.iter().map(|item| item.id).collect();
+        assert_eq!(
+            ids,
+            vec![
+                Id::new("system.close_app"),
+                right_shelf_item_id(),
+                bottom_shelf_item_id(),
+            ]
+        );
     }
 }

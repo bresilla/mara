@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use egui::{Color32, Id, Pos2, Rect, Vec2};
 
@@ -73,6 +73,7 @@ pub struct ShelfState {
     pub(super) edge_overrides: HashMap<Id, ShelfEdge>,
     pub(super) container_locations: HashMap<Id, ShelfContainerLocation>,
     pub(super) active_containers: HashMap<Id, Id>,
+    pub(super) hidden_edges: HashSet<ShelfEdge>,
     pub(super) drag: Option<ShelfDragState>,
     pub(super) container_move: Option<ShelfContainerMoveState>,
 }
@@ -142,6 +143,24 @@ impl ShelfState {
 
     pub fn clear_container_edge_override(&mut self, container_id: Id) {
         self.container_locations.remove(&container_id);
+    }
+
+    #[must_use]
+    pub fn edge_visible(&self, edge: ShelfEdge) -> bool {
+        !self.hidden_edges.contains(&edge)
+    }
+
+    pub fn set_edge_visible(&mut self, edge: ShelfEdge, visible: bool) {
+        if visible {
+            self.hidden_edges.remove(&edge);
+        } else {
+            self.hidden_edges.insert(edge);
+        }
+    }
+
+    pub fn toggle_edge_visible(&mut self, edge: ShelfEdge) {
+        let visible = !self.edge_visible(edge);
+        self.set_edge_visible(edge, visible);
     }
 
     pub(super) fn container_location(

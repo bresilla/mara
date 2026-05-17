@@ -240,6 +240,23 @@ impl ShelfLayout {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct ShelfPresence {
+    pub(crate) left: bool,
+    pub(crate) right: bool,
+    pub(crate) bottom: bool,
+}
+
+impl ShelfPresence {
+    fn from_layout(layout: ShelfLayout) -> Self {
+        Self {
+            left: layout.left.is_some(),
+            right: layout.right.is_some(),
+            bottom: layout.bottom.is_some(),
+        }
+    }
+}
+
 /// Reserve structural Shelf space and return the remaining viewport.
 pub fn layout_shelves(
     available: Rect,
@@ -334,6 +351,13 @@ struct ShelfLayoutEntry {
 }
 
 fn shelf_layout_edges(shelves: &[ShelfDef<'_>], state: &ShelfState) -> Vec<ShelfLayoutEntry> {
+    shelf_layout_edges_all(shelves, state)
+        .into_iter()
+        .filter(|entry| state.edge_visible(entry.edge))
+        .collect()
+}
+
+fn shelf_layout_edges_all(shelves: &[ShelfDef<'_>], state: &ShelfState) -> Vec<ShelfLayoutEntry> {
     let mut out = Vec::new();
     let resolved_edges = resolved_shelf_edges(shelves, state);
     let moved_shelf_owners = declared_moved_shelf_owners(shelves, state);
@@ -365,6 +389,18 @@ fn shelf_layout_edges(shelves: &[ShelfDef<'_>], state: &ShelfState) -> Vec<Shelf
     }
     out.sort_by_key(|entry| shelf_reservation_order(entry.edge));
     out
+}
+
+fn shelf_presence_for(shelves: &[ShelfDef<'_>], state: &ShelfState) -> ShelfPresence {
+    let mut presence = ShelfPresence::default();
+    for entry in shelf_layout_edges_all(shelves, state) {
+        match entry.edge {
+            ShelfEdge::Left => presence.left = true,
+            ShelfEdge::Right => presence.right = true,
+            ShelfEdge::Bottom => presence.bottom = true,
+        }
+    }
+    presence
 }
 
 fn resolve_target_layout_shelf(
@@ -473,6 +509,7 @@ pub fn show_shelves<'a>(
 ) {
     assert_unique_shelf_ids(&shelves);
     publish_shelf_layout(ctx, layout);
+    publish_shelf_presence(ctx, shelf_presence_for(&shelves, state));
     clear_published_shelf_pane_infos(ctx);
     let theme = style::theme();
     let shelf_theme = *theme.shelf();
@@ -568,12 +605,8 @@ fn top_ribbon_clearance() -> f32 {
 }
 
 fn shelf_paint_rect(edge: ShelfEdge, shelf_rect: Rect) -> Rect {
-    if !edge.is_side() {
-        return shelf_rect;
-    }
-    let mut rect = shelf_rect;
-    rect.min.y = (rect.min.y + top_ribbon_clearance()).min(rect.max.y);
-    rect
+    let _ = edge;
+    shelf_rect
 }
 
 fn shelf_content_rect(edge: ShelfEdge, shelf_rect: Rect, theme: &ShelfTheme) -> Rect {
@@ -1137,8 +1170,34 @@ fn resolve_visible_active_container(
 /// present; [`show_shelves`] does it automatically.
 pub fn publish_shelf_layout(ctx: &egui::Context, layout: ShelfLayout) {
     ctx.data_mut(|d| {
+        d.insert_temp(shelf_layout_key(), layout);
+        d.insert_temp(shelf_presence_key(), ShelfPresence::from_layout(layout));
         d.insert_temp(crate::ribbon::chrome::chrome_bounds_key(), layout.viewport);
     });
+}
+
+#[must_use]
+pub fn shelf_layout(ctx: &egui::Context) -> Option<ShelfLayout> {
+    ctx.data(|d| d.get_temp::<ShelfLayout>(shelf_layout_key()))
+}
+
+fn shelf_layout_key() -> egui::Id {
+    egui::Id::new("mara.shelf.layout")
+}
+
+pub(crate) fn published_shelf_presence(ctx: &egui::Context) -> ShelfPresence {
+    ctx.data(|d| {
+        d.get_temp::<ShelfPresence>(shelf_presence_key())
+            .unwrap_or_default()
+    })
+}
+
+fn publish_shelf_presence(ctx: &egui::Context, presence: ShelfPresence) {
+    ctx.data_mut(|d| d.insert_temp(shelf_presence_key(), presence));
+}
+
+fn shelf_presence_key() -> egui::Id {
+    egui::Id::new("mara.shelf.presence")
 }
 
 fn publish_container_move_preview_layout(

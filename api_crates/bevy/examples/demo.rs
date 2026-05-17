@@ -1659,6 +1659,18 @@ fn ui_system(
         (191, 115, 242),
     ];
     for click in clicks {
+        if click.action == RibbonAction::Command(mara_core::left_shelf_command_id()) {
+            canvas_shelves.0.toggle_edge_visible(ShelfEdge::Left);
+            continue;
+        }
+        if click.action == RibbonAction::Command(mara_core::right_shelf_command_id()) {
+            canvas_shelves.0.toggle_edge_visible(ShelfEdge::Right);
+            continue;
+        }
+        if click.action == RibbonAction::Command(mara_core::bottom_shelf_command_id()) {
+            canvas_shelves.0.toggle_edge_visible(ShelfEdge::Bottom);
+            continue;
+        }
         if click.item == egui::Id::new(ACTION_VIEW_BEVY) {
             if fs_active {
                 mara_core::embed::restore_fullscreen(ctx);

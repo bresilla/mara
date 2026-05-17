@@ -77,15 +77,17 @@ pub use ribbon::{
     RibbonCluster, RibbonDrag, RibbonEdge, RibbonGlyph, RibbonMode, RibbonOpen,
     RibbonOverrideLayer, RibbonOverridePolicy, RibbonPlacement, RibbonRole, RibbonScope,
     RibbonSlot, RibbonSlotClick, RibbonSlotDef, RibbonSlotId, RibbonSlotItem, RibbonSlotOverride,
-    RibbonWidth, app_menu_command_id, app_menu_slot_id, dispatch_ribbon_action, draw_slot_ribbons,
-    draw_slot_ribbons_featureful, main_bar_empty_drag_started, permanent_app_menu_slot,
-    permanent_system_control_slot, permanent_view_switcher_ribbon, resolve_slot_item,
-    resolve_slot_items, restore_workspace_slot_override, ribbon_avoiding_rect, ribbon_clearance,
-    system_close_or_restore_slot_id,
+    RibbonWidth, app_menu_command_id, app_menu_slot_id, bottom_shelf_command_id,
+    bottom_shelf_slot_id, dispatch_ribbon_action, draw_slot_ribbons, draw_slot_ribbons_featureful,
+    left_shelf_command_id, left_shelf_slot_id, main_bar_empty_drag_started,
+    permanent_app_menu_slot, permanent_bottom_shelf_slot, permanent_left_shelf_slot,
+    permanent_right_shelf_slot, permanent_system_control_slot, permanent_view_switcher_ribbon,
+    resolve_slot_item, resolve_slot_items, restore_workspace_slot_override, ribbon_avoiding_rect,
+    ribbon_clearance, right_shelf_command_id, right_shelf_slot_id, system_close_or_restore_slot_id,
 };
 pub use shelf::{
     ShelfContainer, ShelfDef, ShelfEdge, ShelfEdgeError, ShelfLayout, ShelfState, layout_shelves,
-    publish_shelf_layout, shelf_insets, show_shelves,
+    publish_shelf_layout, shelf_insets, shelf_layout, show_shelves,
 };
 pub use style::{AccentColor, GlassOpacity, apply_theme, set_glass_opacity};
 pub use view::{MaraView, ViewCtx, ViewEntry, ViewId, ViewRouter, ViewRouterError};

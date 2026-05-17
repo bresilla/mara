@@ -34,6 +34,84 @@ pub fn permanent_app_menu_slot() -> RibbonSlot {
 }
 
 #[must_use]
+pub fn left_shelf_slot_id() -> RibbonSlotId {
+    RibbonSlotId::new("system.left_shelf")
+}
+
+#[must_use]
+pub fn left_shelf_command_id() -> Id {
+    Id::new("system.left_shelf")
+}
+
+#[must_use]
+pub fn permanent_left_shelf_slot() -> RibbonSlot {
+    let shelf = RibbonSlotItem::new(
+        Id::new("system.left_shelf.item"),
+        "panel-left",
+        "Left shelf",
+        "Show left shelf",
+        RibbonAction::Command(left_shelf_command_id()),
+    );
+    RibbonSlot::new(
+        left_shelf_slot_id(),
+        Some(shelf),
+        RibbonOverridePolicy::LayerOverride,
+    )
+}
+
+#[must_use]
+pub fn right_shelf_slot_id() -> RibbonSlotId {
+    RibbonSlotId::new("system.right_shelf")
+}
+
+#[must_use]
+pub fn right_shelf_command_id() -> Id {
+    Id::new("system.right_shelf")
+}
+
+#[must_use]
+pub fn permanent_right_shelf_slot() -> RibbonSlot {
+    let shelf = RibbonSlotItem::new(
+        Id::new("system.right_shelf.item"),
+        "panel-right",
+        "Right shelf",
+        "Show right shelf",
+        RibbonAction::Command(right_shelf_command_id()),
+    );
+    RibbonSlot::new(
+        right_shelf_slot_id(),
+        Some(shelf),
+        RibbonOverridePolicy::LayerOverride,
+    )
+}
+
+#[must_use]
+pub fn bottom_shelf_slot_id() -> RibbonSlotId {
+    RibbonSlotId::new("system.bottom_shelf")
+}
+
+#[must_use]
+pub fn bottom_shelf_command_id() -> Id {
+    Id::new("system.bottom_shelf")
+}
+
+#[must_use]
+pub fn permanent_bottom_shelf_slot() -> RibbonSlot {
+    let shelf = RibbonSlotItem::new(
+        Id::new("system.bottom_shelf.item"),
+        "panel-bottom",
+        "Bottom shelf",
+        "Show bottom shelf",
+        RibbonAction::Command(bottom_shelf_command_id()),
+    );
+    RibbonSlot::new(
+        bottom_shelf_slot_id(),
+        Some(shelf),
+        RibbonOverridePolicy::LayerOverride,
+    )
+}
+
+#[must_use]
 pub fn system_close_or_restore_slot_id() -> RibbonSlotId {
     RibbonSlotId::new("system.close_or_restore")
 }
