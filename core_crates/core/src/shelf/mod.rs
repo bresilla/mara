@@ -105,6 +105,7 @@ pub struct ShelfDef<'a> {
     pub min_size: Option<f32>,
     pub max_size: Option<f32>,
     pub movable: bool,
+    pub toggle_button: bool,
 }
 
 impl<'a> ShelfDef<'a> {
@@ -119,6 +120,7 @@ impl<'a> ShelfDef<'a> {
             min_size: None,
             max_size: None,
             movable: false,
+            toggle_button: true,
         }
     }
 
@@ -145,6 +147,17 @@ impl<'a> ShelfDef<'a> {
     pub fn with_movable(mut self, movable: bool) -> Self {
         self.movable = movable;
         self
+    }
+
+    #[must_use]
+    pub fn with_toggle_button(mut self, toggle_button: bool) -> Self {
+        self.toggle_button = toggle_button;
+        self
+    }
+
+    #[must_use]
+    pub fn without_toggle_button(self) -> Self {
+        self.with_toggle_button(false)
     }
 
     #[must_use]
@@ -351,9 +364,22 @@ struct ShelfLayoutEntry {
 }
 
 fn shelf_layout_edges(shelves: &[ShelfDef<'_>], state: &ShelfState) -> Vec<ShelfLayoutEntry> {
-    shelf_layout_edges_all(shelves, state)
-        .into_iter()
-        .filter(|entry| state.edge_visible(entry.edge))
+    let all = shelf_layout_edges_all(shelves, state);
+    let toggle_opt_out_edges = toggle_opt_out_edges(shelves, state);
+    all.iter()
+        .copied()
+        .filter(|entry| {
+            state.edge_visible(entry.edge) || toggle_opt_out_edges.contains(&entry.edge)
+        })
+        .collect()
+}
+
+fn toggle_opt_out_edges(shelves: &[ShelfDef<'_>], state: &ShelfState) -> HashSet<ShelfEdge> {
+    let resolved_edges = resolved_shelf_edges(shelves, state);
+    shelves
+        .iter()
+        .filter(|shelf| !shelf.toggle_button)
+        .map(|shelf| resolved_edges.get(&shelf.id).copied().unwrap_or(shelf.edge))
         .collect()
 }
 
@@ -392,8 +418,14 @@ fn shelf_layout_edges_all(shelves: &[ShelfDef<'_>], state: &ShelfState) -> Vec<S
 }
 
 fn shelf_presence_for(shelves: &[ShelfDef<'_>], state: &ShelfState) -> ShelfPresence {
+    let entries = shelf_layout_edges_all(shelves, state);
+    let toggle_opt_out_edges = toggle_opt_out_edges(shelves, state);
     let mut presence = ShelfPresence::default();
-    for entry in shelf_layout_edges_all(shelves, state) {
+    for entry in entries
+        .iter()
+        .copied()
+        .filter(|entry| !toggle_opt_out_edges.contains(&entry.edge))
+    {
         match entry.edge {
             ShelfEdge::Left => presence.left = true,
             ShelfEdge::Right => presence.right = true,
@@ -651,6 +683,7 @@ fn split_shelf_render_groups<'a>(
             min_size: shelf.min_size,
             max_size: shelf.max_size,
             movable: shelf.movable,
+            toggle_button: shelf.toggle_button,
         })
         .collect();
     for mut shelf in shelves {
@@ -670,6 +703,7 @@ fn split_shelf_render_groups<'a>(
             min_size: shelf.min_size,
             max_size: shelf.max_size,
             movable: shelf.movable,
+            toggle_button: shelf.toggle_button,
         };
         for container in shelf.containers {
             let location = state.container_location(container.spec.container_id(), default_edge);
@@ -689,6 +723,7 @@ struct ShelfRenderBase {
     min_size: Option<f32>,
     max_size: Option<f32>,
     movable: bool,
+    toggle_button: bool,
 }
 
 fn resolve_target_render_base(
@@ -751,6 +786,7 @@ fn push_container_render_group<'a>(
         min_size: base.min_size,
         max_size: base.max_size,
         movable: base.movable,
+        toggle_button: base.toggle_button,
     });
 }
 

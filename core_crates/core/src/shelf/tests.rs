@@ -162,6 +162,35 @@ fn show_shelves_publishes_hidden_shelf_presence_for_top_bar_buttons() {
 }
 
 #[test]
+fn show_shelves_respects_shelf_toggle_button_opt_out() {
+    let shelf_id = Id::new("fixed-left");
+    let mut state = ShelfState::default();
+    let shelves = vec![
+        ShelfDef::new(shelf_id, ShelfEdge::Left, Color32::WHITE)
+            .without_toggle_button()
+            .container(ShelfContainer::tabbed(
+                Id::new("container"),
+                "Tools",
+                "box",
+                test_tabs(),
+            )),
+    ];
+    let layout = layout_shelves(
+        Rect::from_min_max(pos2(0.0, 0.0), pos2(800.0, 600.0)),
+        &shelves,
+        &mut state,
+        style::theme().shelf(),
+    );
+    assert!(layout.left.is_some());
+
+    assert_eq!(
+        shelf_presence_for(&shelves, &state),
+        ShelfPresence::default(),
+        "a shelf that opts out must not publish a hide/show top-bar button"
+    );
+}
+
+#[test]
 fn side_shelf_content_is_lowered_but_shelf_rect_keeps_full_height() {
     let shelf_rect = Rect::from_min_max(pos2(0.0, 0.0), pos2(240.0, 600.0));
     let theme = *style::theme().shelf();

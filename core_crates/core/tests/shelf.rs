@@ -291,6 +291,28 @@ fn hidden_side_shelf_does_not_reserve_layout_space() {
 }
 
 #[test]
+fn shelf_toggle_button_opt_out_prevents_edge_hiding() {
+    let theme = *style::theme().shelf();
+    let shelf_id = Id::new("fixed-left");
+    let mut state = ShelfState::default();
+    state.set_edge_visible(ShelfEdge::Left, false);
+    let available = Rect::from_min_max(pos2(0.0, 0.0), pos2(1000.0, 800.0));
+    let shelves = vec![
+        ShelfDef::new(shelf_id, ShelfEdge::Left, egui::Color32::WHITE)
+            .default_size(200.0)
+            .without_toggle_button(),
+    ];
+
+    let layout = layout_shelves(available, &shelves, &mut state, &theme);
+
+    assert!(
+        layout.left.is_some(),
+        "a shelf that opts out of the toggle button must stay visible"
+    );
+    assert_eq!(layout.viewport.min.x, 200.0);
+}
+
+#[test]
 fn shelf_layout_creates_edge_for_moved_container() {
     let theme = *style::theme().shelf();
     let shelf_id = Id::new("movable");
