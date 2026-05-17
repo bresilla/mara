@@ -62,6 +62,16 @@ make check
 make test
 ```
 
+Use the repo Nix shell when running the gates; the ambient Rust toolchain
+may be too old for the current dependency set:
+
+```sh
+nix develop --impure -c make check-all
+nix develop --impure -c make test-all
+```
+
+See [`TOOLCHAIN.md`](TOOLCHAIN.md) for details.
+
 Full workspace gates:
 
 ```sh
@@ -90,4 +100,3 @@ by default because the browser owns the outer window.
   repo.
 - Do not add Bevy-only logic for behavior that should also work in egui/eframe
   or web.
-

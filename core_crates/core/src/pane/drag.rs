@@ -1,7 +1,7 @@
 //! Drag-reorder for [`super::Pane`] containers.
 //!
-//! Direct port of `maracore::floating::SectionDragState`. The
-//! pattern is:
+//! Drag model carried forward from the legacy floating-section
+//! implementation. The pattern is:
 //!
 //! * **The dragged container `return`s early** in `Normal::show` —
 //!   it doesn't allocate a layout slot, so the OTHER containers

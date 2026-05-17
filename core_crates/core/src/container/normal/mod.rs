@@ -51,7 +51,7 @@ const _BODY_PAD: f32 = 6.0;
 pub const CONTAINER_DEFAULT_WIDTH: f32 = 280.0;
 pub const CONTAINER_DEFAULT_HEIGHT: f32 = 280.0;
 /// Default lower bound on a container's WIDTH. Bumped 30 % above
-/// the old `maracore::floating::MIN_PANEL_W` (= 220) so containers
+/// the old floating-pane minimum (= 220) so containers
 /// don't open at a cramped slim width — vertical-strip panes
 /// stack containers side-by-side, so a too-small default leaves
 /// each one barely wider than its title strip until the user
@@ -85,7 +85,7 @@ pub struct Normal {
     /// inlined into the title `LayoutJob` at the reading-start. In
     /// GAME theme (`section_icon_at_end = true`) it floats at the
     /// strip's far end and grows when the body unfolds — matching
-    /// `maracore::widgets::foldable::section_tracked`.
+    /// the legacy tracked-section visual.
     icon: Option<Icon<'static>>,
     /// Optional override for the body slot's flow-axis size. Default
     /// derives from `CONTAINER_DEFAULT_HEIGHT/WIDTH` minus chrome,
@@ -993,8 +993,8 @@ impl Normal {
         let total_gap = container_theme.title_body_gap_half * 2.0 * openness;
         let visible_body_flow = openness * full_body_flow;
 
-        // ── Per-section staggered fade-in (verbatim port of
-        //    `maracore::PaneBuilder::section_with`) ──
+        // ── Per-section staggered fade-in, carried forward from
+        //    the legacy pane section builder. ──
         //
         // Look up the parent Pane's id via the global "active
         // pane" pointer (Normal's own `pane_id` field is the
@@ -1032,8 +1032,8 @@ impl Normal {
         // bail out entirely — no layout slot, no paint. The other
         // containers below collapse upward to fill the gap, and
         // the floating preview painted by `Pane`'s finalize
-        // shows what's being held. Matches maracore's
-        // `section_with` early-return.
+        // shows what's being held. Matches the legacy section
+        // early-return behavior.
         let active = pane::active_drag(ui.ctx());
         let is_dragging_self = active
             .and_then(|(_, s)| s.item)
@@ -1366,7 +1366,7 @@ impl Normal {
         );
     }
 
-    /// Same recipe as `maracore::widgets::foldable::section_tracked`'s
+    /// Same recipe as the legacy tracked-section
     /// outer frame: glass-card fill, accent-tinted border, theme
     /// `radius_md` corners. When the active theme has
     /// `section_show_frame = false` (GAME) we drop the visuals and
@@ -2296,8 +2296,8 @@ fn paint_title(
     }
 
     // Floating icon (GAME mode) — paints AFTER the title text so it
-    // rides on top of the banner. Same recipe as
-    // `maracore::widgets::foldable::section_tracked`'s right-edge
+    // rides on top of the banner. Same recipe as the legacy
+    // tracked-section right-edge
     // icon: small when folded so it tucks inside the collapsed
     // banner, big when open so it overflows the strip and reads as a
     // floating ornament. The growth is `smoothstep`-eased so it pops
@@ -2308,7 +2308,7 @@ fn paint_title(
 }
 
 /// Paint a "floating" icon on the title strip — small when folded,
-/// big when open. Mirrors `maracore::widgets::foldable`'s
+/// big when open. Mirrors the legacy foldable-section
 /// right-edge icon: the icon overflows the strip's body-facing edge
 /// when fully open, framed by clipping +8 px around the painted
 /// rect. Vertical strips paint the icon centred (no rotation —
@@ -2330,7 +2330,7 @@ fn paint_floating_icon(
     if base_size <= 0.0 {
         return;
     }
-    // Constants pulled from `maracore::widgets::foldable`'s tuned
+    // Constants pulled from the legacy foldable-section tuned
     // values — keep them in sync if either gets re-tuned.
     let folded_size = base_size * 0.85;
     let unfolded_size = base_size * 2.9106;
@@ -2466,7 +2466,7 @@ fn paint_floating_icon(
 
 /// Polynomial smoothstep, `t * t * (3 - 2t)`. Approximates
 /// `cubic-bezier(0.42, 0, 0.58, 1)` for a gentle ease-in-ease-out —
-/// matches the same helper in `maracore::widgets::foldable`.
+/// matches the same helper used by the legacy foldable-section animation.
 #[inline]
 fn smoothstep(t: f32) -> f32 {
     let t = t.clamp(0.0, 1.0);

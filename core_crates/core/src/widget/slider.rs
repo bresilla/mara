@@ -4,8 +4,8 @@
 //! [`crate::widget::progressbar`] so paired sliders + progress bars
 //! line up.
 //!
-//! Mirrors `maracore::widgets::slider::pretty_slider` —
-//! the mara_core version drops the trailing-separator side-effect
+//! Mirrors the legacy `pretty_slider` shape —
+//! this version drops the trailing-separator side-effect
 //! (separators are container/pod chrome here, not row-level).
 
 use crate::style::{
@@ -13,9 +13,9 @@ use crate::style::{
     on_track, radius_for, stroke_for, theme,
 };
 
-/// Bar row height — matches `maracore::widgets::slider::BAR_H = 18`.
+/// Bar row height — retained from the legacy slider metric.
 pub const SLIDER_ROW_H: f32 = 18.0;
-/// Inline value-readout font size — matches maracore's `VALUE_FONT = 11`.
+/// Inline value-readout font size — retained from the legacy value metric.
 pub const SLIDER_VALUE_FONT: f32 = 11.0;
 
 /// Default labelled slider (2 × [`SLIDER_ROW_H`] = 36 px total).

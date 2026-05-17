@@ -9,11 +9,11 @@ sources.
 Per-crate acknowledgements:
 
 - [`core_crates/core/ACKNOWLEDGEMENTS.md`](core_crates/core/ACKNOWLEDGEMENTS.md)
-  — bundled fonts (Iosevka) and other assets used by `frost_core`.
+  — bundled fonts (Iosevka) and other assets used by `mara_core`.
 - [`core_crates/modules/graph/ACKNOWLEDGEMENTS.md`](core_crates/modules/graph/ACKNOWLEDGEMENTS.md)
-  — vendored `egui-snarl` used by `frost_graph`.
+  — vendored `egui-snarl` used by `mara_graph`.
 - [`core_crates/modules/code/ACKNOWLEDGEMENTS.md`](core_crates/modules/code/ACKNOWLEDGEMENTS.md)
-  — vendored `egui_code_editor` used by `frost_code`.
+  — vendored `egui_code_editor` used by `mara_code`.
 
 ---
 
@@ -47,7 +47,7 @@ multi-line text editor for `egui`.
 
 ## `core_crates/core/src/fonts/`
 
-The nine Iosevka weights bundled with `frost_core` are licensed
+The nine Iosevka weights bundled with `mara_core` are licensed
 under the **SIL Open Font License 1.1**.
 
 - Upstream: <https://github.com/be5invis/Iosevka>
@@ -61,7 +61,7 @@ under the **SIL Open Font License 1.1**.
 Both `egui-snarl` and `egui_code_editor` are excellent upstream,
 but we expect to modify them for project-specific needs (per-node
 colour, custom syntax rules, editor behaviour changes, layout
-primitives that plug directly into the frost theme tokens, …) and
+primitives that plug directly into the Mara theme tokens, …) and
 have no intention of upstreaming every change. Vendoring lets us
 iterate without forks / PR roundtrips and keeps every dependency
 visible in this repo's source tree.

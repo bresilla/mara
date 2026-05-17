@@ -2,20 +2,18 @@
 //! Label on the left, pill track + sliding knob on the right —
 //! row total height = 1U ([`crate::style::UNIT`]) by default.
 //!
-//! Mirrors `maracore::widgets::toggle::toggle` (the row-with-label
-//! variant — `maracore`'s naked `toggle_control` corresponds to
-//! [`toggle_track_only`] here).
+//! Mirrors the legacy row-with-label toggle; the standalone track
+//! variant corresponds to [`toggle_track_only`] here.
 
 use crate::style::{
     BODY_FONT_SIZE, FillRole, RadiusRole, StrokeRole, body_accent, fill_for, on_panel, on_track,
     radius_for, stroke_for, theme,
 };
 
-/// Default toggle row height. Matches
-/// `maracore::widgets::toggle::H = 18` so the mara_core toggle
-/// lines up with maracore at the same scale.
+/// Default toggle row height. Retained from the legacy toggle
+/// metric so migrated UIs keep the same scale.
 pub const TOGGLE_ROW_H: f32 = 18.0;
-/// Track width — matches `maracore::widgets::toggle::W = 38`.
+/// Track width — retained from the legacy toggle metric.
 pub const TOGGLE_TRACK_W: f32 = 38.0;
 
 /// Default labelled toggle row.
@@ -41,7 +39,7 @@ pub fn toggle_h(
     let toggle = theme().widgets.toggle;
     let total_w = ui.available_width();
     let (row_rect, _) = ui.allocate_exact_size(egui::vec2(total_w, height), egui::Sense::hover());
-    // Track keeps the original 38×18 maracore proportions when
+    // Track keeps the original 38×18 proportions when
     // the row is at default height; scales linearly otherwise.
     let scale = height / toggle.row_h;
     let track_w = (toggle.track_w * scale).round();

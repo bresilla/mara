@@ -68,7 +68,7 @@ bevy_egui = { workspace = true, features = [
 
 # Faster allocator for the example/demo binary — see the
 # `mimalloc` workspace dep doc for rationale. Pulled into
-# `bevy_mara` directly so the framework-agnostic `corekit` stays
+# `bevy_mara` directly so the framework-agnostic `mara_core` stays
 # allocator-neutral.
 mimalloc = { workspace = true }
 

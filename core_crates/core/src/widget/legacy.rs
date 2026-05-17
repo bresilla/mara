@@ -1,5 +1,5 @@
 //! Legacy free-function widget aliases — keeps source compatibility
-//! with apps written against `maracore::widgets::*` while the new
+//! with apps written against the previous free-function widget API while the new
 //! pod-driven API stabilises. Each function here delegates to its
 //! mara_core equivalent (or wraps a small composite) so consumers can
 //! keep calling the old names verbatim.
@@ -25,7 +25,7 @@ pub fn sub_caption(ui: &mut egui::Ui, text: &str) {
 // ─── Layout helper ──────────────────────────────────────────────────
 
 /// Width of the label column for [`labelled_row`]. Same value the
-/// legacy `maracore::widgets::row` shipped with — wide enough for
+/// legacy row layout shipped with — wide enough for
 /// typical labels at body font size.
 pub const LABEL_COL_WIDTH: f32 = 140.0;
 
@@ -79,7 +79,7 @@ pub fn labelled_row_custom_left(
 // ─── Standalone widget aliases ─────────────────────────────────────
 //
 // These are name-only redirects to the canonical mara_core widgets
-// — provided so the old `maracore::widgets::*` call sites compile
+// — provided so old free-function widget call sites compile
 // without source edits. New code should call the canonical name
 // (`button`, `readout`, `slider`, `dropdown`, `text_input`).
 
@@ -95,7 +95,7 @@ pub fn readout_row(ui: &mut egui::Ui, label: &str, value: &str) -> egui::Respons
 }
 
 /// Search-styled text input. Mirrors the legacy
-/// `maracore::widgets::search_field` signature — caller provides a
+/// `search_field` signature — caller provides a
 /// mutable buffer + placeholder + accent and gets the underlying
 /// `egui::Response` back.
 pub fn search_field(
@@ -136,7 +136,7 @@ pub fn dropdown_control<H: std::hash::Hash>(
 }
 
 /// 1px hairline separator across the available row width — matches
-/// the legacy `maracore::widgets::row_separator` look.
+/// the legacy row-separator look.
 pub fn row_separator(ui: &mut egui::Ui) {
     let avail_w = ui.available_width();
     let h = 1.0;

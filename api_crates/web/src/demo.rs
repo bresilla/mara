@@ -1,6 +1,6 @@
 //! `bevy_mara` widget gallery + layout showcase, reimplemented on
 //! top of `mara_core` (the new pane / ribbon / container / pod /
-//! widget stack). Mirrors the layout of the legacy maracore demo
+//! widget stack). Mirrors the layout of the original Mara demo
 //! one panel at a time:
 //!
 //! * **Widgets** — Flags / Numbers / Bars / Buttons / Animated.
@@ -348,8 +348,7 @@ const RIBBON_ITEMS: &[RibbonButtonSpec] = &[
         child_ribbon: None,
         role: Some(RibbonRole::Icon),
     },
-    // BOTTOM rail — Editor (placeholder; the legacy graph + code
-    // wrappers lived in `maracore` which has been removed) and the
+    // BOTTOM rail — Editor plus the
     // one-shot cube-cycle action buttons in the End cluster.
     RibbonButtonSpec {
         id: PANE_EDITOR,

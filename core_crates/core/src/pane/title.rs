@@ -228,7 +228,7 @@ pub(crate) fn paint_pane_title(
         const PIP_INSET: f32 = TITLE_INSET;
         // Per-second blink — `ON_FRAC` controls how long the pip
         // stays bright at the start of each cycle. Bumped from 0.08
-        // (maracore's value) so the on-state lingers a touch
+        // so the on-state lingers a touch
         // longer and reads clearly between dims.
         let time = ui.ctx().input(|i| i.time) as f32;
         const ON_FRAC: f32 = 0.16;

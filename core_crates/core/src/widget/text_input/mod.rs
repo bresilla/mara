@@ -20,9 +20,9 @@
 //! to each keystroke (the clear button also marks the response as
 //! changed when clicked).
 //!
-//! Ported verbatim from `maracore::widgets::search::search_field`,
-//! minus the `flush_pending_separator` glue (mara_core doesn't carry
-//! that side-channel).
+//! Ported from the legacy search-field widget, minus the
+//! `flush_pending_separator` glue (mara_core doesn't carry that
+//! side-channel).
 
 use egui;
 

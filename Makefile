@@ -121,9 +121,8 @@ smoke-gui:
 	echo "GUI smoke passed: bevy_mara — $(EXAMPLE) window appeared and stayed alive"; \
 	cat "$$log"
 
-# Phase 2 of `PLAN_NEWUI.md` — flex-based pane2 example. Empty
-# panes (title strip + empty body) at all 12 anchor positions plus
-# theme/mode cycle buttons. Doesn't touch the existing demo.
+# Historical pane-layout example entrypoint. Kept as an explicit
+# Makefile target so callers do not need ad-hoc cargo commands.
 run-newui:
 	@$(WL_PREFLIGHT)
 	@$(RUN_ENV) $(RUN_WITH) $(CARGO) run -p $(APP_PKG) --example newui
