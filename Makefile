@@ -14,13 +14,15 @@ EXAMPLE ?= demo
 APP_PKG ?= bevy_mara
 APP_TARGET := -p $(APP_PKG) --example $(EXAMPLE)
 RUN_WITH ?= nixVulkan
+TYPE ?= patch
+HAS_REL := $(shell command -v git-rel 2>/dev/null)
 
 $(info ------------------------------------------)
 $(info Project: $(PROJECT_NAME) v$(PROJECT_VERSION))
 $(info Display: $(BACKEND) backend)
 $(info ------------------------------------------)
 
-.PHONY: build b compile c run r serve-web build-web test t test-all check check-all harden bench clean help h
+.PHONY: build b compile c run r serve-web build-web test t test-all check check-all harden bench clean docs release help h
 
 build:
 	@$(CARGO) build $(APP_TARGET)
@@ -77,6 +79,22 @@ harden:
 bench:
 	@$(CARGO) bench
 
+docs:
+	@command -v mdbook >/dev/null 2>&1 || { echo "mdbook is not installed. Please install it first."; exit 1; }
+	@mdbook build $(TOP_DIR)/book --dest-dir $(TOP_DIR)/docs
+	@git add --all && git commit -m "docs: building website/mdbook"
+
+release:
+	@if [ -z "$(HAS_REL)" ]; then \
+		echo "git-rel is not installed. Please install it first."; \
+		exit 1; \
+	fi
+	@if [ -z "$(TYPE)" ]; then \
+		echo "Release type not specified. Use 'make release TYPE=[patch|minor|major|m.m.p]'"; \
+		exit 1; \
+	fi
+	@git rel $(TYPE)
+
 clean:
 	@$(CARGO) clean
 
@@ -96,6 +114,8 @@ help:
 	@echo "  check-all    Check the full workspace all-target suite"
 	@echo "  harden       Run diff whitespace check + fmt/check + strict clippy + all-feature tests"
 	@echo "  bench        Run benchmarks"
+	@echo "  docs         Build documentation with mdbook"
+	@echo "  release      Create a new release (TYPE=patch|minor|major|m.m.p)"
 	@echo "  clean        Remove Cargo build artifacts"
 	@echo
 	@echo "Examples:"
