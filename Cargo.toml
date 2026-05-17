@@ -1,9 +1,14 @@
 [workspace]
 resolver = "3"
 members = [
-    "crates/frostcore",
-    "crates/egui_frost",
-    "crates/bevy_frost",
+    "api_crates/bevy",
+    "api_crates/egui",
+    "api_crates/web",
+    "core_crates/core",
+    "core_crates/modules/code",
+    "core_crates/modules/graph",
+    "core_crates/modules/image",
+    "core_crates/modules/canvas",
 ]
 
 
@@ -11,32 +16,59 @@ members = [
 version = "0.0.1"
 edition = "2024"
 license = "MIT"
-repository = "https://github.com/bresilla/bevy_frost"
+repository = "https://github.com/bresilla/bevy_mara"
 
 [workspace.dependencies]
 # Shared egui / egui-ecosystem dependency versions — every member
-# crate pulls egui through `workspace = true` so the three crates
-# compile against a single resolved egui.
+# crate pulls egui through `workspace = true` so the workspace
+# compiles against a single resolved egui.
 egui = { version = "0.33", default-features = false }
-# egui-snarl and egui_code_editor are now vendored inside
-# `frostcore/src/features/` — see `ACKNOWLEDGEMENTS.md`. No
-# external dep on them any more.
-# bevy + bevy_egui are only used by `bevy_frost`; listed here so
+# egui-wgpu — used by `corekit::extras::node_view` to render a
+# secondary egui::Context into an offscreen wgpu texture, so node
+# graph editors stay sharp at any zoom level (sub-context's
+# pixels_per_point compensates for zoom). Both `bevy_egui` and
+# eframe's wgpu backend ultimately use egui-wgpu under the hood,
+# so making corekit depend on it directly keeps the rendering
+# code host-agnostic.
+egui-wgpu = { version = "0.33", default-features = false }
+wgpu = { version = "27", default-features = false }
+# bevy + bevy_egui are only used by `bevy_mara`; listed here so
 # the version is managed in one place.
 bevy = { version = "0.18", default-features = false }
 bevy_egui = { version = "0.39", default-features = false }
 
-# Internal crates — kept in the workspace `dependencies` table so a
-# member can say `frostcore = { workspace = true }` without repeating
-# the path.
-frostcore = { path = "crates/frostcore", version = "0.0.1" }
+# Internal crates.
+#
+# Layout:
+#   core_crates/  ← standalone library crates (UI, node graph, code editor)
+#   api_crates/   ← host-specific facades that wire the core crates
+#                    into Bevy / plain-egui apps
+#
+# `mara_core` — UI core (panes, ribbons, containers, pods, widgets,
+# theme, embed mechanism). Package id is `mara_core`, which avoids
+# shadowing Rust's std `core` in derive expansions.
+mara_core = { path = "core_crates/core", version = "0.0.1" }
+# `mara_graph` — standalone vendored node-graph crate (forked from
+# `egui-snarl`, see `core_crates/modules/graph/ACKNOWLEDGEMENTS.md`
+# for upstream attribution). Usable in any egui app; ships
+# sensible defaults, no mara-theming dep.
+mara_graph = { path = "core_crates/modules/graph", version = "0.0.1" }
+# `mara_code` — standalone vendored egui_code_editor. Usable in
+# any egui app; ships sensible defaults, no mara-theming dep.
+mara_code = { path = "core_crates/modules/code", version = "0.0.1" }
+# `mara_image` — lightweight image viewer/editor proof module for
+# the new View + Module architecture.
+mara_image = { path = "core_crates/modules/image", version = "0.0.1" }
+# `mara_canvas` — retained-stroke whiteboard proof module for
+# recursive View + Module workspaces.
+mara_canvas = { path = "core_crates/modules/canvas", version = "0.0.1" }
 
 # `mimalloc` — drop-in global allocator. egui's tessellator + shape
 # `Vec`s thrash the system allocator under heavy heap pressure;
 # Microsoft's `mimalloc` keeps fragmentation low and small-alloc
 # throughput high. egui issue #5587 documented going from
 # ~120 ms/frame to ~13 ms/frame purely by swapping allocator on
-# native targets. Wired up in `bevy_frost`'s demo via
+# native targets. Wired up in `bevy_mara`'s demo via
 # `#[global_allocator]`.
 mimalloc = { version = "0.1", default-features = false }
 

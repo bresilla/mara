@@ -1,0 +1,97 @@
+[package]
+name = "bevy_mara"
+description = "Bevy integration for the mara glass-themed editor UI kit. Wraps `mara_core` with `Resource`s, a `Plugin` that installs the theme, and the transform-gizmo always-on-top material."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+
+[dependencies]
+# `mara_core` is the entire UI core — pane / ribbon / container /
+# pod systems, widgets, theme runtime, vendored fonts. `bevy_mara`
+# is now just the Bevy-specific glue (resource registration, input
+# firewall, gizmo material) plus the vendored extras (node graph +
+# code editor) under `bevy_mara::extras::*`.
+mara_core = { workspace = true, features = ["bevy"] }
+# Direct egui dep — needed by the input-firewall plugin and the
+# `gizmo_material` shader. The vendored extras (`mara_graph` +
+# `mara_code`) ship as standalone crates so their transitive deps
+# move with them — no `egui-scale`/`slab`/`smallvec` here anymore.
+egui = { workspace = true }
+# Used by `BevyNodeViewBackend` to expose the wgpu device / queue
+# Bevy's render world owns. Texture registration is more involved
+# than eframe's path and currently lands as a `todo!()` placeholder
+# — Bevy needs a custom RenderApp node + Image asset extract
+# pipeline before sharp-zoom node-graph rendering works on the
+# Bevy side.
+wgpu = { workspace = true }
+bevy = { workspace = true, features = [
+    "std",
+    "async_executor",
+    "multi_threaded",
+    "bevy_asset",
+    "bevy_state",
+    "bevy_log",
+    "bevy_window",
+    "bevy_winit",
+    "bevy_input_focus",
+    "bevy_render",
+    "bevy_core_pipeline",
+    "bevy_pbr",
+    "bevy_light",
+    "bevy_mesh",
+    "bevy_camera",
+    "bevy_image",
+    "bevy_gizmos",
+    "bevy_gizmos_render",
+    "bevy_scene",
+    "default_font",
+    "tonemapping_luts",
+    "smaa_luts",
+    "ktx2",
+    "zstd_rust",
+    "png",
+    # Compile both winit windowing backends. `wayland` lets the demo
+    # open a native Wayland surface; `x11` keeps plain Xorg / XWayland
+    # working as a fallback. winit auto-prefers Wayland when
+    # $WAYLAND_DISPLAY is set — the Makefile clears it to force X11 in
+    # nix / sandbox shells where the socket isn't reachable.
+    "x11",
+    "wayland",
+    "reflect_auto_register",
+] }
+bevy_egui = { workspace = true, features = [
+    "default_fonts",
+    "render",
+] }
+
+# Faster allocator for the example/demo binary — see the
+# `mimalloc` workspace dep doc for rationale. Pulled into
+# `bevy_mara` directly so the framework-agnostic `corekit` stays
+# allocator-neutral.
+mimalloc = { workspace = true }
+
+[features]
+# Forward to mara_core's matching feature flags so consumers can
+# pick which standalone extras (`mara_graph`, `mara_code`) and
+# their mara-tinted wrappers compile in.
+default = ["graph", "code"]
+graph = ["mara_core/graph"]
+code = ["mara_core/code"]
+
+[dev-dependencies]
+# `bevy_glacial` — used by the demo example only (camera /
+# scene helpers). Pulled from git so the workspace doesn't need a
+# local checkout.
+bevy_glacial = { git = "https://github.com/bresilla/bevy_glacial.git", rev = "d7bc6d3" }
+
+# `egui_plot` — used by the demo's Plot / Histogram node bodies
+# for sophisticated time-series + bar-chart visualisations.
+# `0.33.0` ships against egui 0.32; we need 0.34 to align with
+# our workspace egui 0.33.3.
+egui_plot = "0.34"
+
+[[example]]
+name = "demo"
+path = "examples/demo.rs"

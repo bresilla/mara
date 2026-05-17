@@ -1,0 +1,66 @@
+use egui::Id;
+
+use crate::view::ViewEntry;
+
+use super::{
+    RibbonAction, RibbonCluster, RibbonEdge, RibbonOverridePolicy, RibbonScope, RibbonSlot,
+    RibbonSlotDef, RibbonSlotId, RibbonSlotItem, RibbonSlotOverride,
+};
+
+#[must_use]
+pub fn system_close_or_restore_slot_id() -> RibbonSlotId {
+    RibbonSlotId::new("system.close_or_restore")
+}
+
+#[must_use]
+pub fn permanent_system_control_slot() -> RibbonSlot {
+    let slot_id = system_close_or_restore_slot_id();
+    let close = RibbonSlotItem::new(
+        Id::new("system.close_app"),
+        crate::style::theme().views.close_icon,
+        "Close",
+        "Close application",
+        RibbonAction::CloseApp,
+    );
+    RibbonSlot::new(slot_id, Some(close), RibbonOverridePolicy::LayerOverride)
+}
+
+#[must_use]
+pub fn restore_workspace_slot_override() -> RibbonSlotOverride {
+    RibbonSlotOverride::new(
+        system_close_or_restore_slot_id(),
+        RibbonSlotItem::new(
+            Id::new("system.restore_workspace"),
+            crate::style::theme().modules.workspace_restore_icon,
+            crate::style::theme().modules.workspace_restore_label,
+            "Return to parent workspace",
+            RibbonAction::PopWorkspace,
+        ),
+    )
+}
+
+#[must_use]
+pub fn permanent_view_switcher_ribbon(entries: &[ViewEntry]) -> RibbonSlotDef {
+    let slots = entries
+        .iter()
+        .map(|entry| {
+            let slot_id = RibbonSlotId::new(("view.switch", entry.id.0));
+            let item = RibbonSlotItem::new(
+                Id::new(("view.switch.item", entry.id.0)),
+                entry.icon,
+                entry.title.clone(),
+                format!("Switch to {}", entry.title),
+                RibbonAction::SwitchView(entry.id),
+            );
+            RibbonSlot::new(slot_id, Some(item), RibbonOverridePolicy::Fixed)
+        })
+        .collect();
+
+    RibbonSlotDef::new(
+        Id::new("mara.permanent.view_switcher"),
+        RibbonScope::Permanent,
+        RibbonEdge::Top,
+        RibbonCluster::Start,
+        slots,
+    )
+}

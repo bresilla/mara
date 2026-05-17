@@ -1,0 +1,11 @@
+[package]
+name = "mara_image"
+description = "Lightweight image viewer/editor proof module for the Mara View + Module architecture."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+egui = { workspace = true, default-features = false }
+mara_core = { workspace = true }

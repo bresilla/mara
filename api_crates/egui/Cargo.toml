@@ -1,0 +1,63 @@
+[package]
+name = "egui_mara"
+description = "Plain-egui facade for the mara glass-themed editor UI kit. Wraps `mara_core` with helpers for installing the theme + ribbon state into a standalone egui host (eframe, etc.) — no Bevy dependency."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+
+[dependencies]
+# `mara_core` is the entire UI core — pane / ribbon / container / pod
+# systems, widgets, theme runtime, vendored fonts. `egui_mara` is
+# the egui-only convenience layer on top: helpers for one-line
+# theme install in eframe / standalone egui apps, plus a thin
+# `RibbonState` aggregate so consumers can pass a single struct
+# through their app instead of juggling four separate state types.
+#
+# No `bevy` feature on `mara_core` here — this crate compiles in any
+# environment where egui works, and stays free of Bevy types.
+mara_core = { workspace = true }
+egui = { workspace = true }
+# Used by `EframeNodeViewBackend` to register the secondary-context
+# wgpu texture into eframe's egui_wgpu::Renderer via
+# `register_native_texture`, so the texture can be drawn as
+# `egui::Image` in the parent UI.
+egui-wgpu = { workspace = true }
+wgpu = { workspace = true }
+
+[dev-dependencies]
+# `eframe` pairs the same egui version that mara_core builds against
+# (0.33).
+#
+# `default-features = false` so we drop `wayland` — winit prefers
+# wayland when both backends are compiled in and `WAYLAND_DISPLAY`
+# is set, which forces a `NoCompositor` error in environments
+# (nix, sandboxes) where the wayland socket isn't accessible even
+# though the env var leaks through. Sticking to `x11` matches
+# `bevy_mara`'s demo path (`make run` uses `DISPLAY=:1`).
+eframe = { version = "0.33", default-features = false, features = [
+    "default_fonts",
+    "wgpu",
+    "x11",
+] }
+# Direct dep on `wgpu` so we explicitly control which backends
+# compile in. eframe's `wgpu` feature alone only activates the
+# integration code path — without a backend feature on wgpu
+# itself, `wgpu::Instance::new` panics at runtime with "No wgpu
+# backend feature ... was enabled".
+#
+# We only enable `vulkan` — matches `bevy_mara`'s demo, which
+# runs under the `nixVulkan` wrapper and the same Vulkan path
+# Bevy uses. With `gl` compiled in, wgpu also tries to init an
+# EGL context, which on nix systems panics inside `khronos-egl`
+# when the EGL library isn't on the runtime path.
+wgpu = { version = "27", default-features = false, features = ["vulkan"] }
+
+[[example]]
+name = "egui_demo"
+path = "examples/demo.rs"
+
+[[example]]
+name = "views"
+path = "examples/views.rs"

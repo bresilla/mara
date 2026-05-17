@@ -1,5 +1,5 @@
 {
-  description = "bevy_frost — reusable glass-themed Bevy + egui editor UI kit, development shell";
+  description = "bevy_mara — reusable glass-themed Bevy + egui editor UI kit, development shell";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -25,14 +25,14 @@
           };
         };
 
-        # .envrc exports FROST_NVIDIA_VERSION from /proc/driver/nvidia/version
+        # .envrc exports MARA_NVIDIA_VERSION from /proc/driver/nvidia/version
         # before direnv loads the flake. We read it via getEnv (works because
         # --impure is wired into .envrc). Reading from a file under .direnv/
         # doesn't work: flakes in a git repo only expose git-tracked files to
         # the evaluator, and .direnv/ is globally gitignored.
-        nvidiaVersion = let v = builtins.getEnv "FROST_NVIDIA_VERSION";
+        nvidiaVersion = let v = builtins.getEnv "MARA_NVIDIA_VERSION";
         in if v != "" then v
-           else throw "bevy_frost: FROST_NVIDIA_VERSION is unset — is direnv loaded and is the NVIDIA driver running?";
+           else throw "bevy_mara: MARA_NVIDIA_VERSION is unset — is direnv loaded and is the NVIDIA driver running?";
 
         # Build nixGL pinned to the detected version. `nvidiaHash = null`
         # makes it fetch the matching .run impurely (--impure is wired into
@@ -73,15 +73,26 @@
           packages = [
             (pkgs.rust-bin.stable.latest.default.override {
               extensions = [ "rust-src" "rustfmt" "clippy" ];
+              # `wasm32-unknown-unknown` std for the `egui_mara_web`
+              # browser host (`api_crates/web`). Without it `trunk` /
+              # `cargo --target wasm32-unknown-unknown` fail with
+              # "can't find crate for `core`".
+              targets = [ "wasm32-unknown-unknown" ];
             })
             pkgs.clang
             pkgs.mold
             pkgs.pkg-config
 
+            # `trunk` — bundles the `egui_mara_web` crate to wasm and
+            # serves it in a browser (`make serve-web`). Drives cargo
+            # for the `wasm32-unknown-unknown` target and fetches a
+            # matching `wasm-bindgen-cli` itself.
+            pkgs.trunk
+
             # Font tooling — `pyftsubset` (fontTools + brotli) is used to
             # extract a single face from an Iosevka `.ttc` collection
             # and trim it down to the Latin + symbol subset that ships
-            # embedded inside `frostcore` via `include_bytes!`.
+            # embedded inside `maracore` via `include_bytes!`.
             (pkgs.python3.withPackages (ps: with ps; [ fonttools brotli ]))
 
             # GPU wrappers.

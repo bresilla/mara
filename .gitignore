@@ -1,1 +1,4 @@
-FROST_ADDITIONS.md
+MARA_ADDITIONS.md
+
+# Trunk wasm build output (api_crates/web/dist/)
+dist/

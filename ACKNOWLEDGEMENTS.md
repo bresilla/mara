@@ -1,14 +1,23 @@
 # Acknowledgements
 
 Parts of this project are derived from third-party open-source
-crates, vendored into
-[`crates/frostcore/src/features/`](crates/frostcore/src/features/)
-so we can modify them without upstreaming. Full copies of each
-upstream license live alongside the vendored sources.
+crates, vendored into the relevant `core_crates/*` sub-tree so we
+can modify them in-place without forks / upstream round-trips.
+Full copies of each upstream license live alongside the vendored
+sources.
+
+Per-crate acknowledgements:
+
+- [`core_crates/core/ACKNOWLEDGEMENTS.md`](core_crates/core/ACKNOWLEDGEMENTS.md)
+  — bundled fonts (Iosevka) and other assets used by `frost_core`.
+- [`core_crates/modules/graph/ACKNOWLEDGEMENTS.md`](core_crates/modules/graph/ACKNOWLEDGEMENTS.md)
+  — vendored `egui-snarl` used by `frost_graph`.
+- [`core_crates/modules/code/ACKNOWLEDGEMENTS.md`](core_crates/modules/code/ACKNOWLEDGEMENTS.md)
+  — vendored `egui_code_editor` used by `frost_code`.
 
 ---
 
-## `crates/frostcore/src/features/snarl/`
+## `core_crates/modules/graph/src/vendored/`
 
 Derived from **egui-snarl** v0.9.0 — a node-graph widget for
 `egui`.
@@ -17,12 +26,12 @@ Derived from **egui-snarl** v0.9.0 — a node-graph widget for
 - Author: [@zakarumych](https://github.com/zakarumych)
 - License: MIT OR Apache-2.0
 - License files (verbatim copies):
-  - [`crates/frostcore/src/features/snarl/LICENSE-MIT`](crates/frostcore/src/features/snarl/LICENSE-MIT)
-  - [`crates/frostcore/src/features/snarl/LICENSE-APACHE`](crates/frostcore/src/features/snarl/LICENSE-APACHE)
+  - [`core_crates/modules/graph/src/vendored/LICENSE-MIT`](core_crates/modules/graph/src/vendored/LICENSE-MIT)
+  - [`core_crates/modules/graph/src/vendored/LICENSE-APACHE`](core_crates/modules/graph/src/vendored/LICENSE-APACHE)
 
 ---
 
-## `crates/frostcore/src/features/code_editor/`
+## `core_crates/modules/code/src/vendored/`
 
 Derived from **egui_code_editor** v0.2.21 — a syntax-highlighting
 multi-line text editor for `egui`.
@@ -32,33 +41,30 @@ multi-line text editor for `egui`.
   ([@p4ymak](https://github.com/p4ymak))
 - License: MIT
 - License file (verbatim copy):
-  - [`crates/frostcore/src/features/code_editor/LICENSE`](crates/frostcore/src/features/code_editor/LICENSE)
+  - [`core_crates/modules/code/src/vendored/LICENSE`](core_crates/modules/code/src/vendored/LICENSE)
 
 ---
 
-## `crates/frostcore/src/features/flex/`
+## `core_crates/core/src/fonts/`
 
-Derived from **egui_flex** v0.6.0 — a flexbox-style layout
-container for `egui`.
+The nine Iosevka weights bundled with `frost_core` are licensed
+under the **SIL Open Font License 1.1**.
 
-- Upstream: <https://github.com/lucasmerlin/hello_egui/tree/main/crates/egui_flex>
-- Author: Lucas Meurer
-  ([@lucasmerlin](https://github.com/lucasmerlin))
-- License: MIT
-- License file (verbatim copy):
-  - [`crates/frostcore/src/features/flex/LICENSE`](crates/frostcore/src/features/flex/LICENSE)
+- Upstream: <https://github.com/be5invis/Iosevka>
+- License: SIL Open Font License 1.1
+- Loaded by: `style.rs::install_fonts` via `include_bytes!`.
 
 ---
 
 ## Why vendored instead of depending directly
 
-All three crates are excellent upstream, but we expect to modify
-them heavily for project-specific needs (per-node colour, custom
-syntax rules, editor behaviour changes, layout primitives that
-plug directly into the frost theme tokens, …) and have no
-intention of upstreaming those changes. Vendoring lets us iterate
-without forks / PR roundtrips and keeps every dependency visible
-in this repo's source tree.
+Both `egui-snarl` and `egui_code_editor` are excellent upstream,
+but we expect to modify them for project-specific needs (per-node
+colour, custom syntax rules, editor behaviour changes, layout
+primitives that plug directly into the frost theme tokens, …) and
+have no intention of upstreaming every change. Vendoring lets us
+iterate without forks / PR roundtrips and keeps every dependency
+visible in this repo's source tree.
 
 If you contribute a change to the vendored code that could
 benefit upstream too, please send it to the original repo first

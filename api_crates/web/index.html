@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+    <title>egui_mara — web</title>
+
+    <style>
+        /* Fill the viewport, no scrollbars; dark backdrop so there is
+           no white flash before the wasm bundle paints the canvas. */
+        html,
+        body {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background: #0e0e11;
+        }
+
+        /* eframe owns sizing — it resizes the canvas to its parent
+           every frame; the rules here just place it full-bleed. */
+        canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+        }
+    </style>
+</head>
+
+<body>
+    <!-- src/main.rs looks this id up via web-sys and hands the
+         element to eframe's WebRunner. -->
+    <canvas id="mara_canvas"></canvas>
+
+    <!-- Trunk compiles the crate to wasm and injects the JS loader. -->
+    <link data-trunk rel="rust" />
+</body>
+
+</html>

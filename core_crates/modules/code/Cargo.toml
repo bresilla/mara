@@ -1,0 +1,20 @@
+[package]
+name = "mara_code"
+description = "Standalone egui code-editor crate. Vendored fork (see ACKNOWLEDGEMENTS.md for upstream attribution) so we can iterate without external dep churn. Theme-neutral — call sites pick a `ColorTheme` (default builder ships sensible egui defaults; mara-tinted styling lives in `mara_core` under the optional `code` feature)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+egui = { workspace = true, default-features = false }
+serde = { version = "1", features = ["derive"], optional = true }
+
+[features]
+# Silent markers for the upstream `egui_code_editor` cfg gates that
+# survived vendoring. The crate now compiles its egui/editor code
+# unconditionally.
+serde = ["dep:serde"]
+# No-op compatibility marker; the vendored code currently has no
+# probe annotations.
+egui-probe = []

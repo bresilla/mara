@@ -1,0 +1,28 @@
+[package]
+name = "mara_graph"
+description = "Standalone egui node-graph crate. Vendored fork of an upstream node-graph widget (see ACKNOWLEDGEMENTS.md for attribution) so we can iterate without external dep churn. Theme-neutral — call sites pick a `GraphStyle` (default builder ships sensible egui defaults; mara-tinted styling lives in `mara_core` under the optional `graph` feature)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+egui = { workspace = true, default-features = false }
+# Used by `node_view` to render the graph into a secondary egui
+# context backed by a wgpu texture, so the graph stays sharp at
+# any zoom level.
+egui-wgpu = { workspace = true }
+wgpu = { workspace = true }
+egui-scale = "0.3"
+slab = { version = "0.4", features = ["serde"] }
+smallvec = { version = "1.15", features = ["const_new"] }
+serde = { version = "1", features = ["derive"], optional = true }
+
+[features]
+# Upstream cfg gates that survived vendoring.
+serde = ["dep:serde", "egui/serde"]
+# `egui-probe` stays as a no-op compatibility marker: the vendored
+# source keeps its annotations behind an impossible cfg predicate so
+# workspace `--all-features` remains a valid hardening gate without
+# pulling the optional upstream probe crate into Mara.
+egui-probe = []
