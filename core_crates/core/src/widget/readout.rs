@@ -12,8 +12,8 @@
 //! Returns a `Response` so callers can attach hover tooltips or
 //! detect double-clicks (e.g. "double-click to copy").
 //!
-//! Mirrors `maracore::widgets::row::readout_row`, minus the
-//! flush/widget separator glue (mara_core's Pod owns separators).
+//! Mirrors the legacy `readout_row` shape, minus the flush/widget
+//! separator glue (mara_core's Pod owns separators).
 
 use crate::style::{UNIT, on_section, on_section_dim, theme};
 

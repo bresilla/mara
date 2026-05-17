@@ -1,6 +1,6 @@
 //! Filled Fluent UI System Icons via the [`iconflow`] crate.
 //!
-//! maracore registers every Fluent UI font variant in
+//! mara_core registers every Fluent UI font variant in
 //! [`crate::style::apply_theme`]'s font install pass so widgets can
 //! render an icon glyph anywhere a `RichText` or `painter().text(..)`
 //! call lands. Lookup is by string name (e.g. `"search"`,
@@ -154,7 +154,7 @@ pub fn icon(name: &str) -> Option<(char, egui::FontFamily)> {
 /// callers can `.unwrap_or_else(|| RichText::new("?"))` or similar.
 ///
 /// ```ignore
-/// if let Some(t) = maracore::icons::icon_text("search", 14.0, accent) {
+/// if let Some(t) = mara_core::icons::icon_text("search", 14.0, accent) {
 ///     ui.label(t);
 /// }
 /// ```

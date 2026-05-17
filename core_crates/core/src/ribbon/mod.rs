@@ -34,8 +34,11 @@ pub use chrome::{
 };
 pub use dispatch::{RibbonActionError, RibbonActionResult, dispatch_ribbon_action};
 pub use permanent::{
+    app_menu_command_id, app_menu_slot_id, bottom_shelf_command_id, bottom_shelf_slot_id,
+    left_shelf_command_id, left_shelf_slot_id, permanent_app_menu_slot,
+    permanent_bottom_shelf_slot, permanent_left_shelf_slot, permanent_right_shelf_slot,
     permanent_system_control_slot, permanent_view_switcher_ribbon, restore_workspace_slot_override,
-    system_close_or_restore_slot_id,
+    right_shelf_command_id, right_shelf_slot_id, system_close_or_restore_slot_id,
 };
 pub use resolve::{resolve_slot_item, resolve_slot_items};
 pub use slot::{

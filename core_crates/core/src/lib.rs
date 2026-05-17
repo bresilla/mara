@@ -1,9 +1,8 @@
 //! # mara_core — modular UI core for `bevy_mara`
 //!
-//! Successor to `maracore` (see `PLAN_NEWUI.md` at the repo root).
-//! Self-contained: ships its own bundled Iosevka fonts, theme
-//! runtime, ribbon strip, and pane system. Nothing here depends on
-//! `maracore`.
+//! Framework-agnostic UI core for Mara. Self-contained: ships its
+//! own bundled Iosevka fonts, theme runtime, ribbon strip, shelf
+//! system, pane system, and reusable widget contracts.
 //!
 //! Naming note: directory is `crates/core/` but the crate identifier
 //! is `mara_core`. Naming the package `core` would shadow Rust's std
@@ -58,15 +57,15 @@ pub use style::{BODY_FONT_SIZE, UNIT};
 // `bevy_mara::prelude::*` glob-imports `mara_core::*`, so anything
 // re-exported here surfaces directly under the consumer's prelude
 // (`use bevy_mara::prelude::*;` → `RibbonOpen`, `AccentColor`, …
-// in scope). These are the names the old `maracore` crate
-// surfaced — keeping them callable via the same paths means apps
-// that hadn't fully migrated to nested-module imports still
-// compile against mara_core without breakage.
+// in scope). Keeping these callable at the crate root means apps
+// can use the concise `mara_core::*` / facade prelude surface
+// without needing deeply nested imports.
 
 pub use app_shell::{
-    AppShellChrome, AppShellError, AppShellResolution, ResolvedRibbon, WindowControlsPolicy,
-    dispatch_app_shell_action, resolve_app_shell_chrome, resolve_app_shell_chrome_with_workspace,
-    resolve_app_shell_ribbons, resolve_app_shell_ribbons_with_workspace_chrome,
+    AppMenuPolicy, AppShellChrome, AppShellError, AppShellResolution, ResolvedRibbon,
+    WindowControlsPolicy, dispatch_app_shell_action, resolve_app_shell_chrome,
+    resolve_app_shell_chrome_with_workspace, resolve_app_shell_ribbons,
+    resolve_app_shell_ribbons_with_workspace_chrome,
     resolve_app_shell_ribbons_with_workspace_layers, show_app_shell,
     show_app_shell_chrome_with_slot_ribbons, show_app_shell_with_slot_ribbons,
     show_app_shell_with_workspace_renderer,
@@ -78,14 +77,17 @@ pub use ribbon::{
     RibbonCluster, RibbonDrag, RibbonEdge, RibbonGlyph, RibbonMode, RibbonOpen,
     RibbonOverrideLayer, RibbonOverridePolicy, RibbonPlacement, RibbonRole, RibbonScope,
     RibbonSlot, RibbonSlotClick, RibbonSlotDef, RibbonSlotId, RibbonSlotItem, RibbonSlotOverride,
-    RibbonWidth, dispatch_ribbon_action, draw_slot_ribbons, draw_slot_ribbons_featureful,
-    main_bar_empty_drag_started, permanent_system_control_slot, permanent_view_switcher_ribbon,
+    RibbonWidth, app_menu_command_id, app_menu_slot_id, bottom_shelf_command_id,
+    bottom_shelf_slot_id, dispatch_ribbon_action, draw_slot_ribbons, draw_slot_ribbons_featureful,
+    left_shelf_command_id, left_shelf_slot_id, main_bar_empty_drag_started,
+    permanent_app_menu_slot, permanent_bottom_shelf_slot, permanent_left_shelf_slot,
+    permanent_right_shelf_slot, permanent_system_control_slot, permanent_view_switcher_ribbon,
     resolve_slot_item, resolve_slot_items, restore_workspace_slot_override, ribbon_avoiding_rect,
-    ribbon_clearance, system_close_or_restore_slot_id,
+    ribbon_clearance, right_shelf_command_id, right_shelf_slot_id, system_close_or_restore_slot_id,
 };
 pub use shelf::{
     ShelfContainer, ShelfDef, ShelfEdge, ShelfEdgeError, ShelfLayout, ShelfState, layout_shelves,
-    publish_shelf_layout, shelf_insets, show_shelves,
+    publish_shelf_layout, shelf_insets, shelf_layout, show_shelves,
 };
 pub use style::{AccentColor, GlassOpacity, apply_theme, set_glass_opacity};
 pub use view::{MaraView, ViewCtx, ViewEntry, ViewId, ViewRouter, ViewRouterError};

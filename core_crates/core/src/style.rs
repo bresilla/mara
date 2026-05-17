@@ -16,10 +16,9 @@
 // ─── Sizing fundamentals ───────────────────────────────────────────
 
 /// Body text size, in pixels. Drives the [`UNIT`] derivation below
-/// — change here only if the entire mara type ramp moves. Matches
-/// `maracore::style::apply_theme`'s body text style (13 px), so
-/// mara_core and maracore widgets line up side-by-side at the same
-/// scale.
+/// — change here only if the entire Mara type ramp moves. The value
+/// is kept at the established 13 px body size so migrated widgets
+/// preserve their scale.
 pub const BODY_FONT_SIZE: f32 = 13.0;
 
 /// Foundational row-height unit, in pixels. The canonical "1 row"
@@ -1010,7 +1009,7 @@ const SCRAMBLE_CHARS: &[char] = &[
 /// (or while gated, so the random glyphs keep cycling).
 pub fn scramble_text(ctx: &egui::Context, id: egui::Id, current: &str, active: bool) -> String {
     /// Staggered delay between adjacent characters' lock times.
-    /// `0.07` was the maracore default, but with `Pane`'s
+    /// `0.07` was the legacy default, but with `Pane`'s
     /// per-section staggered fade-in landing the last container at
     /// ~0.81 s, the first container's cipher finished too early —
     /// most letters had already locked by the time the user could
@@ -2479,7 +2478,7 @@ fn write_unpoisoned<T>(lock: &std::sync::RwLock<T>) -> std::sync::RwLockWriteGua
 }
 
 /// Replace the active theme. Takes effect on the next paint —
-/// maracore's de-dup cache in [`apply_theme`] uses `theme.name` to
+/// The de-dup cache in [`apply_theme`] uses `theme.name` to
 /// detect the switch and re-push the egui style. Call this when the
 /// user picks a profile from a settings UI.
 pub fn set_theme(t: Theme) {

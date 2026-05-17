@@ -13,7 +13,7 @@ members = [
 
 
 [workspace.package]
-version = "0.0.1"
+version = "0.0.2"
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/bresilla/bevy_mara"
@@ -23,12 +23,12 @@ repository = "https://github.com/bresilla/bevy_mara"
 # crate pulls egui through `workspace = true` so the workspace
 # compiles against a single resolved egui.
 egui = { version = "0.33", default-features = false }
-# egui-wgpu — used by `corekit::extras::node_view` to render a
+# egui-wgpu — used by `mara_core::extras::node_view` to render a
 # secondary egui::Context into an offscreen wgpu texture, so node
 # graph editors stay sharp at any zoom level (sub-context's
 # pixels_per_point compensates for zoom). Both `bevy_egui` and
 # eframe's wgpu backend ultimately use egui-wgpu under the hood,
-# so making corekit depend on it directly keeps the rendering
+# so making mara_core depend on it directly keeps the rendering
 # code host-agnostic.
 egui-wgpu = { version = "0.33", default-features = false }
 wgpu = { version = "27", default-features = false }

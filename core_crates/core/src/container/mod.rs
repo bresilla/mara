@@ -6,7 +6,7 @@
 //! Variants:
 //!
 //! * [`normal`] — single title bar above a single body. The default
-//!   building block; matches maracore's `Section`.
+//!   building block; equivalent to a section.
 //! * [`tabbed`] — multiple labelled bodies behind a tab strip
 //!   (placeholder; not yet implemented).
 

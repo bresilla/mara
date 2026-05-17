@@ -248,6 +248,12 @@ fn shelf_state_persists_size_and_active_container() {
     assert_eq!(state.edge(shelf_id, ShelfEdge::Left), ShelfEdge::Right);
     state.clear_edge_override(shelf_id);
     assert_eq!(state.edge(shelf_id, ShelfEdge::Left), ShelfEdge::Left);
+
+    assert!(state.edge_visible(ShelfEdge::Left));
+    state.set_edge_visible(ShelfEdge::Left, false);
+    assert!(!state.edge_visible(ShelfEdge::Left));
+    state.toggle_edge_visible(ShelfEdge::Left);
+    assert!(state.edge_visible(ShelfEdge::Left));
 }
 
 #[test]
@@ -266,6 +272,44 @@ fn shelf_layout_uses_state_edge_override() {
     assert!(layout.bottom.is_some());
     assert_eq!(layout.bottom.unwrap().height(), 200.0);
     assert_eq!(layout.viewport.max.y, 600.0);
+}
+
+#[test]
+fn hidden_side_shelf_does_not_reserve_layout_space() {
+    let theme = *style::theme().shelf();
+    let shelf_id = Id::new("hidden-left");
+    let mut state = ShelfState::default();
+    state.set_edge_visible(ShelfEdge::Left, false);
+    let available = Rect::from_min_max(pos2(0.0, 0.0), pos2(1000.0, 800.0));
+    let shelves =
+        vec![ShelfDef::new(shelf_id, ShelfEdge::Left, egui::Color32::WHITE).default_size(200.0)];
+
+    let layout = layout_shelves(available, &shelves, &mut state, &theme);
+
+    assert!(layout.left.is_none());
+    assert_eq!(layout.viewport, available);
+}
+
+#[test]
+fn shelf_toggle_button_opt_out_prevents_edge_hiding() {
+    let theme = *style::theme().shelf();
+    let shelf_id = Id::new("fixed-left");
+    let mut state = ShelfState::default();
+    state.set_edge_visible(ShelfEdge::Left, false);
+    let available = Rect::from_min_max(pos2(0.0, 0.0), pos2(1000.0, 800.0));
+    let shelves = vec![
+        ShelfDef::new(shelf_id, ShelfEdge::Left, egui::Color32::WHITE)
+            .default_size(200.0)
+            .without_toggle_button(),
+    ];
+
+    let layout = layout_shelves(available, &shelves, &mut state, &theme);
+
+    assert!(
+        layout.left.is_some(),
+        "a shelf that opts out of the toggle button must stay visible"
+    );
+    assert_eq!(layout.viewport.min.x, 200.0);
 }
 
 #[test]

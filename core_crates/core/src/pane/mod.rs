@@ -1,10 +1,8 @@
-//! Flex-based floating pane (Phase 1 of `PLAN_NEWUI.md`).
+//! Floating pane primitive.
 //!
 //! A pane that paints a theme-aware **title strip** in any of 12
 //! anchor positions (4 screen rails × 3 zones each) and reserves
-//! the remainder for a body closure. Layout is delegated to
-//! [`crate::flex`] (vendored `egui_flex`) so children always fit
-//! and the pane never overflows.
+//! the remainder for typed container bodies.
 //!
 //! ## Submodule layout
 //!
@@ -538,8 +536,8 @@ impl Pane {
             PANE_OUTER_SPAN
         };
 
-        // ── Per-pane staggered fade-in clock (port of maracore's
-        //    `PaneBuilder::pane_open_elapsed`) ──
+        // ── Per-pane staggered fade-in clock, carried forward from
+        //    the legacy pane builder. ──
         //
         // Tracks elapsed seconds since this pane became visible.
         // The `cumulative_pass_nr + 1 < frame_now` check detects

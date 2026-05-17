@@ -227,7 +227,6 @@ pub(crate) fn paint_ribbon_button(
     let _ = glass_alpha_card();
 }
 
-// `ribbon_button_area` (the static-ribbon button area helper) lived
-// here in `maracore::ribbon::paint`. It was only called from the
-// retired `static_ribbon` and `declare` modules are gone; the unified
+// `ribbon_button_area` (the static-ribbon button area helper) was
+// retired with the old static/declare ribbon modules; the unified
 // ribbon chrome builds draggable Areas directly.

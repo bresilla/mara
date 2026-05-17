@@ -1,6 +1,6 @@
 //! `bevy_mara` widget gallery + layout showcase, reimplemented on
 //! top of `mara_core` (the new pane / ribbon / container / pod /
-//! widget stack). Mirrors the layout of the legacy maracore demo
+//! widget stack). Mirrors the layout of the original Mara demo
 //! one panel at a time:
 //!
 //! * **Widgets** — Flags / Numbers / Bars / Buttons / Animated.
@@ -314,8 +314,8 @@ const RIBBON_ITEMS: &[RibbonButtonSpec] = &[
         cluster: RibbonCluster::Start,
         slot: 0,
         draggable: false,
-        glyph: RibbonGlyph::Icon("info"),
-        tooltip: "About this demo",
+        glyph: RibbonGlyph::Icon("line-horizontal-3"),
+        tooltip: "App menu and about",
         child_ribbon: None,
         role: None,
     },
@@ -354,8 +354,7 @@ const RIBBON_ITEMS: &[RibbonButtonSpec] = &[
         child_ribbon: None,
         role: Some(RibbonRole::Icon),
     },
-    // BOTTOM rail — Editor (placeholder; the legacy graph + code
-    // wrappers lived in `maracore` which has been removed) and the
+    // BOTTOM rail — Editor plus the
     // one-shot cube-cycle action buttons in the End cluster.
     RibbonButtonSpec {
         id: PANE_EDITOR,
@@ -400,8 +399,8 @@ const RIBBON_ITEMS_ROOT_VIEW: &[RibbonButtonSpec] = &[
         cluster: RibbonCluster::Start,
         slot: 0,
         draggable: false,
-        glyph: RibbonGlyph::Icon("info"),
-        tooltip: "About this demo",
+        glyph: RibbonGlyph::Icon("line-horizontal-3"),
+        tooltip: "App menu and about",
         child_ribbon: None,
         role: None,
     },
@@ -561,8 +560,8 @@ const RIBBON_ITEMS_FS_GRAPH: &[RibbonButtonSpec] = &[
         cluster: RibbonCluster::Start,
         slot: 0,
         draggable: false,
-        glyph: RibbonGlyph::Icon("info"),
-        tooltip: "About this demo",
+        glyph: RibbonGlyph::Icon("line-horizontal-3"),
+        tooltip: "App menu and about",
         child_ribbon: None,
         role: None,
     },
@@ -699,8 +698,8 @@ const RIBBON_ITEMS_FS_CODE: &[RibbonButtonSpec] = &[
         cluster: RibbonCluster::Start,
         slot: 0,
         draggable: false,
-        glyph: RibbonGlyph::Icon("info"),
-        tooltip: "About this demo",
+        glyph: RibbonGlyph::Icon("line-horizontal-3"),
+        tooltip: "App menu and about",
         child_ribbon: None,
         role: None,
     },
@@ -1660,6 +1659,18 @@ fn ui_system(
         (191, 115, 242),
     ];
     for click in clicks {
+        if click.action == RibbonAction::Command(mara_core::left_shelf_command_id()) {
+            canvas_shelves.0.toggle_edge_visible(ShelfEdge::Left);
+            continue;
+        }
+        if click.action == RibbonAction::Command(mara_core::right_shelf_command_id()) {
+            canvas_shelves.0.toggle_edge_visible(ShelfEdge::Right);
+            continue;
+        }
+        if click.action == RibbonAction::Command(mara_core::bottom_shelf_command_id()) {
+            canvas_shelves.0.toggle_edge_visible(ShelfEdge::Bottom);
+            continue;
+        }
         if click.item == egui::Id::new(ACTION_VIEW_BEVY) {
             if fs_active {
                 mara_core::embed::restore_fullscreen(ctx);

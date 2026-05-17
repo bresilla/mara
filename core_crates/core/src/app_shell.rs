@@ -50,6 +50,18 @@ pub enum WindowControlsPolicy {
     Hidden,
 }
 
+/// Whether the app shell owns the persistent app menu button.
+///
+/// Enabled by default. Apps that own a fully custom top bar can opt
+/// out, or views/workspaces can override/hide the inherited slot by
+/// targeting [`crate::app_menu_slot_id`].
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum AppMenuPolicy {
+    #[default]
+    Enabled,
+    Hidden,
+}
+
 /// API-level app chrome contract.
 ///
 /// Mara has exactly one persistent top main bar. Active views/workspaces
@@ -58,6 +70,7 @@ pub enum WindowControlsPolicy {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AppShellChrome {
     main_bar: RibbonSlotDef,
+    app_menu: AppMenuPolicy,
     window_controls: WindowControlsPolicy,
 }
 
@@ -78,6 +91,7 @@ impl AppShellChrome {
         );
         Self {
             main_bar,
+            app_menu: AppMenuPolicy::Enabled,
             window_controls: WindowControlsPolicy::Enabled,
         }
     }
@@ -135,6 +149,27 @@ impl AppShellChrome {
     }
 
     #[must_use]
+    pub fn app_menu_policy(&self) -> AppMenuPolicy {
+        self.app_menu
+    }
+
+    #[must_use]
+    pub fn with_app_menu(mut self, policy: AppMenuPolicy) -> Self {
+        self.app_menu = policy;
+        self
+    }
+
+    #[must_use]
+    pub fn without_app_menu(self) -> Self {
+        self.with_app_menu(AppMenuPolicy::Hidden)
+    }
+
+    #[must_use]
+    pub fn app_menu_enabled(&self) -> bool {
+        self.app_menu == AppMenuPolicy::Enabled
+    }
+
+    #[must_use]
     pub fn with_window_controls(mut self, policy: WindowControlsPolicy) -> Self {
         self.window_controls = policy;
         self
@@ -153,12 +188,23 @@ impl AppShellChrome {
     #[must_use]
     pub fn permanent_ribbon_defs(&self) -> Vec<RibbonSlotDef> {
         let mut main = self.main_bar.clone();
-        if self.window_controls_enabled() {
+        if self.app_menu_enabled() && !has_slot(&main.slots, crate::ribbon::app_menu_slot_id()) {
             main.slots
-                .push(crate::ribbon::permanent_system_control_slot());
+                .insert(0, crate::ribbon::permanent_app_menu_slot());
+        }
+        if self.window_controls_enabled() {
+            let slot_id = crate::ribbon::system_close_or_restore_slot_id();
+            if !has_slot(&main.slots, slot_id) {
+                main.slots
+                    .push(crate::ribbon::permanent_system_control_slot());
+            }
         }
         vec![main]
     }
+}
+
+fn has_slot(slots: &[crate::ribbon::RibbonSlot], slot_id: crate::ribbon::RibbonSlotId) -> bool {
+    slots.iter().any(|slot| slot.id == slot_id)
 }
 
 #[derive(Debug)]

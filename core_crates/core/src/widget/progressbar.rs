@@ -2,8 +2,8 @@
 //! caption on top, full-width filled bar below. Total height =
 //! 2 × [`crate::style::UNIT`] (= 2U) by default.
 //!
-//! Mirrors `maracore::widgets::progressbar::pretty_progressbar` /
-//! `pretty_progressbar_text`. Drops the digit-tumble + smoothed-
+//! Mirrors the legacy `pretty_progressbar` /
+//! `pretty_progressbar_text` shape. Drops the digit-tumble + smoothed-
 //! fraction animations for v1; can be added back as polish.
 
 use crate::style::{
@@ -11,10 +11,10 @@ use crate::style::{
     on_track, radius_for, stroke_for, theme,
 };
 
-/// Bar row height — matches `maracore::widgets::progressbar::BAR_H`.
+/// Bar row height — retained from the legacy progressbar metric.
 pub const PROGRESSBAR_ROW_H: f32 = 18.0;
-/// Inline readout font size — matches `maracore`'s
-/// `progressbar::VALUE_FONT = 11` (monospace).
+/// Inline readout font size — retained from the legacy progressbar
+/// value metric (monospace).
 pub const PROGRESSBAR_VALUE_FONT: f32 = 11.0;
 
 /// Default progress bar (2 × [`PROGRESSBAR_ROW_H`] = 36 px total —

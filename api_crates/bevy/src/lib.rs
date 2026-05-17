@@ -1,10 +1,10 @@
 //! # bevy_mara — Bevy integration for the mara UI kit.
 //!
-//! All UI primitives (widgets, ribbons, floating panels, node-graph
-//! wrapper, code editor, theme) live in the framework-agnostic
-//! [`maracore`] crate. This crate adds:
+//! All UI primitives (widgets, ribbons, floating panes, shelves,
+//! node-graph wrapper, code editor, theme) live in the
+//! framework-agnostic [`mara_core`] crate. This crate adds:
 //!
-//! * [`MaraPlugin`] — one-line install that registers maracore's
+//! * [`MaraPlugin`] — one-line install that registers mara_core's
 //!   state types as Bevy `Resource`s and runs the theme + ghost
 //!   systems every frame.
 //! * [`ThemePlugin`] / [`RibbonPlugin`] — granular alternatives if
@@ -14,7 +14,7 @@
 //!
 //! Consumers using `use bevy_mara::prelude::*;` keep the same API
 //! they had before the workspace split — this crate re-exports
-//! everything from `maracore` verbatim and adds the plugins on top.
+//! everything from `mara_core` verbatim and adds the plugins on top.
 //!
 //! ```ignore
 //! use bevy::prelude::*;

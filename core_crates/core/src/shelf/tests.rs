@@ -104,21 +104,90 @@ fn published_shelf_pane_info_is_cleared_before_shelf_render() {
 fn publish_shelf_layout_sets_chrome_bounds_to_reserved_viewport() {
     let ctx = egui::Context::default();
     let viewport = Rect::from_min_max(pos2(200.0, 0.0), pos2(900.0, 640.0));
+    let layout = ShelfLayout {
+        viewport,
+        left: Some(Rect::from_min_max(pos2(0.0, 0.0), pos2(200.0, 640.0))),
+        right: None,
+        bottom: Some(Rect::from_min_max(pos2(200.0, 640.0), pos2(900.0, 800.0))),
+    };
 
-    publish_shelf_layout(
-        &ctx,
-        ShelfLayout {
-            viewport,
-            left: Some(Rect::from_min_max(pos2(0.0, 0.0), pos2(200.0, 640.0))),
-            right: None,
-            bottom: Some(Rect::from_min_max(pos2(200.0, 640.0), pos2(900.0, 800.0))),
-        },
-    );
+    publish_shelf_layout(&ctx, layout);
 
     let chrome = ctx
         .data(|d| d.get_temp::<Rect>(crate::ribbon::chrome::chrome_bounds_key()))
         .expect("shelf layout should publish ribbon chrome bounds");
     assert_eq!(chrome, viewport);
+    assert_eq!(shelf_layout(&ctx), Some(layout));
+    assert_eq!(
+        published_shelf_presence(&ctx),
+        ShelfPresence {
+            left: true,
+            right: false,
+            bottom: true
+        }
+    );
+}
+
+#[test]
+fn show_shelves_publishes_hidden_shelf_presence_for_top_bar_buttons() {
+    let ctx = egui::Context::default();
+    let shelf_id = Id::new("hidden-left");
+    let mut state = ShelfState::default();
+    state.set_edge_visible(ShelfEdge::Left, false);
+    let shelves =
+        vec![
+            ShelfDef::new(shelf_id, ShelfEdge::Left, Color32::WHITE).container(
+                ShelfContainer::tabbed(Id::new("container"), "Tools", "box", test_tabs()),
+            ),
+        ];
+    let layout = layout_shelves(
+        Rect::from_min_max(pos2(0.0, 0.0), pos2(800.0, 600.0)),
+        &shelves,
+        &mut state,
+        style::theme().shelf(),
+    );
+    assert!(layout.left.is_none());
+
+    show_shelves(&ctx, layout, shelves, &mut state);
+
+    assert_eq!(
+        published_shelf_presence(&ctx),
+        ShelfPresence {
+            left: true,
+            right: false,
+            bottom: false
+        },
+        "a hidden declared shelf should keep its top-bar toggle available"
+    );
+}
+
+#[test]
+fn show_shelves_respects_shelf_toggle_button_opt_out() {
+    let shelf_id = Id::new("fixed-left");
+    let mut state = ShelfState::default();
+    let shelves = vec![
+        ShelfDef::new(shelf_id, ShelfEdge::Left, Color32::WHITE)
+            .without_toggle_button()
+            .container(ShelfContainer::tabbed(
+                Id::new("container"),
+                "Tools",
+                "box",
+                test_tabs(),
+            )),
+    ];
+    let layout = layout_shelves(
+        Rect::from_min_max(pos2(0.0, 0.0), pos2(800.0, 600.0)),
+        &shelves,
+        &mut state,
+        style::theme().shelf(),
+    );
+    assert!(layout.left.is_some());
+
+    assert_eq!(
+        shelf_presence_for(&shelves, &state),
+        ShelfPresence::default(),
+        "a shelf that opts out must not publish a hide/show top-bar button"
+    );
 }
 
 #[test]
@@ -130,9 +199,9 @@ fn side_shelf_content_is_lowered_but_shelf_rect_keeps_full_height() {
     let content = shelf_content_rect(ShelfEdge::Left, shelf_rect, &theme);
 
     assert_eq!(shelf_rect.top(), 0.0, "layout keeps the shelf full-height");
-    assert!(
-        paint.top() > shelf_rect.top(),
-        "background leaves the top ribbon clear"
+    assert_eq!(
+        paint, shelf_rect,
+        "background paints full-height so the top ribbon strip matches the shelf body"
     );
     assert!(
         content.top() > shelf_rect.top() + theme.padding,
