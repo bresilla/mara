@@ -25,8 +25,9 @@ pub mod tree;
 
 pub use badge::{BADGE_LABEL_COL_W, BADGE_ROW_H, badge_row, badge_row_colored};
 pub use button::{
-    BUTTON_LABEL_FONT, BUTTON_ROW_H, BUTTON_ROW_H_SUBTITLE, Button, CARD_BUTTON_ROW_H, FillStyle,
-    button, button_h, card_button,
+    ActionButton, ActionButtonResponse, BUTTON_ACTION_GAP, BUTTON_ACTION_W, BUTTON_LABEL_FONT,
+    BUTTON_ROW_H, BUTTON_ROW_H_SUBTITLE, Button, CARD_BUTTON_ROW_H, FillStyle, button, button_h,
+    card_action_button, card_button,
 };
 pub use chip::{CHIP_H, chip, chip_colored};
 pub use color::{COLOR_SWATCH_H, color_rgb, color_rgba};
@@ -49,5 +50,7 @@ pub use slider::{slider, slider_h};
 pub use text_input::{text_input, text_input_h};
 pub use toggle::{toggle, toggle_h, toggle_track_only};
 pub use tree::{
-    TREE_INDENT, TREE_ROW_H, TreeBody, TreeIconKind, TreeIconSlot, TreeRowResponse, tree_row,
+    TREE_ACTION_GAP, TREE_ACTION_ROW_H, TREE_ACTION_W, TREE_INDENT, TREE_ROW_H,
+    TreeActionRowResponse, TreeBody, TreeIconKind, TreeIconSlot, TreeRowResponse, tree_action_row,
+    tree_row,
 };

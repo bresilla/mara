@@ -22,6 +22,7 @@ egui_mara = { path = "../egui" }
 # the same crate `egui_mara` re-exports; a direct dep lets the ported
 # code keep its original `mara_core::` paths.
 mara_core = { workspace = true }
+mara_map = { workspace = true }
 # eframe drives the egui frame loop. The `wgpu` backend (not `glow`)
 # is required: `EframeNodeViewBackend` needs `Frame::wgpu_render_state`
 # to render the node graph into an offscreen texture. `x11` /

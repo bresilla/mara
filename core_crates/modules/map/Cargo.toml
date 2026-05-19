@@ -1,0 +1,16 @@
+[package]
+name = "mara_map"
+description = "Mara map component and view with f64 point, line, polygon, icon, and SVG annotations."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+egui = { workspace = true, default-features = false }
+ehttp = "0.6"
+egui_extras = { version = "0.33", default-features = false, features = ["http", "image"] }
+mara_core = { workspace = true }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+ureq = { version = "2.12", default-features = true }
