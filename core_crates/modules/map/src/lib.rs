@@ -3,6 +3,8 @@
 //! Public callers use [`MaraMap`], [`MapSurface`], and typed annotation
 //! data. egui painting/allocation is internal to this crate.
 
+mod mvt;
+
 use std::f64::consts::PI;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -422,6 +424,7 @@ pub struct MapSurface {
     id: egui::Id,
     pub document: MapDocument,
     pub viewport: MapViewport,
+    vector_tiles: mvt::VectorTileCache,
 }
 
 impl MapSurface {
@@ -431,6 +434,7 @@ impl MapSurface {
             id: egui::Id::new(id),
             document,
             viewport,
+            vector_tiles: mvt::VectorTileCache::default(),
         }
     }
 }
@@ -519,9 +523,6 @@ fn paint_map(
     surface: &mut MapSurface,
     interaction: &mut MapInteraction,
 ) -> MaraMapResponse {
-    let MapSurface {
-        document, viewport, ..
-    } = surface;
     egui_extras::install_image_loaders(ui.ctx());
 
     let desired = ui.available_size_before_wrap();
@@ -531,7 +532,7 @@ fn paint_map(
     if response.dragged_by(egui::PointerButton::Middle) {
         let delta = ui.input(|input| input.pointer.delta());
         if delta != egui::Vec2::ZERO {
-            pan_viewport(viewport, delta);
+            pan_viewport(&mut surface.viewport, delta);
         }
     }
 
@@ -539,7 +540,7 @@ fn paint_map(
         let scroll = ui.input(|input| input.smooth_scroll_delta.y + input.raw_scroll_delta.y);
         if scroll.abs() > f32::EPSILON {
             zoom_viewport_at(
-                viewport,
+                &mut surface.viewport,
                 rect,
                 response.hover_pos().unwrap_or(rect.center()),
                 f64::from(scroll) / 320.0,
@@ -550,54 +551,59 @@ fn paint_map(
     let deleted = if ui.input(|input| input.key_pressed(egui::Key::Delete)) {
         interaction
             .selected
-            .and_then(|id| document.remove(id).map(|_| id))
+            .and_then(|id| surface.document.remove(id).map(|_| id))
     } else {
         None
     };
     if deleted.is_some() {
         interaction.clear_selection();
     } else if let Some(id) = interaction.selected
-        && document.get(id).is_none()
+        && surface.document.get(id).is_none()
     {
         interaction.clear_selection();
     }
 
-    paint_osm_tiles(ui, rect, *viewport);
+    mvt::paint_vector_basemap(ui, rect, surface.viewport, &mut surface.vector_tiles);
 
     let mut selected = interaction.selected;
 
-    for annotation in &document.annotations {
+    for annotation in &surface.document.annotations {
         paint_annotation(
             ui,
             &painter,
             rect,
-            *viewport,
+            surface.viewport,
             annotation,
             interaction.selected,
         );
     }
-    paint_draft(&painter, rect, *viewport, interaction);
+    paint_draft(&painter, rect, surface.viewport, interaction);
 
     let hovered_position = response
         .hover_pos()
-        .map(|pos| screen_to_geo(pos, rect, *viewport));
+        .map(|pos| screen_to_geo(pos, rect, surface.viewport));
     let clicked_position = response
         .clicked()
         .then(|| response.interact_pointer_pos())
         .flatten()
-        .map(|pos| screen_to_geo(pos, rect, *viewport));
+        .map(|pos| screen_to_geo(pos, rect, surface.viewport));
 
     if let Some(pos) = response
         .interact_pointer_pos()
         .filter(|_| response.clicked())
     {
-        if let Some(hit) = hit_test(document, rect, *viewport, pos) {
-            if let Some(annotation) = document.get(hit) {
+        if let Some(hit) = hit_test(&surface.document, rect, surface.viewport, pos) {
+            if let Some(annotation) = surface.document.get(hit) {
                 interaction.select(annotation);
             }
             selected = Some(hit);
         } else if let Some(geo) = clicked_position {
-            apply_tool(document, interaction, geo, response.double_clicked());
+            apply_tool(
+                &mut surface.document,
+                interaction,
+                geo,
+                response.double_clicked(),
+            );
             selected = interaction.selected;
         }
     }
@@ -684,50 +690,6 @@ fn apply_tool(
     }
 }
 
-fn paint_osm_tiles(ui: &mut egui::Ui, rect: egui::Rect, viewport: MapViewport) {
-    ui.painter()
-        .rect_filled(rect, 0.0, mara_core::style::theme().palette.bg_window);
-
-    let z = viewport.zoom.floor().clamp(MIN_ZOOM, 19.0) as i32;
-    let scale = 2.0_f64.powf(viewport.zoom - f64::from(z));
-    let center_world = geo_to_world(viewport.center, f64::from(z));
-    let tile_px = (TILE_SIZE * scale) as f32;
-    let top_left_world = (
-        center_world.0 - f64::from(rect.width()) / (2.0 * scale),
-        center_world.1 - f64::from(rect.height()) / (2.0 * scale),
-    );
-    let bottom_right_world = (
-        center_world.0 + f64::from(rect.width()) / (2.0 * scale),
-        center_world.1 + f64::from(rect.height()) / (2.0 * scale),
-    );
-    let min_x = (top_left_world.0 / TILE_SIZE).floor() as i64;
-    let max_x = (bottom_right_world.0 / TILE_SIZE).ceil() as i64;
-    let min_y = (top_left_world.1 / TILE_SIZE).floor() as i64;
-    let max_y = (bottom_right_world.1 / TILE_SIZE).ceil() as i64;
-    let tile_count = 1_i64 << z as u32;
-
-    for y in min_y..=max_y {
-        if !(0..tile_count).contains(&y) {
-            continue;
-        }
-        for x in min_x..=max_x {
-            let wrapped_x = x.rem_euclid(tile_count);
-            let tile_min = egui::pos2(
-                rect.center().x + ((x as f64 * TILE_SIZE - center_world.0) * scale) as f32,
-                rect.center().y + ((y as f64 * TILE_SIZE - center_world.1) * scale) as f32,
-            );
-            let tile_rect = egui::Rect::from_min_size(tile_min, egui::vec2(tile_px, tile_px));
-            if !tile_rect.intersects(rect) {
-                continue;
-            }
-            let url = format!("https://tile.openstreetmap.org/{z}/{wrapped_x}/{y}.png");
-            egui::Image::from_uri(url)
-                .fit_to_exact_size(tile_rect.size())
-                .paint_at(ui, tile_rect);
-        }
-    }
-}
-
 fn pan_viewport(viewport: &mut MapViewport, delta: egui::Vec2) {
     let center = geo_to_world(viewport.center, viewport.zoom);
     viewport.center = world_to_geo(
@@ -768,11 +730,13 @@ fn paint_annotation(
     selected: Option<MapAnnotationId>,
 ) {
     let is_selected = selected == Some(annotation.id());
+    let accent = mara_core::style::raw_accent();
+    let accent_fill = egui::Color32::from_rgba_unmultiplied(accent.r(), accent.g(), accent.b(), 64);
     match annotation {
         MapAnnotation::Point(point) => {
             let pos = geo_to_screen(point.position, rect, viewport);
             let radius = if is_selected { 8.0 } else { 5.0 };
-            painter.circle_filled(pos, radius, point.color);
+            painter.circle_filled(pos, radius, accent);
             if is_selected {
                 painter.circle_stroke(
                     pos,
@@ -783,7 +747,7 @@ fn paint_annotation(
         }
         MapAnnotation::Line(line) => {
             let points = screen_points(&line.points, rect, viewport);
-            let stroke = egui::Stroke::new(if is_selected { 5.0 } else { 2.5 }, line.color);
+            let stroke = egui::Stroke::new(if is_selected { 5.0 } else { 2.5 }, accent);
             painter.add(egui::Shape::line(points, stroke));
         }
         MapAnnotation::Polygon(poly) => {
@@ -791,9 +755,9 @@ fn paint_annotation(
             let stroke = if is_selected {
                 egui::Stroke::new(3.0, egui::Color32::WHITE)
             } else {
-                poly.stroke
+                egui::Stroke::new(poly.stroke.width, accent)
             };
-            paint_polygon(painter, &points, poly.fill, stroke);
+            paint_polygon(painter, &points, accent_fill, stroke);
         }
         MapAnnotation::Icon(icon) => {
             let pos = geo_to_screen(icon.position, rect, viewport);
@@ -860,36 +824,62 @@ fn paint_polygon(
     fill: egui::Color32,
     stroke: egui::Stroke,
 ) {
+    let points = normalized_polygon_points(points);
     if points.len() < 3 {
         return;
     }
     if fill != egui::Color32::TRANSPARENT {
-        for [a, b, c] in triangulate_polygon(points) {
+        let triangles = triangulate_polygon(&points);
+        if !triangles.is_empty() {
             let mut mesh = egui::Mesh::default();
-            let start = mesh.vertices.len() as u32;
-            mesh.vertices.push(egui::epaint::Vertex {
-                pos: a,
-                uv: egui::epaint::WHITE_UV,
-                color: fill,
-            });
-            mesh.vertices.push(egui::epaint::Vertex {
-                pos: b,
-                uv: egui::epaint::WHITE_UV,
-                color: fill,
-            });
-            mesh.vertices.push(egui::epaint::Vertex {
-                pos: c,
-                uv: egui::epaint::WHITE_UV,
-                color: fill,
-            });
-            mesh.indices
-                .extend_from_slice(&[start, start + 1, start + 2]);
+            for [a, b, c] in triangles {
+                let start = mesh.vertices.len() as u32;
+                mesh.vertices.push(egui::epaint::Vertex {
+                    pos: a,
+                    uv: egui::epaint::WHITE_UV,
+                    color: fill,
+                });
+                mesh.vertices.push(egui::epaint::Vertex {
+                    pos: b,
+                    uv: egui::epaint::WHITE_UV,
+                    color: fill,
+                });
+                mesh.vertices.push(egui::epaint::Vertex {
+                    pos: c,
+                    uv: egui::epaint::WHITE_UV,
+                    color: fill,
+                });
+                mesh.indices
+                    .extend_from_slice(&[start, start + 1, start + 2]);
+            }
             painter.add(egui::Shape::mesh(mesh));
         }
     }
-    let mut outline = points.to_vec();
-    outline.push(points[0]);
+    let first = points[0];
+    let mut outline = points;
+    outline.push(first);
     painter.add(egui::Shape::line(outline, stroke));
+}
+
+fn normalized_polygon_points(points: &[egui::Pos2]) -> Vec<egui::Pos2> {
+    let mut out = Vec::with_capacity(points.len());
+    for point in points {
+        if out
+            .last()
+            .is_none_or(|last: &egui::Pos2| last.distance(*point) > f32::EPSILON)
+        {
+            out.push(*point);
+        }
+    }
+    if out.len() > 1
+        && out
+            .first()
+            .zip(out.last())
+            .is_some_and(|(first, last)| first.distance(*last) <= f32::EPSILON)
+    {
+        out.pop();
+    }
+    out
 }
 
 fn triangulate_polygon(points: &[egui::Pos2]) -> Vec<[egui::Pos2; 3]> {
@@ -1158,5 +1148,26 @@ mod tests {
                 .iter()
                 .any(|[a, b, c]| point_in_triangle(notch, *a, *b, *c))
         );
+    }
+
+    #[test]
+    fn polygon_fill_normalizes_closed_mvt_style_rings() {
+        let closed_ring = vec![
+            egui::pos2(0.0, 0.0),
+            egui::pos2(100.0, 0.0),
+            egui::pos2(100.0, 100.0),
+            egui::pos2(0.0, 100.0),
+            egui::pos2(0.0, 0.0),
+        ];
+        let points = normalized_polygon_points(&closed_ring);
+        assert_eq!(points.len(), 4);
+
+        let triangles = triangulate_polygon(&points);
+        assert_eq!(triangles.len(), 2);
+        let filled_area = triangles
+            .iter()
+            .map(|[a, b, c]| cross(*a, *b, *c).abs() * 0.5)
+            .sum::<f32>();
+        assert!((filled_area - 10_000.0).abs() < 0.1);
     }
 }
