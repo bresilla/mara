@@ -43,6 +43,10 @@ use mara_core::ribbon::{
 use mara_core::shelf::{ShelfContainer, ShelfDef, ShelfEdge, ShelfState};
 use mara_core::style::{AccentColor, GlassOpacity, Mode, srgb_to_egui};
 use mara_core::widget::{FillStyle, TreeIconKind, TreeIconSlot};
+use mara_map::{
+    DEFAULT_SVG_MARKER, MapDocument, MapIcon, MapInteraction, MapLine, MapPoint, MapPolygon,
+    MapSurface, MapTool, MapViewport, MaraMap, lon_lat,
+};
 // Vendored extras — node graph (`egui-graph`) and code editor
 // (`egui_code_editor`). Both live under `bevy_mara::extras`.
 use bevy::ecs::system::SystemParam;
@@ -89,6 +93,14 @@ const ACTION_NEXT_CUBE: &str = "demo_action_next_cube";
 const ACTION_CANVAS_CLEAR: &str = "demo_action_canvas_clear";
 const ACTION_VIEW_BEVY: &str = "demo_action_view_bevy";
 const ACTION_VIEW_CANVAS: &str = "demo_action_view_canvas";
+const ACTION_VIEW_MAP: &str = "demo_action_view_map";
+const ACTION_MAP_SELECT: &str = "demo_action_map_select";
+const ACTION_MAP_POINT: &str = "demo_action_map_point";
+const ACTION_MAP_LINE: &str = "demo_action_map_line";
+const ACTION_MAP_POLYGON: &str = "demo_action_map_polygon";
+const ACTION_MAP_ICON: &str = "demo_action_map_icon";
+const ACTION_MAP_SVG: &str = "demo_action_map_svg";
+const ACTION_MAP_CLEAR: &str = "demo_action_map_clear";
 const ACTION_CLOSE_APP: &str = "demo_action_close_app";
 const ACTION_RESTORE_FULLSCREEN: &str = "demo_action_restore_fullscreen";
 
@@ -344,6 +356,17 @@ const RIBBON_ITEMS: &[RibbonButtonSpec] = &[
         role: Some(RibbonRole::Icon),
     },
     RibbonButtonSpec {
+        id: ACTION_VIEW_MAP,
+        ribbon: RIBBON_TOP,
+        cluster: RibbonCluster::Middle,
+        slot: 2,
+        draggable: false,
+        glyph: RibbonGlyph::Icon("map"),
+        tooltip: "Map view",
+        child_ribbon: None,
+        role: Some(RibbonRole::Icon),
+    },
+    RibbonButtonSpec {
         id: ACTION_CLOSE_APP,
         ribbon: RIBBON_TOP,
         cluster: RibbonCluster::End,
@@ -423,6 +446,17 @@ const RIBBON_ITEMS_ROOT_VIEW: &[RibbonButtonSpec] = &[
         draggable: false,
         glyph: RibbonGlyph::Icon("pen"),
         tooltip: "Canvas / whiteboard view",
+        child_ribbon: None,
+        role: Some(RibbonRole::Icon),
+    },
+    RibbonButtonSpec {
+        id: ACTION_VIEW_MAP,
+        ribbon: RIBBON_TOP,
+        cluster: RibbonCluster::Middle,
+        slot: 2,
+        draggable: false,
+        glyph: RibbonGlyph::Icon("map"),
+        tooltip: "Map view",
         child_ribbon: None,
         role: Some(RibbonRole::Icon),
     },
@@ -514,6 +548,141 @@ const RIBBON_ITEMS_ROOT_VIEW: &[RibbonButtonSpec] = &[
         draggable: true,
         glyph: RibbonGlyph::Icon("delete"),
         tooltip: "Clear canvas strokes",
+        child_ribbon: None,
+        role: Some(RibbonRole::Icon),
+    },
+];
+
+const RIBBON_ITEMS_MAP_VIEW: &[RibbonButtonSpec] = &[
+    RibbonButtonSpec {
+        id: PANE_ABOUT,
+        ribbon: RIBBON_TOP,
+        cluster: RibbonCluster::Start,
+        slot: 0,
+        draggable: false,
+        glyph: RibbonGlyph::Icon("line-horizontal-3"),
+        tooltip: "App menu and about",
+        child_ribbon: None,
+        role: None,
+    },
+    RibbonButtonSpec {
+        id: ACTION_VIEW_BEVY,
+        ribbon: RIBBON_TOP,
+        cluster: RibbonCluster::Middle,
+        slot: 0,
+        draggable: false,
+        glyph: RibbonGlyph::Icon("cube"),
+        tooltip: "Bevy scene view",
+        child_ribbon: None,
+        role: Some(RibbonRole::Icon),
+    },
+    RibbonButtonSpec {
+        id: ACTION_VIEW_CANVAS,
+        ribbon: RIBBON_TOP,
+        cluster: RibbonCluster::Middle,
+        slot: 1,
+        draggable: false,
+        glyph: RibbonGlyph::Icon("pen"),
+        tooltip: "Canvas / whiteboard view",
+        child_ribbon: None,
+        role: Some(RibbonRole::Icon),
+    },
+    RibbonButtonSpec {
+        id: ACTION_VIEW_MAP,
+        ribbon: RIBBON_TOP,
+        cluster: RibbonCluster::Middle,
+        slot: 2,
+        draggable: false,
+        glyph: RibbonGlyph::Icon("map"),
+        tooltip: "Map view",
+        child_ribbon: None,
+        role: Some(RibbonRole::Icon),
+    },
+    RibbonButtonSpec {
+        id: ACTION_CLOSE_APP,
+        ribbon: RIBBON_TOP,
+        cluster: RibbonCluster::End,
+        slot: 0,
+        draggable: false,
+        glyph: RibbonGlyph::Icon("dismiss"),
+        tooltip: "Close application",
+        child_ribbon: None,
+        role: Some(RibbonRole::Icon),
+    },
+    RibbonButtonSpec {
+        id: ACTION_MAP_SELECT,
+        ribbon: RIBBON_LEFT,
+        cluster: RibbonCluster::Start,
+        slot: 0,
+        draggable: false,
+        glyph: RibbonGlyph::Icon("cursor"),
+        tooltip: "Select map items",
+        child_ribbon: None,
+        role: Some(RibbonRole::Icon),
+    },
+    RibbonButtonSpec {
+        id: ACTION_MAP_POINT,
+        ribbon: RIBBON_LEFT,
+        cluster: RibbonCluster::Start,
+        slot: 1,
+        draggable: false,
+        glyph: RibbonGlyph::Icon("pin"),
+        tooltip: "Add point",
+        child_ribbon: None,
+        role: Some(RibbonRole::Icon),
+    },
+    RibbonButtonSpec {
+        id: ACTION_MAP_LINE,
+        ribbon: RIBBON_LEFT,
+        cluster: RibbonCluster::Start,
+        slot: 2,
+        draggable: false,
+        glyph: RibbonGlyph::Icon("line"),
+        tooltip: "Add line",
+        child_ribbon: None,
+        role: Some(RibbonRole::Icon),
+    },
+    RibbonButtonSpec {
+        id: ACTION_MAP_POLYGON,
+        ribbon: RIBBON_LEFT,
+        cluster: RibbonCluster::Start,
+        slot: 3,
+        draggable: false,
+        glyph: RibbonGlyph::Icon("shape-union"),
+        tooltip: "Add polygon",
+        child_ribbon: None,
+        role: Some(RibbonRole::Icon),
+    },
+    RibbonButtonSpec {
+        id: ACTION_MAP_ICON,
+        ribbon: RIBBON_LEFT,
+        cluster: RibbonCluster::Start,
+        slot: 4,
+        draggable: false,
+        glyph: RibbonGlyph::Icon("location"),
+        tooltip: "Add icon",
+        child_ribbon: None,
+        role: Some(RibbonRole::Icon),
+    },
+    RibbonButtonSpec {
+        id: ACTION_MAP_SVG,
+        ribbon: RIBBON_LEFT,
+        cluster: RibbonCluster::Start,
+        slot: 5,
+        draggable: false,
+        glyph: RibbonGlyph::Svg(DEFAULT_SVG_MARKER),
+        tooltip: "Add SVG",
+        child_ribbon: None,
+        role: Some(RibbonRole::Icon),
+    },
+    RibbonButtonSpec {
+        id: ACTION_MAP_CLEAR,
+        ribbon: RIBBON_LEFT,
+        cluster: RibbonCluster::End,
+        slot: 0,
+        draggable: false,
+        glyph: RibbonGlyph::Icon("delete"),
+        tooltip: "Clear map",
         child_ribbon: None,
         role: Some(RibbonRole::Icon),
     },
@@ -832,6 +1001,7 @@ mod tests {
         for item in RIBBON_ITEMS
             .iter()
             .chain(RIBBON_ITEMS_ROOT_VIEW)
+            .chain(RIBBON_ITEMS_MAP_VIEW)
             .chain(RIBBON_ITEMS_FS_GRAPH)
             .chain(RIBBON_ITEMS_FS_CODE)
         {
@@ -954,6 +1124,7 @@ enum DemoRootView {
     #[default]
     BevyScene,
     Canvas,
+    Map,
 }
 
 #[derive(Component)]
@@ -973,6 +1144,51 @@ struct CanvasViewState {
 
 #[derive(Resource, Default)]
 struct CanvasShelfState(ShelfState);
+
+#[derive(Resource)]
+struct MapViewState {
+    surface: MapSurface,
+    interaction: MapInteraction,
+}
+
+impl Default for MapViewState {
+    fn default() -> Self {
+        let center = lon_lat(4.904_138_9, 52.367_573_4);
+        let mut document = MapDocument::new("Map");
+        document.add(MapPoint::new("origin", center).label("origin"));
+        document.add(MapLine::new(
+            "line",
+            vec![
+                lon_lat(4.902_8, 52.367_1),
+                lon_lat(4.904_2, 52.368_0),
+                lon_lat(4.906_0, 52.367_4),
+            ],
+        ));
+        document.add(MapPolygon::new(
+            "polygon",
+            vec![
+                lon_lat(4.903_2, 52.366_9),
+                lon_lat(4.905_2, 52.366_9),
+                lon_lat(4.905_0, 52.368_2),
+                lon_lat(4.903_0, 52.368_0),
+            ],
+        ));
+        document.add(MapIcon::fluent(
+            "robot",
+            lon_lat(4.904_9, 52.367_8),
+            "location",
+        ));
+        document.add(MapIcon::svg(
+            "svg-marker",
+            lon_lat(4.903_6, 52.367_8),
+            DEFAULT_SVG_MARKER,
+        ));
+        Self {
+            surface: MapSurface::new("demo-map", document, MapViewport::new(center, 15.0)),
+            interaction: MapInteraction::default(),
+        }
+    }
+}
 
 /// Per-graph sharp-zoom state (secondary egui::Context, pan, zoom,
 /// wgpu render target). Held as a Bevy resource so the SAME state
@@ -1014,6 +1230,14 @@ struct NodeViewSystemParams<'w> {
     slots: ResMut<'w, NodeViewSlots>,
     editor_node_view: ResMut<'w, EditorNodeView>,
     editor_graph: ResMut<'w, EditorGraph>,
+}
+
+#[derive(SystemParam)]
+struct DemoRootSystemParams<'w> {
+    root_view: ResMut<'w, DemoRootView>,
+    canvas_view: ResMut<'w, CanvasViewState>,
+    canvas_shelves: ResMut<'w, CanvasShelfState>,
+    map_view: ResMut<'w, MapViewState>,
 }
 
 const PLANET_RADIUS: f32 = 6_371_000.0;
@@ -1062,6 +1286,7 @@ fn main() {
         .init_resource::<SelectedSwatch>()
         .init_resource::<CanvasViewState>()
         .init_resource::<CanvasShelfState>()
+        .init_resource::<MapViewState>()
         .init_resource::<EditorNodeView>()
         .init_resource::<EditorGraph>()
         .add_systems(Startup, setup_scene)
@@ -1345,9 +1570,7 @@ fn ui_system(
     mut mode: ResMut<ThemeModeRes>,
     mut pastel: ResMut<PastelToggle>,
     mut tint: ResMut<TintRgba>,
-    mut root_view: ResMut<DemoRootView>,
-    mut canvas_view: ResMut<CanvasViewState>,
-    mut canvas_shelves: ResMut<CanvasShelfState>,
+    root_params: DemoRootSystemParams,
     chrome_input_claim: Res<bevy_mara::window_chrome::MaraWindowChromeInputClaim>,
     mut app_exit: MessageWriter<AppExit>,
     // ── Sharp-zoom node-graph plumbing (bundled to stay under
@@ -1358,6 +1581,12 @@ fn ui_system(
         return;
     };
     let ctx = egui_ctx.get_mut();
+    let DemoRootSystemParams {
+        mut root_view,
+        mut canvas_view,
+        mut canvas_shelves,
+        mut map_view,
+    } = root_params;
 
     let mut active_theme = match (family.0, mode.0) {
         (0, 0) => mara_core::style::theme_pro(Mode::Dark),
@@ -1394,6 +1623,8 @@ fn ui_system(
             &mut canvas_shelves.0,
             chrome_input_claim.claimed(),
         );
+    } else if *root_view == DemoRootView::Map {
+        map_root_view(ctx, &mut map_view);
     }
 
     // Fullscreen-view branch. The fullscreen overlay paints at
@@ -1438,6 +1669,8 @@ fn ui_system(
         RIBBON_ITEMS_FS_GRAPH
     } else if *root_view == DemoRootView::Canvas {
         RIBBON_ITEMS_ROOT_VIEW
+    } else if *root_view == DemoRootView::Map {
+        RIBBON_ITEMS_MAP_VIEW
     } else {
         RIBBON_ITEMS
     };
@@ -1643,6 +1876,18 @@ fn ui_system(
             |id| match *root_view {
                 DemoRootView::BevyScene => id == ACTION_VIEW_BEVY,
                 DemoRootView::Canvas => id == ACTION_VIEW_CANVAS,
+                DemoRootView::Map => {
+                    id == ACTION_VIEW_MAP
+                        || matches!(
+                            (id, map_view.interaction.tool),
+                            (ACTION_MAP_SELECT, MapTool::Select)
+                                | (ACTION_MAP_POINT, MapTool::Point)
+                                | (ACTION_MAP_LINE, MapTool::Line)
+                                | (ACTION_MAP_POLYGON, MapTool::Polygon)
+                                | (ACTION_MAP_ICON, MapTool::Icon)
+                                | (ACTION_MAP_SVG, MapTool::Svg)
+                        )
+                }
             },
         )
     };
@@ -1685,6 +1930,13 @@ fn ui_system(
             *root_view = DemoRootView::Canvas;
             continue;
         }
+        if click.item == egui::Id::new(ACTION_VIEW_MAP) {
+            if fs_active {
+                mara_core::embed::restore_fullscreen(ctx);
+            }
+            *root_view = DemoRootView::Map;
+            continue;
+        }
         if click.item == egui::Id::new(ACTION_RESTORE_FULLSCREEN) {
             mara_core::embed::restore_fullscreen(ctx);
             continue;
@@ -1695,6 +1947,36 @@ fn ui_system(
         }
         if click.item == egui::Id::new(ACTION_CANVAS_CLEAR) {
             canvas_view.strokes.clear();
+            continue;
+        }
+        if click.item == egui::Id::new(ACTION_MAP_SELECT) {
+            map_view.interaction.set_tool(MapTool::Select);
+            continue;
+        }
+        if click.item == egui::Id::new(ACTION_MAP_POINT) {
+            map_view.interaction.set_tool(MapTool::Point);
+            continue;
+        }
+        if click.item == egui::Id::new(ACTION_MAP_LINE) {
+            map_view.interaction.set_tool(MapTool::Line);
+            continue;
+        }
+        if click.item == egui::Id::new(ACTION_MAP_POLYGON) {
+            map_view.interaction.set_tool(MapTool::Polygon);
+            continue;
+        }
+        if click.item == egui::Id::new(ACTION_MAP_ICON) {
+            map_view.interaction.set_tool(MapTool::Icon);
+            continue;
+        }
+        if click.item == egui::Id::new(ACTION_MAP_SVG) {
+            map_view.interaction.set_tool(MapTool::Svg);
+            continue;
+        }
+        if click.item == egui::Id::new(ACTION_MAP_CLEAR) {
+            map_view.surface.document.annotations.clear();
+            map_view.interaction.clear_selection();
+            map_view.interaction.clear_draft();
             continue;
         }
         if click.item == egui::Id::new(ACTION_PREV_CUBE)
@@ -1714,6 +1996,12 @@ fn ui_system(
             accent.0 = egui::Color32::from_rgb(r, g, b);
         }
     }
+}
+
+// ─── Map root view ─────────────────────────────────────────────────
+
+fn map_root_view(ctx: &egui::Context, map: &mut MapViewState) {
+    let _ = MaraMap::new(&mut map.surface, &mut map.interaction).show(ctx);
 }
 
 // ─── Canvas root view ──────────────────────────────────────────────

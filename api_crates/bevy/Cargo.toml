@@ -91,6 +91,7 @@ bevy_glacial = { git = "https://github.com/bresilla/bevy_glacial.git", rev = "d7
 # `0.33.0` ships against egui 0.32; we need 0.34 to align with
 # our workspace egui 0.33.3.
 egui_plot = "0.34"
+mara_map = { workspace = true }
 
 [[example]]
 name = "demo"
