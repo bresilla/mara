@@ -370,22 +370,15 @@ impl Normal {
         // RightToLeft), so title/body stacking matches what a
         // non-tabbed Normal would produce under the same anchor.
         //
-        // PRO themes leave breathing room on the strip's OUTER side
-        // so the visible distance "tab content → pane edge" matches
-        // "body content → pane edge" on the OPPOSITE side. The body's
-        // content sits inset by `outer_span + section_pad_x` from the
-        // pane: `outer_span` is the Frame's outer-margin gap, and
-        // `section_pad_x` is the Frame's inner padding before the
-        // first widget. Mirror that sum on the strip's outer side.
-        // GAME themes don't paint that margin so the shift stays 0.
+        // PRO themes leave breathing room on the TAB side/outer side.
+        // Keep this at half the container's cross-axis outer margin:
+        // the tab strip itself is outside the body frame, so including
+        // body inner padding here makes left/right shelf containers
+        // visibly off-centre (right shelves look shifted left and
+        // left shelves look shifted right).
         let parent_layout = *ui.layout();
         let avail = ui.available_rect_before_wrap();
-        let strip_outer_inset: f32 = match tab_theme.outer_inset {
-            style::TabOuterInset::None => 0.0,
-            style::TabOuterInset::MirrorBodyInset => {
-                (theme_now.section_outer_margin_span as f32) + (theme_now.section_pad_x as f32)
-            }
-        };
+        let strip_outer_inset = tabbed_strip_outer_inset(tab_theme, &theme_now);
         let container_max_rect =
             tabbed_container_max_rect(avail, strip_side, strip_thickness, strip_outer_inset);
         ui.ctx().data_mut(|d| {
@@ -1481,6 +1474,13 @@ fn tabbed_container_max_rect(
             avail.left_top(),
             pos2(avail.right(), (avail.bottom() - reserved).max(avail.top())),
         ),
+    }
+}
+
+fn tabbed_strip_outer_inset(tab_theme: style::TabTheme, theme: &style::Theme) -> f32 {
+    match tab_theme.outer_inset {
+        style::TabOuterInset::None => 0.0,
+        style::TabOuterInset::MirrorBodyInset => (theme.section_outer_margin_span as f32) * 0.5,
     }
 }
 
@@ -2832,6 +2832,21 @@ mod active_tab_tests {
         assert_eq!(left.width(), right.width());
         assert_eq!(left.left(), avail.left() + 40.0);
         assert_eq!(right.right(), avail.right() - 40.0);
+    }
+
+    #[test]
+    fn pro_folder_tabs_use_half_tab_side_outer_padding_not_body_padding() {
+        let pro = style::theme_pro(style::Mode::Dark);
+
+        assert_eq!(
+            tabbed_strip_outer_inset(pro.tabs, &pro),
+            (pro.section_outer_margin_span as f32) * 0.5
+        );
+        assert_ne!(
+            tabbed_strip_outer_inset(pro.tabs, &pro),
+            (pro.section_outer_margin_span + pro.section_pad_x) as f32,
+            "side shelf tab strips must not include body inner padding in the outer inset"
+        );
     }
 
     #[test]
