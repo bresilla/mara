@@ -90,7 +90,9 @@ pub use shelf::{
     publish_shelf_layout, shelf_insets, shelf_layout, show_shelves,
 };
 pub use style::{AccentColor, GlassOpacity, apply_theme, set_glass_opacity};
-pub use view::{MaraView, ViewCtx, ViewEntry, ViewId, ViewRouter, ViewRouterError};
+pub use view::{
+    MaraView, SharedSurfaceId, ViewCtx, ViewEntry, ViewId, ViewRouter, ViewRouterError,
+};
 pub use window_chrome::{
     WindowChromeHit, WindowChromeHostCapabilities, WindowChromeInput, WindowChromePolicy,
     WindowChromeRegions, WindowChromeState, WindowChromeUpdate, WindowResizeDirection,

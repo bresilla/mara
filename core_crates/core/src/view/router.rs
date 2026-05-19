@@ -1,6 +1,6 @@
 use crate::workspace::WorkspaceStack;
 
-use super::{MaraView, ViewId};
+use super::{MaraView, SharedSurfaceId, ViewId};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ViewRouterError {
@@ -12,6 +12,7 @@ pub struct ViewEntry {
     pub id: ViewId,
     pub title: String,
     pub icon: &'static str,
+    pub shared_surface: Option<SharedSurfaceId>,
     pub workspace: WorkspaceStack,
     pub view: Box<dyn MaraView + Send + Sync>,
 }
@@ -25,12 +26,14 @@ impl ViewEntry {
         let id = view.id();
         let title = view.title().to_owned();
         let icon = view.icon();
+        let shared_surface = view.shared_surface();
         assert!(!title.trim().is_empty(), "views require a non-empty title");
         assert!(!icon.trim().is_empty(), "views require a non-empty icon");
         Self {
             id,
             title,
             icon,
+            shared_surface,
             workspace: WorkspaceStack::new(egui::Id::new(("mara_view_workspace", id.0))),
             view: Box::new(view),
         }
@@ -81,6 +84,14 @@ impl ViewRouter {
     #[must_use]
     pub fn entries(&self) -> &[ViewEntry] {
         &self.entries
+    }
+
+    #[must_use]
+    pub fn entries_sharing_surface(&self, surface: SharedSurfaceId) -> Vec<&ViewEntry> {
+        self.entries
+            .iter()
+            .filter(|entry| entry.shared_surface == Some(surface))
+            .collect()
     }
 
     pub fn active(&self) -> Result<ViewId, ViewRouterError> {

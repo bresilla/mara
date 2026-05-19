@@ -1,6 +1,6 @@
 use crate::ribbon::{RibbonAvoidance, RibbonOverrideLayer, RibbonSlotDef};
 
-use super::{ViewCtx, ViewId};
+use super::{SharedSurfaceId, ViewCtx, ViewId};
 
 /// Top-level routable L0 screen/mode.
 ///
@@ -11,6 +11,16 @@ pub trait MaraView {
     fn id(&self) -> ViewId;
     fn title(&self) -> &str;
     fn icon(&self) -> &'static str;
+
+    /// Optional hidden surface shared with other top-level views.
+    ///
+    /// The surface itself is not a selectable view. It is app-owned
+    /// state (map/canvas/document/etc.) that several visible views
+    /// can render and mutate while each visible view keeps its own
+    /// tools, panes, bars, and workspace stack.
+    fn shared_surface(&self) -> Option<SharedSurfaceId> {
+        None
+    }
 
     fn ribbons(&mut self) -> Vec<RibbonSlotDef> {
         Vec::new()
