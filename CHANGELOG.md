@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.0] - 2026-05-19
+
+### <!-- 0 -->⛰️  Features
+
+- Add map UI and new hierarchy row widget
+- Render vector basemaps
+- Add map module for geographic data visualization
+
 ## [0.0.2] - 2026-05-17
 
 ### <!-- 0 -->⛰️  Features
