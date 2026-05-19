@@ -14,7 +14,7 @@ members = [
 
 
 [workspace.package]
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/bresilla/bevy_mara"
@@ -48,23 +48,23 @@ bevy_egui = { version = "0.39", default-features = false }
 # `mara_core` — UI core (panes, ribbons, containers, pods, widgets,
 # theme, embed mechanism). Package id is `mara_core`, which avoids
 # shadowing Rust's std `core` in derive expansions.
-mara_core = { path = "core_crates/core", version = "0.0.2" }
+mara_core = { path = "core_crates/core", version = "0.1.0" }
 # `mara_graph` — standalone vendored node-graph crate (forked from
 # `egui-snarl`, see `core_crates/modules/graph/ACKNOWLEDGEMENTS.md`
 # for upstream attribution). Usable in any egui app; ships
 # sensible defaults, no mara-theming dep.
-mara_graph = { path = "core_crates/modules/graph", version = "0.0.2" }
+mara_graph = { path = "core_crates/modules/graph", version = "0.1.0" }
 # `mara_code` — standalone vendored egui_code_editor. Usable in
 # any egui app; ships sensible defaults, no mara-theming dep.
-mara_code = { path = "core_crates/modules/code", version = "0.0.2" }
+mara_code = { path = "core_crates/modules/code", version = "0.1.0" }
 # `mara_image` — lightweight image viewer/editor proof module for
 # the new View + Module architecture.
-mara_image = { path = "core_crates/modules/image", version = "0.0.2" }
+mara_image = { path = "core_crates/modules/image", version = "0.1.0" }
 # `mara_canvas` — retained-stroke whiteboard proof module for
 # recursive View + Module workspaces.
-mara_canvas = { path = "core_crates/modules/canvas", version = "0.0.2" }
+mara_canvas = { path = "core_crates/modules/canvas", version = "0.1.0" }
 # `mara_map` — retained f64 map annotations and a Mara map component.
-mara_map = { path = "core_crates/modules/map", version = "0.0.2" }
+mara_map = { path = "core_crates/modules/map", version = "0.1.0" }
 
 # `mimalloc` — drop-in global allocator. egui's tessellator + shape
 # `Vec`s thrash the system allocator under heavy heap pressure;

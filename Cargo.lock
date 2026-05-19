@@ -946,7 +946,7 @@ dependencies = [
 
 [[package]]
 name = "bevy_mara"
-version = "0.0.2"
+version = "0.1.0"
 dependencies = [
  "bevy",
  "bevy_egui",
@@ -2226,7 +2226,7 @@ dependencies = [
 
 [[package]]
 name = "egui_mara"
-version = "0.0.2"
+version = "0.1.0"
 dependencies = [
  "eframe",
  "egui",
@@ -2237,7 +2237,7 @@ dependencies = [
 
 [[package]]
 name = "egui_mara_web"
-version = "0.0.2"
+version = "0.1.0"
 dependencies = [
  "eframe",
  "egui_mara",
@@ -3444,7 +3444,7 @@ dependencies = [
 
 [[package]]
 name = "mara_canvas"
-version = "0.0.2"
+version = "0.1.0"
 dependencies = [
  "egui",
  "mara_core",
@@ -3452,7 +3452,7 @@ dependencies = [
 
 [[package]]
 name = "mara_code"
-version = "0.0.2"
+version = "0.1.0"
 dependencies = [
  "egui",
  "serde",
@@ -3460,7 +3460,7 @@ dependencies = [
 
 [[package]]
 name = "mara_core"
-version = "0.0.2"
+version = "0.1.0"
 dependencies = [
  "bevy",
  "egui",
@@ -3472,7 +3472,7 @@ dependencies = [
 
 [[package]]
 name = "mara_graph"
-version = "0.0.2"
+version = "0.1.0"
 dependencies = [
  "egui",
  "egui-scale",
@@ -3485,7 +3485,7 @@ dependencies = [
 
 [[package]]
 name = "mara_image"
-version = "0.0.2"
+version = "0.1.0"
 dependencies = [
  "egui",
  "mara_core",
@@ -3493,7 +3493,7 @@ dependencies = [
 
 [[package]]
 name = "mara_map"
-version = "0.0.2"
+version = "0.1.0"
 dependencies = [
  "egui",
  "egui_extras",

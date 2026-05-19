@@ -1,9 +1,10 @@
-use mara_core::{MaraView, ViewCtx, ViewId, ViewRouter, ViewRouterError};
+use mara_core::{MaraView, SharedSurfaceId, ViewCtx, ViewId, ViewRouter, ViewRouterError};
 
 struct MockView {
     id: ViewId,
     title: &'static str,
     icon: &'static str,
+    shared_surface: Option<SharedSurfaceId>,
 }
 
 impl MockView {
@@ -12,11 +13,17 @@ impl MockView {
             id: ViewId::new(id),
             title,
             icon: "square",
+            shared_surface: None,
         }
     }
 
     fn with_icon(mut self, icon: &'static str) -> Self {
         self.icon = icon;
+        self
+    }
+
+    fn sharing(mut self, surface: SharedSurfaceId) -> Self {
+        self.shared_surface = Some(surface);
         self
     }
 }
@@ -32,6 +39,10 @@ impl MaraView for MockView {
 
     fn icon(&self) -> &'static str {
         self.icon
+    }
+
+    fn shared_surface(&self) -> Option<SharedSurfaceId> {
+        self.shared_surface
     }
 
     fn show(&mut self, _ctx: &mut ViewCtx<'_>) {}
@@ -104,5 +115,26 @@ fn unknown_view_switch_returns_typed_error() {
     assert_eq!(
         router.set_active(missing),
         Err(ViewRouterError::UnknownView(missing))
+    );
+}
+
+#[test]
+fn top_level_views_can_share_hidden_surfaces() {
+    let surface = SharedSurfaceId::new("coreviz.map");
+    let mut router = ViewRouter::new(MockView::new("bevy", "Bevy"));
+    router.register(MockView::new("zones", "Zones").sharing(surface));
+    router.register(MockView::new("graph", "Graph").sharing(surface));
+    router.register(MockView::new("management", "Management").sharing(surface));
+
+    let shared = router.entries_sharing_surface(surface);
+    assert_eq!(shared.len(), 3);
+    assert_eq!(shared[0].title, "Zones");
+    assert_eq!(shared[1].title, "Graph");
+    assert_eq!(shared[2].title, "Management");
+    assert!(
+        router
+            .entries()
+            .iter()
+            .all(|entry| entry.title != "coreviz.map")
     );
 }

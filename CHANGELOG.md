@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.1.1] - 2026-05-19
+
+### <!-- 0 -->⛰️  Features
+
+- Introduce shared surface concept for views
+
 ## [0.1.0] - 2026-05-19
 
 ### <!-- 0 -->⛰️  Features
