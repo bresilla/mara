@@ -42,6 +42,10 @@ pub const BUTTON_GLYPH_FONT: f32 = 14.0;
 /// Card-button row height. Kept as an alias of [`BUTTON_ROW_H_SUBTITLE`]
 /// for callers (Pod, etc.) that still measure in "card" units.
 pub const CARD_BUTTON_ROW_H: f32 = BUTTON_ROW_H_SUBTITLE;
+/// Width of the embedded end action in [`ActionButton`].
+pub const BUTTON_ACTION_W: f32 = 28.0;
+/// Gap between the main button body and embedded end action.
+pub const BUTTON_ACTION_GAP: f32 = 6.0;
 
 /// Picks which hover-fill animation to run when [`Button::animation`]
 /// is set. At rest the button paints identically to the plain
@@ -88,6 +92,248 @@ pub struct Button<'a> {
     glyph: Option<&'a str>,
     animation: Option<FillStyle>,
     height: Option<f32>,
+}
+
+/// Responses from a two-layer button that also has an independent
+/// action button embedded at the far end.
+#[derive(Debug)]
+pub struct ActionButtonResponse {
+    /// Click target for the main button body.
+    pub body: egui::Response,
+    /// Independent click target for the embedded tail action.
+    pub action: egui::Response,
+}
+
+/// Mara card/button with a nested end action, for rows like:
+///
+/// ```text
+/// [ icon  Zone A
+///         root · 4 pts                         + ]
+/// ```
+///
+/// The body and the tail action are separate click targets. The
+/// tail is visually inside the same button chrome but its rect does
+/// not overlap the body, so clicking `+` does not also select the
+/// row.
+pub struct ActionButton<'a> {
+    label: &'a str,
+    subtitle: Option<&'a str>,
+    glyph: Option<&'a str>,
+    action_glyph: &'a str,
+    action_tooltip: Option<&'a str>,
+    action_armed: bool,
+    height: Option<f32>,
+}
+
+impl<'a> ActionButton<'a> {
+    pub fn new(label: &'a str, action_glyph: &'a str) -> Self {
+        Self {
+            label,
+            subtitle: None,
+            glyph: None,
+            action_glyph,
+            action_tooltip: None,
+            action_armed: false,
+            height: None,
+        }
+    }
+
+    /// Add a small dim caption under the primary label.
+    pub fn subtitle(mut self, s: &'a str) -> Self {
+        self.subtitle = Some(s);
+        self
+    }
+
+    /// Add a leading icon glyph column. Same icon lookup behaviour
+    /// as [`Button::glyph`].
+    pub fn glyph(mut self, g: &'a str) -> Self {
+        self.glyph = Some(g);
+        self
+    }
+
+    /// Hover text for the embedded action target.
+    pub fn action_tooltip(mut self, text: &'a str) -> Self {
+        self.action_tooltip = Some(text);
+        self
+    }
+
+    /// Paint the embedded action in its active/armed state.
+    pub fn action_armed(mut self, armed: bool) -> Self {
+        self.action_armed = armed;
+        self
+    }
+
+    /// Override natural height. Defaults to 1U button height or the
+    /// two-layer card height when a subtitle is present.
+    pub fn height(mut self, h: f32) -> Self {
+        self.height = Some(h);
+        self
+    }
+
+    /// Paint the action button and return independent body/action
+    /// responses.
+    pub fn show(self, ui: &mut egui::Ui, accent: egui::Color32) -> ActionButtonResponse {
+        let th = theme();
+        let button = th.widgets.button;
+        let height = self.height.unwrap_or(if self.subtitle.is_some() {
+            button.subtitle_row_h
+        } else {
+            button.row_h
+        });
+        let w = ui.available_width();
+        let (rect, base_resp) = ui.allocate_exact_size(egui::vec2(w, height), egui::Sense::hover());
+        let action_size = (height - 2.0 * button.edge_pad.min(6.0))
+            .clamp(18.0, BUTTON_ACTION_W)
+            .min(rect.width().max(0.0));
+        let action_rect = egui::Rect::from_center_size(
+            egui::pos2(
+                rect.max.x - button.edge_pad - action_size * 0.5,
+                rect.center().y,
+            ),
+            egui::vec2(action_size, action_size),
+        );
+        let body_rect = egui::Rect::from_min_max(
+            rect.min,
+            egui::pos2(
+                (action_rect.min.x - BUTTON_ACTION_GAP).max(rect.min.x),
+                rect.max.y,
+            ),
+        );
+        let body = ui.interact(
+            body_rect,
+            base_resp.id.with("mara_action_button_body"),
+            egui::Sense::click(),
+        );
+        let mut action = ui.interact(
+            action_rect,
+            base_resp.id.with("mara_action_button_tail"),
+            egui::Sense::click(),
+        );
+        if let Some(tip) = self.action_tooltip {
+            action = action.on_hover_text(tip);
+        }
+        if !ui.is_rect_visible(rect) {
+            return ActionButtonResponse { body, action };
+        }
+
+        let radius = egui::CornerRadius::same(th.radius_widget);
+        let body_acc = body_accent(accent);
+        let base = if section_show_frame() {
+            section_fill(accent)
+        } else {
+            pane_fill(accent)
+        };
+        let target = surface_lift_target(body_acc);
+        let active = body.hovered()
+            || action.hovered()
+            || body.is_pointer_button_down_on()
+            || action.is_pointer_button_down_on();
+        let hover_t = if th.animations_enabled {
+            let dur = 0.25 * th.button_anim_scale.max(0.01);
+            ui.ctx().animate_bool_with_time(
+                base_resp.id.with("mara_action_button_hover"),
+                active,
+                dur,
+            )
+        } else if active {
+            1.0
+        } else {
+            0.0
+        };
+        let rest_solid = lerp_col(base, target, button.tint_rest);
+        let rest_bg = with_alpha(rest_solid, glass_alpha_card());
+        let target_bg = if button.full_accent_on_press {
+            with_alpha(body_acc, 255)
+        } else {
+            let press_solid = lerp_col(base, target, button.tint_press);
+            with_alpha(press_solid, glass_alpha_card())
+        };
+        let bg = lerp_col_alpha(rest_bg, target_bg, hover_t);
+        let painter = ui.painter_at(rect);
+        painter.rect_filled(rect, radius, bg);
+        painter.rect_stroke(
+            rect,
+            radius,
+            egui::Stroke::new(
+                th.border_width,
+                lerp_col(widget_border(accent), accent, hover_t),
+            ),
+            egui::epaint::StrokeKind::Inside,
+        );
+        paint_click_pulse(
+            ui.ctx(),
+            &ui.painter_at(rect.expand(10.0)),
+            &body,
+            rect,
+            accent,
+            radius,
+        );
+
+        let action_hover_t = if th.animations_enabled {
+            ui.ctx().animate_bool_with_time(
+                action.id.with("mara_action_button_tail_hover"),
+                action.hovered() || action.is_pointer_button_down_on() || self.action_armed,
+                0.18 * th.button_anim_scale.max(0.01),
+            )
+        } else if action.hovered() || action.is_pointer_button_down_on() || self.action_armed {
+            1.0
+        } else {
+            0.0
+        };
+        let action_fill = lerp_col_alpha(
+            with_alpha(surface_lift_target(body_acc), glass_alpha_card()),
+            with_alpha(accent, if self.action_armed { 96 } else { 74 }),
+            action_hover_t,
+        );
+        let action_radius = egui::CornerRadius::same((action_size * 0.5).round() as u8);
+        painter.rect_filled(action_rect, action_radius, action_fill);
+        painter.rect_stroke(
+            action_rect,
+            action_radius,
+            egui::Stroke::new(
+                th.border_width,
+                lerp_col(
+                    widget_border(accent),
+                    accent,
+                    action_hover_t.max(if self.action_armed { 0.8 } else { 0.0 }),
+                ),
+            ),
+            egui::epaint::StrokeKind::Inside,
+        );
+        paint_click_pulse(
+            ui.ctx(),
+            &ui.painter_at(action_rect.expand(10.0)),
+            &action,
+            action_rect,
+            accent,
+            action_radius,
+        );
+
+        let primary = contrast_text_for(bg);
+        let secondary = lerp_col(primary, bg, 0.4);
+        paint_button_contents(
+            ui,
+            &painter,
+            body_rect,
+            self.label,
+            self.subtitle,
+            self.glyph,
+            primary,
+            secondary,
+            accent,
+        );
+        paint_glyph_or_icon(
+            ui,
+            &painter,
+            action_rect.center(),
+            egui::Align2::CENTER_CENTER,
+            self.action_glyph,
+            (button.glyph_font + 2.0).max(14.0),
+            accent,
+        );
+
+        ActionButtonResponse { body, action }
+    }
 }
 
 impl<'a> Button<'a> {
@@ -246,99 +492,17 @@ impl<'a> Button<'a> {
         // Text/glyph painter follows the depressed rect so the
         // contents track the press shrink in lockstep with bg/border.
         let painter = ui.painter_at(painted_rect);
-        // ─── Glyph column ───
-        let (text_left, text_right) = if let Some(g) = self.glyph {
-            let glyph_pos = egui::pos2(
-                painted_rect.min.x + button.edge_pad + button.glyph_w * 0.5,
-                painted_rect.center().y,
-            );
-            // Treat `glyph` as an icon NAME first (Fluent UI lookup
-            // via mara_core::icons). Fall back to literal text paint
-            // when the name isn't bundled — that way callers can pass
-            // either `"settings"` (looked up) or `"⊕"` (literal).
-            if crate::icons::icon(g).is_some() {
-                crate::icons::paint_icon(
-                    &painter,
-                    glyph_pos,
-                    egui::Align2::CENTER_CENTER,
-                    g,
-                    button.glyph_font,
-                    accent,
-                );
-            } else {
-                painter.text(
-                    glyph_pos,
-                    egui::Align2::CENTER_CENTER,
-                    g,
-                    egui::FontId::proportional(button.glyph_font),
-                    accent,
-                );
-            }
-            // Mirror the glyph column on the right so the text block
-            // stays centred in the visible chrome.
-            (
-                painted_rect.min.x + button.edge_pad + button.glyph_w + button.glyph_gap,
-                painted_rect.max.x - (button.edge_pad + button.glyph_w + button.glyph_gap),
-            )
-        } else {
-            (painted_rect.min.x, painted_rect.max.x)
-        };
-        let max_text_w = (text_right - text_left).max(0.0);
-
-        // ─── Label / subtitle ───
-        let cy = painted_rect.center().y;
-        if let Some(sub) = self.subtitle {
-            let label_galley = elided_galley(
-                ui,
-                self.label,
-                egui::FontId::proportional(button.label_font),
-                primary,
-                max_text_w,
-            );
-            let sub_galley = elided_galley(
-                ui,
-                sub,
-                egui::FontId::proportional(button.subtitle_font),
-                secondary,
-                max_text_w,
-            );
-            // Glyph variant left-aligns the text block; plain variant
-            // centres it. Match the old `card_button` look for the
-            // glyph case and `wide_button` for the no-glyph case.
-            let label_x = if self.glyph.is_some() {
-                text_left
-            } else {
-                painted_rect.center().x - label_galley.size().x * 0.5
-            };
-            let sub_x = if self.glyph.is_some() {
-                text_left
-            } else {
-                painted_rect.center().x - sub_galley.size().x * 0.5
-            };
-            painter.galley(
-                egui::pos2(label_x, cy - 6.0 - label_galley.size().y * 0.5),
-                label_galley,
-                primary,
-            );
-            painter.galley(
-                egui::pos2(sub_x, cy + 7.0 - sub_galley.size().y * 0.5),
-                sub_galley,
-                secondary,
-            );
-        } else {
-            let label_centre = if self.glyph.is_some() {
-                egui::pos2((text_left + text_right) * 0.5, cy)
-            } else {
-                painted_rect.center()
-            };
-            painter.text(
-                label_centre,
-                egui::Align2::CENTER_CENTER,
-                self.label,
-                egui::FontId::proportional(button.label_font),
-                primary,
-            );
-        }
+        paint_button_contents(
+            ui,
+            &painter,
+            painted_rect,
+            self.label,
+            self.subtitle,
+            self.glyph,
+            primary,
+            secondary,
+            accent,
+        );
         resp
     }
 }
@@ -374,6 +538,24 @@ pub fn card_button(
     Button::new(name)
         .glyph(glyph)
         .subtitle(subtitle)
+        .show(ui, accent)
+}
+
+/// Shortcut for [`ActionButton`] with a leading glyph, primary label,
+/// subtitle, and independent tail action.
+pub fn card_action_button(
+    ui: &mut egui::Ui,
+    glyph: &str,
+    name: &str,
+    subtitle: &str,
+    action_glyph: &str,
+    action_tooltip: &str,
+    accent: egui::Color32,
+) -> ActionButtonResponse {
+    ActionButton::new(name, action_glyph)
+        .glyph(glyph)
+        .subtitle(subtitle)
+        .action_tooltip(action_tooltip)
         .show(ui, accent)
 }
 
@@ -501,6 +683,118 @@ fn elided_galley(
     job.wrap.break_anywhere = true;
     job.halign = egui::Align::LEFT;
     ui.painter().layout_job(job)
+}
+
+fn paint_glyph_or_icon(
+    ui: &egui::Ui,
+    painter: &egui::Painter,
+    pos: egui::Pos2,
+    align: egui::Align2,
+    glyph: &str,
+    font_size: f32,
+    color: egui::Color32,
+) {
+    if crate::icons::icon(glyph).is_some() {
+        crate::icons::paint_icon(painter, pos, align, glyph, font_size, color);
+    } else {
+        painter.text(
+            pos,
+            align,
+            glyph,
+            egui::FontId::proportional(font_size),
+            color,
+        );
+    }
+    let _ = ui;
+}
+
+fn paint_button_contents(
+    ui: &egui::Ui,
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    label: &str,
+    subtitle: Option<&str>,
+    glyph: Option<&str>,
+    primary: egui::Color32,
+    secondary: egui::Color32,
+    accent: egui::Color32,
+) {
+    let button = theme().widgets.button;
+    // ─── Glyph column ───
+    let (text_left, text_right) = if let Some(g) = glyph {
+        let glyph_pos = egui::pos2(
+            rect.min.x + button.edge_pad + button.glyph_w * 0.5,
+            rect.center().y,
+        );
+        paint_glyph_or_icon(
+            ui,
+            painter,
+            glyph_pos,
+            egui::Align2::CENTER_CENTER,
+            g,
+            button.glyph_font,
+            accent,
+        );
+        (
+            rect.min.x + button.edge_pad + button.glyph_w + button.glyph_gap,
+            rect.max.x - button.edge_pad,
+        )
+    } else {
+        (rect.min.x, rect.max.x)
+    };
+    let max_text_w = (text_right - text_left).max(0.0);
+
+    // ─── Label / subtitle ───
+    let cy = rect.center().y;
+    if let Some(sub) = subtitle {
+        let label_galley = elided_galley(
+            ui,
+            label,
+            egui::FontId::proportional(button.label_font),
+            primary,
+            max_text_w,
+        );
+        let sub_galley = elided_galley(
+            ui,
+            sub,
+            egui::FontId::proportional(button.subtitle_font),
+            secondary,
+            max_text_w,
+        );
+        let label_x = if glyph.is_some() {
+            text_left
+        } else {
+            rect.center().x - label_galley.size().x * 0.5
+        };
+        let sub_x = if glyph.is_some() {
+            text_left
+        } else {
+            rect.center().x - sub_galley.size().x * 0.5
+        };
+        painter.galley(
+            egui::pos2(label_x, cy - 6.0 - label_galley.size().y * 0.5),
+            label_galley,
+            primary,
+        );
+        painter.galley(
+            egui::pos2(sub_x, cy + 7.0 - sub_galley.size().y * 0.5),
+            sub_galley,
+            secondary,
+        );
+    } else {
+        let label_centre = if glyph.is_some() {
+            egui::pos2((text_left + text_right) * 0.5, cy)
+        } else {
+            rect.center()
+        };
+        painter.text(
+            label_centre,
+            egui::Align2::CENTER_CENTER,
+            label,
+            egui::FontId::proportional(button.label_font),
+            primary,
+        );
+    }
 }
 
 // ─── Animation paint ───────────────────────────────────────────────

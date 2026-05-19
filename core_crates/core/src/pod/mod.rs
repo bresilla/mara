@@ -39,6 +39,7 @@ pub struct PodResponse {
     pub searches: Vec<SearchResponse>,
     pub buttons: Vec<ButtonResponse>,
     pub card_buttons: Vec<ButtonResponse>,
+    pub action_buttons: Vec<ActionButtonPodResponse>,
     pub toggles: Vec<ToggleResponse>,
     pub progress: Vec<ProgressResponse>,
     pub sliders: Vec<SliderResponse>,
@@ -65,6 +66,13 @@ pub struct SearchResponse {
 #[derive(Clone, Debug, Default)]
 pub struct ButtonResponse {
     pub clicked: bool,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct ActionButtonPodResponse {
+    pub body_clicked: bool,
+    pub body_double_clicked: bool,
+    pub action_clicked: bool,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -186,6 +194,17 @@ struct ButtonConfig {
     /// Optional CSS-style hover-fill animation. `None` falls back to
     /// the standard hover/press tint.
     animation: Option<FillStyle>,
+}
+
+#[derive(Clone)]
+struct ActionButtonConfig {
+    label: String,
+    subtitle: Option<String>,
+    glyph: Option<String>,
+    action_glyph: String,
+    action_tooltip: Option<String>,
+    action_armed: bool,
+    accent: Color32,
 }
 
 #[derive(Clone)]
@@ -432,6 +451,7 @@ struct ModuleConfig {
 enum WidgetSpec {
     Search(SearchConfig),
     Button(ButtonConfig),
+    ActionButton(ActionButtonConfig),
     Toggle(ToggleConfig),
     Progress(ProgressConfig),
     Slider(SliderConfig),
@@ -497,6 +517,13 @@ impl WidgetSpec {
                     1
                 }
             }
+            WidgetSpec::ActionButton(cfg) => {
+                if cfg.subtitle.is_some() {
+                    2
+                } else {
+                    1
+                }
+            }
             WidgetSpec::Toggle(_) => 1,
             WidgetSpec::Progress(_) => 2,
             WidgetSpec::Slider(_) => 2,
@@ -526,6 +553,13 @@ impl WidgetSpec {
         match self {
             WidgetSpec::Search(_) => UNIT,
             WidgetSpec::Button(cfg) => {
+                if cfg.subtitle.is_some() {
+                    theme().widgets.button.subtitle_row_h
+                } else {
+                    theme().widgets.button.row_h
+                }
+            }
+            WidgetSpec::ActionButton(cfg) => {
                 if cfg.subtitle.is_some() {
                     theme().widgets.button.subtitle_row_h
                 } else {
@@ -962,6 +996,44 @@ impl Pod {
             glyph: Some(glyph),
             animation: None,
         }));
+        self
+    }
+
+    /// Add a two-layer button with an independent embedded tail
+    /// action. This is the "row body + plus button inside the same
+    /// chrome" shape used by hierarchy UIs: body click selects /
+    /// opens the row, tail click performs the secondary action
+    /// without also firing the body click.
+    pub fn with_card_action_button(
+        mut self,
+        glyph: impl Into<String>,
+        name: impl Into<String>,
+        subtitle: impl Into<String>,
+        action_glyph: impl Into<String>,
+        action_tooltip: impl Into<String>,
+        action_armed: bool,
+        accent: Color32,
+    ) -> Self {
+        let glyph = glyph.into();
+        let name = name.into();
+        let subtitle = subtitle.into();
+        let action_glyph = action_glyph.into();
+        let action_tooltip = action_tooltip.into();
+        assert_non_empty("action card buttons", "glyph", &glyph);
+        assert_non_empty("action card buttons", "name", &name);
+        assert_non_empty("action card buttons", "subtitle", &subtitle);
+        assert_non_empty("action card buttons", "action glyph", &action_glyph);
+        assert_non_empty("action card buttons", "action tooltip", &action_tooltip);
+        self.widgets
+            .push(WidgetSpec::ActionButton(ActionButtonConfig {
+                label: name,
+                subtitle: Some(subtitle),
+                glyph: Some(glyph),
+                action_glyph,
+                action_tooltip: Some(action_tooltip),
+                action_armed,
+                accent,
+            }));
         self
     }
 
@@ -1421,6 +1493,7 @@ fn paint_widgets(
     let mut search_idx = 0usize;
     let mut button_idx = 0usize;
     let mut card_button_idx = 0usize;
+    let mut action_button_idx = 0usize;
     let mut toggle_idx = 0usize;
     let mut progress_idx = 0usize;
     let mut slider_idx = 0usize;
@@ -1509,6 +1582,31 @@ fn paint_widgets(
                     });
                     button_idx += 1;
                 }
+            }
+            WidgetSpec::ActionButton(cfg) => {
+                let mut builder = crate::widget::ActionButton::new(&cfg.label, &cfg.action_glyph)
+                    .action_armed(cfg.action_armed);
+                if let Some(s) = &cfg.subtitle {
+                    builder = builder.subtitle(s);
+                }
+                if let Some(g) = &cfg.glyph {
+                    builder = builder.glyph(g);
+                }
+                if let Some(tip) = &cfg.action_tooltip {
+                    builder = builder.action_tooltip(tip);
+                }
+                let resp = builder.show(ui, cfg.accent);
+                crate::debug::tag(
+                    ui,
+                    resp.body.rect,
+                    format!("widget[action_button #{}]", action_button_idx),
+                );
+                response.action_buttons.push(ActionButtonPodResponse {
+                    body_clicked: resp.body.clicked(),
+                    body_double_clicked: resp.body.double_clicked(),
+                    action_clicked: resp.action.clicked(),
+                });
+                action_button_idx += 1;
             }
             WidgetSpec::Toggle(cfg) => {
                 let state_key = pod_id.with(("mara_pod_toggle_state", toggle_idx));

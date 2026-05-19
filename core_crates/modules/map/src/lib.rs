@@ -387,6 +387,10 @@ impl MapInteraction {
         self.draft.clear();
     }
 
+    fn pop_draft(&mut self) {
+        self.draft.pop();
+    }
+
     pub fn select(&mut self, annotation: &MapAnnotation) {
         let id = annotation.id();
         self.selected = Some(id);
@@ -583,14 +587,19 @@ fn paint_map(
         .hover_pos()
         .map(|pos| screen_to_geo(pos, rect, surface.viewport));
     let clicked_position = response
-        .clicked()
+        .clicked_by(egui::PointerButton::Primary)
         .then(|| response.interact_pointer_pos())
         .flatten()
         .map(|pos| screen_to_geo(pos, rect, surface.viewport));
 
+    if response.clicked_by(egui::PointerButton::Secondary) {
+        cancel_tool_step(interaction);
+        selected = interaction.selected;
+    }
+
     if let Some(pos) = response
         .interact_pointer_pos()
-        .filter(|_| response.clicked())
+        .filter(|_| response.clicked_by(egui::PointerButton::Primary))
     {
         if let Some(hit) = hit_test(&surface.document, rect, surface.viewport, pos) {
             if let Some(annotation) = surface.document.get(hit) {
@@ -615,6 +624,18 @@ fn paint_map(
         selected_kind: interaction.selected_kind,
         selected_uuid: interaction.selected_uuid,
         deleted,
+    }
+}
+
+fn cancel_tool_step(interaction: &mut MapInteraction) {
+    match interaction.tool {
+        MapTool::Line | MapTool::Polygon => match interaction.draft_len() {
+            2.. => interaction.pop_draft(),
+            1 => interaction.clear_draft(),
+            0 => interaction.set_tool(MapTool::Select),
+        },
+        MapTool::Point | MapTool::Icon | MapTool::Svg => interaction.set_tool(MapTool::Select),
+        MapTool::Select => {}
     }
 }
 
@@ -1169,5 +1190,25 @@ mod tests {
             .map(|[a, b, c]| cross(*a, *b, *c).abs() * 0.5)
             .sum::<f32>();
         assert!((filled_area - 10_000.0).abs() < 0.1);
+    }
+
+    #[test]
+    fn right_click_cancel_steps_draft_then_tool() {
+        let mut interaction = MapInteraction::default();
+        interaction.set_tool(MapTool::Line);
+        interaction.draft.push(lon_lat(1.0, 1.0));
+        interaction.draft.push(lon_lat(2.0, 2.0));
+
+        cancel_tool_step(&mut interaction);
+        assert_eq!(interaction.tool, MapTool::Line);
+        assert_eq!(interaction.draft_len(), 1);
+
+        cancel_tool_step(&mut interaction);
+        assert_eq!(interaction.tool, MapTool::Line);
+        assert_eq!(interaction.draft_len(), 0);
+
+        cancel_tool_step(&mut interaction);
+        assert_eq!(interaction.tool, MapTool::Select);
+        assert_eq!(interaction.draft_len(), 0);
     }
 }

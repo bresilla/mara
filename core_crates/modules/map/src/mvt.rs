@@ -145,10 +145,26 @@ fn request_tile(key: TileKey, tx: mpsc::Sender<(TileKey, Result<DecodedVectorTil
 
 #[cfg(target_arch = "wasm32")]
 fn request_tile(key: TileKey, tx: mpsc::Sender<(TileKey, Result<DecodedVectorTile, String>)>) {
-    let _ = tx.send((
-        key,
-        Err("native MVT fetcher is not wired for wasm yet".to_owned()),
-    ));
+    let url = format!("{OPENFREEMAP_TILE_URL}/{}/{}/{}.pbf", key.z, key.x, key.y);
+    let mut request = ehttp::Request::get(&url);
+    request
+        .headers
+        .insert("Accept", "application/vnd.mapbox-vector-tile");
+    ehttp::fetch(request, move |response| {
+        let result = response
+            .map_err(|err| format!("failed to fetch {url}: {err}"))
+            .and_then(|response| {
+                if response.ok {
+                    decode_vector_tile(&response.bytes)
+                } else {
+                    Err(format!(
+                        "failed to fetch {url}: HTTP {} {}",
+                        response.status, response.status_text
+                    ))
+                }
+            });
+        let _ = tx.send((key, result));
+    });
 }
 
 #[cfg(not(target_arch = "wasm32"))]

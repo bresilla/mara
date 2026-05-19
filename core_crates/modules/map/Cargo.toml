@@ -8,6 +8,7 @@ repository.workspace = true
 
 [dependencies]
 egui = { workspace = true, default-features = false }
+ehttp = "0.6"
 egui_extras = { version = "0.33", default-features = false, features = ["http", "image"] }
 mara_core = { workspace = true }
 

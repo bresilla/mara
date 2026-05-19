@@ -42,6 +42,12 @@ pub const TREE_SLOT_W: f32 = 16.0;
 pub const TREE_SLOT_GAP: f32 = 2.0;
 pub const TREE_RIGHT_PAD_R: f32 = 4.0;
 pub const TREE_ROW_PAD_L: f32 = 4.0;
+/// Height of a hierarchy row with title + metadata + embedded action.
+pub const TREE_ACTION_ROW_H: f32 = 2.0 * crate::style::UNIT;
+/// Size of the embedded action target in hierarchy rows.
+pub const TREE_ACTION_W: f32 = 28.0;
+/// Gap between hierarchy row text and the embedded action target.
+pub const TREE_ACTION_GAP: f32 = 6.0;
 
 /// Which built-in icon to paint in a [`TreeIconSlot`]. Built-ins are
 /// drawn with painter shapes so they work identically regardless of
@@ -106,6 +112,17 @@ pub struct TreeRowResponse {
     pub icons: Vec<egui::Response>,
     /// `true` when the chevron was clicked with the shift modifier
     /// held — caller's "recursively expand subtree" affordance.
+    pub chevron_shift_clicked: bool,
+}
+
+/// The click targets produced by [`tree_action_row`]. This is the
+/// hierarchy/list-row variant: body select/double-click, optional
+/// chevron, and an independent embedded tail action (usually `+`).
+#[derive(Debug)]
+pub struct TreeActionRowResponse {
+    pub body: egui::Response,
+    pub chevron: Option<egui::Response>,
+    pub action: egui::Response,
     pub chevron_shift_clicked: bool,
 }
 
@@ -318,6 +335,225 @@ pub fn tree_row(
     }
 }
 
+/// Paint one hierarchy row with two text layers and an embedded
+/// independent action button at the far end. This mirrors the
+/// Coreviz zone-list shape: clicking the row selects/focuses the
+/// item; clicking the `+` arms child creation without also selecting
+/// the row.
+#[allow(clippy::too_many_arguments)]
+pub fn tree_action_row(
+    ui: &mut egui::Ui,
+    id_salt: impl Hash + Copy,
+    depth: u32,
+    expanded: Option<&mut bool>,
+    icon: Option<&str>,
+    title: &str,
+    meta: &str,
+    selected: bool,
+    action_glyph: &str,
+    action_tooltip: Option<&str>,
+    action_armed: bool,
+    accent: egui::Color32,
+) -> TreeActionRowResponse {
+    let tree = style::theme().widgets.tree;
+    let w = ui.available_width();
+    let bg_anchor = ui.painter().add(egui::Shape::Noop);
+    let guide_anchor = ui.painter().add(egui::Shape::Noop);
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(w, TREE_ACTION_ROW_H), egui::Sense::hover());
+
+    let left_start = rect.min.x + tree.row_pad_l + depth as f32 * tree.indent;
+    let chevron_rect = expanded.as_ref().map(|_| {
+        egui::Rect::from_min_size(
+            egui::pos2(left_start, rect.min.y),
+            egui::vec2(tree.chevron_w, rect.height()),
+        )
+    });
+    let icon_rect = icon.map(|_| {
+        egui::Rect::from_min_size(
+            egui::pos2(left_start + tree.chevron_w, rect.min.y),
+            egui::vec2(tree.icon_w, rect.height()),
+        )
+    });
+    let action_size = TREE_ACTION_W.min((rect.height() - 10.0).max(18.0));
+    let action_rect = egui::Rect::from_center_size(
+        egui::pos2(
+            rect.max.x - tree.right_pad_r - action_size * 0.5,
+            rect.center().y,
+        ),
+        egui::vec2(action_size, action_size),
+    );
+    let body_rect = egui::Rect::from_min_max(
+        rect.min,
+        egui::pos2(
+            (action_rect.min.x - TREE_ACTION_GAP).max(rect.min.x),
+            rect.max.y,
+        ),
+    );
+
+    let body = ui.interact(
+        body_rect,
+        ui.id().with(("mara_tree_action_body", id_salt)),
+        egui::Sense::click(),
+    );
+    let chevron = chevron_rect.map(|cr| {
+        ui.interact(
+            cr,
+            ui.id().with(("mara_tree_action_chevron", id_salt)),
+            egui::Sense::click(),
+        )
+    });
+    let mut action = ui.interact(
+        action_rect,
+        ui.id().with(("mara_tree_action_tail", id_salt)),
+        egui::Sense::click(),
+    );
+    if let Some(tip) = action_tooltip {
+        action = action.on_hover_text(tip);
+    }
+
+    let hovered = body.hovered() || chevron.as_ref().is_some_and(|c| c.hovered());
+    let radius = style::radius_for(style::RadiusRole::Widget);
+    let bg_shape = if selected {
+        egui::Shape::rect_filled(rect, radius, style::row_selected_fill(accent))
+    } else if hovered {
+        egui::Shape::rect_filled(rect, radius, style::row_hover_fill(accent))
+    } else {
+        egui::Shape::rect_filled(rect, radius, style::section_fill(accent))
+    };
+    ui.painter().set(bg_anchor, bg_shape);
+
+    let guide_base = style::theme().border_subtle;
+    let guide_color =
+        egui::Color32::from_rgba_unmultiplied(guide_base.r(), guide_base.g(), guide_base.b(), 90);
+    let mut guides = Vec::with_capacity(depth as usize * 2);
+    for d in 0..depth {
+        let x = rect.min.x + tree.row_pad_l + d as f32 * tree.indent + tree.chevron_w * 0.5;
+        guides.push(egui::Shape::line_segment(
+            [egui::pos2(x, rect.min.y), egui::pos2(x, rect.max.y)],
+            egui::Stroke::new(tree.guide_width, guide_color),
+        ));
+    }
+    if depth > 0 {
+        let x =
+            rect.min.x + tree.row_pad_l + (depth - 1) as f32 * tree.indent + tree.chevron_w * 0.5;
+        guides.push(egui::Shape::line_segment(
+            [
+                egui::pos2(x, rect.center().y),
+                egui::pos2(left_start, rect.center().y),
+            ],
+            egui::Stroke::new(tree.guide_width, guide_color),
+        ));
+    }
+    ui.painter().set(
+        guide_anchor,
+        if guides.is_empty() {
+            egui::Shape::Noop
+        } else {
+            egui::Shape::Vec(guides)
+        },
+    );
+
+    let glyph_col = style::section_title_color(accent);
+    let mut chevron_shift_clicked = false;
+    if let (Some(exp), Some(cr)) = (expanded, chevron_rect) {
+        let how_open = ui
+            .ctx()
+            .animate_bool_responsive(ui.id().with(("mara_tree_action_chev_anim", id_salt)), *exp);
+        paint_chevron(ui, cr, how_open, glyph_col);
+        if let Some(ref cresp) = chevron
+            && cresp.clicked()
+        {
+            let shift_held = ui.ctx().input(|i| i.modifiers.shift);
+            if shift_held {
+                chevron_shift_clicked = true;
+            } else {
+                *exp = !*exp;
+            }
+        }
+    }
+
+    if let (Some(name), Some(ir)) = (icon, icon_rect) {
+        paint_icon_or_glyph(
+            ui,
+            ir.center(),
+            egui::Align2::CENTER_CENTER,
+            name,
+            style::theme().icons.tree_type_icon_size,
+            glyph_col,
+        );
+    }
+
+    let label_left = body_rect.min.x
+        + tree.row_pad_l
+        + depth as f32 * tree.indent
+        + tree.chevron_w
+        + if icon.is_some() { tree.icon_w } else { 0.0 }
+        + tree.label_pad_l;
+    let label_rect = egui::Rect::from_min_max(
+        egui::pos2(label_left, rect.min.y + 6.0),
+        egui::pos2(body_rect.max.x, rect.max.y - 6.0),
+    );
+    paint_two_line_label(ui, label_rect, title, meta);
+
+    let action_hover_t = if style::theme().animations_enabled {
+        ui.ctx().animate_bool_with_time(
+            action.id.with("mara_tree_action_tail_hover"),
+            action.hovered() || action.is_pointer_button_down_on() || action_armed,
+            0.18 * style::theme().button_anim_scale.max(0.01),
+        )
+    } else if action.hovered() || action.is_pointer_button_down_on() || action_armed {
+        1.0
+    } else {
+        0.0
+    };
+    let action_fill = lerp_color(
+        style::surface_lift_target(style::body_accent(accent)),
+        accent,
+        if action_armed {
+            0.30
+        } else {
+            0.18 * action_hover_t
+        },
+    );
+    let action_fill = egui::Color32::from_rgba_unmultiplied(
+        action_fill.r(),
+        action_fill.g(),
+        action_fill.b(),
+        80,
+    );
+    let action_radius = egui::CornerRadius::same((action_size * 0.5).round() as u8);
+    ui.painter()
+        .rect_filled(action_rect, action_radius, action_fill);
+    ui.painter().rect_stroke(
+        action_rect,
+        action_radius,
+        egui::Stroke::new(
+            style::theme().stroke.border_width,
+            lerp_color(
+                style::widget_border(accent),
+                accent,
+                action_hover_t.max(if action_armed { 0.75 } else { 0.0 }),
+            ),
+        ),
+        egui::epaint::StrokeKind::Inside,
+    );
+    paint_icon_or_glyph(
+        ui,
+        action_rect.center(),
+        egui::Align2::CENTER_CENTER,
+        action_glyph,
+        16.0,
+        accent,
+    );
+
+    TreeActionRowResponse {
+        body,
+        chevron,
+        action,
+        chevron_shift_clicked,
+    }
+}
+
 fn compute_row_rects(
     ui: &mut egui::Ui,
     w: f32,
@@ -428,6 +664,78 @@ fn paint_slot_icon(
         }
         TreeIconKind::Color(fill) => paint_color_chip(ui, rect, fill, accent, hovered),
     }
+}
+
+fn paint_icon_or_glyph(
+    ui: &egui::Ui,
+    pos: egui::Pos2,
+    align: egui::Align2,
+    name: &str,
+    font_size: f32,
+    color: egui::Color32,
+) {
+    if crate::icons::icon(name).is_some() {
+        crate::icons::paint_icon(ui.painter(), pos, align, name, font_size, color);
+    } else {
+        ui.painter().text(
+            pos,
+            align,
+            name,
+            egui::FontId::proportional(font_size),
+            color,
+        );
+    }
+}
+
+fn paint_two_line_label(ui: &egui::Ui, rect: egui::Rect, title: &str, meta: &str) {
+    let title_galley = elided_galley(
+        ui,
+        title,
+        egui::FontId::proportional(style::theme().widgets.tree.label_font + 1.0),
+        style::on_section(),
+        rect.width(),
+    );
+    let meta_galley = elided_galley(
+        ui,
+        meta,
+        egui::FontId::proportional((style::theme().widgets.tree.label_font - 1.0).max(9.0)),
+        style::on_section_dim(),
+        rect.width(),
+    );
+    ui.painter().galley(
+        egui::pos2(
+            rect.min.x,
+            rect.center().y - 8.0 - title_galley.size().y * 0.5,
+        ),
+        title_galley,
+        style::on_section(),
+    );
+    ui.painter().galley(
+        egui::pos2(
+            rect.min.x,
+            rect.center().y + 8.0 - meta_galley.size().y * 0.5,
+        ),
+        meta_galley,
+        style::on_section_dim(),
+    );
+}
+
+fn elided_galley(
+    ui: &egui::Ui,
+    text: &str,
+    font: egui::FontId,
+    color: egui::Color32,
+    max_w: f32,
+) -> std::sync::Arc<egui::Galley> {
+    let mut job = egui::text::LayoutJob::single_section(
+        text.to_string(),
+        egui::TextFormat::simple(font, color),
+    );
+    job.wrap.max_width = max_w.max(0.0);
+    job.wrap.max_rows = 1;
+    job.wrap.break_anywhere = true;
+    job.halign = egui::Align::LEFT;
+    ui.painter().layout_job(job)
 }
 
 fn paint_color_chip(
@@ -624,6 +932,40 @@ impl<'a> TreeBody<'a> {
     ) -> TreeRowResponse {
         tree_row(
             self.ui, id_salt, depth, expanded, icon, label, selected, accent, slots,
+        )
+    }
+
+    /// Paint a two-line hierarchy row with an independent embedded
+    /// tail action. Use this for recursive zone/layer trees where
+    /// row click selects the item and `+` starts "add child".
+    #[allow(clippy::too_many_arguments)]
+    pub fn action_row<H: core::hash::Hash + Copy>(
+        &mut self,
+        id_salt: H,
+        depth: u32,
+        expanded: Option<&mut bool>,
+        icon: Option<&str>,
+        title: &str,
+        meta: &str,
+        selected: bool,
+        action_glyph: &str,
+        action_tooltip: Option<&str>,
+        action_armed: bool,
+        accent: egui::Color32,
+    ) -> TreeActionRowResponse {
+        tree_action_row(
+            self.ui,
+            id_salt,
+            depth,
+            expanded,
+            icon,
+            title,
+            meta,
+            selected,
+            action_glyph,
+            action_tooltip,
+            action_armed,
+            accent,
         )
     }
 }

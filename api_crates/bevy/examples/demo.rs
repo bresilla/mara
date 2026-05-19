@@ -2311,6 +2311,102 @@ fn widgets_pane(body: &mut PaneBody) {
         ],
     );
     body.add_normal(
+        cid(PANE_WIDGETS, "hierarchy"),
+        "Hierarchy",
+        "branch",
+        vec![
+            Pod::new(pid(PANE_WIDGETS, "hierarchy", 0))
+                .with_separator(SeparatorStyle::Line)
+                .with_card_action_button(
+                    "shape-union",
+                    "Zone row",
+                    "Body click + embedded add action",
+                    "add",
+                    "Add child zone",
+                    false,
+                    accent,
+                ),
+            Pod::new(pid(PANE_WIDGETS, "hierarchy", 1))
+                .with_separator(SeparatorStyle::None)
+                .with_tree(6, move |tree| {
+                    let root_key = egui::Id::new(("demo_hierarchy", "root_open"));
+                    let floor_key = egui::Id::new(("demo_hierarchy", "floor_open"));
+                    let armed_key = egui::Id::new(("demo_hierarchy", "armed_child"));
+                    let mut root_open = tree
+                        .ctx()
+                        .data_mut(|d| d.get_persisted::<bool>(root_key))
+                        .unwrap_or(true);
+                    let mut floor_open = tree
+                        .ctx()
+                        .data_mut(|d| d.get_persisted::<bool>(floor_key))
+                        .unwrap_or(true);
+                    let mut armed = tree
+                        .ctx()
+                        .data_mut(|d| d.get_persisted::<Option<&'static str>>(armed_key))
+                        .unwrap_or(None);
+
+                    let root = tree.action_row(
+                        "root-zone",
+                        0,
+                        Some(&mut root_open),
+                        Some("map"),
+                        "Root Zone",
+                        "root · 4 pts",
+                        armed == Some("root-zone"),
+                        "add",
+                        Some("Add child zone"),
+                        armed == Some("root-zone"),
+                        accent,
+                    );
+                    if root.action.clicked() {
+                        armed = Some("root-zone");
+                    }
+                    if root_open {
+                        let floor = tree.action_row(
+                            "floor-zone",
+                            1,
+                            Some(&mut floor_open),
+                            Some("shape-union"),
+                            "Floor 1",
+                            "zone · 7 pts",
+                            armed == Some("floor-zone"),
+                            "add",
+                            Some("Add child zone"),
+                            armed == Some("floor-zone"),
+                            accent,
+                        );
+                        if floor.action.clicked() {
+                            armed = Some("floor-zone");
+                        }
+                        if floor_open {
+                            let dock = tree.action_row(
+                                "dock-zone",
+                                2,
+                                None,
+                                Some("location"),
+                                "Dock A",
+                                "zone · 5 pts",
+                                armed == Some("dock-zone"),
+                                "add",
+                                Some("Add child zone"),
+                                armed == Some("dock-zone"),
+                                accent,
+                            );
+                            if dock.action.clicked() {
+                                armed = Some("dock-zone");
+                            }
+                        }
+                    }
+
+                    tree.ctx_mut().data_mut(|d| {
+                        d.insert_persisted(root_key, root_open);
+                        d.insert_persisted(floor_key, floor_open);
+                        d.insert_persisted(armed_key, armed);
+                    });
+                }),
+        ],
+    );
+    body.add_normal(
         cid(PANE_WIDGETS, "anim"),
         "Animated",
         "animation",

@@ -39,6 +39,10 @@ use mara_core::ribbon::{
 use mara_core::shelf::{ShelfContainer, ShelfDef, ShelfEdge, ShelfState};
 use mara_core::style::{AccentColor, GlassOpacity, Mode, srgb_to_egui};
 use mara_core::widget::{FillStyle, TreeIconKind, TreeIconSlot};
+use mara_map::{
+    DEFAULT_SVG_MARKER, MapDocument, MapIcon, MapInteraction, MapLine, MapPoint, MapPolygon,
+    MapSurface, MapTool, MapViewport, MaraMap, lon_lat,
+};
 // Vendored extras — node graph + code editor. In the `egui_mara`
 // facade they live under `mara_core::extras::*`; the node-graph
 // offscreen renderer is `egui_mara::EframeNodeViewBackend`.
@@ -83,6 +87,14 @@ const ACTION_NEXT_CUBE: &str = "demo_action_next_cube";
 const ACTION_CANVAS_CLEAR: &str = "demo_action_canvas_clear";
 const ACTION_VIEW_BEVY: &str = "demo_action_view_bevy";
 const ACTION_VIEW_CANVAS: &str = "demo_action_view_canvas";
+const ACTION_VIEW_MAP: &str = "demo_action_view_map";
+const ACTION_MAP_SELECT: &str = "demo_action_map_select";
+const ACTION_MAP_POINT: &str = "demo_action_map_point";
+const ACTION_MAP_LINE: &str = "demo_action_map_line";
+const ACTION_MAP_POLYGON: &str = "demo_action_map_polygon";
+const ACTION_MAP_ICON: &str = "demo_action_map_icon";
+const ACTION_MAP_SVG: &str = "demo_action_map_svg";
+const ACTION_MAP_CLEAR: &str = "demo_action_map_clear";
 const ACTION_CLOSE_APP: &str = "demo_action_close_app";
 const ACTION_RESTORE_FULLSCREEN: &str = "demo_action_restore_fullscreen";
 
@@ -338,6 +350,17 @@ const RIBBON_ITEMS: &[RibbonButtonSpec] = &[
         role: Some(RibbonRole::Icon),
     },
     RibbonButtonSpec {
+        id: ACTION_VIEW_MAP,
+        ribbon: RIBBON_TOP,
+        cluster: RibbonCluster::Middle,
+        slot: 2,
+        draggable: false,
+        glyph: RibbonGlyph::Icon("map"),
+        tooltip: "Map view",
+        child_ribbon: None,
+        role: Some(RibbonRole::Icon),
+    },
+    RibbonButtonSpec {
         id: ACTION_CLOSE_APP,
         ribbon: RIBBON_TOP,
         cluster: RibbonCluster::End,
@@ -417,6 +440,17 @@ const RIBBON_ITEMS_ROOT_VIEW: &[RibbonButtonSpec] = &[
         draggable: false,
         glyph: RibbonGlyph::Icon("pen"),
         tooltip: "Canvas / whiteboard view",
+        child_ribbon: None,
+        role: Some(RibbonRole::Icon),
+    },
+    RibbonButtonSpec {
+        id: ACTION_VIEW_MAP,
+        ribbon: RIBBON_TOP,
+        cluster: RibbonCluster::Middle,
+        slot: 2,
+        draggable: false,
+        glyph: RibbonGlyph::Icon("map"),
+        tooltip: "Map view",
         child_ribbon: None,
         role: Some(RibbonRole::Icon),
     },
@@ -508,6 +542,141 @@ const RIBBON_ITEMS_ROOT_VIEW: &[RibbonButtonSpec] = &[
         draggable: true,
         glyph: RibbonGlyph::Icon("delete"),
         tooltip: "Clear canvas strokes",
+        child_ribbon: None,
+        role: Some(RibbonRole::Icon),
+    },
+];
+
+const RIBBON_ITEMS_MAP_VIEW: &[RibbonButtonSpec] = &[
+    RibbonButtonSpec {
+        id: PANE_ABOUT,
+        ribbon: RIBBON_TOP,
+        cluster: RibbonCluster::Start,
+        slot: 0,
+        draggable: false,
+        glyph: RibbonGlyph::Icon("line-horizontal-3"),
+        tooltip: "App menu and about",
+        child_ribbon: None,
+        role: None,
+    },
+    RibbonButtonSpec {
+        id: ACTION_VIEW_BEVY,
+        ribbon: RIBBON_TOP,
+        cluster: RibbonCluster::Middle,
+        slot: 0,
+        draggable: false,
+        glyph: RibbonGlyph::Icon("cube"),
+        tooltip: "Bevy scene view",
+        child_ribbon: None,
+        role: Some(RibbonRole::Icon),
+    },
+    RibbonButtonSpec {
+        id: ACTION_VIEW_CANVAS,
+        ribbon: RIBBON_TOP,
+        cluster: RibbonCluster::Middle,
+        slot: 1,
+        draggable: false,
+        glyph: RibbonGlyph::Icon("pen"),
+        tooltip: "Canvas / whiteboard view",
+        child_ribbon: None,
+        role: Some(RibbonRole::Icon),
+    },
+    RibbonButtonSpec {
+        id: ACTION_VIEW_MAP,
+        ribbon: RIBBON_TOP,
+        cluster: RibbonCluster::Middle,
+        slot: 2,
+        draggable: false,
+        glyph: RibbonGlyph::Icon("map"),
+        tooltip: "Map view",
+        child_ribbon: None,
+        role: Some(RibbonRole::Icon),
+    },
+    RibbonButtonSpec {
+        id: ACTION_CLOSE_APP,
+        ribbon: RIBBON_TOP,
+        cluster: RibbonCluster::End,
+        slot: 0,
+        draggable: false,
+        glyph: RibbonGlyph::Icon("dismiss"),
+        tooltip: "Close application",
+        child_ribbon: None,
+        role: Some(RibbonRole::Icon),
+    },
+    RibbonButtonSpec {
+        id: ACTION_MAP_SELECT,
+        ribbon: RIBBON_LEFT,
+        cluster: RibbonCluster::Start,
+        slot: 0,
+        draggable: false,
+        glyph: RibbonGlyph::Icon("cursor"),
+        tooltip: "Select map items",
+        child_ribbon: None,
+        role: Some(RibbonRole::Icon),
+    },
+    RibbonButtonSpec {
+        id: ACTION_MAP_POINT,
+        ribbon: RIBBON_LEFT,
+        cluster: RibbonCluster::Start,
+        slot: 1,
+        draggable: false,
+        glyph: RibbonGlyph::Icon("pin"),
+        tooltip: "Add point",
+        child_ribbon: None,
+        role: Some(RibbonRole::Icon),
+    },
+    RibbonButtonSpec {
+        id: ACTION_MAP_LINE,
+        ribbon: RIBBON_LEFT,
+        cluster: RibbonCluster::Start,
+        slot: 2,
+        draggable: false,
+        glyph: RibbonGlyph::Icon("line"),
+        tooltip: "Add line",
+        child_ribbon: None,
+        role: Some(RibbonRole::Icon),
+    },
+    RibbonButtonSpec {
+        id: ACTION_MAP_POLYGON,
+        ribbon: RIBBON_LEFT,
+        cluster: RibbonCluster::Start,
+        slot: 3,
+        draggable: false,
+        glyph: RibbonGlyph::Icon("shape-union"),
+        tooltip: "Add polygon",
+        child_ribbon: None,
+        role: Some(RibbonRole::Icon),
+    },
+    RibbonButtonSpec {
+        id: ACTION_MAP_ICON,
+        ribbon: RIBBON_LEFT,
+        cluster: RibbonCluster::Start,
+        slot: 4,
+        draggable: false,
+        glyph: RibbonGlyph::Icon("location"),
+        tooltip: "Add icon",
+        child_ribbon: None,
+        role: Some(RibbonRole::Icon),
+    },
+    RibbonButtonSpec {
+        id: ACTION_MAP_SVG,
+        ribbon: RIBBON_LEFT,
+        cluster: RibbonCluster::Start,
+        slot: 5,
+        draggable: false,
+        glyph: RibbonGlyph::Svg(DEFAULT_SVG_MARKER),
+        tooltip: "Add SVG",
+        child_ribbon: None,
+        role: Some(RibbonRole::Icon),
+    },
+    RibbonButtonSpec {
+        id: ACTION_MAP_CLEAR,
+        ribbon: RIBBON_LEFT,
+        cluster: RibbonCluster::End,
+        slot: 0,
+        draggable: false,
+        glyph: RibbonGlyph::Icon("delete"),
+        tooltip: "Clear map",
         child_ribbon: None,
         role: Some(RibbonRole::Icon),
     },
@@ -826,6 +995,7 @@ mod tests {
         for item in RIBBON_ITEMS
             .iter()
             .chain(RIBBON_ITEMS_ROOT_VIEW)
+            .chain(RIBBON_ITEMS_MAP_VIEW)
             .chain(RIBBON_ITEMS_FS_GRAPH)
             .chain(RIBBON_ITEMS_FS_CODE)
         {
@@ -948,6 +1118,7 @@ enum DemoRootView {
     #[default]
     BevyScene,
     Canvas,
+    Map,
 }
 
 #[derive(Default)]
@@ -957,6 +1128,50 @@ struct CanvasViewState {
 
 #[derive(Default)]
 struct CanvasShelfState(ShelfState);
+
+struct MapViewState {
+    surface: MapSurface,
+    interaction: MapInteraction,
+}
+
+impl Default for MapViewState {
+    fn default() -> Self {
+        let center = lon_lat(4.904_138_9, 52.367_573_4);
+        let mut document = MapDocument::new("Map");
+        document.add(MapPoint::new("origin", center).label("origin"));
+        document.add(MapLine::new(
+            "line",
+            vec![
+                lon_lat(4.902_8, 52.367_1),
+                lon_lat(4.904_2, 52.368_0),
+                lon_lat(4.906_0, 52.367_4),
+            ],
+        ));
+        document.add(MapPolygon::new(
+            "polygon",
+            vec![
+                lon_lat(4.903_2, 52.366_9),
+                lon_lat(4.905_2, 52.366_9),
+                lon_lat(4.905_0, 52.368_2),
+                lon_lat(4.903_0, 52.368_0),
+            ],
+        ));
+        document.add(MapIcon::fluent(
+            "robot",
+            lon_lat(4.904_9, 52.367_8),
+            "location",
+        ));
+        document.add(MapIcon::svg(
+            "svg-marker",
+            lon_lat(4.903_6, 52.367_8),
+            DEFAULT_SVG_MARKER,
+        ));
+        Self {
+            surface: MapSurface::new("demo-map", document, MapViewport::new(center, 15.0)),
+            interaction: MapInteraction::default(),
+        }
+    }
+}
 
 /// Per-graph sharp-zoom state (secondary `egui::Context`, pan, zoom,
 /// wgpu render target). Persists across frames so the same instance
@@ -1000,6 +1215,7 @@ pub struct DemoApp {
     root_view: DemoRootView,
     canvas_view: CanvasViewState,
     canvas_shelves: CanvasShelfState,
+    map_view: MapViewState,
     editor_node_view: EditorNodeView,
     editor_graph: EditorGraph,
 }
@@ -1037,6 +1253,7 @@ fn ui_system(app: &mut DemoApp, ctx: &egui::Context, frame: &mut eframe::Frame) 
         root_view,
         canvas_view,
         canvas_shelves,
+        map_view,
         editor_node_view,
         editor_graph,
     } = app;
@@ -1076,6 +1293,8 @@ fn ui_system(app: &mut DemoApp, ctx: &egui::Context, frame: &mut eframe::Frame) 
     // - Canvas owns the whole egui canvas and replaces the Bevy scene visually.
     if *root_view == DemoRootView::Canvas {
         canvas_root_view(ctx, accent_col, canvas_view, &mut canvas_shelves.0);
+    } else if *root_view == DemoRootView::Map {
+        map_root_view(ctx, map_view);
     }
 
     // Fullscreen-view branch. The fullscreen overlay paints at
@@ -1120,6 +1339,8 @@ fn ui_system(app: &mut DemoApp, ctx: &egui::Context, frame: &mut eframe::Frame) 
         RIBBON_ITEMS_FS_GRAPH
     } else if *root_view == DemoRootView::Canvas {
         RIBBON_ITEMS_ROOT_VIEW
+    } else if *root_view == DemoRootView::Map {
+        RIBBON_ITEMS_MAP_VIEW
     } else {
         RIBBON_ITEMS
     };
@@ -1277,6 +1498,18 @@ fn ui_system(app: &mut DemoApp, ctx: &egui::Context, frame: &mut eframe::Frame) 
             |id| match *root_view {
                 DemoRootView::BevyScene => id == ACTION_VIEW_BEVY,
                 DemoRootView::Canvas => id == ACTION_VIEW_CANVAS,
+                DemoRootView::Map => {
+                    id == ACTION_VIEW_MAP
+                        || matches!(
+                            (id, map_view.interaction.tool),
+                            (ACTION_MAP_SELECT, MapTool::Select)
+                                | (ACTION_MAP_POINT, MapTool::Point)
+                                | (ACTION_MAP_LINE, MapTool::Line)
+                                | (ACTION_MAP_POLYGON, MapTool::Polygon)
+                                | (ACTION_MAP_ICON, MapTool::Icon)
+                                | (ACTION_MAP_SVG, MapTool::Svg)
+                        )
+                }
             },
         )
     };
@@ -1322,6 +1555,13 @@ fn ui_system(app: &mut DemoApp, ctx: &egui::Context, frame: &mut eframe::Frame) 
             *root_view = DemoRootView::Canvas;
             continue;
         }
+        if click.item == egui::Id::new(ACTION_VIEW_MAP) {
+            if fs_active {
+                mara_core::embed::restore_fullscreen(ctx);
+            }
+            *root_view = DemoRootView::Map;
+            continue;
+        }
         if click.item == egui::Id::new(ACTION_RESTORE_FULLSCREEN) {
             mara_core::embed::restore_fullscreen(ctx);
             continue;
@@ -1330,6 +1570,36 @@ fn ui_system(app: &mut DemoApp, ctx: &egui::Context, frame: &mut eframe::Frame) 
         // script isn't possible, so ACTION_CLOSE_APP is a no-op.)
         if click.item == egui::Id::new(ACTION_CANVAS_CLEAR) {
             canvas_view.strokes.clear();
+            continue;
+        }
+        if click.item == egui::Id::new(ACTION_MAP_SELECT) {
+            map_view.interaction.set_tool(MapTool::Select);
+            continue;
+        }
+        if click.item == egui::Id::new(ACTION_MAP_POINT) {
+            map_view.interaction.set_tool(MapTool::Point);
+            continue;
+        }
+        if click.item == egui::Id::new(ACTION_MAP_LINE) {
+            map_view.interaction.set_tool(MapTool::Line);
+            continue;
+        }
+        if click.item == egui::Id::new(ACTION_MAP_POLYGON) {
+            map_view.interaction.set_tool(MapTool::Polygon);
+            continue;
+        }
+        if click.item == egui::Id::new(ACTION_MAP_ICON) {
+            map_view.interaction.set_tool(MapTool::Icon);
+            continue;
+        }
+        if click.item == egui::Id::new(ACTION_MAP_SVG) {
+            map_view.interaction.set_tool(MapTool::Svg);
+            continue;
+        }
+        if click.item == egui::Id::new(ACTION_MAP_CLEAR) {
+            map_view.surface.document.annotations.clear();
+            map_view.interaction.clear_selection();
+            map_view.interaction.clear_draft();
             continue;
         }
         if click.item == egui::Id::new(ACTION_PREV_CUBE)
@@ -1349,6 +1619,12 @@ fn ui_system(app: &mut DemoApp, ctx: &egui::Context, frame: &mut eframe::Frame) 
             accent.0 = egui::Color32::from_rgb(r, g, b);
         }
     }
+}
+
+// ─── Map root view ─────────────────────────────────────────────────
+
+fn map_root_view(ctx: &egui::Context, map: &mut MapViewState) {
+    let _ = MaraMap::new(&mut map.surface, &mut map.interaction).show(ctx);
 }
 
 // ─── Canvas root view ──────────────────────────────────────────────
@@ -1646,6 +1922,102 @@ fn widgets_pane(body: &mut PaneBody) {
                     "Two-line card button with glyph + subtitle",
                     accent,
                 ),
+        ],
+    );
+    body.add_normal(
+        cid(PANE_WIDGETS, "hierarchy"),
+        "Hierarchy",
+        "branch",
+        vec![
+            Pod::new(pid(PANE_WIDGETS, "hierarchy", 0))
+                .with_separator(SeparatorStyle::Line)
+                .with_card_action_button(
+                    "shape-union",
+                    "Zone row",
+                    "Body click + embedded add action",
+                    "add",
+                    "Add child zone",
+                    false,
+                    accent,
+                ),
+            Pod::new(pid(PANE_WIDGETS, "hierarchy", 1))
+                .with_separator(SeparatorStyle::None)
+                .with_tree(6, move |tree| {
+                    let root_key = egui::Id::new(("demo_hierarchy", "root_open"));
+                    let floor_key = egui::Id::new(("demo_hierarchy", "floor_open"));
+                    let armed_key = egui::Id::new(("demo_hierarchy", "armed_child"));
+                    let mut root_open = tree
+                        .ctx()
+                        .data_mut(|d| d.get_persisted::<bool>(root_key))
+                        .unwrap_or(true);
+                    let mut floor_open = tree
+                        .ctx()
+                        .data_mut(|d| d.get_persisted::<bool>(floor_key))
+                        .unwrap_or(true);
+                    let mut armed = tree
+                        .ctx()
+                        .data_mut(|d| d.get_persisted::<Option<&'static str>>(armed_key))
+                        .unwrap_or(None);
+
+                    let root = tree.action_row(
+                        "root-zone",
+                        0,
+                        Some(&mut root_open),
+                        Some("map"),
+                        "Root Zone",
+                        "root · 4 pts",
+                        armed == Some("root-zone"),
+                        "add",
+                        Some("Add child zone"),
+                        armed == Some("root-zone"),
+                        accent,
+                    );
+                    if root.action.clicked() {
+                        armed = Some("root-zone");
+                    }
+                    if root_open {
+                        let floor = tree.action_row(
+                            "floor-zone",
+                            1,
+                            Some(&mut floor_open),
+                            Some("shape-union"),
+                            "Floor 1",
+                            "zone · 7 pts",
+                            armed == Some("floor-zone"),
+                            "add",
+                            Some("Add child zone"),
+                            armed == Some("floor-zone"),
+                            accent,
+                        );
+                        if floor.action.clicked() {
+                            armed = Some("floor-zone");
+                        }
+                        if floor_open {
+                            let dock = tree.action_row(
+                                "dock-zone",
+                                2,
+                                None,
+                                Some("location"),
+                                "Dock A",
+                                "zone · 5 pts",
+                                armed == Some("dock-zone"),
+                                "add",
+                                Some("Add child zone"),
+                                armed == Some("dock-zone"),
+                                accent,
+                            );
+                            if dock.action.clicked() {
+                                armed = Some("dock-zone");
+                            }
+                        }
+                    }
+
+                    tree.ctx_mut().data_mut(|d| {
+                        d.insert_persisted(root_key, root_open);
+                        d.insert_persisted(floor_key, floor_open);
+                        d.insert_persisted(armed_key, armed);
+                    });
+                }),
         ],
     );
     body.add_normal(
