@@ -38,7 +38,7 @@ use mara_core::ribbon::{
 };
 use mara_core::shelf::{ShelfContainer, ShelfDef, ShelfEdge, ShelfState};
 use mara_core::style::{AccentColor, GlassOpacity, Mode, srgb_to_egui};
-use mara_core::widget::{FillStyle, TreeIconKind, TreeIconSlot};
+use mara_core::widget::{FillStyle, TreeBranchGuide, TreeIconKind, TreeIconSlot};
 use mara_map::{
     DEFAULT_SVG_MARKER, MapDocument, MapIcon, MapInteraction, MapLine, MapPoint, MapPolygon,
     MapSurface, MapTool, MapViewport, MaraMap, lon_lat,
@@ -2446,7 +2446,7 @@ fn coreviz_zones_pane(body: &mut PaneBody) {
                     if root.action.clicked() {
                         armed = Some("root");
                     }
-                    let floor = tree.action_row(
+                    let floor = tree.action_row_guided(
                         "floor",
                         1,
                         None,
@@ -2457,10 +2457,45 @@ fn coreviz_zones_pane(body: &mut PaneBody) {
                         "add",
                         Some("Add child zone"),
                         armed == Some("floor"),
+                        &TreeBranchGuide::tee([]),
                         accent,
                     );
                     if floor.action.clicked() {
                         armed = Some("floor");
+                    }
+                    let dock = tree.action_row_guided(
+                        "dock",
+                        2,
+                        None,
+                        Some("location"),
+                        "Dock A",
+                        "zone · 5 pts",
+                        armed == Some("dock"),
+                        "add",
+                        Some("Add child zone"),
+                        armed == Some("dock"),
+                        &TreeBranchGuide::last([true]),
+                        accent,
+                    );
+                    if dock.action.clicked() {
+                        armed = Some("dock");
+                    }
+                    let yard = tree.action_row_guided(
+                        "yard",
+                        1,
+                        None,
+                        Some("shape-union"),
+                        "Yard",
+                        "zone · 6 pts",
+                        armed == Some("yard"),
+                        "add",
+                        Some("Add child zone"),
+                        armed == Some("yard"),
+                        &TreeBranchGuide::last([]),
+                        accent,
+                    );
+                    if yard.action.clicked() {
+                        armed = Some("yard");
                     }
                     tree.ctx_mut()
                         .data_mut(|d| d.insert_persisted(armed_key, armed));
@@ -2778,7 +2813,7 @@ fn widgets_pane(body: &mut PaneBody) {
                         armed = Some("root-zone");
                     }
                     if root_open {
-                        let floor = tree.action_row(
+                        let floor = tree.action_row_guided(
                             "floor-zone",
                             1,
                             Some(&mut floor_open),
@@ -2789,13 +2824,14 @@ fn widgets_pane(body: &mut PaneBody) {
                             "add",
                             Some("Add child zone"),
                             armed == Some("floor-zone"),
+                            &TreeBranchGuide::tee([]),
                             accent,
                         );
                         if floor.action.clicked() {
                             armed = Some("floor-zone");
                         }
                         if floor_open {
-                            let dock = tree.action_row(
+                            let dock = tree.action_row_guided(
                                 "dock-zone",
                                 2,
                                 None,
@@ -2806,11 +2842,46 @@ fn widgets_pane(body: &mut PaneBody) {
                                 "add",
                                 Some("Add child zone"),
                                 armed == Some("dock-zone"),
+                                &TreeBranchGuide::tee([true]),
                                 accent,
                             );
                             if dock.action.clicked() {
                                 armed = Some("dock-zone");
                             }
+                            let storage = tree.action_row_guided(
+                                "storage-zone",
+                                2,
+                                None,
+                                Some("shape-union"),
+                                "Storage",
+                                "zone · 6 pts",
+                                armed == Some("storage-zone"),
+                                "add",
+                                Some("Add child zone"),
+                                armed == Some("storage-zone"),
+                                &TreeBranchGuide::last([true]),
+                                accent,
+                            );
+                            if storage.action.clicked() {
+                                armed = Some("storage-zone");
+                            }
+                        }
+                        let yard = tree.action_row_guided(
+                            "yard-zone",
+                            1,
+                            None,
+                            Some("shape-union"),
+                            "Yard",
+                            "zone · 6 pts",
+                            armed == Some("yard-zone"),
+                            "add",
+                            Some("Add child zone"),
+                            armed == Some("yard-zone"),
+                            &TreeBranchGuide::last([]),
+                            accent,
+                        );
+                        if yard.action.clicked() {
+                            armed = Some("yard-zone");
                         }
                     }
 
