@@ -126,6 +126,40 @@ pub struct TreeActionRowResponse {
     pub chevron_shift_clicked: bool,
 }
 
+/// Directory-tree connector state for [`tree_action_row_with_guide`].
+///
+/// This mirrors Coreviz's `<li class="tree-node">` CSS:
+/// every non-root node gets a horizontal branch into the row, while
+/// `:last-child` cuts the vertical at the row joint (`└`) and a
+/// non-last child keeps the vertical running through (`├`).
+///
+/// `ancestor_continues` is one flag per ancestor column before this
+/// node's parent. `true` paints a continuing `│` line for that
+/// ancestor, so deep trees can render directory-style guides:
+/// `│   │   ├── leaf`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TreeBranchGuide {
+    pub ancestor_continues: Vec<bool>,
+    pub is_last: bool,
+}
+
+impl TreeBranchGuide {
+    pub fn new(ancestor_continues: impl Into<Vec<bool>>, is_last: bool) -> Self {
+        Self {
+            ancestor_continues: ancestor_continues.into(),
+            is_last,
+        }
+    }
+
+    pub fn tee(ancestor_continues: impl Into<Vec<bool>>) -> Self {
+        Self::new(ancestor_continues, false)
+    }
+
+    pub fn last(ancestor_continues: impl Into<Vec<bool>>) -> Self {
+        Self::new(ancestor_continues, true)
+    }
+}
+
 /// Paint one row of a tree.
 ///
 /// `depth` is the node's nesting level (0 = root); `expanded` is
@@ -355,13 +389,55 @@ pub fn tree_action_row(
     action_armed: bool,
     accent: egui::Color32,
 ) -> TreeActionRowResponse {
+    tree_action_row_with_guide(
+        ui,
+        id_salt,
+        depth,
+        expanded,
+        icon,
+        title,
+        meta,
+        selected,
+        action_glyph,
+        action_tooltip,
+        action_armed,
+        None,
+        accent,
+    )
+}
+
+/// Paint one hierarchy action row with explicit directory-tree
+/// connector state. Use this when the caller knows sibling position
+/// and ancestor continuation, so the row can render `├`, `└`, and
+/// deep `│` columns exactly like Coreviz's tree CSS.
+#[allow(clippy::too_many_arguments)]
+pub fn tree_action_row_with_guide(
+    ui: &mut egui::Ui,
+    id_salt: impl Hash + Copy,
+    depth: u32,
+    expanded: Option<&mut bool>,
+    icon: Option<&str>,
+    title: &str,
+    meta: &str,
+    selected: bool,
+    action_glyph: &str,
+    action_tooltip: Option<&str>,
+    action_armed: bool,
+    branch: Option<&TreeBranchGuide>,
+    accent: egui::Color32,
+) -> TreeActionRowResponse {
     let tree = style::theme().widgets.tree;
     let w = ui.available_width();
     let bg_anchor = ui.painter().add(egui::Shape::Noop);
     let guide_anchor = ui.painter().add(egui::Shape::Noop);
     let (rect, _) = ui.allocate_exact_size(egui::vec2(w, TREE_ACTION_ROW_H), egui::Sense::hover());
 
-    let left_start = rect.min.x + tree.row_pad_l + depth as f32 * tree.indent;
+    let button_rect = egui::Rect::from_min_max(
+        egui::pos2(rect.min.x + depth as f32 * tree.indent, rect.min.y),
+        rect.max,
+    )
+    .shrink2(egui::vec2(0.0, 1.0));
+    let left_start = button_rect.min.x + tree.row_pad_l;
     let chevron_rect = expanded.as_ref().map(|_| {
         egui::Rect::from_min_size(
             egui::pos2(left_start, rect.min.y),
@@ -377,16 +453,16 @@ pub fn tree_action_row(
     let action_size = TREE_ACTION_W.min((rect.height() - 10.0).max(18.0));
     let action_rect = egui::Rect::from_center_size(
         egui::pos2(
-            rect.max.x - tree.right_pad_r - action_size * 0.5,
-            rect.center().y,
+            button_rect.max.x - tree.right_pad_r - action_size * 0.5,
+            button_rect.center().y,
         ),
         egui::vec2(action_size, action_size),
     );
     let body_rect = egui::Rect::from_min_max(
-        rect.min,
+        button_rect.min,
         egui::pos2(
-            (action_rect.min.x - TREE_ACTION_GAP).max(rect.min.x),
-            rect.max.y,
+            (action_rect.min.x - TREE_ACTION_GAP).max(button_rect.min.x),
+            button_rect.max.y,
         ),
     );
 
@@ -411,39 +487,66 @@ pub fn tree_action_row(
         action = action.on_hover_text(tip);
     }
 
-    let hovered = body.hovered() || chevron.as_ref().is_some_and(|c| c.hovered());
-    let radius = style::radius_for(style::RadiusRole::Widget);
-    let bg_shape = if selected {
-        egui::Shape::rect_filled(rect, radius, style::row_selected_fill(accent))
-    } else if hovered {
-        egui::Shape::rect_filled(rect, radius, style::row_hover_fill(accent))
+    let hovered =
+        body.hovered() || action.hovered() || chevron.as_ref().is_some_and(|c| c.hovered());
+    let pressed = body.is_pointer_button_down_on() || action.is_pointer_button_down_on();
+    let active = hovered || pressed;
+    let theme = style::theme();
+    let button = theme.widgets.button;
+    let hover_t = if theme.animations_enabled {
+        ui.ctx().animate_bool_with_time(
+            ui.id().with(("mara_tree_action_button_hover", id_salt)),
+            active,
+            0.25 * theme.button_anim_scale.max(0.01),
+        )
+    } else if active {
+        1.0
     } else {
-        egui::Shape::rect_filled(rect, radius, style::section_fill(accent))
+        0.0
     };
+    let radius = style::radius_for(style::RadiusRole::Widget);
+    let body_acc = style::body_accent(accent);
+    let base = if style::section_show_frame() {
+        style::section_fill(accent)
+    } else {
+        style::pane_fill(accent)
+    };
+    let target = style::surface_lift_target(body_acc);
+    let rest_bg = with_alpha(
+        lerp_color(base, target, button.tint_rest),
+        style::glass_alpha_card(),
+    );
+    let target_bg = if button.full_accent_on_press {
+        with_alpha(body_acc, 255)
+    } else {
+        with_alpha(
+            lerp_color(base, target, button.tint_press),
+            style::glass_alpha_card(),
+        )
+    };
+    let selected_bg = with_alpha(lerp_color(base, body_acc, 0.34), style::glass_alpha_card());
+    let bg = if selected {
+        lerp_color(rest_bg, selected_bg, 0.90)
+    } else {
+        lerp_color(rest_bg, target_bg, hover_t)
+    };
+    let bg_shape = egui::Shape::rect_filled(button_rect, radius, bg);
     ui.painter().set(bg_anchor, bg_shape);
+    ui.painter().rect_stroke(
+        button_rect,
+        radius,
+        egui::Stroke::new(
+            theme.border_width,
+            lerp_color_opaque(style::widget_border(accent), accent, hover_t),
+        ),
+        egui::epaint::StrokeKind::Inside,
+    );
 
     let guide_base = style::theme().border_subtle;
     let guide_color =
         egui::Color32::from_rgba_unmultiplied(guide_base.r(), guide_base.g(), guide_base.b(), 90);
-    let mut guides = Vec::with_capacity(depth as usize * 2);
-    for d in 0..depth {
-        let x = rect.min.x + tree.row_pad_l + d as f32 * tree.indent + tree.chevron_w * 0.5;
-        guides.push(egui::Shape::line_segment(
-            [egui::pos2(x, rect.min.y), egui::pos2(x, rect.max.y)],
-            egui::Stroke::new(tree.guide_width, guide_color),
-        ));
-    }
-    if depth > 0 {
-        let x =
-            rect.min.x + tree.row_pad_l + (depth - 1) as f32 * tree.indent + tree.chevron_w * 0.5;
-        guides.push(egui::Shape::line_segment(
-            [
-                egui::pos2(x, rect.center().y),
-                egui::pos2(left_start, rect.center().y),
-            ],
-            egui::Stroke::new(tree.guide_width, guide_color),
-        ));
-    }
+    let guides =
+        tree_action_guide_shapes(rect, tree, depth, button_rect.min.x, branch, guide_color);
     ui.painter().set(
         guide_anchor,
         if guides.is_empty() {
@@ -483,9 +586,7 @@ pub fn tree_action_row(
         );
     }
 
-    let label_left = body_rect.min.x
-        + tree.row_pad_l
-        + depth as f32 * tree.indent
+    let label_left = left_start
         + tree.chevron_w
         + if icon.is_some() { tree.icon_w } else { 0.0 }
         + tree.label_pad_l;
@@ -529,7 +630,7 @@ pub fn tree_action_row(
         action_radius,
         egui::Stroke::new(
             style::theme().stroke.border_width,
-            lerp_color(
+            lerp_color_opaque(
                 style::widget_border(accent),
                 accent,
                 action_hover_t.max(if action_armed { 0.75 } else { 0.0 }),
@@ -612,6 +713,66 @@ fn compute_row_rects(
     let body_rect =
         egui::Rect::from_min_max(rect.min, egui::pos2(rect.max.x - gutter_w, rect.max.y));
     (rect, body_rect, chevron_rect, icon_rect, slot_rects)
+}
+
+fn tree_action_guide_shapes(
+    rect: egui::Rect,
+    tree: style::TreeTheme,
+    depth: u32,
+    button_left: f32,
+    branch: Option<&TreeBranchGuide>,
+    color: egui::Color32,
+) -> Vec<egui::Shape> {
+    let stroke = egui::Stroke::new(tree.guide_width, color);
+    tree_action_guide_segments(rect, tree, depth, button_left, branch)
+        .into_iter()
+        .map(|segment| egui::Shape::line_segment(segment, stroke))
+        .collect()
+}
+
+fn tree_action_guide_segments(
+    rect: egui::Rect,
+    tree: style::TreeTheme,
+    depth: u32,
+    button_left: f32,
+    branch: Option<&TreeBranchGuide>,
+) -> Vec<[egui::Pos2; 2]> {
+    if depth == 0 || tree.guide_width <= 0.0 {
+        return Vec::new();
+    }
+
+    let joint_y = rect.center().y;
+    let column_x = |level: u32| rect.min.x + tree.row_pad_l + level as f32 * tree.indent;
+    let mut segments = Vec::with_capacity(depth as usize + 1);
+
+    if let Some(branch) = branch {
+        for level in 0..depth.saturating_sub(1) {
+            if branch
+                .ancestor_continues
+                .get(level as usize)
+                .copied()
+                .unwrap_or(false)
+            {
+                let x = column_x(level);
+                segments.push([egui::pos2(x, rect.min.y), egui::pos2(x, rect.max.y)]);
+            }
+        }
+
+        let x = column_x(depth - 1);
+        let vertical_bottom = if branch.is_last { joint_y } else { rect.max.y };
+        segments.push([egui::pos2(x, rect.min.y), egui::pos2(x, vertical_bottom)]);
+        segments.push([egui::pos2(x, joint_y), egui::pos2(button_left, joint_y)]);
+    } else {
+        for level in 0..depth {
+            let x = column_x(level);
+            segments.push([egui::pos2(x, rect.min.y), egui::pos2(x, rect.max.y)]);
+        }
+
+        let x = column_x(depth - 1);
+        segments.push([egui::pos2(x, joint_y), egui::pos2(button_left, joint_y)]);
+    }
+
+    segments
 }
 
 /// Thin stroked chevron (`›` rotating to `⌄`) inside `rect`.
@@ -878,6 +1039,16 @@ fn lerp_color(a: egui::Color32, b: egui::Color32, t: f32) -> egui::Color32 {
     )
 }
 
+fn lerp_color_opaque(a: egui::Color32, b: egui::Color32, t: f32) -> egui::Color32 {
+    let t = t.clamp(0.0, 1.0);
+    let mix = |x: u8, y: u8| ((x as f32) * (1.0 - t) + (y as f32) * t).round() as u8;
+    egui::Color32::from_rgb(mix(a.r(), b.r()), mix(a.g(), b.g()), mix(a.b(), b.b()))
+}
+
+fn with_alpha(solid: egui::Color32, alpha: u8) -> egui::Color32 {
+    egui::Color32::from_rgba_unmultiplied(solid.r(), solid.g(), solid.b(), alpha)
+}
+
 // ─── Typed Pod tree builder ─────────────────────────────────────────
 //
 // `TreeBody` is the typed wrapper passed to `Pod::with_tree`'s
@@ -967,5 +1138,134 @@ impl<'a> TreeBody<'a> {
             action_armed,
             accent,
         )
+    }
+
+    /// Paint a hierarchy row with Coreviz/directory-style branch
+    /// guides (`├`, `└`, plus ancestor `│` columns).
+    #[allow(clippy::too_many_arguments)]
+    pub fn action_row_guided<H: core::hash::Hash + Copy>(
+        &mut self,
+        id_salt: H,
+        depth: u32,
+        expanded: Option<&mut bool>,
+        icon: Option<&str>,
+        title: &str,
+        meta: &str,
+        selected: bool,
+        action_glyph: &str,
+        action_tooltip: Option<&str>,
+        action_armed: bool,
+        branch: &TreeBranchGuide,
+        accent: egui::Color32,
+    ) -> TreeActionRowResponse {
+        tree_action_row_with_guide(
+            self.ui,
+            id_salt,
+            depth,
+            expanded,
+            icon,
+            title,
+            meta,
+            selected,
+            action_glyph,
+            action_tooltip,
+            action_armed,
+            Some(branch),
+            accent,
+        )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tree_theme() -> style::TreeTheme {
+        style::TreeTheme {
+            row_h: TREE_ROW_H,
+            indent: TREE_INDENT,
+            guide_width: 1.0,
+            label_font: 11.0,
+            chevron_w: TREE_CHEVRON_W,
+            icon_w: TREE_ICON_W,
+            label_pad_l: TREE_LABEL_PAD_L,
+            slot_w: TREE_SLOT_W,
+            slot_gap: TREE_SLOT_GAP,
+            right_pad_r: TREE_RIGHT_PAD_R,
+            row_pad_l: TREE_ROW_PAD_L,
+        }
+    }
+
+    fn assert_pos(actual: egui::Pos2, expected: egui::Pos2) {
+        let eps = 0.001;
+        assert!(
+            (actual.x - expected.x).abs() <= eps && (actual.y - expected.y).abs() <= eps,
+            "actual={actual:?} expected={expected:?}"
+        );
+    }
+
+    #[test]
+    fn tree_action_guides_last_child_make_l_joint() {
+        let rect = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(200.0, 40.0));
+        let segments = tree_action_guide_segments(
+            rect,
+            tree_theme(),
+            1,
+            TREE_INDENT,
+            Some(&TreeBranchGuide::last([])),
+        );
+
+        assert_eq!(segments.len(), 2);
+        assert_pos(segments[0][0], egui::pos2(TREE_ROW_PAD_L, 0.0));
+        assert_pos(segments[0][1], egui::pos2(TREE_ROW_PAD_L, 20.0));
+        assert_pos(segments[1][0], egui::pos2(TREE_ROW_PAD_L, 20.0));
+        assert_pos(segments[1][1], egui::pos2(TREE_INDENT, 20.0));
+    }
+
+    #[test]
+    fn tree_action_guides_non_last_child_make_tee_joint() {
+        let rect = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(200.0, 40.0));
+        let segments = tree_action_guide_segments(
+            rect,
+            tree_theme(),
+            1,
+            TREE_INDENT,
+            Some(&TreeBranchGuide::tee([])),
+        );
+
+        assert_eq!(segments.len(), 2);
+        assert_pos(segments[0][0], egui::pos2(TREE_ROW_PAD_L, 0.0));
+        assert_pos(segments[0][1], egui::pos2(TREE_ROW_PAD_L, 40.0));
+        assert_pos(segments[1][0], egui::pos2(TREE_ROW_PAD_L, 20.0));
+        assert_pos(segments[1][1], egui::pos2(TREE_INDENT, 20.0));
+    }
+
+    #[test]
+    fn tree_action_guides_keep_multiple_ancestor_columns() {
+        let rect = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(200.0, 40.0));
+        let segments = tree_action_guide_segments(
+            rect,
+            tree_theme(),
+            3,
+            3.0 * TREE_INDENT,
+            Some(&TreeBranchGuide::last([true, false])),
+        );
+
+        assert_eq!(segments.len(), 3);
+        assert_pos(segments[0][0], egui::pos2(TREE_ROW_PAD_L, 0.0));
+        assert_pos(segments[0][1], egui::pos2(TREE_ROW_PAD_L, 40.0));
+        assert_pos(
+            segments[1][0],
+            egui::pos2(TREE_ROW_PAD_L + 2.0 * TREE_INDENT, 0.0),
+        );
+        assert_pos(
+            segments[1][1],
+            egui::pos2(TREE_ROW_PAD_L + 2.0 * TREE_INDENT, 20.0),
+        );
+        assert_pos(
+            segments[2][0],
+            egui::pos2(TREE_ROW_PAD_L + 2.0 * TREE_INDENT, 20.0),
+        );
+        assert_pos(segments[2][1], egui::pos2(3.0 * TREE_INDENT, 20.0));
     }
 }

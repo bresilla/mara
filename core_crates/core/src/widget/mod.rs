@@ -51,6 +51,6 @@ pub use text_input::{text_input, text_input_h};
 pub use toggle::{toggle, toggle_h, toggle_track_only};
 pub use tree::{
     TREE_ACTION_GAP, TREE_ACTION_ROW_H, TREE_ACTION_W, TREE_INDENT, TREE_ROW_H,
-    TreeActionRowResponse, TreeBody, TreeIconKind, TreeIconSlot, TreeRowResponse, tree_action_row,
-    tree_row,
+    TreeActionRowResponse, TreeBody, TreeBranchGuide, TreeIconKind, TreeIconSlot, TreeRowResponse,
+    tree_action_row, tree_action_row_with_guide, tree_row,
 };

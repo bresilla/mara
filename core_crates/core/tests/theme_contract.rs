@@ -54,6 +54,14 @@ fn built_in_themes_have_typed_identity_and_tab_layouts() {
     assert_eq!(pro.tabs.layout, TabLayout::FolderSideStrip);
     assert_eq!(game.tabs.layout, TabLayout::TitleRowSegmented);
     assert_eq!(flat.tabs.layout, TabLayout::FolderSideStrip);
+    assert!(
+        pro.tabs.strip_thickness - pro.tabs.folder_icon_size >= 12.0,
+        "PRO side tabs need at least 6 px horizontal padding around the icon"
+    );
+    assert!(
+        pro.tabs.tab_len - pro.tabs.folder_icon_size >= 16.0,
+        "PRO side tabs need at least 8 px vertical padding around the icon"
+    );
 
     assert!(matches!(
         pro.graph.canvas_pattern,

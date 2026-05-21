@@ -29,6 +29,7 @@
 //! }
 //! ```
 
+pub mod embedded_view;
 pub mod gizmo_material;
 pub mod node_view_backend;
 pub mod prelude;
@@ -39,6 +40,11 @@ pub mod window_chrome;
 // graph + code wrappers without dragging Bevy in. Re-exported here
 // at the legacy `bevy_mara::extras::*` path so existing call
 // sites stay put.
+pub use embedded_view::{
+    BevyEmbeddedView, BevyViewportBridge, BevyViewportInput, BevyViewportTexture,
+    BevyViewportWgpuResources, CapturedBevyFrame, make_viewport_render_target,
+    spawn_viewport_camera,
+};
 pub use mara_core::extras;
 
 // Re-export `mara_core` so apps can keep going through `bevy_mara::*`
@@ -116,9 +122,9 @@ impl Plugin for RibbonPlugin {
 ///
 /// `Style.debug` is `#[cfg(debug_assertions)]`-gated by egui itself,
 /// so this toggle only compiles in debug builds. `make run` runs
-/// `--release` — to use F12, run a debug build (e.g. `cargo run -p
-/// bevy_mara --example demo`) or override `debug-assertions = true`
-/// in the workspace release profile.
+/// `--release` — to use F12, run a debug build of a consumer app
+/// or override `debug-assertions = true` in the workspace release
+/// profile.
 fn debug_toggle_system(mut contexts: EguiContexts) {
     let Ok(_ctx) = contexts.ctx_mut() else { return };
     #[cfg(debug_assertions)]

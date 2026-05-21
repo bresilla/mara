@@ -850,6 +850,12 @@ fn render_shelf_body(input: ShelfBodyInput<'_, '_, '_, '_>) {
     let horizontal_stack = !anchor.title_side().is_horizontal_strip();
     let stack_layout = if horizontal_stack {
         egui::Layout::left_to_right(egui::Align::Min)
+    } else if shelf.edge.is_side() {
+        // Side shelves stack containers vertically. Center them in
+        // the shelf span so tabbed containers keep equal left/right
+        // breathing room instead of being pinned to the left edge
+        // (which makes right-shelf tabs look shoved inward).
+        egui::Layout::top_down(egui::Align::Center)
     } else {
         egui::Layout::top_down(egui::Align::Min)
     };

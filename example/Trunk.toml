@@ -1,8 +1,8 @@
-# Trunk build config for the egui_mara web host.
+# Trunk build config for the root Mara example web host.
 #
 # `trunk serve` / `trunk build` pick this up automatically when run
-# from `api_crates/web/`. The repo Makefile's `serve-web` /
-# `build-web` targets do exactly that.
+# from `example/`. The repo Makefile's `serve-web` / `build-web`
+# targets do exactly that.
 
 [build]
 # The HTML entry Trunk scans for `data-trunk` links.

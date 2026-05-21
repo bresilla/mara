@@ -25,39 +25,3 @@ egui = { workspace = true }
 # `egui::Image` in the parent UI.
 egui-wgpu = { workspace = true }
 wgpu = { workspace = true }
-
-[dev-dependencies]
-# `eframe` pairs the same egui version that mara_core builds against
-# (0.33).
-#
-# `default-features = false` so we drop `wayland` — winit prefers
-# wayland when both backends are compiled in and `WAYLAND_DISPLAY`
-# is set, which forces a `NoCompositor` error in environments
-# (nix, sandboxes) where the wayland socket isn't accessible even
-# though the env var leaks through. Sticking to `x11` matches
-# `bevy_mara`'s demo path (`make run` uses `DISPLAY=:1`).
-eframe = { version = "0.33", default-features = false, features = [
-    "default_fonts",
-    "wgpu",
-    "x11",
-] }
-# Direct dep on `wgpu` so we explicitly control which backends
-# compile in. eframe's `wgpu` feature alone only activates the
-# integration code path — without a backend feature on wgpu
-# itself, `wgpu::Instance::new` panics at runtime with "No wgpu
-# backend feature ... was enabled".
-#
-# We only enable `vulkan` — matches `bevy_mara`'s demo, which
-# runs under the `nixVulkan` wrapper and the same Vulkan path
-# Bevy uses. With `gl` compiled in, wgpu also tries to init an
-# EGL context, which on nix systems panics inside `khronos-egl`
-# when the EGL library isn't on the runtime path.
-wgpu = { version = "27", default-features = false, features = ["vulkan"] }
-
-[[example]]
-name = "egui_demo"
-path = "examples/demo.rs"
-
-[[example]]
-name = "views"
-path = "examples/views.rs"

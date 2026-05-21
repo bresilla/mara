@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::sync::{Mutex, mpsc};
+use std::time::Duration;
 
 use super::{MapViewport, TILE_SIZE, geo_to_world, paint_polygon};
 
@@ -43,6 +44,7 @@ pub(crate) fn paint_vector_basemap(
     rect: egui::Rect,
     viewport: MapViewport,
     cache: &mut VectorTileCache,
+    fast_mode: bool,
 ) {
     cache.poll_finished();
     let palette = MapPalette::current();
@@ -89,7 +91,12 @@ pub(crate) fn paint_vector_basemap(
 
     let painter = ui.painter();
     let mut labels = LabelState::default();
-    for pass in PaintPass::ALL {
+    let passes: &[PaintPass] = if fast_mode {
+        &PaintPass::FAST
+    } else {
+        &PaintPass::ALL
+    };
+    for &pass in passes {
         for key in &visible_tiles {
             let Some(TileEntry::Ready(tile)) = cache.tiles.get(key) else {
                 continue;
@@ -108,7 +115,10 @@ pub(crate) fn paint_vector_basemap(
     }
 
     if has_loading {
-        ui.ctx().request_repaint();
+        ui.ctx().request_repaint_after(Duration::from_millis(16));
+    }
+    if fast_mode {
+        ui.ctx().request_repaint_after(Duration::from_millis(80));
     }
 }
 
@@ -294,6 +304,14 @@ impl PaintPass {
         Self::PointSymbol,
         Self::Label,
     ];
+
+    const FAST: [Self; 5] = [
+        Self::LandFill,
+        Self::WaterFill,
+        Self::BuildingFill,
+        Self::RoadFill,
+        Self::LineOverlay,
+    ];
 }
 
 #[derive(Default)]
@@ -450,7 +468,9 @@ fn paint_area_fill(
     };
     for path in &feature.paths {
         let points = screen_points(path, layer.extent, key, rect, viewport);
-        paint_polygon(painter, &points, fill, egui::Stroke::NONE);
+        if points.len() >= 3 && path_intersects_rect(&points, rect.expand(64.0)) {
+            paint_polygon(painter, &points, fill, egui::Stroke::NONE);
+        }
     }
 }
 
@@ -471,7 +491,7 @@ fn paint_feature_lines(
     }
     for path in &feature.paths {
         let points = screen_points(path, layer.extent, key, rect, viewport);
-        if points.len() >= 2 {
+        if points.len() >= 2 && path_intersects_rect(&points, rect.expand(stroke.width + 16.0)) {
             painter.add(egui::Shape::line(points, stroke));
         }
     }
@@ -898,6 +918,22 @@ fn screen_points(
             )
         })
         .collect()
+}
+
+fn path_intersects_rect(points: &[egui::Pos2], rect: egui::Rect) -> bool {
+    let Some(mut bounds) = points
+        .first()
+        .map(|point| egui::Rect::from_min_max(*point, *point))
+    else {
+        return false;
+    };
+    for point in &points[1..] {
+        bounds.min.x = bounds.min.x.min(point.x);
+        bounds.min.y = bounds.min.y.min(point.y);
+        bounds.max.x = bounds.max.x.max(point.x);
+        bounds.max.y = bounds.max.y.max(point.y);
+    }
+    bounds.intersects(rect)
 }
 
 #[derive(Debug)]

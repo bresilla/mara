@@ -532,8 +532,10 @@ fn paint_map(
     let desired = ui.available_size_before_wrap();
     let (response, painter) = ui.allocate_painter(desired, egui::Sense::click_and_drag());
     let rect = response.rect;
+    let mut fast_basemap = false;
 
     if response.dragged_by(egui::PointerButton::Middle) {
+        fast_basemap = true;
         let delta = ui.input(|input| input.pointer.delta());
         if delta != egui::Vec2::ZERO {
             pan_viewport(&mut surface.viewport, delta);
@@ -549,6 +551,7 @@ fn paint_map(
                 response.hover_pos().unwrap_or(rect.center()),
                 f64::from(scroll) / 320.0,
             );
+            fast_basemap = true;
         }
     }
 
@@ -567,7 +570,13 @@ fn paint_map(
         interaction.clear_selection();
     }
 
-    mvt::paint_vector_basemap(ui, rect, surface.viewport, &mut surface.vector_tiles);
+    mvt::paint_vector_basemap(
+        ui,
+        rect,
+        surface.viewport,
+        &mut surface.vector_tiles,
+        fast_basemap,
+    );
 
     let mut selected = interaction.selected;
 

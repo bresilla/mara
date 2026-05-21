@@ -298,13 +298,13 @@ pub const fn theme_pro(mode: Mode) -> Theme {
         tabs: TabTheme {
             layout: TabLayout::FolderSideStrip,
             outer_inset: TabOuterInset::MirrorBodyInset,
-            strip_thickness: 24.0,
-            tab_len: 28.0,
+            strip_thickness: 32.0,
+            tab_len: 36.0,
             tab_gap: 6.0,
             tab_overlap: 2.5,
             title_row_height_multiplier: 1.0,
             folder_icon_size: 20.0,
-            folder_active_radius: 5,
+            folder_active_radius: 7,
             inactive_glyph_color: TabInactiveGlyphColor::TextSecondary,
         },
         pod: PodTheme {
