@@ -1,6 +1,6 @@
 [package]
 name = "egui_mara_web"
-description = "WebAssembly host for the mara UI kit — `egui_mara` mounted in a browser via eframe's WebRunner. wasm-only; an inert stub on native targets."
+description = "Small WebAssembly helpers for mounting egui_mara apps with eframe. Full demos live in the root `example/` crate."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -8,43 +8,13 @@ repository.workspace = true
 readme = "README.md"
 publish = false
 
-# All real dependencies are wasm-only. On native targets this crate
-# compiles down to a one-line stub `main` (see src/main.rs), so
-# `cargo check --workspace` stays fast and never pulls eframe / wgpu
-# / winit into a native build.
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-# The mara egui facade — re-exports all of `mara_core` (panes,
-# ribbons, containers, widgets, theme) plus the `extras::graph` /
-# `extras::code` modules and `EframeNodeViewBackend`.
 egui_mara = { path = "../egui" }
-# The demo references `mara_core::*` paths verbatim (panes, ribbons,
-# widgets, style, the `extras::graph` / `extras::code` modules). It is
-# the same crate `egui_mara` re-exports; a direct dep lets the ported
-# code keep its original `mara_core::` paths.
-mara_core = { workspace = true }
-mara_map = { workspace = true }
-# eframe drives the egui frame loop. The `wgpu` backend (not `glow`)
-# is required: `EframeNodeViewBackend` needs `Frame::wgpu_render_state`
-# to render the node graph into an offscreen texture. `x11` /
-# `wayland` are native-only and intentionally absent.
 eframe = { version = "0.33", default-features = false, features = [
     "default_fonts",
     "wgpu",
 ] }
-# wgpu's WebGL2 backend. REQUIRED — eframe's `wgpu` feature pulls the
-# `wgpu` crate but enables no backend on it; without `webgl` the web
-# build has no working GPU backend and the canvas stays black. The
-# runner also pins `Backends::GL` (see src/main.rs) so WebGL2 is used
-# deterministically rather than eframe's WebGPU auto-detection.
 wgpu = { version = "27", default-features = false, features = ["webgl"] }
-# Time-series / bar-chart node bodies in the demo's node graph.
-egui_plot = "0.34"
-# egui → ahash → getrandom 0.3. On wasm getrandom needs an explicit
-# backend: the `wasm_js` feature here, paired with the matching
-# `getrandom_backend="wasm_js"` cfg in the repo-root `.cargo/config.toml`.
 getrandom = { version = "0.3", features = ["wasm_js"] }
-# `spawn_local` for the async `WebRunner` start. `wasm-bindgen`,
-# `web-sys` and `log` come through eframe's re-exports
-# (`eframe::wasm_bindgen` / `eframe::web_sys`).
 wasm-bindgen-futures = "0.4"
 log = "0.4"

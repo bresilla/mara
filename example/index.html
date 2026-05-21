@@ -4,7 +4,7 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
-    <title>egui_mara — web</title>
+    <title>Mara example — web</title>
 
     <style>
         /* Fill the viewport, no scrollbars; dark backdrop so there is
@@ -32,12 +32,12 @@
 </head>
 
 <body>
-    <!-- src/main.rs looks this id up via web-sys and hands the
+    <!-- src/web.rs looks this id up via web-sys and hands the
          element to eframe's WebRunner. -->
     <canvas id="mara_canvas"></canvas>
 
     <!-- Trunk compiles the crate to wasm and injects the JS loader. -->
-    <link data-trunk rel="rust" />
+    <link data-trunk rel="rust" data-bin="web" />
 </body>
 
 </html>

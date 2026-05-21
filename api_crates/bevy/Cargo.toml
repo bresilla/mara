@@ -52,11 +52,9 @@ bevy = { workspace = true, features = [
     "ktx2",
     "zstd_rust",
     "png",
-    # Compile both winit windowing backends. `wayland` lets the demo
-    # open a native Wayland surface; `x11` keeps plain Xorg / XWayland
-    # working as a fallback. winit auto-prefers Wayland when
-    # $WAYLAND_DISPLAY is set — the Makefile clears it to force X11 in
-    # nix / sandbox shells where the socket isn't reachable.
+    # Compile both winit windowing backends. `wayland` lets consumers
+    # open native Wayland surfaces; `x11` keeps plain Xorg / XWayland
+    # working as a fallback.
     "x11",
     "wayland",
     "reflect_auto_register",
@@ -65,12 +63,9 @@ bevy_egui = { workspace = true, features = [
     "default_fonts",
     "render",
 ] }
-
-# Faster allocator for the example/demo binary — see the
-# `mimalloc` workspace dep doc for rationale. Pulled into
-# `bevy_mara` directly so the framework-agnostic `mara_core` stays
-# allocator-neutral.
-mimalloc = { workspace = true }
+crossbeam-channel = "0.5"
+pollster = "0.4"
+bevy_glacial = { git = "https://github.com/bresilla/bevy_glacial.git", rev = "d7bc6d3" }
 
 [features]
 # Forward to mara_core's matching feature flags so consumers can
@@ -79,20 +74,3 @@ mimalloc = { workspace = true }
 default = ["graph", "code"]
 graph = ["mara_core/graph"]
 code = ["mara_core/code"]
-
-[dev-dependencies]
-# `bevy_glacial` — used by the demo example only (camera /
-# scene helpers). Pulled from git so the workspace doesn't need a
-# local checkout.
-bevy_glacial = { git = "https://github.com/bresilla/bevy_glacial.git", rev = "d7bc6d3" }
-
-# `egui_plot` — used by the demo's Plot / Histogram node bodies
-# for sophisticated time-series + bar-chart visualisations.
-# `0.33.0` ships against egui 0.32; we need 0.34 to align with
-# our workspace egui 0.33.3.
-egui_plot = "0.34"
-mara_map = { workspace = true }
-
-[[example]]
-name = "demo"
-path = "examples/demo.rs"

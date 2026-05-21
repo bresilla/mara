@@ -1,7 +1,6 @@
-//! `bevy_mara` widget gallery + layout showcase, reimplemented on
-//! top of `mara_core` (the new pane / ribbon / container / pod /
-//! widget stack). Mirrors the layout of the original Mara demo
-//! one panel at a time:
+//! Root Mara example app, owned by eframe/egui and consuming the
+//! Mara API crates like an external application. It mirrors the
+//! old demo layout one panel at a time:
 //!
 //! * **Widgets** — Flags / Numbers / Bars / Buttons / Animated.
 //! * **Containers** — Position + Rotation, axis-coloured drag values.
@@ -11,11 +10,10 @@
 //! * **Keys** — keybinding rows (readouts).
 //! * **About** — version + dependency readouts.
 //!
-//! Ported from `bevy_mara --example demo` to run in the browser via
-//! eframe (see `api_crates/web`). The Bevy 3D scene is dropped;
-//! everything else — ribbons, panes, the widget gallery, theme
-//! picker, canvas whiteboard, node graph and code editor — is the
-//! same host-agnostic `mara_core` UI the Bevy demo renders.
+//! The default/root view is an egui-owned Bevy viewport bridge; the
+//! rest — ribbons, panes, the widget gallery, theme picker, canvas
+//! whiteboard, node graph, map, and code editor — is host-agnostic
+//! `mara_core` UI.
 
 #![allow(
     dead_code,
@@ -28,6 +26,7 @@
 
 use eframe::egui;
 
+use crate::bevy_view::EmbeddedBevyViewport;
 use mara_core::container::SeparatorStyle;
 use mara_core::pane::{Pane, PaneAnchor, PaneBody, RailZone};
 use mara_core::pod::Pod;
@@ -1726,6 +1725,8 @@ pub struct DemoApp {
     canvas_view: CanvasViewState,
     canvas_shelves: CanvasShelfState,
     map_view: MapViewState,
+    bevy_view: EmbeddedBevyViewport,
+    window_chrome: egui_mara::EframeWindowChrome,
     editor_node_view: EditorNodeView,
     editor_graph: EditorGraph,
 }
@@ -1733,23 +1734,47 @@ pub struct DemoApp {
 impl DemoApp {
     /// Built once by `eframe::WebRunner`. No persistence — every
     /// session starts from the default mara layout.
-    pub fn new(_cc: &eframe::CreationContext<'_>) -> Self {
-        Self::default()
+    pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
+        Self {
+            bevy_view: EmbeddedBevyViewport::new(cc),
+            ..Self::default()
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn new_winit(render_state: Option<&egui_wgpu::RenderState>) -> Self {
+        Self {
+            bevy_view: EmbeddedBevyViewport::with_render_state(render_state),
+            window_chrome: egui_mara::EframeWindowChrome::without_move_command(),
+            ..Self::default()
+        }
+    }
+
+    pub fn update_with_render_state(
+        &mut self,
+        ctx: &egui::Context,
+        render_state: &egui_wgpu::RenderState,
+    ) {
+        ui_system(self, ctx, render_state);
     }
 }
 
 impl eframe::App for DemoApp {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
-        ui_system(self, ctx, frame);
+        let render_state = frame
+            .wgpu_render_state()
+            .expect("eframe must run with the wgpu backend (see example/Cargo.toml)");
+        self.update_with_render_state(ctx, render_state);
     }
 }
 
 // ─── UI ─────────────────────────────────────────────────────────────
 
 /// Per-frame UI — the body of the old Bevy `ui_system`, now driven by
-/// eframe. `app` carries the state the Bevy build held as resources;
-/// `frame` provides the wgpu render state the node graph paints into.
-fn ui_system(app: &mut DemoApp, ctx: &egui::Context, frame: &mut eframe::Frame) {
+/// eframe/winit. `app` carries the state the Bevy build held as
+/// resources; `render_state` provides the wgpu handles the node graph
+/// paints into.
+fn ui_system(app: &mut DemoApp, ctx: &egui::Context, render_state: &egui_wgpu::RenderState) {
     let DemoApp {
         accent,
         glass,
@@ -1764,16 +1789,11 @@ fn ui_system(app: &mut DemoApp, ctx: &egui::Context, frame: &mut eframe::Frame) 
         canvas_view,
         canvas_shelves,
         map_view,
+        bevy_view,
+        window_chrome,
         editor_node_view,
         editor_graph,
     } = app;
-    // The editor pane's node graph renders into an offscreen wgpu
-    // texture through `EframeNodeViewBackend`, which needs eframe's
-    // wgpu render state. The web host always runs the wgpu backend.
-    let render_state = frame
-        .wgpu_render_state()
-        .expect("eframe must run with the wgpu backend (see api_crates/web)");
-
     let mut active_theme = match (family.0, mode.0) {
         (0, 0) => mara_core::style::theme_pro(Mode::Dark),
         (0, 1) => mara_core::style::theme_pro(Mode::Light),
@@ -1785,9 +1805,10 @@ fn ui_system(app: &mut DemoApp, ctx: &egui::Context, frame: &mut eframe::Frame) 
     };
     active_theme.pastel_accent = pastel.0;
     mara_core::style::set_theme(active_theme);
-    mara_core::style::apply_theme(ctx, *accent, *glass);
+    egui_mara::apply_theme_now(ctx, *accent, *glass);
+    window_chrome.update(ctx);
 
-    let accent_col = mara_core::style::active_accent();
+    let mut accent_col = mara_core::style::active_accent();
     mara_core::publish_shelf_layout(
         ctx,
         mara_core::ShelfLayout {
@@ -1798,10 +1819,16 @@ fn ui_system(app: &mut DemoApp, ctx: &egui::Context, frame: &mut eframe::Frame) 
         },
     );
 
-    // Actual root/L0 canvas switch:
-    // - BevyScene is the normal demo: Bevy 3D scene plus Mara panes/ribbons.
-    // - Canvas owns the whole egui canvas and replaces the Bevy scene visually.
-    if *root_view == DemoRootView::Canvas {
+    // Actual root/L0 canvas switch. The app shell is always eframe;
+    // Bevy is represented as an embedded viewport surface, not the
+    // top-level window owner.
+    if *root_view == DemoRootView::BevyScene {
+        if let Some(color) = bevy_view.show(ctx, accent_col) {
+            accent.0 = color;
+            egui_mara::apply_theme_now(ctx, *accent, *glass);
+            accent_col = mara_core::style::active_accent();
+        }
+    } else if *root_view == DemoRootView::Canvas {
         canvas_root_view(ctx, accent_col, canvas_view, &mut canvas_shelves.0);
     } else if root_view.is_coreviz() {
         map_root_view(ctx, map_view);
@@ -2045,10 +2072,6 @@ fn ui_system(app: &mut DemoApp, ctx: &egui::Context, frame: &mut eframe::Frame) 
             },
         )
     };
-
-    // (Bevy's borderless main-bar window drag has no browser
-    // equivalent — `main_bar_empty_drag_started` is simply ignored.)
-
     // PREV / NEXT cube — one-shot icon buttons in the BOTTOM rail's
     // End cluster. Each click rotates the AccentColor through the
     // hardcoded swatch row.
@@ -2091,8 +2114,11 @@ fn ui_system(app: &mut DemoApp, ctx: &egui::Context, frame: &mut eframe::Frame) 
             mara_core::embed::restore_fullscreen(ctx);
             continue;
         }
-        // (No "close app" on web — closing the browser tab from
-        // script isn't possible, so ACTION_CLOSE_APP is a no-op.)
+        if matches!(click.action, RibbonAction::CloseApp) {
+            #[cfg(not(target_arch = "wasm32"))]
+            egui_mara::close_native_window(ctx);
+            continue;
+        }
         if click.item == egui::Id::new(ACTION_CANVAS_CLEAR) {
             canvas_view.strokes.clear();
             continue;

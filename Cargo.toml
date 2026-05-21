@@ -10,6 +10,7 @@ members = [
     "core_crates/modules/image",
     "core_crates/modules/canvas",
     "core_crates/modules/map",
+    "example",
 ]
 
 
@@ -65,15 +66,6 @@ mara_image = { path = "core_crates/modules/image", version = "0.1.0" }
 mara_canvas = { path = "core_crates/modules/canvas", version = "0.1.0" }
 # `mara_map` — retained f64 map annotations and a Mara map component.
 mara_map = { path = "core_crates/modules/map", version = "0.1.0" }
-
-# `mimalloc` — drop-in global allocator. egui's tessellator + shape
-# `Vec`s thrash the system allocator under heavy heap pressure;
-# Microsoft's `mimalloc` keeps fragmentation low and small-alloc
-# throughput high. egui issue #5587 documented going from
-# ~120 ms/frame to ~13 ms/frame purely by swapping allocator on
-# native targets. Wired up in `bevy_mara`'s demo via
-# `#[global_allocator]`.
-mimalloc = { version = "0.1", default-features = false }
 
 # ── Build profile tuning ────────────────────────────────────────────
 #
