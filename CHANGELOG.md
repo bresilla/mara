@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.1.2] - 2026-05-21
+
+### <!-- 0 -->⛰️  Features
+
+- Consolidate example apps under one root crate
+- Add directory-style tree branch guides
+
+### <!-- 7 -->⚙️ Miscellaneous Tasks
+
+- Update Cargo.lock with new package versions
+
 ## [0.1.1] - 2026-05-19
 
 ### <!-- 0 -->⛰️  Features
