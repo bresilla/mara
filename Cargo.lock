@@ -946,13 +946,14 @@ dependencies = [
 
 [[package]]
 name = "bevy_mara"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "bevy",
  "bevy_egui",
  "bevy_glacial",
  "crossbeam-channel",
  "egui",
+ "mara_bevy",
  "mara_core",
  "pollster",
  "wgpu",
@@ -2225,7 +2226,7 @@ dependencies = [
 
 [[package]]
 name = "egui_mara"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "egui",
  "egui-wgpu",
@@ -2235,7 +2236,7 @@ dependencies = [
 
 [[package]]
 name = "egui_mara_web"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "eframe",
  "egui_mara",
@@ -3430,8 +3431,38 @@ dependencies = [
 ]
 
 [[package]]
+name = "mara"
+version = "0.1.2"
+dependencies = [
+ "egui",
+ "egui-wgpu",
+ "egui-winit",
+ "mara_bevy",
+ "mara_canvas",
+ "mara_code",
+ "mara_core",
+ "mara_graph",
+ "mara_image",
+ "mara_map",
+ "pollster",
+ "wgpu",
+ "winit",
+]
+
+[[package]]
+name = "mara_bevy"
+version = "0.1.2"
+dependencies = [
+ "bevy",
+ "bevy_glacial",
+ "crossbeam-channel",
+ "egui",
+ "wgpu",
+]
+
+[[package]]
 name = "mara_canvas"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "egui",
  "mara_core",
@@ -3439,7 +3470,7 @@ dependencies = [
 
 [[package]]
 name = "mara_code"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "egui",
  "serde",
@@ -3447,7 +3478,7 @@ dependencies = [
 
 [[package]]
 name = "mara_core"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "bevy",
  "egui",
@@ -3459,27 +3490,23 @@ dependencies = [
 
 [[package]]
 name = "mara_example"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
- "bevy_mara",
  "eframe",
  "egui-wgpu",
- "egui-winit",
- "egui_mara",
  "egui_plot",
  "getrandom 0.3.4",
  "log",
+ "mara",
  "mara_core",
  "mara_map",
- "pollster",
  "wasm-bindgen-futures",
  "wgpu",
- "winit",
 ]
 
 [[package]]
 name = "mara_graph"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "egui",
  "egui-scale",
@@ -3492,7 +3519,7 @@ dependencies = [
 
 [[package]]
 name = "mara_image"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "egui",
  "mara_core",
@@ -3500,7 +3527,7 @@ dependencies = [
 
 [[package]]
 name = "mara_map"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "egui",
  "egui_extras",

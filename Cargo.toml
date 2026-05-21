@@ -1,6 +1,7 @@
 [workspace]
 resolver = "3"
 members = [
+    "mara",
     "api_crates/bevy",
     "api_crates/egui",
     "api_crates/web",
@@ -10,6 +11,7 @@ members = [
     "core_crates/modules/image",
     "core_crates/modules/canvas",
     "core_crates/modules/map",
+    "core_crates/modules/bevy",
     "example",
 ]
 
@@ -43,8 +45,11 @@ bevy_egui = { version = "0.39", default-features = false }
 #
 # Layout:
 #   core_crates/  ← standalone library crates (UI, node graph, code editor)
-#   api_crates/   ← host-specific facades that wire the core crates
-#                    into Bevy / plain-egui apps
+#   mara/        ← public facade with two modes:
+#                    `mara::ui` for UI-only consumers, and
+#                    `mara::window` for Mara-owned native windows
+#   api_crates/   ← existing host-specific facades kept as internal
+#                    integration crates while the public facade lands
 #
 # `mara_core` — UI core (panes, ribbons, containers, pods, widgets,
 # theme, embed mechanism). Package id is `mara_core`, which avoids
@@ -66,6 +71,8 @@ mara_image = { path = "core_crates/modules/image", version = "0.1.0" }
 mara_canvas = { path = "core_crates/modules/canvas", version = "0.1.0" }
 # `mara_map` — retained f64 map annotations and a Mara map component.
 mara_map = { path = "core_crates/modules/map", version = "0.1.0" }
+# `mara_bevy` — embedded Bevy viewport module for egui/Mara hosts.
+mara_bevy = { path = "core_crates/modules/bevy", version = "0.1.0" }
 
 # ── Build profile tuning ────────────────────────────────────────────
 #

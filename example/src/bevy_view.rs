@@ -1,7 +1,8 @@
 //! Embedded Bevy viewport view.
 //!
 //! The root example is egui-owned. This view reserves a viewport
-//! surface inside Mara and, on native builds, asks `bevy_mara` to
+//! surface inside Mara and, on native builds, asks `mara`'s embedded
+//! Bevy module to
 //! render a tiny windowless Bevy scene into an offscreen target. The
 //! resulting RGBA frame is uploaded as an egui texture and displayed
 //! inside the Mara view.
@@ -12,7 +13,9 @@ use std::time::Duration;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::bevy_scene::ExampleBevyScene;
 #[cfg(not(target_arch = "wasm32"))]
-use bevy_mara::{BevyViewportInput, BevyViewportWgpuResources};
+use mara::prelude::MaraHostCtx;
+#[cfg(not(target_arch = "wasm32"))]
+use mara::ui::modules::bevy::{BevyViewportInput, BevyViewportWgpuResources};
 
 #[derive(Default)]
 pub struct EmbeddedBevyViewport {
@@ -20,6 +23,18 @@ pub struct EmbeddedBevyViewport {
     bevy: ExampleBevyScene,
     #[cfg(not(target_arch = "wasm32"))]
     texture: Option<egui::TextureHandle>,
+    #[cfg(not(target_arch = "wasm32"))]
+    last_pixels: [u32; 2],
+    #[cfg(not(target_arch = "wasm32"))]
+    target_pixels: [u32; 2],
+    #[cfg(not(target_arch = "wasm32"))]
+    target_pixels_since: f64,
+    #[cfg(not(target_arch = "wasm32"))]
+    last_render_time: f64,
+    #[cfg(not(target_arch = "wasm32"))]
+    last_pointer_pos: Option<egui::Pos2>,
+    #[cfg(not(target_arch = "wasm32"))]
+    primary_drag_active: bool,
     #[cfg(target_arch = "wasm32")]
     ticks: u64,
 }
@@ -42,6 +57,12 @@ impl EmbeddedBevyViewport {
             Self {
                 bevy,
                 texture: None,
+                last_pixels: [0, 0],
+                target_pixels: [0, 0],
+                target_pixels_since: f64::NEG_INFINITY,
+                last_render_time: f64::NEG_INFINITY,
+                last_pointer_pos: None,
+                primary_drag_active: false,
             }
         }
 
@@ -65,10 +86,21 @@ impl EmbeddedBevyViewport {
         Self {
             bevy,
             texture: None,
+            last_pixels: [0, 0],
+            target_pixels: [0, 0],
+            target_pixels_since: f64::NEG_INFINITY,
+            last_render_time: f64::NEG_INFINITY,
+            last_pointer_pos: None,
+            primary_drag_active: false,
         }
     }
 
-    pub fn show(&mut self, ctx: &egui::Context, accent: egui::Color32) -> Option<egui::Color32> {
+    pub fn show(
+        &mut self,
+        host: &mut MaraHostCtx<'_>,
+        accent: egui::Color32,
+    ) -> Option<egui::Color32> {
+        let ctx = host.egui();
         #[cfg(target_arch = "wasm32")]
         {
             self.ticks = self.ticks.saturating_add(1);
@@ -85,57 +117,150 @@ impl EmbeddedBevyViewport {
 
                 #[cfg(not(target_arch = "wasm32"))]
                 {
+                    if let Some(render_state) = host.render_state() {
+                        self.bevy
+                            .attach_wgpu_resources(BevyViewportWgpuResources::new(
+                                render_state.device.clone(),
+                                render_state.queue.clone(),
+                                render_state.adapter.clone(),
+                            ));
+                    }
+
                     let response = ui.interact(
                         rect,
                         egui::Id::new("mara_embedded_bevy_viewport_interact"),
                         egui::Sense::click_and_drag(),
                     );
                     let ppp = ui.ctx().pixels_per_point();
-                    let pixels = [
-                        (rect.width() * ppp).round().max(1.0) as u32,
-                        (rect.height() * ppp).round().max(1.0) as u32,
-                    ];
+                    let now = ui.ctx().input(|i| i.time);
+                    let desired_pixels = internal_render_pixels(rect.size(), ppp);
+                    if self.target_pixels != desired_pixels {
+                        self.target_pixels = desired_pixels;
+                        self.target_pixels_since = now;
+                    }
+
+                    const RESIZE_SETTLE_SECONDS: f64 = 0.12;
+                    let has_committed_size = self.last_pixels != [0, 0];
+                    let resize_pending =
+                        has_committed_size && self.target_pixels != self.last_pixels;
+                    let resize_settled = now - self.target_pixels_since >= RESIZE_SETTLE_SECONDS;
+                    let commit_resize = !has_committed_size || resize_pending && resize_settled;
+                    let pixels = if commit_resize {
+                        self.target_pixels
+                    } else {
+                        self.last_pixels
+                    };
+                    let render_scale = egui::vec2(
+                        pixels[0] as f32 / rect.width().max(1.0),
+                        pixels[1] as f32 / rect.height().max(1.0),
+                    );
+
                     let pointer_pos = response
                         .hover_pos()
-                        .or_else(|| response.interact_pointer_pos());
-                    let viewport_input = BevyViewportInput {
-                        pointer_pos: pointer_pos.map(|pos| {
-                            [
-                                ((pos.x - rect.left()) * ppp).clamp(0.0, pixels[0] as f32),
-                                ((pos.y - rect.top()) * ppp).clamp(0.0, pixels[1] as f32),
-                            ]
-                        }),
-                        drag_delta: if response.dragged() {
-                            let delta = ui.ctx().input(|i| i.pointer.delta()) * ppp;
+                        .or_else(|| response.interact_pointer_pos())
+                        .or_else(|| ui.ctx().input(|i| i.pointer.interact_pos()));
+                    let pointer_inside = pointer_pos.is_some_and(|pos| rect.contains(pos));
+                    let (primary_down, primary_pressed, scroll_delta) = ui.ctx().input(|i| {
+                        (
+                            i.pointer.primary_down(),
+                            i.pointer.button_pressed(egui::PointerButton::Primary),
+                            if response.hovered() {
+                                (i.smooth_scroll_delta.y + i.raw_scroll_delta.y) / 120.0
+                            } else {
+                                0.0
+                            },
+                        )
+                    });
+                    let primary_dragged =
+                        primary_down && (self.primary_drag_active || pointer_inside);
+                    let drag_delta = if primary_dragged {
+                        self.primary_drag_active = true;
+                        if let Some(pos) = pointer_pos {
+                            let delta = self
+                                .last_pointer_pos
+                                .map(|last| pos - last)
+                                .unwrap_or_default()
+                                * render_scale;
+                            self.last_pointer_pos = Some(pos);
                             [delta.x, delta.y]
                         } else {
                             [0.0, 0.0]
-                        },
-                        scroll_delta: if response.hovered() {
-                            ui.ctx().input(|i| i.raw_scroll_delta.y / 120.0)
-                        } else {
-                            0.0
-                        },
-                        primary_clicked: response.clicked(),
+                        }
+                    } else {
+                        if !primary_down {
+                            self.primary_drag_active = false;
+                            self.last_pointer_pos = None;
+                        }
+                        [0.0, 0.0]
+                    };
+                    let primary_clicked = primary_pressed && pointer_inside;
+
+                    let viewport_input = BevyViewportInput {
+                        pointer_pos: pointer_pos.map(|pos| {
+                            [
+                                ((pos.x - rect.left()) * render_scale.x)
+                                    .clamp(0.0, pixels[0] as f32),
+                                ((pos.y - rect.top()) * render_scale.y)
+                                    .clamp(0.0, pixels[1] as f32),
+                            ]
+                        }),
+                        drag_delta,
+                        scroll_delta,
+                        primary_clicked,
                     };
 
-                    let dt = ui.ctx().input(|i| i.stable_dt);
-                    if let Some(frame) =
-                        self.bevy
-                            .render_frame_with_input(pixels[0], pixels[1], dt, viewport_input)
+                    let input_active = primary_dragged
+                        || primary_clicked
+                        || response.hovered() && viewport_input.scroll_delta.abs() > f32::EPSILON
+                        || response.hovered() && ui.ctx().input(|i| i.pointer.any_down());
+                    let texture_needs_committed_frame =
+                        self.texture.as_ref().is_some_and(|texture| {
+                            texture.size() != [pixels[0] as usize, pixels[1] as usize]
+                        });
+                    let idle_interval = 1.0 / 24.0;
+                    let active_interval = 1.0 / 60.0;
+                    let target_interval = if input_active
+                        || commit_resize
+                        || texture_needs_committed_frame
+                        || self.texture.is_none()
                     {
-                        let size = [frame.width as usize, frame.height as usize];
-                        let image = egui::ColorImage::from_rgba_unmultiplied(size, &frame.rgba);
-                        match &mut self.texture {
-                            Some(texture) if texture.size() == size => {
-                                texture.set(image, egui::TextureOptions::LINEAR);
-                            }
-                            _ => {
-                                self.texture = Some(ui.ctx().load_texture(
-                                    "mara_embedded_bevy_viewport",
-                                    image,
-                                    egui::TextureOptions::LINEAR,
-                                ));
+                        active_interval
+                    } else {
+                        idle_interval
+                    };
+                    let elapsed = now - self.last_render_time;
+                    let should_render = commit_resize
+                        || self.texture.is_none()
+                        || texture_needs_committed_frame
+                        || input_active
+                        || elapsed >= target_interval;
+
+                    if should_render {
+                        self.last_pixels = pixels;
+                        self.last_render_time = now;
+                        let dt = ui.ctx().input(|i| i.stable_dt);
+                        if let Some(frame) = self.bevy.render_frame_with_input(
+                            pixels[0],
+                            pixels[1],
+                            dt,
+                            viewport_input,
+                        ) {
+                            let size = [frame.width as usize, frame.height as usize];
+                            if size == [pixels[0] as usize, pixels[1] as usize] {
+                                let image =
+                                    egui::ColorImage::from_rgba_unmultiplied(size, &frame.rgba);
+                                match &mut self.texture {
+                                    Some(texture) if texture.size() == size => {
+                                        texture.set(image, egui::TextureOptions::LINEAR);
+                                    }
+                                    _ => {
+                                        self.texture = Some(ui.ctx().load_texture(
+                                            "mara_embedded_bevy_viewport",
+                                            image,
+                                            egui::TextureOptions::LINEAR,
+                                        ));
+                                    }
+                                }
                             }
                         }
                     }
@@ -152,7 +277,18 @@ impl EmbeddedBevyViewport {
                     }
 
                     picked_color = self.bevy.picked_swatch_color();
-                    ui.ctx().request_repaint_after(Duration::from_millis(16));
+                    let mut next = if should_render {
+                        target_interval
+                    } else {
+                        (target_interval - elapsed).max(active_interval)
+                    };
+                    if resize_pending && !resize_settled {
+                        next = next.min(
+                            (RESIZE_SETTLE_SECONDS - (now - self.target_pixels_since)).max(0.0),
+                        );
+                    }
+                    ui.ctx()
+                        .request_repaint_after(Duration::from_secs_f64(next));
                     return;
                 }
 
@@ -279,4 +415,23 @@ impl EmbeddedBevyViewport {
             self.ticks
         )
     }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn internal_render_pixels(size: egui::Vec2, pixels_per_point: f32) -> [u32; 2] {
+    const MAX_WIDTH: f32 = 1600.0;
+    const MAX_HEIGHT: f32 = 1000.0;
+    const MAX_PIXELS: f32 = 1_200_000.0;
+
+    let mut width = (size.x * pixels_per_point).round().max(1.0);
+    let mut height = (size.y * pixels_per_point).round().max(1.0);
+
+    let scale = (MAX_WIDTH / width)
+        .min(MAX_HEIGHT / height)
+        .min((MAX_PIXELS / (width * height)).sqrt())
+        .min(1.0);
+    width = (width * scale).round().max(1.0);
+    height = (height * scale).round().max(1.0);
+
+    [width as u32, height as u32]
 }

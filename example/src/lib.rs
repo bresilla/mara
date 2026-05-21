@@ -1,7 +1,7 @@
 //! Root Mara example application.
 //!
 //! This crate is intentionally outside `api_crates/*`: it consumes
-//! `egui_mara`, `bevy_mara`, `mara_core`, and standalone Mara modules
+//! `mara`, `mara_core`, and standalone Mara modules
 //! the same way downstream applications should.
 
 pub mod app;

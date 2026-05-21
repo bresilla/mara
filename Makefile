@@ -23,7 +23,7 @@ $(info Project: $(PROJECT_NAME) v$(PROJECT_VERSION))
 $(info Display: $(BACKEND) backend)
 $(info ------------------------------------------)
 
-.PHONY: build b compile c run r serve-web build-web test t test-all check check-all check-bevy-api check-egui-api check-web-api harden bench clean docs release help h
+.PHONY: build b compile c run r serve-web build-web test t test-all check check-all check-mara-api check-bevy-api check-egui-api check-web-api harden bench clean docs release help h
 
 build:
 	@$(CARGO) build $(APP_TARGET)
@@ -62,6 +62,9 @@ check:
 
 check-all:
 	@$(CARGO) check --workspace --all-targets
+
+check-mara-api:
+	@$(CARGO) check -p mara --all-features
 
 check-bevy-api:
 	@$(CARGO) check -p bevy_mara
@@ -116,6 +119,7 @@ help:
 	@echo "  test-all     Run the full workspace all-target test suite"
 	@echo "  check        Check the same app target as build/run ($(APP_PKG) bin $(APP_BIN))"
 	@echo "  check-all    Check the full workspace all-target suite"
+	@echo "  check-mara-api Check the unified mara API crate"
 	@echo "  check-bevy-api Check the bevy_mara API crate"
 	@echo "  check-egui-api Check the egui_mara API crate"
 	@echo "  check-web-api  Check the egui_mara_web API crate"

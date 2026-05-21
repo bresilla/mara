@@ -1,7 +1,6 @@
 //! Tiny native Bevy scene/viewport wrapper used by the root example.
 //!
-//! The implementation lives in `bevy_mara` so external apps can
-//! consume the same eframe-owned Bevy viewport bridge. This module is
-//! only the example-facing name from `PLAN.md`.
+//! The implementation lives in the unified `mara` crate as an
+//! embedded Bevy view/module.
 
-pub type ExampleBevyScene = bevy_mara::BevyEmbeddedView;
+pub type ExampleBevyScene = mara::ui::modules::bevy::BevyEmbeddedView;

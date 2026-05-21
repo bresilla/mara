@@ -1,0 +1,39 @@
+[package]
+name = "mara"
+description = "Unified Mara API: UI-only elements, plus optional Mara-owned native windows."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+mara_canvas = { workspace = true }
+mara_code = { workspace = true }
+mara_core = { workspace = true }
+mara_graph = { workspace = true }
+mara_image = { workspace = true }
+mara_map = { workspace = true }
+mara_bevy = { workspace = true, optional = true }
+egui = { workspace = true }
+egui-wgpu = { workspace = true }
+wgpu = { workspace = true }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+egui-winit = { version = "0.33", optional = true }
+pollster = { version = "0.4", optional = true }
+winit = { version = "0.30", default-features = false, features = [
+    "x11",
+    "wayland",
+    "rwh_06",
+], optional = true }
+
+[features]
+default = []
+bevy = ["dep:mara_bevy"]
+window = [
+    "egui-wgpu/winit",
+    "dep:egui-winit",
+    "dep:pollster",
+    "wgpu/vulkan",
+    "dep:winit",
+]
