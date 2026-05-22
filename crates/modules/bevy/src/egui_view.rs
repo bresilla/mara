@@ -23,8 +23,6 @@ pub struct MaraBevyViewport {
     bevy: BevyEmbeddedView,
     texture: Option<egui::TextureHandle>,
     last_pixels: [u32; 2],
-    target_pixels: [u32; 2],
-    target_pixels_since: f64,
     last_render_time: f64,
     last_pointer_pos: Option<egui::Pos2>,
     primary_drag_active: bool,
@@ -44,8 +42,6 @@ impl MaraBevyViewport {
             bevy: BevyEmbeddedView::new(),
             texture: None,
             last_pixels: [0, 0],
-            target_pixels: [0, 0],
-            target_pixels_since: f64::NEG_INFINITY,
             last_render_time: f64::NEG_INFINITY,
             last_pointer_pos: None,
             primary_drag_active: false,
@@ -63,8 +59,6 @@ impl MaraBevyViewport {
             bevy: BevyEmbeddedView::with_app_config(configure_app),
             texture: None,
             last_pixels: [0, 0],
-            target_pixels: [0, 0],
-            target_pixels_since: f64::NEG_INFINITY,
             last_render_time: f64::NEG_INFINITY,
             last_pointer_pos: None,
             primary_drag_active: false,
@@ -89,8 +83,6 @@ impl MaraBevyViewport {
             bevy,
             texture: None,
             last_pixels: [0, 0],
-            target_pixels: [0, 0],
-            target_pixels_since: f64::NEG_INFINITY,
             last_render_time: f64::NEG_INFINITY,
             last_pointer_pos: None,
             primary_drag_active: false,
@@ -121,8 +113,6 @@ impl MaraBevyViewport {
             bevy,
             texture: None,
             last_pixels: [0, 0],
-            target_pixels: [0, 0],
-            target_pixels_since: f64::NEG_INFINITY,
             last_render_time: f64::NEG_INFINITY,
             last_pointer_pos: None,
             primary_drag_active: false,
@@ -148,12 +138,7 @@ impl MaraBevyViewport {
                 painter.rect_filled(rect, 0.0, theme.palette.bg_panel);
                 if rect.width() < 16.0 || rect.height() < 16.0 {
                     if let Some(texture) = &self.texture {
-                        painter.image(
-                            texture.id(),
-                            rect,
-                            egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0)),
-                            egui::Color32::WHITE,
-                        );
+                        paint_texture_cover(&painter, texture, rect);
                     }
                     ui.ctx()
                         .request_repaint_after(Duration::from_secs_f64(1.0 / 12.0));
@@ -176,25 +161,8 @@ impl MaraBevyViewport {
                 );
                 let ppp = ui.ctx().pixels_per_point();
                 let now = ui.ctx().input(|i| i.time);
-                let desired_pixels = internal_render_pixels(rect.size(), ppp);
-                if self.target_pixels != desired_pixels {
-                    self.target_pixels = desired_pixels;
-                    self.target_pixels_since = now;
-                }
-
-                #[cfg(target_arch = "wasm32")]
-                let resize_settle_seconds = 0.28;
-                #[cfg(not(target_arch = "wasm32"))]
-                let resize_settle_seconds = 0.12;
-                let has_committed_size = self.last_pixels != [0, 0];
-                let resize_pending = has_committed_size && self.target_pixels != self.last_pixels;
-                let resize_settled = now - self.target_pixels_since >= resize_settle_seconds;
-                let commit_resize = !has_committed_size || resize_pending && resize_settled;
-                let pixels = if commit_resize {
-                    self.target_pixels
-                } else {
-                    self.last_pixels
-                };
+                let pixels = internal_render_pixels(rect.size(), ppp);
+                let resize_pending = self.last_pixels != [0, 0] && self.last_pixels != pixels;
                 let render_scale = egui::vec2(
                     pixels[0] as f32 / rect.width().max(1.0),
                     pixels[1] as f32 / rect.height().max(1.0),
@@ -268,7 +236,7 @@ impl MaraBevyViewport {
                 #[cfg(not(target_arch = "wasm32"))]
                 let active_interval = 1.0 / 60.0;
                 let target_interval = if input_active
-                    || commit_resize
+                    || resize_pending
                     || texture_needs_committed_frame
                     || !has_texture
                 {
@@ -277,7 +245,7 @@ impl MaraBevyViewport {
                     idle_interval
                 };
                 let elapsed = now - self.last_render_time;
-                let should_render = commit_resize
+                let should_render = resize_pending
                     || !has_texture
                     || texture_needs_committed_frame
                     || input_active
@@ -286,38 +254,56 @@ impl MaraBevyViewport {
                 if should_render {
                     self.last_render_time = now;
                     let dt = ui.ctx().input(|i| i.stable_dt);
-                    if let Some(frame) =
-                        self.bevy
-                            .render_frame_with_input(pixels[0], pixels[1], dt, viewport_input)
-                    {
-                        let size = [frame.width as usize, frame.height as usize];
-                        if size == [pixels[0] as usize, pixels[1] as usize] {
-                            self.last_pixels = pixels;
-                            let image = egui::ColorImage::from_rgba_unmultiplied(size, &frame.rgba);
-                            match &mut self.texture {
-                                Some(texture) if texture.size() == size => {
-                                    texture.set(image, egui::TextureOptions::LINEAR);
+                    #[cfg(target_arch = "wasm32")]
+                    let resize_render_attempts = 2;
+                    #[cfg(not(target_arch = "wasm32"))]
+                    let resize_render_attempts = 4;
+                    let render_attempts =
+                        if resize_pending || texture_needs_committed_frame || !has_texture {
+                            resize_render_attempts
+                        } else {
+                            1
+                        };
+                    for attempt in 0..render_attempts {
+                        let input = if attempt == 0 {
+                            viewport_input
+                        } else {
+                            BevyViewportInput {
+                                pointer_pos: viewport_input.pointer_pos,
+                                ..Default::default()
+                            }
+                        };
+                        let dt = if attempt == 0 { dt } else { 0.0 };
+                        if let Some(frame) = self
+                            .bevy
+                            .render_frame_with_input(pixels[0], pixels[1], dt, input)
+                        {
+                            let size = [frame.width as usize, frame.height as usize];
+                            if size == [pixels[0] as usize, pixels[1] as usize] {
+                                self.last_pixels = pixels;
+                                let image =
+                                    egui::ColorImage::from_rgba_unmultiplied(size, &frame.rgba);
+                                match &mut self.texture {
+                                    Some(texture) if texture.size() == size => {
+                                        texture.set(image, egui::TextureOptions::LINEAR);
+                                    }
+                                    _ => {
+                                        self.texture = Some(ui.ctx().load_texture(
+                                            "mara_embedded_bevy_viewport",
+                                            image,
+                                            egui::TextureOptions::LINEAR,
+                                        ));
+                                    }
                                 }
-                                _ => {
-                                    self.texture = Some(ui.ctx().load_texture(
-                                        "mara_embedded_bevy_viewport",
-                                        image,
-                                        egui::TextureOptions::LINEAR,
-                                    ));
-                                }
+                                break;
                             }
                         }
                     }
                 }
 
                 if let Some(texture) = &self.texture {
-                    painter.image(
-                        texture.id(),
-                        rect,
-                        egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0)),
-                        egui::Color32::WHITE,
-                    );
-                } else {
+                    paint_texture_cover(&painter, texture, rect);
+                } else if self.texture.is_none() {
                     self.paint_warmup(ui, rect, accent);
                 }
 
@@ -327,9 +313,8 @@ impl MaraBevyViewport {
                 } else {
                     (target_interval - elapsed).max(active_interval)
                 };
-                if resize_pending && !resize_settled {
-                    next = next
-                        .min((resize_settle_seconds - (now - self.target_pixels_since)).max(0.0));
+                if resize_pending || texture_needs_committed_frame {
+                    next = next.min(active_interval);
                 }
                 ui.ctx()
                     .request_repaint_after(Duration::from_secs_f64(next));
@@ -402,4 +387,29 @@ fn internal_render_pixels(size: egui::Vec2, pixels_per_point: f32) -> [u32; 2] {
     height = (height * scale).round().max(1.0);
 
     [width as u32, height as u32]
+}
+
+fn paint_texture_cover(painter: &egui::Painter, texture: &egui::TextureHandle, rect: egui::Rect) {
+    let [texture_width, texture_height] = texture.size();
+    if texture_width == 0 || texture_height == 0 || !rect.is_positive() {
+        return;
+    }
+
+    let texture_aspect = texture_width as f32 / texture_height as f32;
+    let rect_aspect = rect.width() / rect.height().max(1.0);
+    let uv = if rect_aspect > texture_aspect {
+        // The viewport is wider than the old frame. Cover the rect by
+        // cropping top/bottom instead of stretching.
+        let visible_v = (texture_aspect / rect_aspect).clamp(0.0, 1.0);
+        let pad_v = (1.0 - visible_v) * 0.5;
+        egui::Rect::from_min_max(egui::pos2(0.0, pad_v), egui::pos2(1.0, 1.0 - pad_v))
+    } else {
+        // The viewport is taller/narrower than the old frame. Cover
+        // the rect by cropping left/right instead of stretching.
+        let visible_u = (rect_aspect / texture_aspect).clamp(0.0, 1.0);
+        let pad_u = (1.0 - visible_u) * 0.5;
+        egui::Rect::from_min_max(egui::pos2(pad_u, 0.0), egui::pos2(1.0 - pad_u, 1.0))
+    };
+
+    painter.image(texture.id(), rect, uv, egui::Color32::WHITE);
 }
