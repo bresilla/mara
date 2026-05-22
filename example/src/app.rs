@@ -1734,23 +1734,14 @@ impl DemoApp {
     /// Built once by `eframe::WebRunner`. No persistence — every
     /// session starts from the default mara layout.
     pub fn new(_cc: &eframe::CreationContext<'_>) -> Self {
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            return Self {
-                bevy_view: MaraBevyViewport::with_content(crate::bevy_content::configure_app),
-                ..Self::default()
-            };
-        }
-
-        #[cfg(target_arch = "wasm32")]
         Self {
-            bevy_view: MaraBevyViewport::new(),
+            bevy_view: MaraBevyViewport::with_content(crate::bevy_content::configure_app),
             ..Self::default()
         }
     }
 
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn new_winit(render_state: Option<&egui_wgpu::RenderState>) -> Self {
+    pub fn new_winit(render_state: Option<&eframe::egui_wgpu::RenderState>) -> Self {
         Self {
             bevy_view: MaraBevyViewport::with_render_state_and_content(
                 render_state,
@@ -1763,7 +1754,7 @@ impl DemoApp {
     pub fn update_with_render_state(
         &mut self,
         ctx: &egui::Context,
-        render_state: &egui_wgpu::RenderState,
+        render_state: &eframe::egui_wgpu::RenderState,
     ) {
         let mut host = MaraHostCtx::ui_only(ctx, Some(render_state));
         ui_system(self, &mut host);
@@ -1771,6 +1762,14 @@ impl DemoApp {
 }
 
 impl eframe::App for DemoApp {
+    #[cfg(target_arch = "wasm32")]
+    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
+        // The web Bevy view is a real browser canvas behind/inside
+        // Mara's transparent egui canvas. Do not clear the whole
+        // eframe canvas opaquely or it hides Bevy.
+        [0.0, 0.0, 0.0, 0.0]
+    }
+
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         let render_state = frame
             .wgpu_render_state()
@@ -1795,7 +1794,7 @@ impl mara::window::WindowApp for DemoApp {
 /// Per-frame UI — the body of the old Bevy `ui_system`, now driven by
 /// eframe/winit. `app` carries the state the Bevy build held as
 /// resources; `host` provides app-level actions and render helpers.
-fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
+pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
     let ctx = host.egui();
     let DemoApp {
         accent,

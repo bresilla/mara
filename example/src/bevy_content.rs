@@ -23,6 +23,7 @@ pub fn configure_app(app: &mut App) {
             visible: true,
             color: Color::srgba(0.30, 0.38, 0.50, 0.42),
         })
+        .init_resource::<BevyViewportInput>()
         .init_resource::<SelectedSwatch>()
         .add_systems(Startup, setup_scene.after(BevyViewportSet::SetupTarget))
         .add_systems(Update, (pick_cube, update_swatch_selection));
@@ -37,11 +38,11 @@ struct ColorCube {
 #[derive(Resource, Default)]
 struct SelectedSwatch(Option<Entity>);
 
-fn setup_scene(
+pub fn setup_scene(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    render_target: Res<BevyViewportRenderTarget>,
+    render_target: Option<Res<BevyViewportRenderTarget>>,
 ) {
     let planet_mesh = meshes.add(Sphere::new(PLANET_RADIUS).mesh().uv(1024, 512));
     let planet_mat = materials.add(StandardMaterial {
@@ -150,10 +151,9 @@ fn setup_scene(
     let chase = ChaseCamera::default();
     let mut cam_tr = Transform::default();
     apply_rig(&chase, &mut cam_tr);
-    commands.spawn((
+    let mut camera = commands.spawn((
         Name::new("Camera"),
         Camera3d::default(),
-        RenderTarget::from(render_target.0.clone()),
         cam_tr,
         projection,
         fog,
@@ -164,6 +164,9 @@ fn setup_scene(
         },
         chase,
     ));
+    if let Some(render_target) = render_target {
+        camera.insert(RenderTarget::from(render_target.0.clone()));
+    }
 }
 
 fn pick_cube(

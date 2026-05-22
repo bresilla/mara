@@ -47,7 +47,7 @@ Use the Makefile targets from the repo root:
 
 ```sh
 make run          # native Mara example
-make serve-web    # web demo at http://localhost:8080
+make serve        # web demo at http://localhost:8080
 ```
 
 The Makefile defaults to the root example package:
@@ -62,7 +62,7 @@ Use the repo Nix shell when running the gates; the ambient Rust toolchain
 may be too old for the current dependency set:
 
 ```sh
-nix develop --impure -c make check-all
+nix develop --impure -c make check
 nix develop --impure -c make test-all
 ```
 
@@ -72,7 +72,7 @@ Full workspace gates:
 
 ```sh
 make fmt
-make check-all
+make check
 make test-all
 ```
 
@@ -81,8 +81,8 @@ make test-all
 The web host is built with `trunk`:
 
 ```sh
-make serve-web
-make build-web
+make serve
+make build TARGET=web
 ```
 
 On web, native resize corners and native top-bar window dragging are disabled

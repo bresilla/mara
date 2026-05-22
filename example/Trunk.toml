@@ -1,14 +1,14 @@
 # Trunk build config for the root Mara example web host.
 #
 # `trunk serve` / `trunk build` pick this up automatically when run
-# from `example/`. The repo Makefile's `serve-web` / `build-web`
-# targets do exactly that.
+# from `example/`. The repo Makefile's `serve` and
+# `build TARGET=web` targets do exactly that.
 
 [build]
 # The HTML entry Trunk scans for `data-trunk` links.
 target = "index.html"
 
 [serve]
-# `make serve-web` opens http://localhost:8080.
+# `make serve` opens http://localhost:8080.
 port = 8080
 open = false

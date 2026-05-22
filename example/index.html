@@ -19,24 +19,26 @@
             background: #0e0e11;
         }
 
-        /* eframe owns sizing — it resizes the canvas to its parent
-           every frame; the rules here just place it full-bleed. */
         canvas {
             position: absolute;
-            top: 0;
-            left: 0;
+            display: block;
+        }
+
+        #mara_canvas {
+            inset: 0;
             width: 100%;
             height: 100%;
+            outline: none;
+            background: #0e0e11;
         }
     </style>
 </head>
 
 <body>
-    <!-- src/web.rs looks this id up via web-sys and hands the
-         element to eframe's WebRunner. -->
+    <!-- src/web.rs gives this canvas to eframe/Mara. -->
     <canvas id="mara_canvas"></canvas>
 
-    <!-- Trunk compiles the crate to wasm and injects the JS loader. -->
+    <!-- Trunk compiles the Mara web entrypoint. -->
     <link data-trunk rel="rust" data-bin="web" />
 </body>
 

@@ -8,30 +8,38 @@
 //! an offscreen texture, read the latest rendered frame back, and let
 //! the egui host upload that frame as its own texture.
 
+#![cfg_attr(target_arch = "wasm32", allow(dead_code))]
+
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::{
     Arc,
     atomic::{AtomicBool, Ordering},
 };
 
+#[cfg(not(target_arch = "wasm32"))]
+use bevy::app::TerminalCtrlCHandlerPlugin;
 use bevy::asset::RenderAssetUsages;
 use bevy::camera::RenderTarget;
 use bevy::image::{BevyDefault, TextureFormatPixelInfo};
+use bevy::log::LogPlugin;
 use bevy::prelude::*;
 use bevy::render::{
-    Extract, Render, RenderApp, RenderSystems,
+    Extract, Render, RenderApp, RenderPlugin, RenderSystems,
     render_asset::RenderAssets,
     render_graph::{self, NodeRunError, RenderGraph, RenderGraphContext, RenderLabel},
     render_resource::{
         Buffer, BufferDescriptor, BufferUsages, CommandEncoderDescriptor, Extent3d, MapMode,
         PollType, TexelCopyBufferInfo, TexelCopyBufferLayout, TextureDimension, TextureFormat,
-        TextureUsages,
+        TextureUsages, TextureView,
     },
-    renderer::{RenderContext, RenderDevice, RenderQueue},
+    renderer::{
+        RenderAdapter, RenderAdapterInfo, RenderContext, RenderDevice, RenderInstance, RenderQueue,
+        WgpuWrapper,
+    },
+    settings::RenderCreation,
 };
 use bevy::window::ExitCondition;
 use bevy::winit::WinitPlugin;
-use bevy::{app::TerminalCtrlCHandlerPlugin, log::LogPlugin};
 use bevy_glacial::prelude::*;
 use crossbeam_channel::{Receiver, Sender};
 
@@ -65,6 +73,16 @@ pub struct CapturedBevyFrame {
     pub width: u32,
     pub height: u32,
     pub rgba: Vec<u8>,
+    pub frame: u64,
+}
+
+/// GPU-side Bevy render target for hosts that can sample the
+/// viewport texture directly without a CPU readback.
+#[derive(Debug, Clone)]
+pub struct CapturedBevyTexture {
+    pub width: u32,
+    pub height: u32,
+    pub view: TextureView,
     pub frame: u64,
 }
 
@@ -306,6 +324,62 @@ impl BevyViewportBridge {
         self.latest_frame.as_ref()
     }
 
+    pub fn render_texture_with_input(
+        &mut self,
+        width: u32,
+        height: u32,
+        dt_seconds: f32,
+        input: BevyViewportInput,
+    ) -> Option<CapturedBevyTexture> {
+        self.resize(width, height);
+        self.tick(dt_seconds);
+        self.input = input;
+
+        if self.renderer_failed {
+            return None;
+        }
+
+        let texture = self.texture;
+        let rendered = catch_unwind(AssertUnwindSafe(|| {
+            let renderer = self.renderer.get_or_insert_with(|| {
+                BevyViewportRenderer::new(
+                    texture,
+                    self.external_wgpu.clone(),
+                    self.configure_app.clone(),
+                )
+            });
+            if renderer.texture() != texture {
+                let scene_state = renderer.scene_state().or(self.scene_state);
+                if !renderer.resize(texture) {
+                    *renderer = BevyViewportRenderer::new(
+                        texture,
+                        self.external_wgpu.clone(),
+                        self.configure_app.clone(),
+                    );
+                    if let Some(scene_state) = scene_state {
+                        renderer.apply_scene_state(scene_state);
+                    }
+                }
+            }
+            renderer.set_input(self.input);
+            let mut frame = renderer.render_next_texture();
+            self.scene_state = renderer.scene_state();
+            if let Some(frame) = &mut frame {
+                frame.frame = self.frame;
+            }
+            frame
+        }));
+
+        match rendered {
+            Ok(frame) => frame,
+            Err(_) => {
+                self.renderer = None;
+                self.renderer_failed = true;
+                None
+            }
+        }
+    }
+
     /// Returns true after Bevy failed to initialize or tick its
     /// native renderer, usually because the process has no usable
     /// `wgpu` adapter. The egui host can keep the app shell alive and
@@ -344,6 +418,12 @@ pub fn make_viewport_render_target(texture: BevyViewportTexture, format: Texture
     );
     image.texture_descriptor.usage =
         TextureUsages::RENDER_ATTACHMENT | TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_SRC;
+    image
+}
+
+fn make_embedded_viewport_render_target(width: u32, height: u32) -> Image {
+    let mut image = Image::new_target_texture(width, height, TextureFormat::bevy_default(), None);
+    image.texture_descriptor.usage |= TextureUsages::COPY_SRC;
     image
 }
 
@@ -387,11 +467,11 @@ struct EmbeddedViewportSceneState {
 impl BevyViewportRenderer {
     pub fn new(
         texture: BevyViewportTexture,
-        _resources: Option<BevyViewportWgpuResources>,
+        resources: Option<BevyViewportWgpuResources>,
         configure_app: Option<BevyViewportAppConfigure>,
     ) -> Self {
         let mut app = App::new();
-        let default_plugins = DefaultPlugins
+        let mut default_plugins = DefaultPlugins
             .set(ImagePlugin::default_nearest())
             .set(WindowPlugin {
                 primary_window: None,
@@ -399,9 +479,23 @@ impl BevyViewportRenderer {
                 ..default()
             })
             .disable::<WinitPlugin>();
-        let default_plugins = default_plugins
-            .disable::<LogPlugin>()
-            .disable::<TerminalCtrlCHandlerPlugin>();
+        if let Some(resources) = resources {
+            let adapter_info = resources.adapter.get_info();
+            let instance = wgpu::Instance::default();
+            default_plugins = default_plugins.set(RenderPlugin {
+                render_creation: RenderCreation::manual(
+                    RenderDevice::from(resources.device),
+                    RenderQueue(Arc::new(WgpuWrapper::new(resources.queue))),
+                    RenderAdapterInfo(WgpuWrapper::new(adapter_info)),
+                    RenderAdapter(Arc::new(WgpuWrapper::new(resources.adapter))),
+                    RenderInstance(Arc::new(WgpuWrapper::new(instance))),
+                ),
+                ..default()
+            });
+        }
+        let default_plugins = default_plugins.disable::<LogPlugin>();
+        #[cfg(not(target_arch = "wasm32"))]
+        let default_plugins = default_plugins.disable::<TerminalCtrlCHandlerPlugin>();
 
         app.insert_resource(EmbeddedViewportConfig { texture })
             .init_resource::<BevyViewportPickedColor>()
@@ -414,12 +508,12 @@ impl BevyViewportRenderer {
             // an egui-driven zoom it eases the camera back to the old
             // distance and looks like a bounce/reset.
             .add_plugins(GlacialPlugins.build().disable::<ChaseCameraPlugin>())
-            .add_plugins(EmbeddedViewportCopyPlugin)
             .configure_sets(Startup, BevyViewportSet::SetupTarget)
             .add_systems(
                 Startup,
                 setup_embedded_viewport_target.in_set(BevyViewportSet::SetupTarget),
             );
+        app.add_plugins(EmbeddedViewportCopyPlugin);
 
         if let Some(configure_app) = configure_app {
             configure_app(&mut app);
@@ -450,26 +544,13 @@ impl BevyViewportRenderer {
         }
 
         let world = self.app.world_mut();
-        let Some(render_device) = world.get_resource::<RenderDevice>().cloned() else {
+        let Some(render_target) = world.get_resource::<BevyViewportRenderTarget>().cloned() else {
             return false;
         };
+        let src_image = render_target.0;
 
-        let mut copiers = world.query::<&EmbeddedViewportImageCopier>();
-        let Some(src_image) = copiers
-            .iter(world)
-            .next()
-            .map(|copier| copier.src_image.clone())
-        else {
-            return false;
-        };
-
-        let mut render_target_image = Image::new_target_texture(
-            texture.width,
-            texture.height,
-            TextureFormat::bevy_default(),
-            None,
-        );
-        render_target_image.texture_descriptor.usage |= TextureUsages::COPY_SRC;
+        let render_target_image =
+            make_embedded_viewport_render_target(texture.width, texture.height);
 
         let Some(mut images) = world.get_resource_mut::<Assets<Image>>() else {
             return false;
@@ -479,22 +560,24 @@ impl BevyViewportRenderer {
         }
         drop(images);
 
-        let size = Extent3d {
-            width: texture.width,
-            height: texture.height,
-            depth_or_array_layers: 1,
-        };
-        let mut copiers = world.query::<&mut EmbeddedViewportImageCopier>();
-        for mut copier in copiers.iter_mut(world) {
-            *copier = EmbeddedViewportImageCopier::new(
-                src_image.clone(),
-                size,
-                render_device.wgpu_device(),
-            );
-        }
+        if let Some(render_device) = world.get_resource::<RenderDevice>().cloned() {
+            let size = Extent3d {
+                width: texture.width,
+                height: texture.height,
+                depth_or_array_layers: 1,
+            };
+            let mut copiers = world.query::<&mut EmbeddedViewportImageCopier>();
+            for mut copier in copiers.iter_mut(world) {
+                *copier = EmbeddedViewportImageCopier::new(
+                    src_image.clone(),
+                    size,
+                    render_device.wgpu_device(),
+                );
+            }
 
-        if let Some(receiver) = world.get_resource::<EmbeddedViewportReceiver>() {
-            while receiver.try_recv().is_ok() {}
+            if let Some(receiver) = world.get_resource::<EmbeddedViewportReceiver>() {
+                while receiver.try_recv().is_ok() {}
+            }
         }
 
         self.texture = texture;
@@ -527,6 +610,33 @@ impl BevyViewportRenderer {
             latest = Some(frame);
         }
         latest
+    }
+
+    pub fn render_next_texture(&mut self) -> Option<CapturedBevyTexture> {
+        self.app.world_mut().insert_resource(self.input);
+        apply_embedded_viewport_input(self.app.world_mut(), self.input);
+        self.app.update();
+        self.gpu_texture()
+    }
+
+    fn gpu_texture(&self) -> Option<CapturedBevyTexture> {
+        let render_target = self
+            .app
+            .world()
+            .get_resource::<BevyViewportRenderTarget>()?
+            .0
+            .clone();
+        let render_app = self.app.get_sub_app(RenderApp)?;
+        let gpu_images = render_app
+            .world()
+            .get_resource::<RenderAssets<bevy::render::texture::GpuImage>>()?;
+        let gpu_image = gpu_images.get(render_target.id())?;
+        Some(CapturedBevyTexture {
+            width: gpu_image.size.width,
+            height: gpu_image.size.height,
+            view: gpu_image.texture_view.clone(),
+            frame: 0,
+        })
     }
 
     fn scene_state(&mut self) -> Option<EmbeddedViewportSceneState> {
@@ -586,6 +696,7 @@ struct EmbeddedViewportConfig {
     texture: BevyViewportTexture,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn setup_embedded_viewport_target(
     mut commands: Commands,
     mut images: ResMut<Assets<Image>>,
@@ -598,9 +709,7 @@ fn setup_embedded_viewport_target(
         depth_or_array_layers: 1,
     };
 
-    let mut render_target_image =
-        Image::new_target_texture(size.width, size.height, TextureFormat::bevy_default(), None);
-    render_target_image.texture_descriptor.usage |= TextureUsages::COPY_SRC;
+    let render_target_image = make_embedded_viewport_render_target(size.width, size.height);
     let render_target_handle = images.add(render_target_image);
 
     commands.spawn(EmbeddedViewportImageCopier::new(
@@ -608,6 +717,32 @@ fn setup_embedded_viewport_target(
         size,
         render_device.wgpu_device(),
     ));
+    commands.insert_resource(BevyViewportRenderTarget(render_target_handle));
+}
+
+#[cfg(target_arch = "wasm32")]
+fn setup_embedded_viewport_target(
+    mut commands: Commands,
+    mut images: ResMut<Assets<Image>>,
+    render_device: Option<Res<RenderDevice>>,
+    config: Res<EmbeddedViewportConfig>,
+) {
+    let size = Extent3d {
+        width: config.texture.width,
+        height: config.texture.height,
+        depth_or_array_layers: 1,
+    };
+
+    let render_target_image = make_embedded_viewport_render_target(size.width, size.height);
+    let render_target_handle = images.add(render_target_image);
+
+    if let Some(render_device) = render_device {
+        commands.spawn(EmbeddedViewportImageCopier::new(
+            render_target_handle.clone(),
+            size,
+            render_device.wgpu_device(),
+        ));
+    }
     commands.insert_resource(BevyViewportRenderTarget(render_target_handle));
 }
 
@@ -954,6 +1089,17 @@ impl BevyEmbeddedView {
     ) -> Option<&CapturedBevyFrame> {
         self.bridge
             .render_frame_with_input(width, height, dt_seconds, input)
+    }
+
+    pub fn render_texture_with_input(
+        &mut self,
+        width: u32,
+        height: u32,
+        dt_seconds: f32,
+        input: BevyViewportInput,
+    ) -> Option<CapturedBevyTexture> {
+        self.bridge
+            .render_texture_with_input(width, height, dt_seconds, input)
     }
 
     pub fn renderer_failed(&self) -> bool {
