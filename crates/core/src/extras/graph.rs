@@ -269,9 +269,9 @@ pub fn mara_node_graph_style(accent: egui::Color32) -> GraphStyle {
 /// [`NodeViewBackend`] and composited back into the parent UI. The
 /// graph stays sharp at any zoom level (text + shape edges
 /// rasterise at the zoomed size, never up-scaled) and stays
-/// host-agnostic — the backend trait has impls for `bevy_egui`
-/// (`bevy_mara::node_view_backend::BevyNodeViewBackend`) and
-/// `eframe` (`egui_mara::EframeNodeViewBackend`).
+/// host-agnostic — the backend trait has impls for Bevy
+/// (`bevy_mara::node_view_backend::BevyNodeViewBackend`) and the
+/// unified `mara` window host (`mara::host::EframeNodeViewBackend`).
 ///
 /// `state` carries the per-graph camera (`pan`, `zoom`) plus the
 /// secondary egui context and wgpu texture across frames; pass the

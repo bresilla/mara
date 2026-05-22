@@ -26,7 +26,6 @@
 
 use eframe::egui;
 
-use crate::bevy_view::EmbeddedBevyViewport;
 use mara_core::container::SeparatorStyle;
 use mara_core::pane::{Pane, PaneAnchor, PaneBody, RailZone};
 use mara_core::pod::Pod;
@@ -46,6 +45,7 @@ use mara_map::{
 // facade they live under `mara_core::extras::*`; the node-graph
 // offscreen renderer is created from `mara::host::MaraHostCtx`.
 use mara::host::{EframeNodeViewBackend, MaraHostCtx};
+use mara::ui::modules::bevy::MaraBevyViewport;
 use mara_core::extras::code::Syntax;
 use mara_core::extras::graph::{
     Graph, InPin, InPinId, NodePin, NodeViewState, NodeViewer, OutPin, OutPinId, PinInfo,
@@ -1725,7 +1725,7 @@ pub struct DemoApp {
     canvas_view: CanvasViewState,
     canvas_shelves: CanvasShelfState,
     map_view: MapViewState,
-    bevy_view: EmbeddedBevyViewport,
+    bevy_view: MaraBevyViewport,
     editor_node_view: EditorNodeView,
     editor_graph: EditorGraph,
 }
@@ -1733,9 +1733,18 @@ pub struct DemoApp {
 impl DemoApp {
     /// Built once by `eframe::WebRunner`. No persistence — every
     /// session starts from the default mara layout.
-    pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
+    pub fn new(_cc: &eframe::CreationContext<'_>) -> Self {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            return Self {
+                bevy_view: MaraBevyViewport::with_content(crate::bevy_content::configure_app),
+                ..Self::default()
+            };
+        }
+
+        #[cfg(target_arch = "wasm32")]
         Self {
-            bevy_view: EmbeddedBevyViewport::new(cc),
+            bevy_view: MaraBevyViewport::new(),
             ..Self::default()
         }
     }
@@ -1743,7 +1752,10 @@ impl DemoApp {
     #[cfg(not(target_arch = "wasm32"))]
     pub fn new_winit(render_state: Option<&egui_wgpu::RenderState>) -> Self {
         Self {
-            bevy_view: EmbeddedBevyViewport::with_render_state(render_state),
+            bevy_view: MaraBevyViewport::with_render_state_and_content(
+                render_state,
+                crate::bevy_content::configure_app,
+            ),
             ..Self::default()
         }
     }
@@ -1831,7 +1843,7 @@ fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
     // Bevy is represented as an embedded viewport surface, not the
     // top-level window owner.
     if *root_view == DemoRootView::BevyScene {
-        if let Some(color) = bevy_view.show(host, accent_col) {
+        if let Some(color) = bevy_view.show(host.egui(), host.render_state(), accent_col) {
             accent.0 = color;
             host.apply_theme(*accent, *glass);
             accent_col = mara_core::style::active_accent();

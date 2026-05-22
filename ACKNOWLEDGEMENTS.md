@@ -1,23 +1,23 @@
 # Acknowledgements
 
 Parts of this project are derived from third-party open-source
-crates, vendored into the relevant `core_crates/*` sub-tree so we
+crates, vendored into the relevant `crates/*` sub-tree so we
 can modify them in-place without forks / upstream round-trips.
 Full copies of each upstream license live alongside the vendored
 sources.
 
 Per-crate acknowledgements:
 
-- [`core_crates/core/ACKNOWLEDGEMENTS.md`](core_crates/core/ACKNOWLEDGEMENTS.md)
+- [`crates/core/ACKNOWLEDGEMENTS.md`](crates/core/ACKNOWLEDGEMENTS.md)
   — bundled fonts (Iosevka) and other assets used by `mara_core`.
-- [`core_crates/modules/graph/ACKNOWLEDGEMENTS.md`](core_crates/modules/graph/ACKNOWLEDGEMENTS.md)
+- [`crates/modules/graph/ACKNOWLEDGEMENTS.md`](crates/modules/graph/ACKNOWLEDGEMENTS.md)
   — vendored `egui-snarl` used by `mara_graph`.
-- [`core_crates/modules/code/ACKNOWLEDGEMENTS.md`](core_crates/modules/code/ACKNOWLEDGEMENTS.md)
+- [`crates/modules/code/ACKNOWLEDGEMENTS.md`](crates/modules/code/ACKNOWLEDGEMENTS.md)
   — vendored `egui_code_editor` used by `mara_code`.
 
 ---
 
-## `core_crates/modules/graph/src/vendored/`
+## `crates/modules/graph/src/vendored/`
 
 Derived from **egui-snarl** v0.9.0 — a node-graph widget for
 `egui`.
@@ -26,12 +26,12 @@ Derived from **egui-snarl** v0.9.0 — a node-graph widget for
 - Author: [@zakarumych](https://github.com/zakarumych)
 - License: MIT OR Apache-2.0
 - License files (verbatim copies):
-  - [`core_crates/modules/graph/src/vendored/LICENSE-MIT`](core_crates/modules/graph/src/vendored/LICENSE-MIT)
-  - [`core_crates/modules/graph/src/vendored/LICENSE-APACHE`](core_crates/modules/graph/src/vendored/LICENSE-APACHE)
+  - [`crates/modules/graph/src/vendored/LICENSE-MIT`](crates/modules/graph/src/vendored/LICENSE-MIT)
+  - [`crates/modules/graph/src/vendored/LICENSE-APACHE`](crates/modules/graph/src/vendored/LICENSE-APACHE)
 
 ---
 
-## `core_crates/modules/code/src/vendored/`
+## `crates/modules/code/src/vendored/`
 
 Derived from **egui_code_editor** v0.2.21 — a syntax-highlighting
 multi-line text editor for `egui`.
@@ -41,11 +41,11 @@ multi-line text editor for `egui`.
   ([@p4ymak](https://github.com/p4ymak))
 - License: MIT
 - License file (verbatim copy):
-  - [`core_crates/modules/code/src/vendored/LICENSE`](core_crates/modules/code/src/vendored/LICENSE)
+  - [`crates/modules/code/src/vendored/LICENSE`](crates/modules/code/src/vendored/LICENSE)
 
 ---
 
-## `core_crates/core/src/fonts/`
+## `crates/core/src/fonts/`
 
 The nine Iosevka weights bundled with `mara_core` are licensed
 under the **SIL Open Font License 1.1**.

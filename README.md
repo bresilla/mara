@@ -7,9 +7,8 @@ The main crates are:
 
 - `mara_core` — panes, ribbons, shelves, widgets, themes, views, modules, and
   host-neutral window chrome
-- `bevy_mara` — Bevy integration and demo host
-- `egui_mara` — plain egui / eframe facade
-- `egui_mara_web` — browser/wasm host
+- `mara` — unified UI/window facade
+- `bevy_mara` — Bevy plugin integration under `mara/plugin/bevy`
 - `mara_graph` — standalone node graph widget
 - `mara_code` — standalone code editor widget
 - `mara_image` / `mara_canvas` — proof View + Module surfaces
@@ -29,17 +28,15 @@ The main crates are:
 ## Repository layout
 
 ```text
-core_crates/
+crates/
   core/                 mara_core
   modules/graph/        mara_graph
   modules/code/         mara_code
   modules/image/        mara_image
   modules/canvas/       mara_canvas
-
-api_crates/
-  bevy/                 bevy_mara
-  egui/                 egui_mara
-  web/                  egui_mara_web
+mara/
+  plugin/bevy/          bevy_mara
+example/                root native/web example
 ```
 
 See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the design boundaries.
@@ -49,12 +46,11 @@ See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the design boundaries.
 Use the Makefile targets from the repo root:
 
 ```sh
-make run          # Bevy demo
-make run-egui     # native eframe demo
+make run          # native Mara example
 make serve-web    # web demo at http://localhost:8080
 ```
 
-The Makefile defaults to the Bevy demo package:
+The Makefile defaults to the root example package:
 
 ```sh
 make build
@@ -95,7 +91,7 @@ by default because the browser owns the outer window.
 ## Development notes
 
 - Put reusable behavior in `mara_core`.
-- Keep host crates as adapters.
+- Keep host/plugin crates as adapters.
 - Use `make` targets rather than ad-hoc cargo commands when working in this
   repo.
 - Do not add Bevy-only logic for behavior that should also work in egui/eframe

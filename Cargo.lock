@@ -2225,28 +2225,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "egui_mara"
-version = "0.1.2"
-dependencies = [
- "egui",
- "egui-wgpu",
- "mara_core",
- "wgpu",
-]
-
-[[package]]
-name = "egui_mara_web"
-version = "0.1.2"
-dependencies = [
- "eframe",
- "egui_mara",
- "getrandom 0.3.4",
- "log",
- "wasm-bindgen-futures",
- "wgpu",
-]
-
-[[package]]
 name = "egui_plot"
 version = "0.34.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3457,6 +3435,8 @@ dependencies = [
  "bevy_glacial",
  "crossbeam-channel",
  "egui",
+ "egui-wgpu",
+ "mara_core",
  "wgpu",
 ]
 
@@ -3492,6 +3472,9 @@ dependencies = [
 name = "mara_example"
 version = "0.1.2"
 dependencies = [
+ "bevy",
+ "bevy_ecs",
+ "bevy_glacial",
  "eframe",
  "egui-wgpu",
  "egui_plot",

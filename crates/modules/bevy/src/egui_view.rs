@@ -1,28 +1,29 @@
-//! Embedded Bevy viewport view.
+//! Mara/egui-hosted Bevy viewport widget.
 //!
-//! The root example is egui-owned. This view reserves a viewport
-//! surface inside Mara and, on native builds, asks `mara`'s embedded
-//! Bevy module to
-//! render a tiny windowless Bevy scene into an offscreen target. The
-//! resulting RGBA frame is uploaded as an egui texture and displayed
-//! inside the Mara view.
+//! This is the host-facing view wrapper around [`BevyEmbeddedView`]:
+//! it owns the egui allocation, interaction forwarding, resize
+//! throttling, texture upload, and warmup/fallback painting. Example
+//! apps should only hold this state and place it in their content
+//! tree; the viewport mechanics live here in the module crate.
 
-use eframe::egui;
 use std::time::Duration;
 
-#[cfg(not(target_arch = "wasm32"))]
-use crate::bevy_scene::ExampleBevyScene;
-#[cfg(not(target_arch = "wasm32"))]
-use mara::prelude::MaraHostCtx;
-#[cfg(not(target_arch = "wasm32"))]
-use mara::ui::modules::bevy::{BevyViewportInput, BevyViewportWgpuResources};
+use egui::{self, TextureHandle};
 
+use crate::{BevyEmbeddedView, BevyViewportInput, BevyViewportWgpuResources};
+
+/// Egui/Mara-hosted Bevy viewport.
+///
+/// The host still owns the top-level window. This widget reserves an
+/// egui region, asks the embedded Bevy bridge to render into an
+/// offscreen target, uploads the latest RGBA frame as an egui texture,
+/// and forwards pointer/scroll interaction into the Bevy camera.
 #[derive(Default)]
-pub struct EmbeddedBevyViewport {
+pub struct MaraBevyViewport {
     #[cfg(not(target_arch = "wasm32"))]
-    bevy: ExampleBevyScene,
+    bevy: BevyEmbeddedView,
     #[cfg(not(target_arch = "wasm32"))]
-    texture: Option<egui::TextureHandle>,
+    texture: Option<TextureHandle>,
     #[cfg(not(target_arch = "wasm32"))]
     last_pixels: [u32; 2],
     #[cfg(not(target_arch = "wasm32"))]
@@ -39,23 +40,16 @@ pub struct EmbeddedBevyViewport {
     ticks: u64,
 }
 
-impl EmbeddedBevyViewport {
-    pub fn new(_cc: &eframe::CreationContext<'_>) -> Self {
+/// Backwards-friendly name for apps that think of this as the
+/// embedded Bevy viewport.
+pub type EmbeddedBevyViewport = MaraBevyViewport;
+
+impl MaraBevyViewport {
+    pub fn new() -> Self {
         #[cfg(not(target_arch = "wasm32"))]
         {
-            let bevy = _cc
-                .wgpu_render_state
-                .as_ref()
-                .map(|render_state| {
-                    ExampleBevyScene::with_wgpu_resources(BevyViewportWgpuResources::new(
-                        render_state.device.clone(),
-                        render_state.queue.clone(),
-                        render_state.adapter.clone(),
-                    ))
-                })
-                .unwrap_or_default();
             Self {
-                bevy,
+                bevy: BevyEmbeddedView::new(),
                 texture: None,
                 last_pixels: [0, 0],
                 target_pixels: [0, 0],
@@ -73,10 +67,26 @@ impl EmbeddedBevyViewport {
     }
 
     #[cfg(not(target_arch = "wasm32"))]
+    pub fn with_content(
+        configure_app: impl Fn(&mut bevy::prelude::App) + Send + Sync + 'static,
+    ) -> Self {
+        Self {
+            bevy: BevyEmbeddedView::with_app_config(configure_app),
+            texture: None,
+            last_pixels: [0, 0],
+            target_pixels: [0, 0],
+            target_pixels_since: f64::NEG_INFINITY,
+            last_render_time: f64::NEG_INFINITY,
+            last_pointer_pos: None,
+            primary_drag_active: false,
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn with_render_state(render_state: Option<&egui_wgpu::RenderState>) -> Self {
         let bevy = render_state
             .map(|render_state| {
-                ExampleBevyScene::with_wgpu_resources(BevyViewportWgpuResources::new(
+                BevyEmbeddedView::with_wgpu_resources(BevyViewportWgpuResources::new(
                     render_state.device.clone(),
                     render_state.queue.clone(),
                     render_state.adapter.clone(),
@@ -95,12 +105,42 @@ impl EmbeddedBevyViewport {
         }
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn with_render_state_and_content(
+        render_state: Option<&egui_wgpu::RenderState>,
+        configure_app: impl Fn(&mut bevy::prelude::App) + Send + Sync + 'static,
+    ) -> Self {
+        let bevy = if let Some(render_state) = render_state {
+            BevyEmbeddedView::with_wgpu_resources_and_app_config(
+                BevyViewportWgpuResources::new(
+                    render_state.device.clone(),
+                    render_state.queue.clone(),
+                    render_state.adapter.clone(),
+                ),
+                configure_app,
+            )
+        } else {
+            BevyEmbeddedView::with_app_config(configure_app)
+        };
+        Self {
+            bevy,
+            texture: None,
+            last_pixels: [0, 0],
+            target_pixels: [0, 0],
+            target_pixels_since: f64::NEG_INFINITY,
+            last_render_time: f64::NEG_INFINITY,
+            last_pointer_pos: None,
+            primary_drag_active: false,
+        }
+    }
     pub fn show(
         &mut self,
-        host: &mut MaraHostCtx<'_>,
+        ctx: &egui::Context,
+        #[cfg_attr(target_arch = "wasm32", allow(unused_variables))] render_state: Option<
+            &egui_wgpu::RenderState,
+        >,
         accent: egui::Color32,
     ) -> Option<egui::Color32> {
-        let ctx = host.egui();
         #[cfg(target_arch = "wasm32")]
         {
             self.ticks = self.ticks.saturating_add(1);
@@ -117,7 +157,7 @@ impl EmbeddedBevyViewport {
 
                 #[cfg(not(target_arch = "wasm32"))]
                 {
-                    if let Some(render_state) = host.render_state() {
+                    if let Some(render_state) = render_state {
                         self.bevy
                             .attach_wgpu_resources(BevyViewportWgpuResources::new(
                                 render_state.device.clone(),
@@ -276,7 +316,7 @@ impl EmbeddedBevyViewport {
                         self.paint_warmup(ui, rect, accent);
                     }
 
-                    picked_color = self.bevy.picked_swatch_color();
+                    picked_color = self.bevy.picked_color();
                     let mut next = if should_render {
                         target_interval
                     } else {
@@ -293,72 +333,7 @@ impl EmbeddedBevyViewport {
                 }
 
                 #[cfg(target_arch = "wasm32")]
-                {
-                    let grid = 36.0;
-                    let grid_col = egui::Color32::from_rgba_unmultiplied(
-                        accent.r(),
-                        accent.g(),
-                        accent.b(),
-                        28,
-                    );
-                    let mut x = rect.left();
-                    while x < rect.right() {
-                        painter.line_segment(
-                            [egui::pos2(x, rect.top()), egui::pos2(x, rect.bottom())],
-                            egui::Stroke::new(1.0, grid_col),
-                        );
-                        x += grid;
-                    }
-                    let mut y = rect.top();
-                    while y < rect.bottom() {
-                        painter.line_segment(
-                            [egui::pos2(rect.left(), y), egui::pos2(rect.right(), y)],
-                            egui::Stroke::new(1.0, grid_col),
-                        );
-                        y += grid;
-                    }
-
-                    let center = rect.center();
-                    let pulse = self.phase().sin() * 0.5 + 0.5;
-                    let yaw = self.rotation_angle();
-                    let cube = egui::Rect::from_center_size(
-                        center,
-                        egui::vec2(150.0 + 26.0 * pulse, 110.0 + 18.0 * pulse),
-                    );
-                    let skew = yaw.sin() * 44.0;
-                    let body = vec![
-                        egui::pos2(cube.left() + skew, cube.top()),
-                        egui::pos2(cube.right() + skew, cube.top() + 22.0),
-                        egui::pos2(cube.right() - skew, cube.bottom()),
-                        egui::pos2(cube.left() - skew, cube.bottom() - 22.0),
-                    ];
-                    painter.add(egui::Shape::convex_polygon(
-                        body,
-                        egui::Color32::from_rgba_unmultiplied(
-                            accent.r(),
-                            accent.g(),
-                            accent.b(),
-                            90,
-                        ),
-                        egui::Stroke::new(1.5, accent),
-                    ));
-
-                    let status = self.status_text();
-                    painter.text(
-                        center + egui::vec2(0.0, cube.height() * 0.5 + 28.0),
-                        egui::Align2::CENTER_CENTER,
-                        status,
-                        egui::FontId::proportional(13.0),
-                        mara_core::style::on_panel(),
-                    );
-                    painter.text(
-                        center + egui::vec2(0.0, cube.height() * 0.5 + 50.0),
-                        egui::Align2::CENTER_CENTER,
-                        "egui/eframe owns this window; Bevy is embedded as viewport state.",
-                        egui::FontId::proportional(12.0),
-                        mara_core::style::on_panel_dim(),
-                    );
-                }
+                self.paint_web_placeholder(ui, rect, accent);
             });
         picked_color
     }
@@ -395,6 +370,65 @@ impl EmbeddedBevyViewport {
             },
             egui::FontId::proportional(13.0),
             mara_core::style::on_panel(),
+        );
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn paint_web_placeholder(&self, ui: &egui::Ui, rect: egui::Rect, accent: egui::Color32) {
+        let painter = ui.painter_at(rect);
+        let grid = 36.0;
+        let grid_col =
+            egui::Color32::from_rgba_unmultiplied(accent.r(), accent.g(), accent.b(), 28);
+        let mut x = rect.left();
+        while x < rect.right() {
+            painter.line_segment(
+                [egui::pos2(x, rect.top()), egui::pos2(x, rect.bottom())],
+                egui::Stroke::new(1.0, grid_col),
+            );
+            x += grid;
+        }
+        let mut y = rect.top();
+        while y < rect.bottom() {
+            painter.line_segment(
+                [egui::pos2(rect.left(), y), egui::pos2(rect.right(), y)],
+                egui::Stroke::new(1.0, grid_col),
+            );
+            y += grid;
+        }
+
+        let center = rect.center();
+        let pulse = self.phase().sin() * 0.5 + 0.5;
+        let yaw = self.rotation_angle();
+        let cube = egui::Rect::from_center_size(
+            center,
+            egui::vec2(150.0 + 26.0 * pulse, 110.0 + 18.0 * pulse),
+        );
+        let skew = yaw.sin() * 44.0;
+        let body = vec![
+            egui::pos2(cube.left() + skew, cube.top()),
+            egui::pos2(cube.right() + skew, cube.top() + 22.0),
+            egui::pos2(cube.right() - skew, cube.bottom()),
+            egui::pos2(cube.left() - skew, cube.bottom() - 22.0),
+        ];
+        painter.add(egui::Shape::convex_polygon(
+            body,
+            egui::Color32::from_rgba_unmultiplied(accent.r(), accent.g(), accent.b(), 90),
+            egui::Stroke::new(1.5, accent),
+        ));
+
+        painter.text(
+            center + egui::vec2(0.0, cube.height() * 0.5 + 28.0),
+            egui::Align2::CENTER_CENTER,
+            self.status_text(),
+            egui::FontId::proportional(13.0),
+            mara_core::style::on_panel(),
+        );
+        painter.text(
+            center + egui::vec2(0.0, cube.height() * 0.5 + 50.0),
+            egui::Align2::CENTER_CENTER,
+            "egui/eframe owns this window; Bevy is embedded as viewport state.",
+            egui::FontId::proportional(12.0),
+            mara_core::style::on_panel_dim(),
         );
     }
 

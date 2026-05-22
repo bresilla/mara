@@ -17,8 +17,6 @@ use std::sync::{
 use bevy::asset::RenderAssetUsages;
 use bevy::camera::RenderTarget;
 use bevy::image::{BevyDefault, TextureFormatPixelInfo};
-use bevy::light::{CascadeShadowConfigBuilder, NotShadowCaster, NotShadowReceiver};
-use bevy::pbr::{DistanceFog, FogFalloff};
 use bevy::prelude::*;
 use bevy::render::{
     Extract, Render, RenderApp, RenderSystems,
@@ -36,6 +34,9 @@ use bevy::winit::WinitPlugin;
 use bevy::{app::TerminalCtrlCHandlerPlugin, log::LogPlugin};
 use bevy_glacial::prelude::*;
 use crossbeam_channel::{Receiver, Sender};
+
+mod egui_view;
+pub use egui_view::{EmbeddedBevyViewport, MaraBevyViewport};
 
 /// Description of the viewport surface the egui host reserves for
 /// Bevy. It is host-facing metadata, not a Bevy window.
@@ -70,13 +71,38 @@ pub struct CapturedBevyFrame {
 /// Pointer input forwarded by an egui host into the embedded Bevy
 /// scene. Coordinates are in physical pixels relative to the viewport
 /// image.
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, Resource)]
 pub struct BevyViewportInput {
     pub pointer_pos: Option<[f32; 2]>,
     pub drag_delta: [f32; 2],
     pub scroll_delta: f32,
     pub primary_clicked: bool,
 }
+
+/// Bevy image target created by the viewport infrastructure.
+///
+/// Example/application content should spawn its camera with
+/// `RenderTarget::from(target.0.clone())`.
+#[derive(Resource, Clone)]
+pub struct BevyViewportRenderTarget(pub Handle<Image>);
+
+/// Optional app/content output used by examples to feed a picked
+/// accent colour back to the Mara shell.
+#[derive(Resource, Default, Clone, Copy)]
+pub struct BevyViewportPickedColor(pub Option<egui::Color32>);
+
+/// Startup set that creates [`BevyViewportRenderTarget`].
+///
+/// Content setup systems that need the render target should run
+/// `.after(BevyViewportSet::SetupTarget)`.
+#[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum BevyViewportSet {
+    SetupTarget,
+}
+
+/// Hook used by consumers to add scene/content systems to the
+/// windowless Bevy app owned by the viewport renderer.
+pub type BevyViewportAppConfigure = Arc<dyn Fn(&mut App) + Send + Sync + 'static>;
 
 /// Existing wgpu resources supplied by an egui/eframe host.
 ///
@@ -106,8 +132,6 @@ impl BevyViewportWgpuResources {
 /// frame, but does not install `WinitPlugin` or create a Bevy window.
 /// It is deliberately small so consumers can embed it in any egui host.
 pub struct BevyViewportBridge {
-    world: World,
-    cube: Entity,
     frame: u64,
     seconds: f32,
     texture: BevyViewportTexture,
@@ -117,6 +141,7 @@ pub struct BevyViewportBridge {
     latest_frame: Option<CapturedBevyFrame>,
     input: BevyViewportInput,
     scene_state: Option<EmbeddedViewportSceneState>,
+    configure_app: Option<BevyViewportAppConfigure>,
 }
 
 impl Default for BevyViewportBridge {
@@ -127,17 +152,7 @@ impl Default for BevyViewportBridge {
 
 impl BevyViewportBridge {
     pub fn new(texture: BevyViewportTexture) -> Self {
-        let mut world = World::new();
-        let cube = world
-            .spawn((
-                Transform::from_xyz(0.0, 0.0, 0.0),
-                GlobalTransform::default(),
-            ))
-            .id();
-
         Self {
-            world,
-            cube,
             frame: 0,
             seconds: 0.0,
             texture,
@@ -147,7 +162,17 @@ impl BevyViewportBridge {
             latest_frame: None,
             input: BevyViewportInput::default(),
             scene_state: None,
+            configure_app: None,
         }
+    }
+
+    pub fn with_app_config(
+        texture: BevyViewportTexture,
+        configure_app: impl Fn(&mut App) + Send + Sync + 'static,
+    ) -> Self {
+        let mut bridge = Self::new(texture);
+        bridge.configure_app = Some(Arc::new(configure_app));
+        bridge
     }
 
     pub fn with_wgpu_resources(
@@ -155,6 +180,16 @@ impl BevyViewportBridge {
         resources: BevyViewportWgpuResources,
     ) -> Self {
         let mut bridge = Self::new(texture);
+        bridge.external_wgpu = Some(resources);
+        bridge
+    }
+
+    pub fn with_wgpu_resources_and_app_config(
+        texture: BevyViewportTexture,
+        resources: BevyViewportWgpuResources,
+        configure_app: impl Fn(&mut App) + Send + Sync + 'static,
+    ) -> Self {
+        let mut bridge = Self::with_app_config(texture, configure_app);
         bridge.external_wgpu = Some(resources);
         bridge
     }
@@ -172,11 +207,6 @@ impl BevyViewportBridge {
     pub fn tick(&mut self, dt_seconds: f32) {
         self.frame = self.frame.saturating_add(1);
         self.seconds += dt_seconds.max(0.0);
-
-        if let Some(mut transform) = self.world.get_mut::<Transform>(self.cube) {
-            transform.rotation = Quat::from_rotation_y(self.seconds * 0.75)
-                * Quat::from_rotation_x(self.seconds * 0.35);
-        }
     }
 
     pub fn frame(&self) -> u64 {
@@ -192,10 +222,7 @@ impl BevyViewportBridge {
     }
 
     pub fn rotation_angle(&self) -> f32 {
-        self.world
-            .get::<Transform>(self.cube)
-            .map(|transform| transform.rotation.to_euler(EulerRot::YXZ).0)
-            .unwrap_or(0.0)
+        self.seconds * 0.75
     }
 
     /// Allocate a Bevy `Image` suitable for an offscreen camera render
@@ -240,12 +267,20 @@ impl BevyViewportBridge {
         let texture = self.texture;
         let rendered = catch_unwind(AssertUnwindSafe(|| {
             let renderer = self.renderer.get_or_insert_with(|| {
-                BevyViewportRenderer::new(texture, self.external_wgpu.clone())
+                BevyViewportRenderer::new(
+                    texture,
+                    self.external_wgpu.clone(),
+                    self.configure_app.clone(),
+                )
             });
             if renderer.texture() != texture {
                 let scene_state = renderer.scene_state().or(self.scene_state);
                 if !renderer.resize(texture) {
-                    *renderer = BevyViewportRenderer::new(texture, self.external_wgpu.clone());
+                    *renderer = BevyViewportRenderer::new(
+                        texture,
+                        self.external_wgpu.clone(),
+                        self.configure_app.clone(),
+                    );
                     if let Some(scene_state) = scene_state {
                         renderer.apply_scene_state(scene_state);
                     }
@@ -279,11 +314,12 @@ impl BevyViewportBridge {
         self.renderer_failed
     }
 
-    /// Color picked by a cube click during the last rendered frame.
+    /// Optional color emitted by the consumer's Bevy content during
+    /// the last rendered frame.
     ///
-    /// This is event-like: it is `Some` only on a frame where the
-    /// embedded Bevy scene hit a swatch cube with a primary click.
-    pub fn picked_swatch_color(&self) -> Option<egui::Color32> {
+    /// Content can set [`BevyViewportPickedColor`] to feed an accent
+    /// or selection color back to the Mara/egui host.
+    pub fn picked_color(&self) -> Option<egui::Color32> {
         self.scene_state.and_then(|state| state.picked_color)
     }
 }
@@ -345,7 +381,6 @@ struct EmbeddedViewportSceneState {
     yaw: f32,
     elevation: f32,
     distance: f32,
-    selected_index: Option<usize>,
     picked_color: Option<egui::Color32>,
 }
 
@@ -353,6 +388,7 @@ impl BevyViewportRenderer {
     pub fn new(
         texture: BevyViewportTexture,
         _resources: Option<BevyViewportWgpuResources>,
+        configure_app: Option<BevyViewportAppConfigure>,
     ) -> Self {
         let mut app = App::new();
         let default_plugins = DefaultPlugins
@@ -368,12 +404,7 @@ impl BevyViewportRenderer {
             .disable::<TerminalCtrlCHandlerPlugin>();
 
         app.insert_resource(EmbeddedViewportConfig { texture })
-            .insert_resource(ClearColor(Color::srgb_u8(10, 12, 16)))
-            .insert_resource(GroundGrid {
-                visible: true,
-                color: Color::srgba(0.30, 0.38, 0.50, 0.42),
-            })
-            .init_resource::<SelectedSwatch>()
+            .init_resource::<BevyViewportPickedColor>()
             .add_plugins(default_plugins)
             // The embedded viewport receives pointer/scroll input
             // from egui and applies it manually before each Bevy
@@ -384,8 +415,15 @@ impl BevyViewportRenderer {
             // distance and looks like a bounce/reset.
             .add_plugins(GlacialPlugins.build().disable::<ChaseCameraPlugin>())
             .add_plugins(EmbeddedViewportCopyPlugin)
-            .add_systems(Startup, setup_embedded_viewport_scene)
-            .add_systems(Update, update_swatch_selection);
+            .configure_sets(Startup, BevyViewportSet::SetupTarget)
+            .add_systems(
+                Startup,
+                setup_embedded_viewport_target.in_set(BevyViewportSet::SetupTarget),
+            );
+
+        if let Some(configure_app) = configure_app {
+            configure_app(&mut app);
+        }
 
         // We drive this embedded app manually with `app.update()`
         // instead of `app.run()`, so Bevy's plugin lifecycle must be
@@ -469,6 +507,7 @@ impl BevyViewportRenderer {
     }
 
     pub fn render_next(&mut self) -> Option<CapturedBevyFrame> {
+        self.app.world_mut().insert_resource(self.input);
         apply_embedded_viewport_input(self.app.world_mut(), self.input);
         self.app.update();
 
@@ -494,21 +533,14 @@ impl BevyViewportRenderer {
         let world = self.app.world_mut();
         let mut cameras = world.query::<&ChaseCamera>();
         let camera = cameras.iter(world).next()?;
-        let selected = world.get_resource::<SelectedSwatch>().and_then(|selected| {
-            let entity = selected.entity?;
-            world
-                .get::<ColorCube>(entity)
-                .map(|cube| (cube.index, cube.egui_col))
-        });
         let picked_color = world
-            .get_resource::<SelectedSwatch>()
-            .and_then(|selected| selected.picked_color);
+            .get_resource::<BevyViewportPickedColor>()
+            .and_then(|selected| selected.0);
         Some(EmbeddedViewportSceneState {
             focus: camera.focus,
             yaw: camera.yaw,
             elevation: camera.elevation,
             distance: camera.distance,
-            selected_index: selected.map(|(index, _)| index),
             picked_color,
         })
     }
@@ -525,24 +557,10 @@ impl BevyViewportRenderer {
                 apply_rig(&camera, &mut transform);
             }
         }
-        if let Some(index) = scene_state.selected_index {
-            let mut cubes = world.query::<(Entity, &ColorCube)>();
-            let selected = cubes
-                .iter(world)
-                .find_map(|(entity, cube)| (cube.index == index).then_some(entity));
-            if let Some(mut selected_res) = world.get_resource_mut::<SelectedSwatch>() {
-                selected_res.entity = selected;
-                selected_res.picked_color = None;
-            }
-        }
     }
 }
 
 fn apply_embedded_viewport_input(world: &mut World, input: BevyViewportInput) {
-    if let Some(mut selected) = world.get_resource_mut::<SelectedSwatch>() {
-        selected.picked_color = None;
-    }
-
     let drag = Vec2::new(input.drag_delta[0], input.drag_delta[1]);
     if drag != Vec2::ZERO || input.scroll_delta != 0.0 {
         let mut cameras = world.query::<(&mut ChaseCamera, &mut Transform)>();
@@ -561,39 +579,6 @@ fn apply_embedded_viewport_input(world: &mut World, input: BevyViewportInput) {
             apply_rig(&cam, &mut tr);
         }
     }
-
-    if input.primary_clicked {
-        let Some([x, y]) = input.pointer_pos else {
-            return;
-        };
-        let mut cameras = world.query::<(&Camera, &GlobalTransform)>();
-        let Ok((camera, cam_tr)) = cameras.single(world) else {
-            return;
-        };
-        let Ok(ray) = camera.viewport_to_world(cam_tr, Vec2::new(x, y)) else {
-            return;
-        };
-        let origin = ray.origin;
-        let direction = *ray.direction;
-        let mut cubes = world.query::<(Entity, &Transform, &ColorCube)>();
-        let mut best: Option<(f32, Entity, egui::Color32)> = None;
-        for (entity, tr, cube) in cubes.iter(world) {
-            let min = tr.translation - Vec3::splat(0.5);
-            let max = tr.translation + Vec3::splat(0.5);
-            if let Some(t) = ray_aabb_hit(origin, direction, min, max) {
-                match best {
-                    Some((bt, _, _)) if bt <= t => {}
-                    _ => best = Some((t, entity, cube.egui_col)),
-                }
-            }
-        }
-        if let Some((_, entity, color)) = best
-            && let Some(mut selected) = world.get_resource_mut::<SelectedSwatch>()
-        {
-            selected.entity = Some(entity);
-            selected.picked_color = Some(color);
-        }
-    }
 }
 
 #[derive(Resource)]
@@ -601,27 +586,8 @@ struct EmbeddedViewportConfig {
     texture: BevyViewportTexture,
 }
 
-#[derive(Component)]
-struct ColorCube {
-    index: usize,
-    #[allow(dead_code)]
-    egui_col: egui::Color32,
-    base_color: Color,
-}
-
-#[derive(Resource, Default)]
-struct SelectedSwatch {
-    entity: Option<Entity>,
-    picked_color: Option<egui::Color32>,
-}
-
-const PLANET_RADIUS: f32 = 6_371_000.0;
-const CLOUD_ALTITUDE_M: f32 = 4_000.0;
-
-fn setup_embedded_viewport_scene(
+fn setup_embedded_viewport_target(
     mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
     mut images: ResMut<Assets<Image>>,
     render_device: Res<RenderDevice>,
     config: Res<EmbeddedViewportConfig>,
@@ -642,188 +608,7 @@ fn setup_embedded_viewport_scene(
         size,
         render_device.wgpu_device(),
     ));
-
-    let planet_mesh = meshes.add(Sphere::new(PLANET_RADIUS).mesh().uv(1024, 512));
-    let planet_mat = materials.add(StandardMaterial {
-        base_color: Color::srgb(0.62, 0.48, 0.33),
-        perceptual_roughness: 0.95,
-        ..default()
-    });
-    commands.spawn((
-        Name::new("Planet"),
-        Transform::from_xyz(0.0, -PLANET_RADIUS, 0.0),
-        Mesh3d(planet_mesh),
-        MeshMaterial3d(planet_mat),
-        NotShadowCaster,
-        NotShadowReceiver,
-    ));
-
-    let shell_radius = PLANET_RADIUS + CLOUD_ALTITUDE_M;
-    let cloud_mesh = meshes.add(Sphere::new(shell_radius).mesh().uv(64, 32));
-    let cloud_mat = materials.add(StandardMaterial {
-        base_color: Color::srgba(1.0, 1.0, 1.0, 0.35),
-        alpha_mode: AlphaMode::Blend,
-        double_sided: true,
-        cull_mode: None,
-        unlit: false,
-        perceptual_roughness: 1.0,
-        ..default()
-    });
-    commands.spawn((
-        Name::new("CloudShell"),
-        Transform::from_xyz(0.0, -PLANET_RADIUS, 0.0),
-        Mesh3d(cloud_mesh),
-        MeshMaterial3d(cloud_mat),
-        NotShadowCaster,
-    ));
-
-    let cube_mesh = meshes.add(Cuboid::from_length(1.0));
-    let swatch: [(f32, f32, f32); 6] = [
-        (0.90, 0.30, 0.30),
-        (0.95, 0.65, 0.20),
-        (0.95, 0.90, 0.30),
-        (0.35, 0.85, 0.45),
-        (0.30, 0.60, 0.95),
-        (0.75, 0.45, 0.95),
-    ];
-    const GRID_COLS: usize = 3;
-    const GRID_SPACING: f32 = 2.0;
-    for (i, &(r, g, b)) in swatch.iter().enumerate() {
-        let col = (i % GRID_COLS) as f32;
-        let row = (i / GRID_COLS) as f32;
-        let x = (col - (GRID_COLS as f32 - 1.0) * 0.5) * GRID_SPACING;
-        let z = (row - 0.5) * GRID_SPACING;
-        let bevy_col = Color::srgb(r, g, b);
-        let egui_col = egui::Color32::from_rgb(
-            (r * 255.0).round() as u8,
-            (g * 255.0).round() as u8,
-            (b * 255.0).round() as u8,
-        );
-        commands.spawn((
-            Name::new(format!("Swatch[{i}]")),
-            Mesh3d(cube_mesh.clone()),
-            MeshMaterial3d(materials.add(StandardMaterial {
-                base_color: bevy_col,
-                perceptual_roughness: 0.6,
-                ..default()
-            })),
-            Transform::from_xyz(x, 0.5, z),
-            ColorCube {
-                index: i,
-                egui_col,
-                base_color: bevy_col,
-            },
-        ));
-    }
-
-    let sun_shadow = CascadeShadowConfigBuilder {
-        num_cascades: 1,
-        minimum_distance: 0.1,
-        maximum_distance: 100.0,
-        first_cascade_far_bound: 100.0,
-        overlap_proportion: 0.0,
-    }
-    .build();
-    commands.spawn((
-        Name::new("Sun"),
-        Transform::from_xyz(5.0, 50.0, 5.0).looking_at(Vec3::ZERO, Vec3::Y),
-        DirectionalLight {
-            illuminance: 10_000.0,
-            shadows_enabled: true,
-            ..default()
-        },
-        sun_shadow,
-    ));
-
-    let projection = Projection::Perspective(PerspectiveProjection {
-        near: 0.1,
-        far: PLANET_RADIUS * 2.5,
-        ..default()
-    });
-    let fog = DistanceFog {
-        color: Color::srgb(0.10, 0.13, 0.20),
-        falloff: FogFalloff::Atmospheric {
-            extinction: Vec3::new(0.00008, 0.00012, 0.00020),
-            inscattering: Vec3::new(0.00010, 0.00015, 0.00025),
-        },
-        ..default()
-    };
-    let chase = ChaseCamera::default();
-    let mut cam_tr = Transform::default();
-    apply_rig(&chase, &mut cam_tr);
-
-    commands.spawn((
-        Name::new("Camera"),
-        Camera3d::default(),
-        RenderTarget::from(render_target_handle),
-        cam_tr,
-        projection,
-        fog,
-        AmbientLight {
-            color: Color::WHITE,
-            brightness: 120.0,
-            ..default()
-        },
-        chase,
-    ));
-}
-
-fn update_swatch_selection(
-    time: Res<Time>,
-    selected: Res<SelectedSwatch>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-    mut cubes: Query<(
-        Entity,
-        &ColorCube,
-        &MeshMaterial3d<StandardMaterial>,
-        &mut Transform,
-    )>,
-) {
-    const REST_Y: f32 = 0.5;
-    const LIFT_Y: f32 = 0.9;
-    const EASE: f32 = 8.0;
-    let k = (EASE * time.delta_secs()).min(0.9);
-    for (entity, cube, mat_handle, mut tr) in &mut cubes {
-        let is_sel = selected.entity == Some(entity);
-        let target_y = if is_sel { LIFT_Y } else { REST_Y };
-        tr.translation.y += (target_y - tr.translation.y) * k;
-        if let Some(mat) = materials.get_mut(&mat_handle.0) {
-            mat.base_color = cube.base_color;
-            let base = cube.base_color.to_linear();
-            let gain = if is_sel { 1.8 } else { 0.0 };
-            mat.emissive =
-                LinearRgba::new(base.red * gain, base.green * gain, base.blue * gain, 1.0);
-        }
-    }
-}
-
-fn ray_aabb_hit(origin: Vec3, direction: Vec3, min: Vec3, max: Vec3) -> Option<f32> {
-    let mut tmin = 0.0_f32;
-    let mut tmax = f32::INFINITY;
-    for i in 0..3 {
-        let (o, d, lo, hi) = match i {
-            0 => (origin.x, direction.x, min.x, max.x),
-            1 => (origin.y, direction.y, min.y, max.y),
-            _ => (origin.z, direction.z, min.z, max.z),
-        };
-        if d.abs() < 1e-6 {
-            if o < lo || o > hi {
-                return None;
-            }
-        } else {
-            let mut t1 = (lo - o) / d;
-            let mut t2 = (hi - o) / d;
-            if t1 > t2 {
-                std::mem::swap(&mut t1, &mut t2);
-            }
-            tmin = tmin.max(t1);
-            tmax = tmax.min(t2);
-            if tmin > tmax {
-                return None;
-            }
-        }
-    }
-    Some(tmin.max(0.0))
+    commands.insert_resource(BevyViewportRenderTarget(render_target_handle));
 }
 
 #[derive(Resource)]
@@ -1108,11 +893,33 @@ impl BevyEmbeddedView {
         Self::default()
     }
 
+    pub fn with_app_config(configure_app: impl Fn(&mut App) + Send + Sync + 'static) -> Self {
+        Self {
+            bridge: BevyViewportBridge::with_app_config(
+                BevyViewportTexture::new(512, 512),
+                configure_app,
+            ),
+        }
+    }
+
     pub fn with_wgpu_resources(resources: BevyViewportWgpuResources) -> Self {
         Self {
             bridge: BevyViewportBridge::with_wgpu_resources(
                 BevyViewportTexture::new(512, 512),
                 resources,
+            ),
+        }
+    }
+
+    pub fn with_wgpu_resources_and_app_config(
+        resources: BevyViewportWgpuResources,
+        configure_app: impl Fn(&mut App) + Send + Sync + 'static,
+    ) -> Self {
+        Self {
+            bridge: BevyViewportBridge::with_wgpu_resources_and_app_config(
+                BevyViewportTexture::new(512, 512),
+                resources,
+                configure_app,
             ),
         }
     }
@@ -1153,8 +960,8 @@ impl BevyEmbeddedView {
         self.bridge.renderer_failed()
     }
 
-    pub fn picked_swatch_color(&self) -> Option<egui::Color32> {
-        self.bridge.picked_swatch_color()
+    pub fn picked_color(&self) -> Option<egui::Color32> {
+        self.bridge.picked_color()
     }
 }
 

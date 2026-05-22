@@ -8,6 +8,8 @@ repository.workspace = true
 
 [dependencies]
 egui = { workspace = true }
+egui-wgpu = { workspace = true }
+mara_core = { workspace = true }
 wgpu = { workspace = true }
 bevy = { workspace = true, features = [
     "std",

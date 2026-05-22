@@ -36,14 +36,13 @@ pub mod prelude;
 pub mod window_chrome;
 
 // `extras` (vendored graph + code_editor + maximize) lives in
-// `mara_core` so the egui-only `egui_mara` facade can ship the same
-// graph + code wrappers without dragging Bevy in. Re-exported here
-// at the legacy `bevy_mara::extras::*` path so existing call
-// sites stay put.
+// `mara_core`. Re-exported here so Bevy plugin users can keep using
+// `bevy_mara::extras::*`.
 pub use embedded_view::{
-    BevyEmbeddedView, BevyViewportBridge, BevyViewportInput, BevyViewportTexture,
-    BevyViewportWgpuResources, CapturedBevyFrame, make_viewport_render_target,
-    spawn_viewport_camera,
+    BevyEmbeddedView, BevyViewportAppConfigure, BevyViewportBridge, BevyViewportInput,
+    BevyViewportPickedColor, BevyViewportRenderTarget, BevyViewportSet, BevyViewportTexture,
+    BevyViewportWgpuResources, CapturedBevyFrame, EmbeddedBevyViewport, MaraBevyViewport,
+    make_viewport_render_target, spawn_viewport_camera,
 };
 pub use mara_core::extras;
 

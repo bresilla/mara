@@ -21,6 +21,9 @@ eframe = { version = "0.33", default-features = false, features = [
 ] }
 wgpu = { version = "27", default-features = false, features = ["vulkan"] }
 egui-wgpu = { workspace = true, features = ["winit"] }
+bevy = { workspace = true }
+bevy_ecs = "0.18"
+bevy_glacial = { git = "https://github.com/bresilla/bevy_glacial.git", rev = "d7bc6d3" }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 eframe = { version = "0.33", default-features = false, features = [

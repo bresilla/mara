@@ -2,16 +2,14 @@
 resolver = "3"
 members = [
     "mara",
-    "api_crates/bevy",
-    "api_crates/egui",
-    "api_crates/web",
-    "core_crates/core",
-    "core_crates/modules/code",
-    "core_crates/modules/graph",
-    "core_crates/modules/image",
-    "core_crates/modules/canvas",
-    "core_crates/modules/map",
-    "core_crates/modules/bevy",
+    "mara/plugin/bevy",
+    "crates/core",
+    "crates/modules/code",
+    "crates/modules/graph",
+    "crates/modules/image",
+    "crates/modules/canvas",
+    "crates/modules/map",
+    "crates/modules/bevy",
     "example",
 ]
 
@@ -44,35 +42,34 @@ bevy_egui = { version = "0.39", default-features = false }
 # Internal crates.
 #
 # Layout:
-#   core_crates/  ← standalone library crates (UI, node graph, code editor)
+#   crates/  ← standalone library crates (UI, node graph, code editor)
 #   mara/        ← public facade with two modes:
 #                    `mara::ui` for UI-only consumers, and
 #                    `mara::window` for Mara-owned native windows
-#   api_crates/   ← existing host-specific facades kept as internal
-#                    integration crates while the public facade lands
+#   mara/plugin/ ← host-specific integration plugins such as Bevy
 #
 # `mara_core` — UI core (panes, ribbons, containers, pods, widgets,
 # theme, embed mechanism). Package id is `mara_core`, which avoids
 # shadowing Rust's std `core` in derive expansions.
-mara_core = { path = "core_crates/core", version = "0.1.0" }
+mara_core = { path = "crates/core", version = "0.1.0" }
 # `mara_graph` — standalone vendored node-graph crate (forked from
-# `egui-snarl`, see `core_crates/modules/graph/ACKNOWLEDGEMENTS.md`
+# `egui-snarl`, see `crates/modules/graph/ACKNOWLEDGEMENTS.md`
 # for upstream attribution). Usable in any egui app; ships
 # sensible defaults, no mara-theming dep.
-mara_graph = { path = "core_crates/modules/graph", version = "0.1.0" }
+mara_graph = { path = "crates/modules/graph", version = "0.1.0" }
 # `mara_code` — standalone vendored egui_code_editor. Usable in
 # any egui app; ships sensible defaults, no mara-theming dep.
-mara_code = { path = "core_crates/modules/code", version = "0.1.0" }
+mara_code = { path = "crates/modules/code", version = "0.1.0" }
 # `mara_image` — lightweight image viewer/editor proof module for
 # the new View + Module architecture.
-mara_image = { path = "core_crates/modules/image", version = "0.1.0" }
+mara_image = { path = "crates/modules/image", version = "0.1.0" }
 # `mara_canvas` — retained-stroke whiteboard proof module for
 # recursive View + Module workspaces.
-mara_canvas = { path = "core_crates/modules/canvas", version = "0.1.0" }
+mara_canvas = { path = "crates/modules/canvas", version = "0.1.0" }
 # `mara_map` — retained f64 map annotations and a Mara map component.
-mara_map = { path = "core_crates/modules/map", version = "0.1.0" }
+mara_map = { path = "crates/modules/map", version = "0.1.0" }
 # `mara_bevy` — embedded Bevy viewport module for egui/Mara hosts.
-mara_bevy = { path = "core_crates/modules/bevy", version = "0.1.0" }
+mara_bevy = { path = "crates/modules/bevy", version = "0.1.0" }
 
 # ── Build profile tuning ────────────────────────────────────────────
 #

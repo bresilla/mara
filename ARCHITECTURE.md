@@ -12,7 +12,7 @@ chrome, or view/module logic for each host.
 ## Workspace layout
 
 ```text
-core_crates/
+crates/
   core/              mara_core: framework-agnostic UI core
   modules/
     graph/           mara_graph: standalone vendored node graph widget
@@ -20,10 +20,10 @@ core_crates/
     image/           mara_image: proof View + Module image surface
     canvas/          mara_canvas: proof View + Module canvas surface
 
-api_crates/
-  bevy/              bevy_mara: Bevy + bevy_egui facade
-  egui/              egui_mara: plain egui / eframe facade
-  web/               egui_mara_web: wasm browser host
+mara/
+  plugin/
+    bevy/            bevy_mara: Bevy + bevy_egui plugin facade
+example/             root native/web example consuming mara
 ```
 
 Package names:
@@ -31,9 +31,8 @@ Package names:
 | Package | Role |
 | --- | --- |
 | `mara_core` | Core UI contracts, theme, panes, ribbons, shelves, views, modules, widgets, window chrome |
+| `mara` | Unified public facade for UI-only use and Mara-owned native windows |
 | `bevy_mara` | Bevy plugin, input firewall, Bevy window chrome adapter, Bevy node-view backend |
-| `egui_mara` | Plain-egui helper facade and eframe node-view backend |
-| `egui_mara_web` | Browser/wasm host using eframe `WebRunner` |
 | `mara_graph` | Standalone graph widget |
 | `mara_code` | Standalone code editor widget |
 | `mara_image` | Image View + Module proof crate |
@@ -58,9 +57,11 @@ Package names:
 It must not depend on Bevy, eframe, winit, or browser APIs except behind optional
 feature gates needed for trait derives such as Bevy `Resource`.
 
-### Host facades
+### Host facades and plugins
 
-Host crates translate core state into the host runtime:
+The unified `mara` crate exposes host-neutral UI APIs and the optional
+Mara-owned native window runner. Host plugins translate core state into
+external runtimes:
 
 - `bevy_mara`
   - registers Mara state as Bevy resources
@@ -68,16 +69,6 @@ Host crates translate core state into the host runtime:
   - installs the Bevy input firewall so UI clicks do not leak into a Bevy scene
   - maps host-neutral window chrome actions onto Bevy/winit native move/resize
   - exposes a Bevy-specific node-view backend
-
-- `egui_mara`
-  - re-exports `mara_core`
-  - provides `apply_theme_now`
-  - exposes an eframe node-view backend
-
-- `egui_mara_web`
-  - runs the same egui UI in a browser through eframe's `WebRunner`
-  - does not opt into native window move/resize because the browser owns the
-    outer window
 
 Host facades should not become the source of shelf, pane, theme, or app-shell
 rules. If behavior needs to work in multiple hosts, move the contract to
@@ -90,15 +81,13 @@ structure below is Mara-owned:
 
 ```text
 Host app frame
-└─ Host facade
+└─ Host facade/plugin
    ├─ bevy_mara
    │  ├─ Bevy resources + systems
    │  ├─ egui input firewall for Bevy scenes
    │  └─ native window chrome adapter
-   ├─ egui_mara
-   │  └─ per-frame theme helper + eframe node backend
-   └─ egui_mara_web
-      └─ browser/wasm eframe runner
+   └─ mara::window
+      └─ Mara-owned native egui/wgpu window
 
 Mara frame inside egui::Context
 └─ Theme + global state

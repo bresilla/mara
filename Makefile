@@ -66,14 +66,10 @@ check-all:
 check-mara-api:
 	@$(CARGO) check -p mara --all-features
 
-check-bevy-api:
+check-bevy-plugin:
 	@$(CARGO) check -p bevy_mara
 
-check-egui-api:
-	@$(CARGO) check -p egui_mara
-
-check-web-api:
-	@$(CARGO) check -p egui_mara_web
+check-bevy-api: check-bevy-plugin
 
 harden:
 	@git diff --check
@@ -120,9 +116,7 @@ help:
 	@echo "  check        Check the same app target as build/run ($(APP_PKG) bin $(APP_BIN))"
 	@echo "  check-all    Check the full workspace all-target suite"
 	@echo "  check-mara-api Check the unified mara API crate"
-	@echo "  check-bevy-api Check the bevy_mara API crate"
-	@echo "  check-egui-api Check the egui_mara API crate"
-	@echo "  check-web-api  Check the egui_mara_web API crate"
+	@echo "  check-bevy-plugin Check the bevy_mara plugin crate"
 	@echo "  harden       Run diff whitespace check + fmt/check + strict clippy + all-feature tests"
 	@echo "  bench        Run benchmarks"
 	@echo "  docs         Build documentation with mdbook"

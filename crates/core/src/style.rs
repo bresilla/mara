@@ -63,7 +63,7 @@ use core::sync::atomic::{AtomicU8, Ordering};
 /// Shadow copy of the current opacity value. Plain helper functions
 /// (`section`, `floating_window`, etc.) read this to derive glass
 /// alphas without plumbing state through every UI call. Hosts
-/// (bevy_mara, egui_mara) are responsible for keeping it in sync
+/// (for example `bevy_mara` or `mara::window`) are responsible for keeping it in sync
 /// with their chosen source of truth — either call
 /// [`set_glass_opacity`] every frame or on change.
 static GLASS_OPACITY: AtomicU8 = AtomicU8::new(100);
@@ -83,9 +83,8 @@ impl Default for GlassOpacity {
 }
 
 /// Push a new opacity value into the shared atomic. Call every
-/// frame before laying out UI (bevy_mara does this via a Bevy
-/// system; egui_mara callers do it manually from their app's
-/// update loop).
+/// frame before laying out UI (`bevy_mara` does this via a Bevy
+/// system; other hosts can call it from their app's update loop).
 pub fn set_glass_opacity(value: u8) {
     GLASS_OPACITY.store(value.clamp(1, 100), Ordering::Relaxed);
 }
@@ -527,9 +526,9 @@ pub fn install_fonts(ctx: &egui::Context, body: FontWeight, title: FontWeight) {
 }
 
 /// Apply the mara theme to the given egui context. Pure egui —
-/// no framework deps. Hosts call this once per frame (bevy_mara
-/// does it from a system; egui_mara callers call it from their
-/// `update` / `show` body). The function de-dupes internally via a
+/// no framework deps. Hosts call this once per frame (`bevy_mara`
+/// does it from a system; `mara::window` does it through
+/// `MaraHostCtx`). The function de-dupes internally via a
 /// static cache so re-calling with the same `(accent, opacity)`
 /// skips the `ctx.set_style` / `ctx.set_fonts` work.
 pub fn apply_theme(ctx: &egui::Context, accent: AccentColor, opacity: GlassOpacity) {
@@ -2397,7 +2396,7 @@ impl Theme {
 // `apply_theme` (the de-dup cache + egui style transfer) live in this
 // file — they're the *engine*. Theme PRESETS (PRO, GAME, …) live in
 // `crate::themes`, one file per theme. To add a new theme, drop a file
-// under `core_crates/core/src/themes/` and register it in
+// under `crates/core/src/themes/` and register it in
 // `themes/mod.rs`; see that module's docs for the full template.
 pub use crate::themes::{
     FLAT_DARK_BG_HOVER, FLAT_DARK_BG_INPUT, FLAT_DARK_BG_PANEL, FLAT_DARK_BG_RAISED,
