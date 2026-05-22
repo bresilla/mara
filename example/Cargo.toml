@@ -1,6 +1,6 @@
 [package]
 name = "mara_example"
-description = "Root Mara example app consuming egui_mara, bevy_mara, mara_core, and Mara modules like an external application."
+description = "Root Mara example app consuming mara, mara_core, and Mara modules like an external application."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -8,7 +8,7 @@ repository.workspace = true
 publish = false
 
 [dependencies]
-egui_mara = { path = "../api_crates/egui" }
+mara = { path = "../mara", features = ["window", "bevy"] }
 mara_core = { workspace = true }
 mara_map = { workspace = true }
 egui_plot = "0.34"
@@ -20,15 +20,10 @@ eframe = { version = "0.33", default-features = false, features = [
     "x11",
 ] }
 wgpu = { version = "27", default-features = false, features = ["vulkan"] }
-bevy_mara = { path = "../api_crates/bevy" }
 egui-wgpu = { workspace = true, features = ["winit"] }
-egui-winit = "0.33"
-pollster = "0.4"
-winit = { version = "0.30", default-features = false, features = [
-    "x11",
-    "wayland",
-    "rwh_06",
-] }
+bevy = { workspace = true }
+bevy_ecs = "0.18"
+bevy_glacial = { git = "https://github.com/bresilla/bevy_glacial.git", rev = "d7bc6d3" }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 eframe = { version = "0.33", default-features = false, features = [

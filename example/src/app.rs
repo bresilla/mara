@@ -26,7 +26,6 @@
 
 use eframe::egui;
 
-use crate::bevy_view::EmbeddedBevyViewport;
 use mara_core::container::SeparatorStyle;
 use mara_core::pane::{Pane, PaneAnchor, PaneBody, RailZone};
 use mara_core::pod::Pod;
@@ -42,10 +41,11 @@ use mara_map::{
     DEFAULT_SVG_MARKER, MapDocument, MapIcon, MapInteraction, MapLine, MapPoint, MapPolygon,
     MapSurface, MapTool, MapViewport, MaraMap, lon_lat,
 };
-// Vendored extras — node graph + code editor. In the `egui_mara`
+// Vendored extras — node graph + code editor. In the unified `mara`
 // facade they live under `mara_core::extras::*`; the node-graph
-// offscreen renderer is `egui_mara::EframeNodeViewBackend`.
-use egui_mara::EframeNodeViewBackend;
+// offscreen renderer is created from `mara::host::MaraHostCtx`.
+use mara::host::{EframeNodeViewBackend, MaraHostCtx};
+use mara::ui::modules::bevy::MaraBevyViewport;
 use mara_core::extras::code::Syntax;
 use mara_core::extras::graph::{
     Graph, InPin, InPinId, NodePin, NodeViewState, NodeViewer, OutPin, OutPinId, PinInfo,
@@ -1725,8 +1725,7 @@ pub struct DemoApp {
     canvas_view: CanvasViewState,
     canvas_shelves: CanvasShelfState,
     map_view: MapViewState,
-    bevy_view: EmbeddedBevyViewport,
-    window_chrome: egui_mara::EframeWindowChrome,
+    bevy_view: MaraBevyViewport,
     editor_node_view: EditorNodeView,
     editor_graph: EditorGraph,
 }
@@ -1734,9 +1733,18 @@ pub struct DemoApp {
 impl DemoApp {
     /// Built once by `eframe::WebRunner`. No persistence — every
     /// session starts from the default mara layout.
-    pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
+    pub fn new(_cc: &eframe::CreationContext<'_>) -> Self {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            return Self {
+                bevy_view: MaraBevyViewport::with_content(crate::bevy_content::configure_app),
+                ..Self::default()
+            };
+        }
+
+        #[cfg(target_arch = "wasm32")]
         Self {
-            bevy_view: EmbeddedBevyViewport::new(cc),
+            bevy_view: MaraBevyViewport::new(),
             ..Self::default()
         }
     }
@@ -1744,8 +1752,10 @@ impl DemoApp {
     #[cfg(not(target_arch = "wasm32"))]
     pub fn new_winit(render_state: Option<&egui_wgpu::RenderState>) -> Self {
         Self {
-            bevy_view: EmbeddedBevyViewport::with_render_state(render_state),
-            window_chrome: egui_mara::EframeWindowChrome::without_move_command(),
+            bevy_view: MaraBevyViewport::with_render_state_and_content(
+                render_state,
+                crate::bevy_content::configure_app,
+            ),
             ..Self::default()
         }
     }
@@ -1755,7 +1765,8 @@ impl DemoApp {
         ctx: &egui::Context,
         render_state: &egui_wgpu::RenderState,
     ) {
-        ui_system(self, ctx, render_state);
+        let mut host = MaraHostCtx::ui_only(ctx, Some(render_state));
+        ui_system(self, &mut host);
     }
 }
 
@@ -1768,13 +1779,24 @@ impl eframe::App for DemoApp {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+impl mara::window::WindowApp for DemoApp {
+    fn new(ctx: mara::window::CreationContext<'_>) -> Self {
+        Self::new_winit(ctx.render_state)
+    }
+
+    fn update(&mut self, host: &mut MaraHostCtx<'_>) {
+        ui_system(self, host);
+    }
+}
+
 // ─── UI ─────────────────────────────────────────────────────────────
 
 /// Per-frame UI — the body of the old Bevy `ui_system`, now driven by
 /// eframe/winit. `app` carries the state the Bevy build held as
-/// resources; `render_state` provides the wgpu handles the node graph
-/// paints into.
-fn ui_system(app: &mut DemoApp, ctx: &egui::Context, render_state: &egui_wgpu::RenderState) {
+/// resources; `host` provides app-level actions and render helpers.
+fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
+    let ctx = host.egui();
     let DemoApp {
         accent,
         glass,
@@ -1790,7 +1812,6 @@ fn ui_system(app: &mut DemoApp, ctx: &egui::Context, render_state: &egui_wgpu::R
         canvas_shelves,
         map_view,
         bevy_view,
-        window_chrome,
         editor_node_view,
         editor_graph,
     } = app;
@@ -1805,8 +1826,7 @@ fn ui_system(app: &mut DemoApp, ctx: &egui::Context, render_state: &egui_wgpu::R
     };
     active_theme.pastel_accent = pastel.0;
     mara_core::style::set_theme(active_theme);
-    egui_mara::apply_theme_now(ctx, *accent, *glass);
-    window_chrome.update(ctx);
+    host.apply_theme(*accent, *glass);
 
     let mut accent_col = mara_core::style::active_accent();
     mara_core::publish_shelf_layout(
@@ -1823,9 +1843,9 @@ fn ui_system(app: &mut DemoApp, ctx: &egui::Context, render_state: &egui_wgpu::R
     // Bevy is represented as an embedded viewport surface, not the
     // top-level window owner.
     if *root_view == DemoRootView::BevyScene {
-        if let Some(color) = bevy_view.show(ctx, accent_col) {
+        if let Some(color) = bevy_view.show(host.egui(), host.render_state(), accent_col) {
             accent.0 = color;
-            egui_mara::apply_theme_now(ctx, *accent, *glass);
+            host.apply_theme(*accent, *glass);
             accent_col = mara_core::style::active_accent();
         }
     } else if *root_view == DemoRootView::Canvas {
@@ -1916,7 +1936,9 @@ fn ui_system(app: &mut DemoApp, ctx: &egui::Context, render_state: &egui_wgpu::R
     // the module canvas instead of being hidden behind it.
     if fs_active && is_open_in(RIBBON_ITEMS, PANE_EDITOR) {
         let anchor = live_anchor(PANE_EDITOR).unwrap_or(PaneAnchor::BottomRail(RailZone::Start));
-        let mut backend = EframeNodeViewBackend::new(render_state);
+        let Some(mut backend) = host.node_view_backend() else {
+            return;
+        };
         let now = ctx.input(|i| i.time);
         let mut viewer = DemoViewer { time: now };
         Pane::new(PANE_EDITOR, "Editor", anchor, accent_col)
@@ -1959,7 +1981,9 @@ fn ui_system(app: &mut DemoApp, ctx: &egui::Context, render_state: &egui_wgpu::R
         // `viewer` / `backend` to the iteration scope so they live
         // past that point.
         if button_id == PANE_EDITOR {
-            let mut backend = EframeNodeViewBackend::new(render_state);
+            let Some(mut backend) = host.node_view_backend() else {
+                continue;
+            };
             let now = ctx.input(|i| i.time);
             let mut viewer = DemoViewer { time: now };
             Pane::new(button_id, label, anchor, accent_col)
@@ -2116,7 +2140,7 @@ fn ui_system(app: &mut DemoApp, ctx: &egui::Context, render_state: &egui_wgpu::R
         }
         if matches!(click.action, RibbonAction::CloseApp) {
             #[cfg(not(target_arch = "wasm32"))]
-            egui_mara::close_native_window(ctx);
+            host.request_close();
             continue;
         }
         if click.item == egui::Id::new(ACTION_CANVAS_CLEAR) {
@@ -3306,7 +3330,7 @@ fn about_pane(body: &mut PaneBody) {
     let accent = body.accent();
     body.add_normal(
         cid(PANE_ABOUT, "info"),
-        "bevy_mara",
+        "mara",
         "info",
         vec![
             Pod::new(pid(PANE_ABOUT, "info", 0))
@@ -3501,7 +3525,7 @@ fn canvas_export_pane(body: &mut PaneBody) {
 /// **Editor pane** — node graph (top) + code editor (bottom),
 /// each in its own container with a fill pod so they soak up the
 /// pane's available space. Mirrors the legacy demo's Editor pane,
-/// now driven by the vendored `bevy_mara::extras` wrappers.
+/// now driven by the vendored `mara_core::extras` wrappers.
 ///
 /// The graph container is rendered via `Normal::show_raw` rather
 /// than the standard `with_custom_units` pod path so we can pass

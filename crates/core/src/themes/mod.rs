@@ -1,7 +1,7 @@
 //! Built-in themes for the mara UI kit.
 //!
 //! Each theme is a single data file under
-//! `core_crates/core/src/themes/` that exports
+//! `crates/core/src/themes/` that exports
 //! `pub const fn theme_<name>(mode: Mode) -> Theme`. The
 //! [`crate::style::Theme`] struct (defined in `style.rs`) is the
 //! engine — fields, helpers, global state, the de-dup cache, theme
@@ -32,7 +32,7 @@
 //!    what it does and what range it expects:
 //!
 //!    ```ignore
-//!    // core_crates/core/src/themes/neon.rs
+//!    // crates/core/src/themes/neon.rs
 //!    use crate::style::{Mode, Theme, ThemeId};
 //!    use super::pro::theme_pro;
 //!

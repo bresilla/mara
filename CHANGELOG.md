@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.0] - 2026-05-22
+
+### <!-- 0 -->⛰️  Features
+
+- Unify mara crate into public facade
+- Introduce unified Mara API
+
 ## [0.1.2] - 2026-05-21
 
 ### <!-- 0 -->⛰️  Features

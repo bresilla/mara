@@ -267,9 +267,9 @@ impl NodeViewState {
 }
 
 /// Host-supplied hooks the mara_core-side widget calls to talk to
-/// the wgpu side. One implementation per host crate
-/// (`bevy_mara::extras::BevyNodeViewBackend`,
-/// `egui_mara::extras::EframeNodeViewBackend`).
+/// the wgpu side. Host integrations provide implementations such as
+/// `bevy_mara::extras::BevyNodeViewBackend` or
+/// `mara::host::EframeNodeViewBackend`.
 pub trait NodeViewBackend {
     /// `wgpu::Device` + `wgpu::Queue` used to allocate the
     /// offscreen texture and submit the secondary context's

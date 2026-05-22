@@ -14,6 +14,7 @@ readme = "README.md"
 # firewall, gizmo material) plus the vendored extras (node graph +
 # code editor) under `bevy_mara::extras::*`.
 mara_core = { workspace = true, features = ["bevy"] }
+mara_bevy = { workspace = true }
 # Direct egui dep — needed by the input-firewall plugin and the
 # `gizmo_material` shader. The vendored extras (`mara_graph` +
 # `mara_code`) ship as standalone crates so their transitive deps
