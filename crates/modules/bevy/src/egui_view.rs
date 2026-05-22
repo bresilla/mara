@@ -146,6 +146,19 @@ impl MaraBevyViewport {
                 let painter = ui.painter_at(rect);
                 let theme = mara_core::style::theme();
                 painter.rect_filled(rect, 0.0, theme.palette.bg_panel);
+                if rect.width() < 16.0 || rect.height() < 16.0 {
+                    if let Some(texture) = &self.texture {
+                        painter.image(
+                            texture.id(),
+                            rect,
+                            egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0)),
+                            egui::Color32::WHITE,
+                        );
+                    }
+                    ui.ctx()
+                        .request_repaint_after(Duration::from_secs_f64(1.0 / 12.0));
+                    return;
+                }
 
                 if let Some(render_state) = render_state {
                     self.bevy
@@ -169,10 +182,13 @@ impl MaraBevyViewport {
                     self.target_pixels_since = now;
                 }
 
-                const RESIZE_SETTLE_SECONDS: f64 = 0.12;
+                #[cfg(target_arch = "wasm32")]
+                let resize_settle_seconds = 0.28;
+                #[cfg(not(target_arch = "wasm32"))]
+                let resize_settle_seconds = 0.12;
                 let has_committed_size = self.last_pixels != [0, 0];
                 let resize_pending = has_committed_size && self.target_pixels != self.last_pixels;
-                let resize_settled = now - self.target_pixels_since >= RESIZE_SETTLE_SECONDS;
+                let resize_settled = now - self.target_pixels_since >= resize_settle_seconds;
                 let commit_resize = !has_committed_size || resize_pending && resize_settled;
                 let pixels = if commit_resize {
                     self.target_pixels
@@ -243,7 +259,13 @@ impl MaraBevyViewport {
                     texture.size() != [pixels[0] as usize, pixels[1] as usize]
                 });
                 let has_texture = self.texture.is_some();
+                #[cfg(target_arch = "wasm32")]
+                let idle_interval = 1.0 / 12.0;
+                #[cfg(not(target_arch = "wasm32"))]
                 let idle_interval = 1.0 / 24.0;
+                #[cfg(target_arch = "wasm32")]
+                let active_interval = 1.0 / 30.0;
+                #[cfg(not(target_arch = "wasm32"))]
                 let active_interval = 1.0 / 60.0;
                 let target_interval = if input_active
                     || commit_resize
@@ -262,7 +284,6 @@ impl MaraBevyViewport {
                     || elapsed >= target_interval;
 
                 if should_render {
-                    self.last_pixels = pixels;
                     self.last_render_time = now;
                     let dt = ui.ctx().input(|i| i.stable_dt);
                     if let Some(frame) =
@@ -271,6 +292,7 @@ impl MaraBevyViewport {
                     {
                         let size = [frame.width as usize, frame.height as usize];
                         if size == [pixels[0] as usize, pixels[1] as usize] {
+                            self.last_pixels = pixels;
                             let image = egui::ColorImage::from_rgba_unmultiplied(size, &frame.rgba);
                             match &mut self.texture {
                                 Some(texture) if texture.size() == size => {
@@ -307,7 +329,7 @@ impl MaraBevyViewport {
                 };
                 if resize_pending && !resize_settled {
                     next = next
-                        .min((RESIZE_SETTLE_SECONDS - (now - self.target_pixels_since)).max(0.0));
+                        .min((resize_settle_seconds - (now - self.target_pixels_since)).max(0.0));
                 }
                 ui.ctx()
                     .request_repaint_after(Duration::from_secs_f64(next));
@@ -356,9 +378,18 @@ fn internal_render_pixels(size: egui::Vec2, pixels_per_point: f32) -> [u32; 2] {
     // was intentionally conservative while debugging the web bridge,
     // but it forced high-DPI/browser windows to render low-res and
     // then upscale in egui, making the scene visibly soft.
+    #[cfg(not(target_arch = "wasm32"))]
     const MAX_WIDTH: f32 = 2560.0;
+    #[cfg(target_arch = "wasm32")]
+    const MAX_WIDTH: f32 = 1920.0;
+    #[cfg(not(target_arch = "wasm32"))]
     const MAX_HEIGHT: f32 = 1600.0;
+    #[cfg(target_arch = "wasm32")]
+    const MAX_HEIGHT: f32 = 1200.0;
+    #[cfg(not(target_arch = "wasm32"))]
     const MAX_PIXELS: f32 = 3_600_000.0;
+    #[cfg(target_arch = "wasm32")]
+    const MAX_PIXELS: f32 = 1_600_000.0;
 
     let mut width = (size.x * pixels_per_point).round().max(1.0);
     let mut height = (size.y * pixels_per_point).round().max(1.0);
