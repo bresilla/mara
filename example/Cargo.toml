@@ -44,5 +44,9 @@ name = "native"
 path = "src/native.rs"
 
 [[bin]]
+name = "bevy"
+path = "src/bevy.rs"
+
+[[bin]]
 name = "web"
 path = "src/web.rs"

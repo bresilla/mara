@@ -67,6 +67,8 @@ impl<'a> MaraHostCtx<'a> {
             mara_core::WindowChromeHostCapabilities {
                 native_move: self.window.native_move(),
                 native_resize: self.window.native_resize(),
+                system_menu: self.window.system_menu(),
+                system_close: self.window.system_close(),
             },
         );
     }
@@ -97,6 +99,14 @@ impl MaraWindowHost {
 
     pub fn native_resize(self) -> bool {
         matches!(self, Self::ExternalEgui | Self::MaraNative)
+    }
+
+    pub fn system_menu(self) -> bool {
+        true
+    }
+
+    pub fn system_close(self) -> bool {
+        matches!(self, Self::MaraNative)
     }
 }
 

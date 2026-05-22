@@ -1,4 +1,6 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
+#[cfg(not(target_arch = "wasm32"))]
+use std::sync::{Arc, OnceLock};
 use std::sync::{Mutex, mpsc};
 use std::time::Duration;
 
@@ -8,6 +10,9 @@ const OPENFREEMAP_TILE_URL: &str = "https://tiles.openfreemap.org/planet/latest"
 const MAX_SOURCE_ZOOM: f64 = 14.0;
 const MAP_DESATURATION: f32 = 0.46;
 const MAP_ACCENT_TINT_SCALE: f32 = 1.08;
+const MAX_TILE_REQUESTS_PER_PAINT: usize = 6;
+#[cfg(target_arch = "wasm32")]
+const MAX_WASM_DECODE_PER_POLL: usize = 1;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct TileKey {
@@ -22,10 +27,20 @@ enum TileEntry {
     Failed,
 }
 
+enum TilePayload {
+    #[cfg(not(target_arch = "wasm32"))]
+    Decoded(DecodedVectorTile),
+    #[cfg(target_arch = "wasm32")]
+    Bytes(Vec<u8>),
+}
+
+type TileMessage = (TileKey, Result<TilePayload, String>);
+
 pub(crate) struct VectorTileCache {
     tiles: HashMap<TileKey, TileEntry>,
-    tx: mpsc::Sender<(TileKey, Result<DecodedVectorTile, String>)>,
-    rx: Mutex<mpsc::Receiver<(TileKey, Result<DecodedVectorTile, String>)>>,
+    pending_decodes: VecDeque<(TileKey, Vec<u8>)>,
+    tx: mpsc::Sender<TileMessage>,
+    rx: Mutex<mpsc::Receiver<TileMessage>>,
 }
 
 impl Default for VectorTileCache {
@@ -33,6 +48,7 @@ impl Default for VectorTileCache {
         let (tx, rx) = mpsc::channel();
         Self {
             tiles: HashMap::new(),
+            pending_decodes: VecDeque::new(),
             tx,
             rx: Mutex::new(rx),
         }
@@ -46,7 +62,7 @@ pub(crate) fn paint_vector_basemap(
     cache: &mut VectorTileCache,
     fast_mode: bool,
 ) {
-    cache.poll_finished();
+    let cache_changed = cache.poll_finished();
     let palette = MapPalette::current();
     ui.painter().rect_filled(rect, 0.0, palette.background);
 
@@ -68,7 +84,8 @@ pub(crate) fn paint_vector_basemap(
     let max_y = (bottom_right_world.1 / TILE_SIZE).ceil() as i64;
     let tile_count = 1_i64 << u32::from(z);
 
-    let mut has_loading = false;
+    let center_tile_x = center_world.0 / TILE_SIZE;
+    let center_tile_y = center_world.1 / TILE_SIZE;
     let mut visible_tiles = Vec::new();
     for y in min_y..=max_y {
         if !(0..tile_count).contains(&y) {
@@ -81,11 +98,30 @@ pub(crate) fn paint_vector_basemap(
                 x: wrapped_x as u32,
                 y: y as u32,
             };
-            cache.request(key);
             visible_tiles.push(key);
-            if matches!(cache.tiles.get(&key), Some(TileEntry::Loading) | None) {
+        }
+    }
+    visible_tiles.sort_by(|a, b| {
+        let ax = f64::from(a.x) + 0.5 - center_tile_x;
+        let ay = f64::from(a.y) + 0.5 - center_tile_y;
+        let bx = f64::from(b.x) + 0.5 - center_tile_x;
+        let by = f64::from(b.y) + 0.5 - center_tile_y;
+        (ax * ax + ay * ay).total_cmp(&(bx * bx + by * by))
+    });
+
+    let mut has_loading = cache.has_pending_decode();
+    let mut started_requests = 0;
+    for key in &visible_tiles {
+        if cache.is_missing(*key) {
+            if started_requests < MAX_TILE_REQUESTS_PER_PAINT {
+                started_requests += usize::from(cache.request(*key));
+            } else {
                 has_loading = true;
+                continue;
             }
+        }
+        if matches!(cache.tiles.get(key), Some(TileEntry::Loading) | None) {
+            has_loading = true;
         }
     }
 
@@ -114,6 +150,9 @@ pub(crate) fn paint_vector_basemap(
         }
     }
 
+    if cache_changed {
+        ui.ctx().request_repaint();
+    }
     if has_loading {
         ui.ctx().request_repaint_after(Duration::from_millis(16));
     }
@@ -123,38 +162,131 @@ pub(crate) fn paint_vector_basemap(
 }
 
 impl VectorTileCache {
-    fn poll_finished(&mut self) {
+    fn poll_finished(&mut self) -> bool {
+        let mut changed = self.decode_pending();
         let Ok(rx) = self.rx.lock() else {
-            return;
+            return changed;
         };
         while let Ok((key, result)) = rx.try_recv() {
             let entry = match result {
+                #[cfg(not(target_arch = "wasm32"))]
+                Ok(TilePayload::Decoded(tile)) => TileEntry::Ready(tile),
+                #[cfg(target_arch = "wasm32")]
+                Ok(TilePayload::Bytes(bytes)) => {
+                    self.pending_decodes.push_back((key, bytes));
+                    continue;
+                }
+                Err(_) => TileEntry::Failed,
+            };
+            self.tiles.insert(key, entry);
+            changed = true;
+        }
+        drop(rx);
+        changed || self.decode_pending()
+    }
+
+    fn decode_pending(&mut self) -> bool {
+        let mut changed = false;
+        let mut remaining_budget = decode_budget_per_poll();
+        while remaining_budget > 0 {
+            let Some((key, bytes)) = self.pending_decodes.pop_front() else {
+                break;
+            };
+            let entry = match decode_vector_tile(&bytes) {
                 Ok(tile) => TileEntry::Ready(tile),
                 Err(_) => TileEntry::Failed,
             };
             self.tiles.insert(key, entry);
+            remaining_budget -= 1;
+            changed = true;
         }
+        changed
     }
 
-    fn request(&mut self, key: TileKey) {
+    fn has_pending_decode(&self) -> bool {
+        !self.pending_decodes.is_empty()
+    }
+
+    fn is_missing(&self, key: TileKey) -> bool {
+        !self.tiles.contains_key(&key)
+    }
+
+    fn request(&mut self, key: TileKey) -> bool {
         if self.tiles.contains_key(&key) {
-            return;
+            return false;
         }
         self.tiles.insert(key, TileEntry::Loading);
         request_tile(key, self.tx.clone());
+        true
     }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn request_tile(key: TileKey, tx: mpsc::Sender<(TileKey, Result<DecodedVectorTile, String>)>) {
-    std::thread::spawn(move || {
-        let result = fetch_tile(key).and_then(|bytes| decode_vector_tile(&bytes));
-        let _ = tx.send((key, result));
-    });
+fn decode_budget_per_poll() -> usize {
+    usize::MAX
 }
 
 #[cfg(target_arch = "wasm32")]
-fn request_tile(key: TileKey, tx: mpsc::Sender<(TileKey, Result<DecodedVectorTile, String>)>) {
+fn decode_budget_per_poll() -> usize {
+    MAX_WASM_DECODE_PER_POLL
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+struct TileJob {
+    key: TileKey,
+    tx: mpsc::Sender<TileMessage>,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn request_tile(key: TileKey, tx: mpsc::Sender<TileMessage>) {
+    if let Err(err) = tile_worker_queue().send(TileJob { key, tx }) {
+        let TileJob { key, tx } = err.0;
+        // Extremely unlikely, but keep the map usable if the shared
+        // worker queue went away for any reason.
+        std::thread::spawn(move || {
+            let result = fetch_tile(key)
+                .and_then(|bytes| decode_vector_tile(&bytes))
+                .map(TilePayload::Decoded);
+            let _ = tx.send((key, result));
+        });
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn tile_worker_queue() -> &'static mpsc::Sender<TileJob> {
+    static TILE_WORKER_QUEUE: OnceLock<mpsc::Sender<TileJob>> = OnceLock::new();
+    TILE_WORKER_QUEUE.get_or_init(|| {
+        let (job_tx, job_rx) = mpsc::channel::<TileJob>();
+        let shared_rx = Arc::new(Mutex::new(job_rx));
+        let worker_count = std::thread::available_parallelism()
+            .map_or(2, |parallelism| (parallelism.get() / 2).clamp(2, 4));
+        for index in 0..worker_count {
+            let shared_rx = Arc::clone(&shared_rx);
+            let name = format!("mara-map-tile-worker-{index}");
+            let _ = std::thread::Builder::new().name(name).spawn(move || {
+                loop {
+                    let job = {
+                        let Ok(rx) = shared_rx.lock() else {
+                            return;
+                        };
+                        rx.recv()
+                    };
+                    let Ok(TileJob { key, tx }) = job else {
+                        return;
+                    };
+                    let result = fetch_tile(key)
+                        .and_then(|bytes| decode_vector_tile(&bytes))
+                        .map(TilePayload::Decoded);
+                    let _ = tx.send((key, result));
+                }
+            });
+        }
+        job_tx
+    })
+}
+
+#[cfg(target_arch = "wasm32")]
+fn request_tile(key: TileKey, tx: mpsc::Sender<TileMessage>) {
     let url = format!("{OPENFREEMAP_TILE_URL}/{}/{}/{}.pbf", key.z, key.x, key.y);
     let mut request = ehttp::Request::get(&url);
     request
@@ -165,7 +297,7 @@ fn request_tile(key: TileKey, tx: mpsc::Sender<(TileKey, Result<DecodedVectorTil
             .map_err(|err| format!("failed to fetch {url}: {err}"))
             .and_then(|response| {
                 if response.ok {
-                    decode_vector_tile(&response.bytes)
+                    Ok(TilePayload::Bytes(response.bytes))
                 } else {
                     Err(format!(
                         "failed to fetch {url}: HTTP {} {}",

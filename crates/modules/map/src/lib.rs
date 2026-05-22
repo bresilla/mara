@@ -429,6 +429,7 @@ pub struct MapSurface {
     pub document: MapDocument,
     pub viewport: MapViewport,
     vector_tiles: mvt::VectorTileCache,
+    fast_frames_remaining: u8,
 }
 
 impl MapSurface {
@@ -439,7 +440,16 @@ impl MapSurface {
             document,
             viewport,
             vector_tiles: mvt::VectorTileCache::default(),
+            fast_frames_remaining: 10,
         }
+    }
+
+    /// Ask the map to paint a lightweight basemap for the next few
+    /// frames. Hosts should call this when switching into a map-heavy
+    /// view so persistent app chrome is not blocked by the first full
+    /// vector-tile paint.
+    pub fn defer_full_detail(&mut self) {
+        self.fast_frames_remaining = self.fast_frames_remaining.max(10);
     }
 }
 
@@ -532,7 +542,10 @@ fn paint_map(
     let desired = ui.available_size_before_wrap();
     let (response, painter) = ui.allocate_painter(desired, egui::Sense::click_and_drag());
     let rect = response.rect;
-    let mut fast_basemap = false;
+    let mut fast_basemap = surface.fast_frames_remaining > 0;
+    if surface.fast_frames_remaining > 0 {
+        surface.fast_frames_remaining -= 1;
+    }
 
     if response.dragged_by(egui::PointerButton::Middle) {
         fast_basemap = true;

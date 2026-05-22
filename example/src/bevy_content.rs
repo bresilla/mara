@@ -5,9 +5,11 @@
 //! and the accent-colour handoff.
 
 use bevy::camera::RenderTarget;
+use bevy::input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll};
 use bevy::light::{CascadeShadowConfigBuilder, NotShadowCaster, NotShadowReceiver};
 use bevy::pbr::{DistanceFog, FogFalloff};
 use bevy::prelude::*;
+use bevy::window::PrimaryWindow;
 use bevy_glacial::prelude::*;
 use eframe::egui;
 use mara::ui::modules::bevy::{
@@ -29,6 +31,34 @@ pub fn configure_app(app: &mut App) {
         .add_systems(Update, (pick_cube, update_swatch_selection));
 }
 
+/// Configure the same demo Bevy scene when Bevy owns the top-level
+/// app/window. This path does not use the offscreen
+/// `BevyViewportRenderTarget`; the camera renders into Bevy's normal
+/// frame while Mara UI is drawn by `bevy_egui` on top.
+pub fn configure_bevy_host_app(app: &mut App) {
+    app.insert_resource(ClearColor(Color::srgb_u8(10, 12, 16)))
+        .insert_resource(BevyHostSceneProfile)
+        .init_resource::<BevyHostSceneVisible>()
+        .insert_resource(GroundGrid {
+            visible: true,
+            color: Color::srgba(0.30, 0.38, 0.50, 0.42),
+        })
+        .init_resource::<BevyViewportInput>()
+        .init_resource::<BevyViewportPickedColor>()
+        .init_resource::<SelectedSwatch>()
+        .add_systems(Startup, setup_scene)
+        .add_systems(
+            Update,
+            (
+                sync_bevy_host_viewport_input,
+                apply_bevy_host_scene_visibility,
+                pick_cube,
+                update_swatch_selection,
+            )
+                .chain(),
+        );
+}
+
 #[derive(Component)]
 struct ColorCube {
     egui_col: egui::Color32,
@@ -38,13 +68,82 @@ struct ColorCube {
 #[derive(Resource, Default)]
 struct SelectedSwatch(Option<Entity>);
 
-pub fn setup_scene(
+#[derive(Resource)]
+struct BevyHostSceneProfile;
+
+#[derive(Resource)]
+pub struct BevyHostSceneVisible(pub bool);
+
+impl Default for BevyHostSceneVisible {
+    fn default() -> Self {
+        Self(true)
+    }
+}
+
+#[derive(Component)]
+struct BevyHostSceneObject;
+
+fn sync_bevy_host_viewport_input(
+    primary_window: Query<&Window, With<PrimaryWindow>>,
+    mouse_buttons: Res<ButtonInput<MouseButton>>,
+    motion: Res<AccumulatedMouseMotion>,
+    scroll: Res<AccumulatedMouseScroll>,
+    visible: Res<BevyHostSceneVisible>,
+    mut input: ResMut<BevyViewportInput>,
+) {
+    if !visible.0 {
+        *input = BevyViewportInput::default();
+        return;
+    }
+
+    let pointer_pos = primary_window
+        .single()
+        .ok()
+        .and_then(|window| window.cursor_position())
+        .map(|pos| [pos.x, pos.y]);
+
+    *input = BevyViewportInput {
+        pointer_pos,
+        drag_delta: [motion.delta.x, motion.delta.y],
+        scroll_delta: scroll.delta.y / 120.0,
+        primary_clicked: mouse_buttons.just_pressed(MouseButton::Left),
+    };
+}
+
+fn apply_bevy_host_scene_visibility(
+    visible: Res<BevyHostSceneVisible>,
+    mut grid: ResMut<GroundGrid>,
+    mut objects: Query<&mut Visibility, With<BevyHostSceneObject>>,
+) {
+    if !visible.is_changed() {
+        return;
+    }
+    grid.visible = visible.0;
+    let target = if visible.0 {
+        Visibility::Inherited
+    } else {
+        Visibility::Hidden
+    };
+    for mut object_visibility in &mut objects {
+        *object_visibility = target;
+    }
+}
+
+fn setup_scene(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     render_target: Option<Res<BevyViewportRenderTarget>>,
+    bevy_host: Option<Res<BevyHostSceneProfile>>,
 ) {
-    let planet_mesh = meshes.add(Sphere::new(PLANET_RADIUS).mesh().uv(1024, 512));
+    let bevy_host = bevy_host.is_some();
+    let (planet_u, planet_v, cloud_u, cloud_v) = if bevy_host {
+        (192, 96, 32, 16)
+    } else {
+        (1024, 512, 64, 32)
+    };
+
+    let planet_mesh = meshes.add(Sphere::new(PLANET_RADIUS).mesh().uv(planet_u, planet_v));
     let planet_mat = materials.add(StandardMaterial {
         base_color: Color::srgb(0.62, 0.48, 0.33),
         perceptual_roughness: 0.95,
@@ -55,12 +154,14 @@ pub fn setup_scene(
         Transform::from_xyz(0.0, -PLANET_RADIUS, 0.0),
         Mesh3d(planet_mesh),
         MeshMaterial3d(planet_mat),
+        Visibility::Inherited,
+        BevyHostSceneObject,
         NotShadowCaster,
         NotShadowReceiver,
     ));
 
     let shell_radius = PLANET_RADIUS + CLOUD_ALTITUDE_M;
-    let cloud_mesh = meshes.add(Sphere::new(shell_radius).mesh().uv(64, 32));
+    let cloud_mesh = meshes.add(Sphere::new(shell_radius).mesh().uv(cloud_u, cloud_v));
     let cloud_mat = materials.add(StandardMaterial {
         base_color: Color::srgba(1.0, 1.0, 1.0, 0.35),
         alpha_mode: AlphaMode::Blend,
@@ -75,6 +176,8 @@ pub fn setup_scene(
         Transform::from_xyz(0.0, -PLANET_RADIUS, 0.0),
         Mesh3d(cloud_mesh),
         MeshMaterial3d(cloud_mat),
+        Visibility::Inherited,
+        BevyHostSceneObject,
         NotShadowCaster,
     ));
 
@@ -109,6 +212,8 @@ pub fn setup_scene(
                 ..default()
             })),
             Transform::from_xyz(x, 0.5, z),
+            Visibility::Inherited,
+            BevyHostSceneObject,
             ColorCube {
                 egui_col,
                 base_color: bevy_col,
@@ -129,7 +234,7 @@ pub fn setup_scene(
         Transform::from_xyz(5.0, 50.0, 5.0).looking_at(Vec3::ZERO, Vec3::Y),
         DirectionalLight {
             illuminance: 10_000.0,
-            shadows_enabled: true,
+            shadows_enabled: !bevy_host,
             ..default()
         },
         sun_shadow,
@@ -140,14 +245,14 @@ pub fn setup_scene(
         far: PLANET_RADIUS * 2.5,
         ..default()
     });
-    let fog = DistanceFog {
+    let fog = (!bevy_host).then_some(DistanceFog {
         color: Color::srgb(0.10, 0.13, 0.20),
         falloff: FogFalloff::Atmospheric {
             extinction: Vec3::new(0.00008, 0.00012, 0.00020),
             inscattering: Vec3::new(0.00010, 0.00015, 0.00025),
         },
         ..default()
-    };
+    });
     let chase = ChaseCamera::default();
     let mut cam_tr = Transform::default();
     apply_rig(&chase, &mut cam_tr);
@@ -156,7 +261,6 @@ pub fn setup_scene(
         Camera3d::default(),
         cam_tr,
         projection,
-        fog,
         AmbientLight {
             color: Color::WHITE,
             brightness: 120.0,
@@ -164,6 +268,9 @@ pub fn setup_scene(
         },
         chase,
     ));
+    if let Some(fog) = fog {
+        camera.insert(fog);
+    }
     if let Some(render_target) = render_target {
         camera.insert(RenderTarget::from(render_target.0.clone()));
     }
@@ -171,12 +278,16 @@ pub fn setup_scene(
 
 fn pick_cube(
     input: Res<BevyViewportInput>,
+    visible: Option<Res<BevyHostSceneVisible>>,
     bevy_cameras: Query<(&Camera, &GlobalTransform)>,
     cubes: Query<(Entity, &Transform, &ColorCube)>,
     mut picked: ResMut<BevyViewportPickedColor>,
     mut selected: ResMut<SelectedSwatch>,
 ) {
     picked.0 = None;
+    if visible.as_ref().is_some_and(|visible| !visible.0) {
+        return;
+    }
     if !input.primary_clicked {
         return;
     }

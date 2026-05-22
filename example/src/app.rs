@@ -326,6 +326,64 @@ const RIBBONS: &[RibbonSpec] = &[
     },
 ];
 
+const RIBBON_ITEMS_PERSISTENT_TOP: &[RibbonButtonSpec] = &[
+    RibbonButtonSpec {
+        id: ACTION_VIEW_BEVY,
+        ribbon: RIBBON_TOP,
+        cluster: RibbonCluster::Middle,
+        slot: 0,
+        draggable: false,
+        glyph: RibbonGlyph::Icon("cube"),
+        tooltip: "Bevy scene view",
+        child_ribbon: None,
+        role: Some(RibbonRole::Icon),
+    },
+    RibbonButtonSpec {
+        id: ACTION_VIEW_CANVAS,
+        ribbon: RIBBON_TOP,
+        cluster: RibbonCluster::Middle,
+        slot: 1,
+        draggable: false,
+        glyph: RibbonGlyph::Icon("pen"),
+        tooltip: "Canvas / whiteboard view",
+        child_ribbon: None,
+        role: Some(RibbonRole::Icon),
+    },
+    RibbonButtonSpec {
+        id: ACTION_COREVIZ_ZONES,
+        ribbon: RIBBON_TOP,
+        cluster: RibbonCluster::Middle,
+        slot: 2,
+        draggable: false,
+        glyph: RibbonGlyph::Icon("shape-union"),
+        tooltip: "Zones view",
+        child_ribbon: None,
+        role: Some(RibbonRole::Icon),
+    },
+    RibbonButtonSpec {
+        id: ACTION_COREVIZ_GRAPH,
+        ribbon: RIBBON_TOP,
+        cluster: RibbonCluster::Middle,
+        slot: 3,
+        draggable: false,
+        glyph: RibbonGlyph::Icon("flowchart"),
+        tooltip: "Graph view",
+        child_ribbon: None,
+        role: Some(RibbonRole::Icon),
+    },
+    RibbonButtonSpec {
+        id: ACTION_COREVIZ_MANAGEMENT,
+        ribbon: RIBBON_TOP,
+        cluster: RibbonCluster::Middle,
+        slot: 4,
+        draggable: false,
+        glyph: RibbonGlyph::Icon("location"),
+        tooltip: "Management view",
+        child_ribbon: None,
+        role: Some(RibbonRole::Icon),
+    },
+];
+
 const RIBBON_ITEMS: &[RibbonButtonSpec] = &[
     // LEFT rail — primary navigation cluster.
     RibbonButtonSpec {
@@ -381,18 +439,6 @@ const RIBBON_ITEMS: &[RibbonButtonSpec] = &[
         draggable: true,
         glyph: RibbonGlyph::Icon("keyboard"),
         tooltip: "Keys & gestures",
-        child_ribbon: None,
-        role: None,
-    },
-    // TOP rail — meta.
-    RibbonButtonSpec {
-        id: PANE_ABOUT,
-        ribbon: RIBBON_TOP,
-        cluster: RibbonCluster::Start,
-        slot: 0,
-        draggable: false,
-        glyph: RibbonGlyph::Icon("line-horizontal-3"),
-        tooltip: "App menu and about",
         child_ribbon: None,
         role: None,
     },
@@ -453,17 +499,6 @@ const RIBBON_ITEMS: &[RibbonButtonSpec] = &[
         child_ribbon: None,
         role: Some(RibbonRole::Icon),
     },
-    RibbonButtonSpec {
-        id: ACTION_CLOSE_APP,
-        ribbon: RIBBON_TOP,
-        cluster: RibbonCluster::End,
-        slot: 0,
-        draggable: false,
-        glyph: RibbonGlyph::Icon("dismiss"),
-        tooltip: "Close application",
-        child_ribbon: None,
-        role: Some(RibbonRole::Icon),
-    },
     // BOTTOM rail — Editor plus the
     // one-shot cube-cycle action buttons in the End cluster.
     RibbonButtonSpec {
@@ -503,17 +538,6 @@ const RIBBON_ITEMS: &[RibbonButtonSpec] = &[
 
 const RIBBON_ITEMS_ROOT_VIEW: &[RibbonButtonSpec] = &[
     // TOP rail — the only persistent/shared bar.
-    RibbonButtonSpec {
-        id: PANE_ABOUT,
-        ribbon: RIBBON_TOP,
-        cluster: RibbonCluster::Start,
-        slot: 0,
-        draggable: false,
-        glyph: RibbonGlyph::Icon("line-horizontal-3"),
-        tooltip: "App menu and about",
-        child_ribbon: None,
-        role: None,
-    },
     RibbonButtonSpec {
         id: ACTION_VIEW_BEVY,
         ribbon: RIBBON_TOP,
@@ -566,17 +590,6 @@ const RIBBON_ITEMS_ROOT_VIEW: &[RibbonButtonSpec] = &[
         draggable: false,
         glyph: RibbonGlyph::Icon("location"),
         tooltip: "Management view",
-        child_ribbon: None,
-        role: Some(RibbonRole::Icon),
-    },
-    RibbonButtonSpec {
-        id: ACTION_CLOSE_APP,
-        ribbon: RIBBON_TOP,
-        cluster: RibbonCluster::End,
-        slot: 0,
-        draggable: false,
-        glyph: RibbonGlyph::Icon("dismiss"),
-        tooltip: "Close application",
         child_ribbon: None,
         role: Some(RibbonRole::Icon),
     },
@@ -664,17 +677,6 @@ const RIBBON_ITEMS_ROOT_VIEW: &[RibbonButtonSpec] = &[
 
 const RIBBON_ITEMS_MAP_VIEW: &[RibbonButtonSpec] = &[
     RibbonButtonSpec {
-        id: PANE_ABOUT,
-        ribbon: RIBBON_TOP,
-        cluster: RibbonCluster::Start,
-        slot: 0,
-        draggable: false,
-        glyph: RibbonGlyph::Icon("line-horizontal-3"),
-        tooltip: "App menu and about",
-        child_ribbon: None,
-        role: None,
-    },
-    RibbonButtonSpec {
         id: ACTION_VIEW_BEVY,
         ribbon: RIBBON_TOP,
         cluster: RibbonCluster::Middle,
@@ -693,17 +695,6 @@ const RIBBON_ITEMS_MAP_VIEW: &[RibbonButtonSpec] = &[
         draggable: false,
         glyph: RibbonGlyph::Icon("pen"),
         tooltip: "Canvas / whiteboard view",
-        child_ribbon: None,
-        role: Some(RibbonRole::Icon),
-    },
-    RibbonButtonSpec {
-        id: ACTION_CLOSE_APP,
-        ribbon: RIBBON_TOP,
-        cluster: RibbonCluster::End,
-        slot: 0,
-        draggable: false,
-        glyph: RibbonGlyph::Icon("dismiss"),
-        tooltip: "Close application",
         child_ribbon: None,
         role: Some(RibbonRole::Icon),
     },
@@ -821,17 +812,6 @@ const RIBBON_ITEMS_MAP_VIEW: &[RibbonButtonSpec] = &[
 
 const RIBBON_ITEMS_MAP_GRAPH_VIEW: &[RibbonButtonSpec] = &[
     RibbonButtonSpec {
-        id: PANE_ABOUT,
-        ribbon: RIBBON_TOP,
-        cluster: RibbonCluster::Start,
-        slot: 0,
-        draggable: false,
-        glyph: RibbonGlyph::Icon("line-horizontal-3"),
-        tooltip: "App menu and about",
-        child_ribbon: None,
-        role: None,
-    },
-    RibbonButtonSpec {
         id: ACTION_VIEW_BEVY,
         ribbon: RIBBON_TOP,
         cluster: RibbonCluster::Middle,
@@ -850,17 +830,6 @@ const RIBBON_ITEMS_MAP_GRAPH_VIEW: &[RibbonButtonSpec] = &[
         draggable: false,
         glyph: RibbonGlyph::Icon("pen"),
         tooltip: "Canvas / whiteboard view",
-        child_ribbon: None,
-        role: Some(RibbonRole::Icon),
-    },
-    RibbonButtonSpec {
-        id: ACTION_CLOSE_APP,
-        ribbon: RIBBON_TOP,
-        cluster: RibbonCluster::End,
-        slot: 0,
-        draggable: false,
-        glyph: RibbonGlyph::Icon("dismiss"),
-        tooltip: "Close application",
         child_ribbon: None,
         role: Some(RibbonRole::Icon),
     },
@@ -978,17 +947,6 @@ const RIBBON_ITEMS_MAP_GRAPH_VIEW: &[RibbonButtonSpec] = &[
 
 const RIBBON_ITEMS_MAP_MANAGEMENT_VIEW: &[RibbonButtonSpec] = &[
     RibbonButtonSpec {
-        id: PANE_ABOUT,
-        ribbon: RIBBON_TOP,
-        cluster: RibbonCluster::Start,
-        slot: 0,
-        draggable: false,
-        glyph: RibbonGlyph::Icon("line-horizontal-3"),
-        tooltip: "App menu and about",
-        child_ribbon: None,
-        role: None,
-    },
-    RibbonButtonSpec {
         id: ACTION_VIEW_BEVY,
         ribbon: RIBBON_TOP,
         cluster: RibbonCluster::Middle,
@@ -1007,17 +965,6 @@ const RIBBON_ITEMS_MAP_MANAGEMENT_VIEW: &[RibbonButtonSpec] = &[
         draggable: false,
         glyph: RibbonGlyph::Icon("pen"),
         tooltip: "Canvas / whiteboard view",
-        child_ribbon: None,
-        role: Some(RibbonRole::Icon),
-    },
-    RibbonButtonSpec {
-        id: ACTION_CLOSE_APP,
-        ribbon: RIBBON_TOP,
-        cluster: RibbonCluster::End,
-        slot: 0,
-        draggable: false,
-        glyph: RibbonGlyph::Icon("dismiss"),
-        tooltip: "Close application",
         child_ribbon: None,
         role: Some(RibbonRole::Icon),
     },
@@ -1169,17 +1116,6 @@ const RIBBON_ITEMS_FS_GRAPH: &[RibbonButtonSpec] = &[
     // The system-control slot changes meaning here: close becomes
     // restore-to-parent/fullscreen-exit, not app close.
     RibbonButtonSpec {
-        id: PANE_ABOUT,
-        ribbon: RIBBON_TOP,
-        cluster: RibbonCluster::Start,
-        slot: 0,
-        draggable: false,
-        glyph: RibbonGlyph::Icon("line-horizontal-3"),
-        tooltip: "App menu and about",
-        child_ribbon: None,
-        role: None,
-    },
-    RibbonButtonSpec {
         id: ACTION_VIEW_BEVY,
         ribbon: RIBBON_TOP,
         cluster: RibbonCluster::Middle,
@@ -1306,17 +1242,6 @@ const RIBBON_ITEMS_FS_GRAPH: &[RibbonButtonSpec] = &[
 // (Save / Run / Format / Find) plus a file-switcher sidebar on the
 // left (main.rs / lib.rs / Cargo.toml).
 const RIBBON_ITEMS_FS_CODE: &[RibbonButtonSpec] = &[
-    RibbonButtonSpec {
-        id: PANE_ABOUT,
-        ribbon: RIBBON_TOP,
-        cluster: RibbonCluster::Start,
-        slot: 0,
-        draggable: false,
-        glyph: RibbonGlyph::Icon("line-horizontal-3"),
-        tooltip: "App menu and about",
-        child_ribbon: None,
-        role: None,
-    },
     RibbonButtonSpec {
         id: ACTION_VIEW_BEVY,
         ribbon: RIBBON_TOP,
@@ -1510,6 +1435,17 @@ fn ribbon_action(id: &'static str) -> RibbonAction {
     }
 }
 
+fn is_persistent_top_item(id: &'static str) -> bool {
+    matches!(
+        id,
+        ACTION_VIEW_BEVY
+            | ACTION_VIEW_CANVAS
+            | ACTION_COREVIZ_ZONES
+            | ACTION_COREVIZ_GRAPH
+            | ACTION_COREVIZ_MANAGEMENT
+    )
+}
+
 fn draw_unified_ribbons(
     ctx: &egui::Context,
     accent: egui::Color32,
@@ -1520,6 +1456,14 @@ fn draw_unified_ribbons(
     drag: &mut RibbonDrag,
     active: impl Fn(&'static str) -> bool,
 ) -> Vec<RibbonSlotClick> {
+    let mut stable_items: Vec<&RibbonButtonSpec> = Vec::with_capacity(
+        RIBBON_ITEMS_PERSISTENT_TOP
+            .len()
+            .saturating_add(items.len()),
+    );
+    stable_items.extend(RIBBON_ITEMS_PERSISTENT_TOP.iter());
+    stable_items.extend(items.iter().filter(|item| !is_persistent_top_item(item.id)));
+
     let mut resolved = Vec::new();
     for ribbon in ribbons {
         for cluster in [
@@ -1527,8 +1471,9 @@ fn draw_unified_ribbons(
             RibbonCluster::Middle,
             RibbonCluster::End,
         ] {
-            let slot_items: Vec<RibbonSlotItem> = items
+            let slot_items: Vec<RibbonSlotItem> = stable_items
                 .iter()
+                .copied()
                 .filter(|item| item.ribbon == ribbon.id && item.cluster == cluster)
                 .map(|item| {
                     let icon = match item.glyph {
@@ -1726,6 +1671,7 @@ pub struct DemoApp {
     canvas_shelves: CanvasShelfState,
     map_view: MapViewState,
     bevy_view: MaraBevyViewport,
+    bevy_hosted_scene: bool,
     editor_node_view: EditorNodeView,
     editor_graph: EditorGraph,
 }
@@ -1749,6 +1695,26 @@ impl DemoApp {
             ),
             ..Self::default()
         }
+    }
+
+    /// Build the same Mara demo state for a Bevy-owned window. In
+    /// this mode the root Bevy scene is the real Bevy world behind
+    /// `bevy_egui`, so the Mara root view must not create a second
+    /// embedded/offscreen Bevy renderer.
+    pub fn new_bevy_hosted() -> Self {
+        Self {
+            bevy_hosted_scene: true,
+            ..Self::default()
+        }
+    }
+
+    pub fn set_accent_color(&mut self, color: egui::Color32) {
+        self.accent.0 = color;
+    }
+
+    #[must_use]
+    pub fn bevy_host_scene_visible(&self) -> bool {
+        self.bevy_hosted_scene && self.root_view == DemoRootView::BevyScene
     }
 
     pub fn update_with_render_state(
@@ -1811,6 +1777,7 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
         canvas_shelves,
         map_view,
         bevy_view,
+        bevy_hosted_scene,
         editor_node_view,
         editor_graph,
     } = app;
@@ -1841,7 +1808,7 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
     // Actual root/L0 canvas switch. The app shell is always eframe;
     // Bevy is represented as an embedded viewport surface, not the
     // top-level window owner.
-    if *root_view == DemoRootView::BevyScene {
+    if *root_view == DemoRootView::BevyScene && !*bevy_hosted_scene {
         if let Some(color) = bevy_view.show(host.egui(), host.render_state(), accent_col) {
             accent.0 = color;
             host.apply_theme(*accent, *glass);
@@ -2107,6 +2074,11 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
         (191, 115, 242),
     ];
     for click in clicks {
+        if click.action == RibbonAction::Command(mara_core::app_menu_command_id()) {
+            open.set(RIBBON_TOP, PANE_ABOUT);
+            ctx.request_repaint();
+            continue;
+        }
         if click.action == RibbonAction::Command(mara_core::left_shelf_command_id()) {
             canvas_shelves.0.toggle_edge_visible(ShelfEdge::Left);
             continue;
@@ -2124,6 +2096,7 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
                 mara_core::embed::restore_fullscreen(ctx);
             }
             *root_view = DemoRootView::BevyScene;
+            ctx.request_repaint();
             continue;
         }
         if click.item == egui::Id::new(ACTION_VIEW_CANVAS) {
@@ -2131,6 +2104,7 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
                 mara_core::embed::restore_fullscreen(ctx);
             }
             *root_view = DemoRootView::Canvas;
+            ctx.request_repaint();
             continue;
         }
         if click.item == egui::Id::new(ACTION_RESTORE_FULLSCREEN) {
@@ -2151,9 +2125,11 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
                 mara_core::embed::restore_fullscreen(ctx);
             }
             *root_view = DemoRootView::CorevizZones;
+            map_view.surface.defer_full_detail();
             map_view.interaction.set_tool(MapTool::Select);
             open.set(RIBBON_LEFT, PANE_COREVIZ_ZONES);
             open.set(RIBBON_RIGHT, PANE_COREVIZ_DETAILS);
+            ctx.request_repaint();
             continue;
         }
         if click.item == egui::Id::new(ACTION_COREVIZ_GRAPH) {
@@ -2161,9 +2137,11 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
                 mara_core::embed::restore_fullscreen(ctx);
             }
             *root_view = DemoRootView::CorevizGraph;
+            map_view.surface.defer_full_detail();
             map_view.interaction.set_tool(MapTool::Select);
             open.set(RIBBON_LEFT, PANE_COREVIZ_NODES);
             open.set(RIBBON_RIGHT, PANE_COREVIZ_DETAILS);
+            ctx.request_repaint();
             continue;
         }
         if click.item == egui::Id::new(ACTION_COREVIZ_MANAGEMENT) {
@@ -2171,9 +2149,11 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
                 mara_core::embed::restore_fullscreen(ctx);
             }
             *root_view = DemoRootView::CorevizManagement;
+            map_view.surface.defer_full_detail();
             map_view.interaction.set_tool(MapTool::Select);
             open.set(RIBBON_LEFT, PANE_COREVIZ_ROBOTS);
             open.set(RIBBON_RIGHT, PANE_COREVIZ_DETAILS);
+            ctx.request_repaint();
             continue;
         }
         if click.item == egui::Id::new(ACTION_MAP_SELECT) {

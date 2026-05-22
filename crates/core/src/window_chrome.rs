@@ -51,10 +51,28 @@ pub struct WindowChromeRegions {
 /// the browser already owns window movement and resizing. Native
 /// facades such as Bevy or eframe can publish `true` values before
 /// rendering Mara chrome for a frame.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct WindowChromeHostCapabilities {
     pub native_move: bool,
     pub native_resize: bool,
+    /// Whether Mara should draw the built-in application menu button
+    /// in the persistent top bar.
+    pub system_menu: bool,
+    /// Whether Mara should draw the built-in close button in the
+    /// persistent top bar. Hosts such as browsers or Bevy-owned
+    /// windows can opt out while still keeping the menu.
+    pub system_close: bool,
+}
+
+impl Default for WindowChromeHostCapabilities {
+    fn default() -> Self {
+        Self {
+            native_move: false,
+            native_resize: false,
+            system_menu: true,
+            system_close: false,
+        }
+    }
 }
 
 /// Host-neutral switches for Mara-owned native-window chrome.
@@ -579,6 +597,8 @@ mod tests {
         let native_caps = WindowChromeHostCapabilities {
             native_move: true,
             native_resize: true,
+            system_menu: true,
+            system_close: true,
         };
         publish_window_chrome_host_capabilities(&ctx, native_caps);
         assert_eq!(window_chrome_host_capabilities(&ctx), native_caps);

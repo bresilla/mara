@@ -13,6 +13,10 @@ const RIGHT_SHELF_RIBBON_CHROME_ID: &str = "mara.system.right_shelf.ribbon";
 const RIGHT_SHELF_ITEM_CHROME_ID: &str = "mara.system.right_shelf.item";
 const BOTTOM_SHELF_RIBBON_CHROME_ID: &str = "mara.system.bottom_shelf.ribbon";
 const BOTTOM_SHELF_ITEM_CHROME_ID: &str = "mara.system.bottom_shelf.item";
+const APP_MENU_RIBBON_CHROME_ID: &str = "mara.system.app_menu.ribbon";
+const APP_MENU_ITEM_CHROME_ID: &str = "mara.system.app_menu.item";
+const CLOSE_RIBBON_CHROME_ID: &str = "mara.system.close.ribbon";
+const CLOSE_ITEM_CHROME_ID: &str = "mara.system.close.item";
 
 #[derive(Clone, Debug)]
 pub struct ResolvedSlotRibbon {
@@ -139,8 +143,9 @@ fn shelf_augmented_ribbons(
     order: ShelfButtonOrder,
 ) -> Option<Vec<ResolvedSlotRibbon>> {
     let visible_layout = crate::shelf::shelf_layout(ctx);
-    augment_shelf_buttons(
+    augment_shelf_buttons_with_chrome(
         ribbons,
+        crate::window_chrome::window_chrome_host_capabilities(ctx),
         crate::shelf::published_shelf_presence(ctx),
         visible_layout.is_some_and(|layout| layout.left.is_some()),
         visible_layout.is_some_and(|layout| layout.right.is_some()),
@@ -149,8 +154,33 @@ fn shelf_augmented_ribbons(
     )
 }
 
+#[cfg(test)]
 fn augment_shelf_buttons(
     ribbons: &[ResolvedSlotRibbon],
+    presence: crate::shelf::ShelfPresence,
+    left_visible: bool,
+    right_visible: bool,
+    bottom_visible: bool,
+    order: ShelfButtonOrder,
+) -> Option<Vec<ResolvedSlotRibbon>> {
+    augment_shelf_buttons_with_chrome(
+        ribbons,
+        crate::window_chrome::WindowChromeHostCapabilities {
+            system_menu: false,
+            system_close: false,
+            ..Default::default()
+        },
+        presence,
+        left_visible,
+        right_visible,
+        bottom_visible,
+        order,
+    )
+}
+
+fn augment_shelf_buttons_with_chrome(
+    ribbons: &[ResolvedSlotRibbon],
+    chrome: crate::window_chrome::WindowChromeHostCapabilities,
     presence: crate::shelf::ShelfPresence,
     left_visible: bool,
     right_visible: bool,
@@ -160,16 +190,16 @@ fn augment_shelf_buttons(
     let has_left = presence.left;
     let has_right = presence.right;
     let has_bottom = presence.bottom;
-    if !has_left && !has_right && !has_bottom {
-        return None;
-    }
-
     let mut out = ribbons.to_vec();
-    if !out.iter().any(is_top_permanent_ribbon) {
-        return None;
-    }
-
     let mut changed = false;
+    if chrome.system_menu && !contains_item(&out, app_menu_item_id()) {
+        insert_app_menu_button(&mut out);
+        changed = true;
+    }
+    if chrome.system_close && !contains_item(&out, close_item_id()) {
+        insert_close_button(&mut out, order);
+        changed = true;
+    }
     if has_left && !contains_item(&out, left_shelf_item_id()) {
         insert_left_shelf_button(&mut out, left_visible);
         changed = true;
@@ -189,6 +219,36 @@ fn contains_item(ribbons: &[ResolvedSlotRibbon], item_id: Id) -> bool {
     ribbons
         .iter()
         .any(|ribbon| ribbon.items.iter().any(|item| item.id == item_id))
+}
+
+fn insert_app_menu_button(ribbons: &mut Vec<ResolvedSlotRibbon>) {
+    let item = app_menu_item();
+    if let Some(ribbon) = find_top_permanent_cluster_mut(ribbons, RibbonCluster::Start) {
+        ribbon.items.insert(0, item);
+    } else {
+        ribbons.push(system_button_ribbon(
+            APP_MENU_RIBBON_CHROME_ID,
+            RibbonCluster::Start,
+            item,
+        ));
+    }
+}
+
+fn insert_close_button(ribbons: &mut Vec<ResolvedSlotRibbon>, order: ShelfButtonOrder) {
+    let item = close_item();
+    if let Some(ribbon) = find_top_permanent_cluster_mut(ribbons, RibbonCluster::End) {
+        let insert = match order {
+            ShelfButtonOrder::Simple => ribbon.items.len(),
+            ShelfButtonOrder::Featureful => 0,
+        };
+        ribbon.items.insert(insert, item);
+    } else {
+        ribbons.push(system_button_ribbon(
+            CLOSE_RIBBON_CHROME_ID,
+            RibbonCluster::End,
+            item,
+        ));
+    }
 }
 
 fn insert_left_shelf_button(ribbons: &mut Vec<ResolvedSlotRibbon>, active: bool) {
@@ -272,6 +332,14 @@ fn is_top_permanent_ribbon(ribbon: &ResolvedSlotRibbon) -> bool {
     ribbon.scope == RibbonScope::Permanent && ribbon.edge == RibbonEdge::Top
 }
 
+fn system_button_ribbon(
+    chrome_id: &'static str,
+    cluster: RibbonCluster,
+    item: RibbonSlotItem,
+) -> ResolvedSlotRibbon {
+    shelf_button_ribbon(chrome_id, cluster, item)
+}
+
 fn shelf_button_ribbon(
     chrome_id: &'static str,
     cluster: RibbonCluster,
@@ -288,6 +356,32 @@ fn shelf_button_ribbon(
         accepts: &[],
         items: vec![item],
     }
+}
+
+fn app_menu_item() -> RibbonSlotItem {
+    let mut item = RibbonSlotItem::featureful(
+        APP_MENU_ITEM_CHROME_ID,
+        "line-horizontal-3",
+        "Menu",
+        "Open application menu",
+        RibbonAction::Command(crate::ribbon::app_menu_command_id()),
+    )
+    .with_role(super::RibbonRole::Icon);
+    item.id = app_menu_item_id();
+    item
+}
+
+fn close_item() -> RibbonSlotItem {
+    let mut item = RibbonSlotItem::featureful(
+        CLOSE_ITEM_CHROME_ID,
+        crate::style::theme().views.close_icon,
+        "Close",
+        "Close application",
+        RibbonAction::CloseApp,
+    )
+    .with_role(super::RibbonRole::Icon);
+    item.id = close_item_id();
+    item
 }
 
 fn left_shelf_item(active: bool) -> RibbonSlotItem {
@@ -334,6 +428,14 @@ fn bottom_shelf_item(active: bool) -> RibbonSlotItem {
 
 fn left_shelf_item_id() -> Id {
     Id::new("system.left_shelf.item")
+}
+
+fn app_menu_item_id() -> Id {
+    Id::new("system.app_menu.item")
+}
+
+fn close_item_id() -> Id {
+    Id::new("system.close_app")
 }
 
 fn right_shelf_item_id() -> Id {

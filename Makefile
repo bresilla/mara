@@ -124,6 +124,7 @@ help:
 	@echo "  make build TARGET=apk        # reserved for Android"
 	@echo "  make serve"
 	@echo "  make run APP_BIN=native       # run a different root example binary"
+	@echo "  make run APP_BIN=bevy         # run the Bevy-owned Mara example"
 	@echo "  make run BACKEND=x11          # force X11 / XWayland (.envrc auto-detects)"
 	@echo "  make run BACKEND=wayland      # force native Wayland"
 	@echo "  make run DISPLAY=:0           # target a different X server (BACKEND=x11)"
