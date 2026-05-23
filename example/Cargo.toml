@@ -8,7 +8,7 @@ repository.workspace = true
 publish = false
 
 [dependencies]
-mara = { path = "../mara", features = ["window", "bevy"] }
+mara = { path = "../mara", features = ["window", "bevy", "canvas", "code", "graph", "image", "map"] }
 mara_core = { workspace = true }
 mara_map = { workspace = true }
 egui_plot = "0.34"

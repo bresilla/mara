@@ -13,30 +13,30 @@
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::{
     Arc,
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicBool, AtomicU64, Ordering},
 };
 
 #[cfg(not(target_arch = "wasm32"))]
 use bevy::app::TerminalCtrlCHandlerPlugin;
 use bevy::asset::RenderAssetUsages;
-use bevy::camera::RenderTarget;
-use bevy::image::{BevyDefault, TextureFormatPixelInfo};
+use bevy::camera::{ManualTextureViewHandle, RenderTarget};
+use bevy::image::BevyDefault;
 use bevy::log::LogPlugin;
 use bevy::prelude::*;
 use bevy::render::{
     Extract, Render, RenderApp, RenderPlugin, RenderSystems,
-    render_asset::RenderAssets,
     render_graph::{self, NodeRunError, RenderGraph, RenderGraphContext, RenderLabel},
     render_resource::{
-        Buffer, BufferDescriptor, BufferUsages, CommandEncoderDescriptor, Extent3d, MapMode,
-        PollType, TexelCopyBufferInfo, TexelCopyBufferLayout, TextureDimension, TextureFormat,
-        TextureUsages, TextureView,
+        Buffer, BufferDescriptor, BufferUsages, Extent3d, MapMode, PollType, TexelCopyBufferInfo,
+        TexelCopyBufferLayout, Texture, TextureDimension, TextureFormat, TextureUsages,
+        TextureView,
     },
     renderer::{
         RenderAdapter, RenderAdapterInfo, RenderContext, RenderDevice, RenderInstance, RenderQueue,
         WgpuWrapper,
     },
     settings::RenderCreation,
+    texture::{ManualTextureView, ManualTextureViews},
 };
 use bevy::window::ExitCondition;
 use bevy::winit::WinitPlugin;
@@ -45,6 +45,9 @@ use crossbeam_channel::{Receiver, Sender};
 
 mod egui_view;
 pub use egui_view::{EmbeddedBevyViewport, MaraBevyViewport};
+
+const EMBEDDED_VIEWPORT_MANUAL_TEXTURE: ManualTextureViewHandle =
+    ManualTextureViewHandle(0x4d41_5241);
 
 /// Description of the viewport surface the egui host reserves for
 /// Bevy. It is host-facing metadata, not a Bevy window.
@@ -422,8 +425,12 @@ pub fn make_viewport_render_target(texture: BevyViewportTexture, format: Texture
 }
 
 fn make_embedded_viewport_render_target(width: u32, height: u32) -> Image {
+    // Compatibility handle for existing content that expects a
+    // BevyViewportRenderTarget image. Embedded cameras are redirected
+    // to a manual GPU texture view after content setup, so the fast
+    // path does not render into this image or copy from it.
     let mut image = Image::new_target_texture(width, height, TextureFormat::bevy_default(), None);
-    image.texture_descriptor.usage |= TextureUsages::COPY_SRC;
+    image.texture_descriptor.usage |= TextureUsages::COPY_SRC | TextureUsages::TEXTURE_BINDING;
     image
 }
 
@@ -512,7 +519,8 @@ impl BevyViewportRenderer {
             .add_systems(
                 Startup,
                 setup_embedded_viewport_target.in_set(BevyViewportSet::SetupTarget),
-            );
+            )
+            .add_systems(Update, redirect_embedded_viewport_cameras_to_manual_texture);
         app.add_plugins(EmbeddedViewportCopyPlugin);
 
         if let Some(configure_app) = configure_app {
@@ -566,13 +574,16 @@ impl BevyViewportRenderer {
                 height: texture.height,
                 depth_or_array_layers: 1,
             };
+            let replacement = EmbeddedViewportImageCopier::new(size, render_device.wgpu_device());
+            if let Some(mut manual_views) = world.get_resource_mut::<ManualTextureViews>() {
+                manual_views.insert(
+                    EMBEDDED_VIEWPORT_MANUAL_TEXTURE,
+                    replacement.manual_texture_view(),
+                );
+            }
             let mut copiers = world.query::<&mut EmbeddedViewportImageCopier>();
             for mut copier in copiers.iter_mut(world) {
-                *copier = EmbeddedViewportImageCopier::new(
-                    src_image.clone(),
-                    size,
-                    render_device.wgpu_device(),
-                );
+                *copier = replacement.clone();
             }
 
             if let Some(receiver) = world.get_resource::<EmbeddedViewportReceiver>() {
@@ -590,6 +601,7 @@ impl BevyViewportRenderer {
     }
 
     pub fn render_next(&mut self) -> Option<CapturedBevyFrame> {
+        self.set_cpu_readback_enabled(true);
         self.app.world_mut().insert_resource(self.input);
         apply_embedded_viewport_input(self.app.world_mut(), self.input);
         self.app.update();
@@ -613,29 +625,38 @@ impl BevyViewportRenderer {
     }
 
     pub fn render_next_texture(&mut self) -> Option<CapturedBevyTexture> {
+        self.set_cpu_readback_enabled(false);
         self.app.world_mut().insert_resource(self.input);
         apply_embedded_viewport_input(self.app.world_mut(), self.input);
         self.app.update();
         self.gpu_texture()
     }
 
-    fn gpu_texture(&self) -> Option<CapturedBevyTexture> {
-        let render_target = self
-            .app
-            .world()
-            .get_resource::<BevyViewportRenderTarget>()?
-            .0
-            .clone();
-        let render_app = self.app.get_sub_app(RenderApp)?;
-        let gpu_images = render_app
-            .world()
-            .get_resource::<RenderAssets<bevy::render::texture::GpuImage>>()?;
-        let gpu_image = gpu_images.get(render_target.id())?;
+    fn set_cpu_readback_enabled(&mut self, enabled: bool) {
+        let world = self.app.world_mut();
+        let mut copiers = world.query::<&EmbeddedViewportImageCopier>();
+        for copier in copiers.iter(world) {
+            copier.set_enabled(enabled);
+        }
+    }
+
+    fn gpu_texture(&mut self) -> Option<CapturedBevyTexture> {
+        let world = self.app.world_mut();
+        let mut copiers = world.query::<&EmbeddedViewportImageCopier>();
+        let copier = copiers.iter(world).next()?;
+        let copied_frame = copier.copied_frame.load(Ordering::Acquire);
+        // Do not hand a freshly allocated egui texture to the host
+        // until the render graph has copied into it across at least
+        // one completed update. This keeps resize from flashing an
+        // empty/black texture while the new target warms up.
+        if copied_frame < 2 {
+            return None;
+        }
         Some(CapturedBevyTexture {
-            width: gpu_image.size.width,
-            height: gpu_image.size.height,
-            view: gpu_image.texture_view.clone(),
-            frame: 0,
+            width: copier.size.width,
+            height: copier.size.height,
+            view: copier.egui_texture_view.clone(),
+            frame: copied_frame,
         })
     }
 
@@ -712,11 +733,14 @@ fn setup_embedded_viewport_target(
     let render_target_image = make_embedded_viewport_render_target(size.width, size.height);
     let render_target_handle = images.add(render_target_image);
 
-    commands.spawn(EmbeddedViewportImageCopier::new(
-        render_target_handle.clone(),
-        size,
-        render_device.wgpu_device(),
-    ));
+    let image_copier = EmbeddedViewportImageCopier::new(size, render_device.wgpu_device());
+    let manual_view = image_copier.manual_texture_view();
+    commands.spawn(image_copier);
+    commands.queue(move |world: &mut World| {
+        world
+            .resource_mut::<ManualTextureViews>()
+            .insert(EMBEDDED_VIEWPORT_MANUAL_TEXTURE, manual_view);
+    });
     commands.insert_resource(BevyViewportRenderTarget(render_target_handle));
 }
 
@@ -737,13 +761,30 @@ fn setup_embedded_viewport_target(
     let render_target_handle = images.add(render_target_image);
 
     if let Some(render_device) = render_device {
-        commands.spawn(EmbeddedViewportImageCopier::new(
-            render_target_handle.clone(),
-            size,
-            render_device.wgpu_device(),
-        ));
+        let image_copier = EmbeddedViewportImageCopier::new(size, render_device.wgpu_device());
+        let manual_view = image_copier.manual_texture_view();
+        commands.spawn(image_copier);
+        commands.queue(move |world: &mut World| {
+            world
+                .resource_mut::<ManualTextureViews>()
+                .insert(EMBEDDED_VIEWPORT_MANUAL_TEXTURE, manual_view);
+        });
     }
     commands.insert_resource(BevyViewportRenderTarget(render_target_handle));
+}
+
+fn redirect_embedded_viewport_cameras_to_manual_texture(
+    render_target: Option<Res<BevyViewportRenderTarget>>,
+    mut cameras: Query<&mut RenderTarget>,
+) {
+    let Some(render_target) = render_target else {
+        return;
+    };
+    for mut target in &mut cameras {
+        if target.as_image() == Some(&render_target.0) {
+            *target = RenderTarget::TextureView(EMBEDDED_VIEWPORT_MANUAL_TEXTURE);
+        }
+    }
 }
 
 #[derive(Resource)]
@@ -831,13 +872,17 @@ struct EmbeddedViewportCopiers(Vec<EmbeddedViewportImageCopier>);
 #[derive(Clone, Component)]
 struct EmbeddedViewportImageCopier {
     buffer: Buffer,
+    size: Extent3d,
+    egui_texture: Texture,
+    egui_texture_view: TextureView,
+    bevy_texture_view: TextureView,
+    copied_frame: Arc<AtomicU64>,
     enabled: Arc<AtomicBool>,
     pending_map: Arc<AtomicBool>,
-    src_image: Handle<Image>,
 }
 
 impl EmbeddedViewportImageCopier {
-    fn new(src_image: Handle<Image>, size: Extent3d, device: &wgpu::Device) -> Self {
+    fn new(size: Extent3d, device: &wgpu::Device) -> Self {
         let row_bytes = size.width as usize * 4;
         let padded_bytes_per_row = RenderDevice::align_copy_bytes_per_row(row_bytes);
         let buffer = device.create_buffer(&BufferDescriptor {
@@ -846,17 +891,46 @@ impl EmbeddedViewportImageCopier {
             usage: BufferUsages::MAP_READ | BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
+        let egui_texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("mara_embedded_bevy_viewport_egui_texture"),
+            size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                | wgpu::TextureUsages::COPY_SRC
+                | wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[
+                wgpu::TextureFormat::Rgba8Unorm,
+                wgpu::TextureFormat::Rgba8UnormSrgb,
+            ],
+        });
+        let egui_texture_view = egui_texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let bevy_texture_view = egui_texture.create_view(&wgpu::TextureViewDescriptor {
+            label: Some("mara_embedded_bevy_viewport_srgb_render_view"),
+            format: Some(wgpu::TextureFormat::Rgba8UnormSrgb),
+            ..Default::default()
+        });
 
         Self {
             buffer: buffer.into(),
+            size,
+            egui_texture: egui_texture.into(),
+            egui_texture_view: egui_texture_view.into(),
+            bevy_texture_view: bevy_texture_view.into(),
+            copied_frame: Arc::new(AtomicU64::new(0)),
             enabled: Arc::new(AtomicBool::new(true)),
             pending_map: Arc::new(AtomicBool::new(false)),
-            src_image,
         }
     }
 
     fn enabled(&self) -> bool {
         self.enabled.load(Ordering::Relaxed)
+    }
+
+    fn set_enabled(&self, enabled: bool) {
+        self.enabled.store(enabled, Ordering::Relaxed);
     }
 
     fn ready_for_copy(&self) -> bool {
@@ -867,6 +941,14 @@ impl EmbeddedViewportImageCopier {
         self.pending_map
             .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
             .is_ok()
+    }
+
+    fn manual_texture_view(&self) -> ManualTextureView {
+        ManualTextureView {
+            texture_view: self.bevy_texture_view.clone(),
+            size: UVec2::new(self.size.width, self.size.height),
+            view_format: TextureFormat::Rgba8UnormSrgb,
+        }
     }
 }
 
@@ -895,96 +977,69 @@ impl render_graph::Node for EmbeddedViewportCopyDriver {
         let Some(image_copiers) = world.get_resource::<EmbeddedViewportCopiers>() else {
             return Ok(());
         };
-        let Some(gpu_images) =
-            world.get_resource::<RenderAssets<bevy::render::texture::GpuImage>>()
-        else {
-            return Ok(());
-        };
         let Some(mapped_sender) = world.get_resource::<EmbeddedViewportMappedSender>() else {
             return Ok(());
         };
 
         for image_copier in &image_copiers.0 {
-            if !image_copier.ready_for_copy() || !image_copier.mark_pending_map() {
-                continue;
-            }
-            let Some(src_image) = gpu_images.get(&image_copier.src_image) else {
-                image_copier.pending_map.store(false, Ordering::Release);
-                continue;
-            };
+            let encoder = render_context.command_encoder();
+            image_copier.copied_frame.fetch_add(1, Ordering::Release);
 
-            let block_dimensions = src_image.texture_format.block_dimensions();
-            let Some(block_size) = src_image.texture_format.block_copy_size(None) else {
-                image_copier.pending_map.store(false, Ordering::Release);
-                continue;
-            };
-            let Ok(pixel_size) = src_image.texture_format.pixel_size() else {
-                image_copier.pending_map.store(false, Ordering::Release);
-                continue;
-            };
-            let width = src_image.size.width;
-            let height = src_image.size.height;
-            let row_bytes = width as usize * pixel_size;
-            let padded_bytes_per_row = RenderDevice::align_copy_bytes_per_row(
-                (src_image.size.width as usize / block_dimensions.0 as usize) * block_size as usize,
-            );
+            if image_copier.ready_for_copy() && image_copier.mark_pending_map() {
+                let width = image_copier.size.width;
+                let height = image_copier.size.height;
+                let row_bytes = width as usize * 4;
+                let padded_bytes_per_row = RenderDevice::align_copy_bytes_per_row(row_bytes);
 
-            let mut encoder =
-                render_context
-                    .render_device()
-                    .create_command_encoder(&CommandEncoderDescriptor {
-                        label: Some("mara_embedded_bevy_viewport_copy_encoder"),
-                    });
-            encoder.copy_texture_to_buffer(
-                src_image.texture.as_image_copy(),
-                TexelCopyBufferInfo {
-                    buffer: &image_copier.buffer,
-                    layout: TexelCopyBufferLayout {
-                        offset: 0,
-                        bytes_per_row: Some(
-                            std::num::NonZero::<u32>::new(padded_bytes_per_row as u32)
-                                .expect("non-zero row bytes")
-                                .into(),
-                        ),
-                        rows_per_image: None,
+                encoder.copy_texture_to_buffer(
+                    image_copier.egui_texture.as_image_copy(),
+                    TexelCopyBufferInfo {
+                        buffer: &image_copier.buffer,
+                        layout: TexelCopyBufferLayout {
+                            offset: 0,
+                            bytes_per_row: Some(
+                                std::num::NonZero::<u32>::new(padded_bytes_per_row as u32)
+                                    .expect("non-zero row bytes")
+                                    .into(),
+                            ),
+                            rows_per_image: None,
+                        },
                     },
-                },
-                src_image.size,
-            );
+                    image_copier.size,
+                );
 
-            let buffer_for_callback = image_copier.buffer.clone();
-            let pending_map = image_copier.pending_map.clone();
-            let mapped_sender = mapped_sender.0.clone();
-            encoder.map_buffer_on_submit(&image_copier.buffer, MapMode::Read, .., move |result| {
-                if result.is_ok() {
-                    let mapped_frame = MappedBevyFrame {
-                        buffer: buffer_for_callback.clone(),
-                        pending_map: pending_map.clone(),
-                        width,
-                        height,
-                        row_bytes,
-                        padded_row_bytes: padded_bytes_per_row,
-                    };
-                    if mapped_sender.send(mapped_frame).is_err() {
-                        buffer_for_callback.unmap();
-                        pending_map.store(false, Ordering::Release);
-                    }
-                } else {
-                    pending_map.store(false, Ordering::Release);
-                }
-            });
-
-            let Some(render_queue) = world.get_resource::<RenderQueue>() else {
-                image_copier.pending_map.store(false, Ordering::Release);
-                continue;
-            };
-            render_queue.submit(std::iter::once(encoder.finish()));
+                let buffer_for_callback = image_copier.buffer.clone();
+                let pending_map = image_copier.pending_map.clone();
+                let mapped_sender = mapped_sender.0.clone();
+                encoder.map_buffer_on_submit(
+                    &image_copier.buffer,
+                    MapMode::Read,
+                    ..,
+                    move |result| {
+                        if result.is_ok() {
+                            let mapped_frame = MappedBevyFrame {
+                                buffer: buffer_for_callback.clone(),
+                                pending_map: pending_map.clone(),
+                                width,
+                                height,
+                                row_bytes,
+                                padded_row_bytes: padded_bytes_per_row,
+                            };
+                            if mapped_sender.send(mapped_frame).is_err() {
+                                buffer_for_callback.unmap();
+                                pending_map.store(false, Ordering::Release);
+                            }
+                        } else {
+                            pending_map.store(false, Ordering::Release);
+                        }
+                    },
+                );
+            }
         }
 
         Ok(())
     }
 }
-
 fn receive_embedded_viewport_frames(
     render_device: Res<RenderDevice>,
     sender: Res<EmbeddedViewportSender>,
@@ -1187,5 +1242,28 @@ mod tests {
         assert_eq!(frame.height, 64);
         assert_eq!(frame.rgba.len(), 96 * 64 * 4);
         assert!(frame.rgba.iter().any(|&byte| byte != 0));
+    }
+
+    #[test]
+    #[ignore = "requires a native wgpu adapter; run manually when validating the embedded viewport"]
+    fn headless_renderer_produces_gpu_texture() {
+        let mut bridge = BevyViewportBridge::new(BevyViewportTexture::new(96, 64));
+        let mut captured = None;
+        for _ in 0..120 {
+            if let Some(texture) =
+                bridge.render_texture_with_input(96, 64, 1.0 / 60.0, BevyViewportInput::default())
+            {
+                captured = Some(texture);
+                break;
+            }
+            if bridge.renderer_failed() {
+                eprintln!("skipping embedded renderer smoke test: no native wgpu adapter");
+                return;
+            }
+        }
+
+        let texture = captured.expect("headless renderer produced a GPU texture");
+        assert_eq!(texture.width, 96);
+        assert_eq!(texture.height, 64);
     }
 }

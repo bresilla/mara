@@ -6,21 +6,31 @@
 
 pub use egui;
 
+#[cfg(feature = "canvas")]
 pub use mara_canvas;
+#[cfg(feature = "code")]
 pub use mara_code;
 pub use mara_core;
 pub use mara_core::*;
+#[cfg(feature = "graph")]
 pub use mara_graph;
+#[cfg(feature = "image")]
 pub use mara_image;
+#[cfg(feature = "map")]
 pub use mara_map;
 
 pub use crate::host::{MaraHostCtx, MaraWindowHost};
 
 pub mod modules {
+    #[cfg(feature = "canvas")]
     pub use mara_canvas as canvas;
+    #[cfg(feature = "code")]
     pub use mara_code as code;
+    #[cfg(feature = "graph")]
     pub use mara_graph as graph;
+    #[cfg(feature = "image")]
     pub use mara_image as image;
+    #[cfg(feature = "map")]
     pub use mara_map as map;
 
     #[cfg(feature = "bevy")]
@@ -30,11 +40,16 @@ pub mod modules {
 pub mod prelude {
     pub use crate::host::{MaraHostCtx, MaraWindowHost};
     pub use egui;
+    #[cfg(feature = "canvas")]
     pub use mara_canvas;
+    #[cfg(feature = "code")]
     pub use mara_code;
     pub use mara_core::*;
+    #[cfg(feature = "graph")]
     pub use mara_graph;
+    #[cfg(feature = "image")]
     pub use mara_image;
+    #[cfg(feature = "map")]
     pub use mara_map;
 
     #[cfg(feature = "bevy")]

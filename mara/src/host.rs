@@ -80,6 +80,7 @@ impl<'a> MaraHostCtx<'a> {
 
     /// Build the node-view render backend for this frame, if the host
     /// has a native egui-wgpu render state available.
+    #[cfg(feature = "graph")]
     pub fn node_view_backend(&self) -> Option<EframeNodeViewBackend<'a>> {
         self.render_state.map(EframeNodeViewBackend::new)
     }
@@ -111,16 +112,19 @@ impl MaraWindowHost {
 }
 
 /// `NodeViewBackend` impl backed by an egui-wgpu render state.
+#[cfg(feature = "graph")]
 pub struct EframeNodeViewBackend<'a> {
     render_state: &'a egui_wgpu::RenderState,
 }
 
+#[cfg(feature = "graph")]
 impl<'a> EframeNodeViewBackend<'a> {
     pub fn new(render_state: &'a egui_wgpu::RenderState) -> Self {
         Self { render_state }
     }
 }
 
+#[cfg(feature = "graph")]
 impl<'a> mara_core::extras::node_view::NodeViewBackend for EframeNodeViewBackend<'a> {
     fn wgpu(&self) -> (wgpu::Device, wgpu::Queue) {
         (

@@ -7,12 +7,12 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-mara_canvas = { workspace = true }
-mara_code = { workspace = true }
-mara_core = { workspace = true }
-mara_graph = { workspace = true }
-mara_image = { workspace = true }
-mara_map = { workspace = true }
+mara_canvas = { workspace = true, optional = true }
+mara_code = { workspace = true, optional = true }
+mara_core = { path = "../crates/core", version = "0.2.0", default-features = false }
+mara_graph = { workspace = true, optional = true }
+mara_image = { workspace = true, optional = true }
+mara_map = { workspace = true, optional = true }
 mara_bevy = { workspace = true, optional = true }
 egui = { workspace = true }
 egui-wgpu = { workspace = true }
@@ -28,7 +28,12 @@ winit = { version = "0.30", default-features = false, features = [
 ], optional = true }
 
 [features]
-default = []
+default = ["canvas", "code", "graph", "image", "map"]
+canvas = ["dep:mara_canvas"]
+code = ["dep:mara_code", "mara_core/code"]
+graph = ["dep:mara_graph", "mara_core/graph"]
+image = ["dep:mara_image"]
+map = ["dep:mara_map"]
 bevy = ["dep:mara_bevy"]
 window = [
     "egui-wgpu/winit",

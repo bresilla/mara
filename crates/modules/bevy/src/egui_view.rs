@@ -23,12 +23,12 @@ pub struct MaraBevyViewport {
     bevy: BevyEmbeddedView,
     texture: Option<egui::TextureHandle>,
     last_pixels: [u32; 2],
+    resize_target_pixels: [u32; 2],
+    resize_settle_until: f64,
     last_render_time: f64,
     last_pointer_pos: Option<egui::Pos2>,
     primary_drag_active: bool,
-    #[cfg(target_arch = "wasm32")]
     native_texture: Option<egui::TextureId>,
-    #[cfg(target_arch = "wasm32")]
     native_texture_size: [usize; 2],
 }
 
@@ -42,12 +42,12 @@ impl MaraBevyViewport {
             bevy: BevyEmbeddedView::new(),
             texture: None,
             last_pixels: [0, 0],
+            resize_target_pixels: [0, 0],
+            resize_settle_until: f64::NEG_INFINITY,
             last_render_time: f64::NEG_INFINITY,
             last_pointer_pos: None,
             primary_drag_active: false,
-            #[cfg(target_arch = "wasm32")]
             native_texture: None,
-            #[cfg(target_arch = "wasm32")]
             native_texture_size: [0, 0],
         }
     }
@@ -59,12 +59,12 @@ impl MaraBevyViewport {
             bevy: BevyEmbeddedView::with_app_config(configure_app),
             texture: None,
             last_pixels: [0, 0],
+            resize_target_pixels: [0, 0],
+            resize_settle_until: f64::NEG_INFINITY,
             last_render_time: f64::NEG_INFINITY,
             last_pointer_pos: None,
             primary_drag_active: false,
-            #[cfg(target_arch = "wasm32")]
             native_texture: None,
-            #[cfg(target_arch = "wasm32")]
             native_texture_size: [0, 0],
         }
     }
@@ -83,12 +83,12 @@ impl MaraBevyViewport {
             bevy,
             texture: None,
             last_pixels: [0, 0],
+            resize_target_pixels: [0, 0],
+            resize_settle_until: f64::NEG_INFINITY,
             last_render_time: f64::NEG_INFINITY,
             last_pointer_pos: None,
             primary_drag_active: false,
-            #[cfg(target_arch = "wasm32")]
             native_texture: None,
-            #[cfg(target_arch = "wasm32")]
             native_texture_size: [0, 0],
         }
     }
@@ -113,12 +113,12 @@ impl MaraBevyViewport {
             bevy,
             texture: None,
             last_pixels: [0, 0],
+            resize_target_pixels: [0, 0],
+            resize_settle_until: f64::NEG_INFINITY,
             last_render_time: f64::NEG_INFINITY,
             last_pointer_pos: None,
             primary_drag_active: false,
-            #[cfg(target_arch = "wasm32")]
             native_texture: None,
-            #[cfg(target_arch = "wasm32")]
             native_texture_size: [0, 0],
         }
     }
@@ -137,7 +137,14 @@ impl MaraBevyViewport {
                 let theme = mara_core::style::theme();
                 painter.rect_filled(rect, 0.0, theme.palette.bg_panel);
                 if rect.width() < 16.0 || rect.height() < 16.0 {
-                    if let Some(texture) = &self.texture {
+                    if let Some(texture_id) = self.native_texture {
+                        paint_texture_id_cover(
+                            &painter,
+                            texture_id,
+                            self.native_texture_size,
+                            rect,
+                        );
+                    } else if let Some(texture) = &self.texture {
                         paint_texture_cover(&painter, texture, rect);
                     }
                     ui.ctx()
@@ -153,6 +160,7 @@ impl MaraBevyViewport {
                             render_state.adapter.clone(),
                         ));
                 }
+                let use_native_gpu_texture = render_state.is_some();
 
                 let response = ui.interact(
                     rect,
@@ -161,7 +169,21 @@ impl MaraBevyViewport {
                 );
                 let ppp = ui.ctx().pixels_per_point();
                 let now = ui.ctx().input(|i| i.time);
-                let pixels = internal_render_pixels(rect.size(), ppp);
+                let target_pixels = internal_render_pixels(rect.size(), ppp);
+                if self.resize_target_pixels != target_pixels {
+                    self.resize_target_pixels = target_pixels;
+                    self.resize_settle_until = now + resize_settle_seconds();
+                }
+                let has_committed_texture = self.native_texture.is_some() || self.texture.is_some();
+                let waiting_for_resize_settle = has_committed_texture
+                    && self.last_pixels != [0, 0]
+                    && self.last_pixels != target_pixels
+                    && now < self.resize_settle_until;
+                let pixels = if waiting_for_resize_settle {
+                    self.last_pixels
+                } else {
+                    target_pixels
+                };
                 let resize_pending = self.last_pixels != [0, 0] && self.last_pixels != pixels;
                 let render_scale = egui::vec2(
                     pixels[0] as f32 / rect.width().max(1.0),
@@ -223,10 +245,16 @@ impl MaraBevyViewport {
                     || primary_clicked
                     || response.hovered() && viewport_input.scroll_delta.abs() > f32::EPSILON
                     || response.hovered() && ui.ctx().input(|i| i.pointer.any_down());
-                let texture_needs_committed_frame = self.texture.as_ref().is_some_and(|texture| {
-                    texture.size() != [pixels[0] as usize, pixels[1] as usize]
-                });
-                let has_texture = self.texture.is_some();
+                let target_size = [pixels[0] as usize, pixels[1] as usize];
+                let native_texture_needs_committed_frame =
+                    self.native_texture.is_some() && self.native_texture_size != target_size;
+                let cpu_texture_needs_committed_frame = self
+                    .texture
+                    .as_ref()
+                    .is_some_and(|texture| texture.size() != target_size);
+                let texture_needs_committed_frame =
+                    native_texture_needs_committed_frame || cpu_texture_needs_committed_frame;
+                let has_texture = has_committed_texture;
                 #[cfg(target_arch = "wasm32")]
                 let idle_interval = 1.0 / 12.0;
                 #[cfg(not(target_arch = "wasm32"))]
@@ -254,16 +282,7 @@ impl MaraBevyViewport {
                 if should_render {
                     self.last_render_time = now;
                     let dt = ui.ctx().input(|i| i.stable_dt);
-                    #[cfg(target_arch = "wasm32")]
-                    let resize_render_attempts = 2;
-                    #[cfg(not(target_arch = "wasm32"))]
-                    let resize_render_attempts = 4;
-                    let render_attempts =
-                        if resize_pending || texture_needs_committed_frame || !has_texture {
-                            resize_render_attempts
-                        } else {
-                            1
-                        };
+                    let render_attempts = 1;
                     for attempt in 0..render_attempts {
                         let input = if attempt == 0 {
                             viewport_input
@@ -274,15 +293,62 @@ impl MaraBevyViewport {
                             }
                         };
                         let dt = if attempt == 0 { dt } else { 0.0 };
-                        if let Some(frame) = self
-                            .bevy
-                            .render_frame_with_input(pixels[0], pixels[1], dt, input)
+                        if use_native_gpu_texture && let Some(render_state) = render_state {
+                            if let Some(frame) = self
+                                .bevy
+                                .render_texture_with_input(pixels[0], pixels[1], dt, input)
+                            {
+                                let size = [frame.width as usize, frame.height as usize];
+                                if size == target_size {
+                                    let texture_id = {
+                                        let mut renderer = render_state.renderer.write();
+                                        match self.native_texture {
+                                            Some(texture_id)
+                                                if self.native_texture_size == size =>
+                                            {
+                                                // The egui texture id already points at the
+                                                // Bevy render target. Bevy updates the GPU
+                                                // texture contents in-place, so avoid rebuilding
+                                                // the egui bind group every frame.
+                                                texture_id
+                                            }
+                                            Some(texture_id) => {
+                                                renderer.free_texture(&texture_id);
+                                                renderer.register_native_texture(
+                                                    &render_state.device,
+                                                    &frame.view,
+                                                    wgpu::FilterMode::Linear,
+                                                )
+                                            }
+                                            None => renderer.register_native_texture(
+                                                &render_state.device,
+                                                &frame.view,
+                                                wgpu::FilterMode::Linear,
+                                            ),
+                                        }
+                                    };
+                                    self.native_texture = Some(texture_id);
+                                    self.native_texture_size = size;
+                                    self.last_pixels = pixels;
+                                    break;
+                                }
+                            }
+                        }
+
+                        if !use_native_gpu_texture
+                            && let Some(frame) = self
+                                .bevy
+                                .render_frame_with_input(pixels[0], pixels[1], dt, input)
                         {
                             let size = [frame.width as usize, frame.height as usize];
-                            if size == [pixels[0] as usize, pixels[1] as usize] {
+                            let rgba = if size == target_size {
+                                Some(frame.rgba.clone())
+                            } else {
+                                None
+                            };
+                            if let Some(rgba) = rgba {
                                 self.last_pixels = pixels;
-                                let image =
-                                    egui::ColorImage::from_rgba_unmultiplied(size, &frame.rgba);
+                                let image = egui::ColorImage::from_rgba_unmultiplied(size, &rgba);
                                 match &mut self.texture {
                                     Some(texture) if texture.size() == size => {
                                         texture.set(image, egui::TextureOptions::LINEAR);
@@ -301,7 +367,9 @@ impl MaraBevyViewport {
                     }
                 }
 
-                if let Some(texture) = &self.texture {
+                if let Some(texture_id) = self.native_texture {
+                    paint_texture_id_cover(&painter, texture_id, self.native_texture_size, rect);
+                } else if let Some(texture) = &self.texture {
                     paint_texture_cover(&painter, texture, rect);
                 } else if self.texture.is_none() {
                     self.paint_warmup(ui, rect, accent);
@@ -315,6 +383,9 @@ impl MaraBevyViewport {
                 };
                 if resize_pending || texture_needs_committed_frame {
                     next = next.min(active_interval);
+                }
+                if waiting_for_resize_settle {
+                    next = next.min((self.resize_settle_until - now).max(0.0));
                 }
                 ui.ctx()
                     .request_repaint_after(Duration::from_secs_f64(next));
@@ -389,8 +460,28 @@ fn internal_render_pixels(size: egui::Vec2, pixels_per_point: f32) -> [u32; 2] {
     [width as u32, height as u32]
 }
 
+fn resize_settle_seconds() -> f64 {
+    #[cfg(target_arch = "wasm32")]
+    {
+        0.10
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        0.07
+    }
+}
+
 fn paint_texture_cover(painter: &egui::Painter, texture: &egui::TextureHandle, rect: egui::Rect) {
-    let [texture_width, texture_height] = texture.size();
+    paint_texture_id_cover(painter, texture.id(), texture.size(), rect);
+}
+
+fn paint_texture_id_cover(
+    painter: &egui::Painter,
+    texture_id: egui::TextureId,
+    texture_size: [usize; 2],
+    rect: egui::Rect,
+) {
+    let [texture_width, texture_height] = texture_size;
     if texture_width == 0 || texture_height == 0 || !rect.is_positive() {
         return;
     }
@@ -411,5 +502,5 @@ fn paint_texture_cover(painter: &egui::Painter, texture: &egui::TextureHandle, r
         egui::Rect::from_min_max(egui::pos2(pad_u, 0.0), egui::pos2(1.0 - pad_u, 1.0))
     };
 
-    painter.image(texture.id(), rect, uv, egui::Color32::WHITE);
+    painter.image(texture_id, rect, uv, egui::Color32::WHITE);
 }
