@@ -95,7 +95,10 @@ pub struct CapturedBevyTexture {
 #[derive(Debug, Clone, Copy, Default, Resource)]
 pub struct BevyViewportInput {
     pub pointer_pos: Option<[f32; 2]>,
+    /// Primary-button viewport drag: orbit the camera.
     pub drag_delta: [f32; 2],
+    /// Middle-button viewport drag: pan the camera focus.
+    pub pan_delta: [f32; 2],
     pub scroll_delta: f32,
     pub primary_clicked: bool,
 }
@@ -738,13 +741,20 @@ impl BevyViewportRenderer {
 
 fn apply_embedded_viewport_input(world: &mut World, input: BevyViewportInput) {
     let drag = Vec2::new(input.drag_delta[0], input.drag_delta[1]);
-    if drag != Vec2::ZERO || input.scroll_delta != 0.0 {
+    let pan = Vec2::new(input.pan_delta[0], input.pan_delta[1]);
+    if drag != Vec2::ZERO || pan != Vec2::ZERO || input.scroll_delta != 0.0 {
         let mut cameras = world.query::<(&mut ChaseCamera, &mut Transform)>();
         for (mut cam, mut tr) in cameras.iter_mut(world) {
             if drag != Vec2::ZERO {
                 cam.yaw -= drag.x * cam.orbit_speed;
                 cam.elevation += drag.y * cam.orbit_speed;
                 cam.elevation = cam.elevation.clamp(cam.min_elevation, cam.max_elevation);
+            }
+            if pan != Vec2::ZERO {
+                let pan_speed = cam.distance * cam.pan_sensitivity;
+                let forward = Vec3::new(cam.yaw.sin(), 0.0, cam.yaw.cos());
+                let right = Vec3::new(forward.z, 0.0, -forward.x);
+                cam.focus += (-right * pan.x - forward * pan.y) * pan_speed;
             }
             if input.scroll_delta != 0.0 {
                 let log_distance = (cam.distance as f64).max(0.1).log10();

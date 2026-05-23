@@ -211,25 +211,40 @@ impl MaraBevyViewport {
                     pixels[1] as f32 / rect.height().max(1.0),
                 );
 
-                let pointer_pos = response
-                    .hover_pos()
-                    .or_else(|| response.interact_pointer_pos())
-                    .or_else(|| ui.ctx().input(|i| i.pointer.interact_pos()));
-                let pointer_inside = pointer_pos.is_some_and(|pos| rect.contains(pos));
-                let (primary_down, primary_pressed, scroll_delta) = ui.ctx().input(|i| {
-                    (
-                        i.pointer.primary_down(),
-                        i.pointer.button_pressed(egui::PointerButton::Primary),
-                        if response.hovered() {
-                            (i.smooth_scroll_delta.y + i.raw_scroll_delta.y) / 120.0
-                        } else {
-                            0.0
-                        },
-                    )
-                });
-                let primary_dragged = primary_down && (self.primary_drag_active || pointer_inside);
-                let drag_delta = if primary_dragged {
+                // Only the viewport's own egui `Response` may start
+                // Bevy interaction. Do NOT use raw/global pointer
+                // containment as the start condition: floating menus,
+                // panes and container-dot handles can sit above this
+                // rect, so `rect.contains(pointer)` would leak those
+                // UI clicks into the Bevy camera/picker below.
+                let viewport_hovered = response.hovered();
+                let pointer_pos = if viewport_hovered || self.primary_drag_active {
+                    ui.ctx().input(|i| i.pointer.interact_pos())
+                } else {
+                    response.hover_pos()
+                };
+                let (primary_down, primary_pressed, middle_down, middle_pressed, scroll_delta) =
+                    ui.ctx().input(|i| {
+                        (
+                            i.pointer.primary_down(),
+                            i.pointer.button_pressed(egui::PointerButton::Primary),
+                            i.pointer.middle_down(),
+                            i.pointer.button_pressed(egui::PointerButton::Middle),
+                            if viewport_hovered {
+                                (i.smooth_scroll_delta.y + i.raw_scroll_delta.y) / 120.0
+                            } else {
+                                0.0
+                            },
+                        )
+                    });
+                let viewport_drag_started = viewport_hovered && (primary_pressed || middle_pressed);
+                if viewport_drag_started {
                     self.primary_drag_active = true;
+                    self.last_pointer_pos = pointer_pos;
+                }
+                let viewport_drag_down = primary_down || middle_down;
+                let viewport_dragged = viewport_drag_down && self.primary_drag_active;
+                let pointer_delta = if viewport_dragged {
                     if let Some(pos) = pointer_pos {
                         let delta = self
                             .last_pointer_pos
@@ -242,13 +257,25 @@ impl MaraBevyViewport {
                         [0.0, 0.0]
                     }
                 } else {
-                    if !primary_down {
+                    if !viewport_drag_down {
                         self.primary_drag_active = false;
                         self.last_pointer_pos = None;
                     }
                     [0.0, 0.0]
                 };
-                let primary_clicked = primary_pressed && pointer_inside;
+                let middle_dragged = viewport_dragged && middle_down;
+                let primary_dragged = viewport_dragged && primary_down && !middle_dragged;
+                let drag_delta = if primary_dragged {
+                    pointer_delta
+                } else {
+                    [0.0, 0.0]
+                };
+                let pan_delta = if middle_dragged {
+                    pointer_delta
+                } else {
+                    [0.0, 0.0]
+                };
+                let primary_clicked = primary_pressed && viewport_hovered;
 
                 let viewport_input = BevyViewportInput {
                     pointer_pos: pointer_pos.map(|pos| {
@@ -258,11 +285,12 @@ impl MaraBevyViewport {
                         ]
                     }),
                     drag_delta,
+                    pan_delta,
                     scroll_delta,
                     primary_clicked,
                 };
 
-                let input_active = primary_dragged
+                let input_active = viewport_dragged
                     || primary_clicked
                     || response.hovered() && viewport_input.scroll_delta.abs() > f32::EPSILON
                     || response.hovered() && ui.ctx().input(|i| i.pointer.any_down());

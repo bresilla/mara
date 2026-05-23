@@ -104,7 +104,18 @@ fn sync_bevy_host_viewport_input(
 
     *input = BevyViewportInput {
         pointer_pos,
-        drag_delta: [motion.delta.x, motion.delta.y],
+        drag_delta: if mouse_buttons.pressed(MouseButton::Left)
+            && !mouse_buttons.pressed(MouseButton::Middle)
+        {
+            [motion.delta.x, motion.delta.y]
+        } else {
+            [0.0, 0.0]
+        },
+        pan_delta: if mouse_buttons.pressed(MouseButton::Middle) {
+            [motion.delta.x, motion.delta.y]
+        } else {
+            [0.0, 0.0]
+        },
         scroll_delta: scroll.delta.y / 120.0,
         primary_clicked: mouse_buttons.just_pressed(MouseButton::Left),
     };
