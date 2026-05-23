@@ -33,12 +33,28 @@ const GRID_VIEW_ALIGNED_MIN_ALPHA: f32 = 0.22;
 const GRID_VIEW_ALIGNED_FADE_START: f32 = 0.94;
 const GRID_VIEW_ALIGNED_FADE_END: f32 = 0.995;
 const GRID_DOT_CENTER_RAY_FADE_RADIUS: f32 = 0.55;
-const TECH_LIGHT_AMBIENT: f32 = 0.34;
-const TECH_LIGHT_CONTRAST: f32 = 0.42;
-const TECH_LIGHT_KEY: Vec3 = [1.0, 2.0, 3.0];
-const TECH_LIGHT_FILL: Vec3 = [-1.0, -3.0, -5.0];
-const TECH_LIGHT_FILL_STRENGTH: f32 = 0.32;
-const TECH_LIGHT_RIM_STRENGTH: f32 = 0.18;
+const TECH_LIGHT_AMBIENT: f32 = 0.36;
+const TECH_LIGHT_CONTRAST: f32 = 0.56;
+const TECH_LIGHT_KEY: Vec3 = [0.8, 1.8, 1.25];
+const TECH_LIGHT_FILL: Vec3 = [-1.2, 0.65, -1.8];
+const TECH_LIGHT_FILL_STRENGTH: f32 = 0.20;
+const TECH_LIGHT_HEADLIGHT_STRENGTH: f32 = 0.18;
+const TECH_LIGHT_RIM_STRENGTH: f32 = 0.11;
+const TECH_LIGHT_SPECULAR_STRENGTH: f32 = 0.13;
+const TECH_LIGHT_SPECULAR_POWER: f32 = 34.0;
+const TECH_LIGHT_SKY_STRENGTH: f32 = 0.10;
+const GIZMO_SIZE: f32 = 60.0;
+const GIZMO_STROKE_WIDTH: f32 = 3.2;
+const GIZMO_INACTIVE_ALPHA: f32 = 0.7;
+const GIZMO_ARROW_FADE_START: f32 = 0.95;
+const GIZMO_ARROW_FADE_END: f32 = 0.99;
+const GIZMO_PLANE_FADE_START: f32 = 0.70;
+const GIZMO_PLANE_FADE_END: f32 = 0.86;
+const GIZMO_ARC_FADE_START: f32 = 0.990;
+const GIZMO_ARC_FADE_END: f32 = 0.995;
+const GIZMO_ROTATION_SEGMENTS: usize = 72;
+const GIZMO_PICK_DISTANCE: f32 = 9.0;
+const GIZMO_HIGHLIGHT_WIDTH_SCALE: f32 = 1.35;
 const OBJECT_TRIANGLE_MAX_SCREEN_FRAC: f32 = 1.8;
 const OBJECT_SSAA_SCALE: usize = 3;
 const OBJECT_SSAA_MAX_DIMENSION: usize = 2400;
@@ -134,6 +150,33 @@ impl TriangleMesh3d {
             normals,
         }
     }
+
+    #[must_use]
+    pub fn with_generated_normals(vertices: Vec<Vec3>, indices: Vec<[u32; 3]>) -> Self {
+        let mut normals = vec![[0.0, 0.0, 0.0]; vertices.len()];
+        for triangle in &indices {
+            let triangle = triangle.map(|index| index as usize);
+            if triangle.iter().any(|index| *index >= vertices.len()) {
+                continue;
+            }
+            let normal = face_normal([
+                vertices[triangle[0]],
+                vertices[triangle[1]],
+                vertices[triangle[2]],
+            ]);
+            for index in triangle {
+                normals[index] = add3(normals[index], normal);
+            }
+        }
+        for normal in &mut normals {
+            *normal = normalize3(*normal);
+        }
+        Self {
+            vertices,
+            indices,
+            normals,
+        }
+    }
 }
 
 /// Retained drawable geometry. Deliberately triangle-only: cubes, spheres,
@@ -174,9 +217,7 @@ impl Primitive3d {
         }
 
         let indices = triangulate_polygon_outline(&outline);
-        let normal = polygon_normal(&outline);
-        let normals = vec![normal; outline.len()];
-        Self::Triangles(TriangleMesh3d::with_normals(outline, indices, normals))
+        Self::Triangles(TriangleMesh3d::with_generated_normals(outline, indices))
     }
 
     #[must_use]
@@ -454,36 +495,49 @@ impl Scene3d {
     #[must_use]
     pub fn demo(title: impl Into<String>) -> Self {
         let mut scene = Self::new(title);
-        let washed = scene.add_material(
-            "Washed accent",
-            tint_color(
-                mara_core::style::active_accent(),
-                egui::Color32::WHITE,
-                0.36,
-            ),
+        let accent = mara_core::style::active_accent();
+        let mint = scene.add_material(
+            "Mint",
+            tint_color(egui::Color32::from_rgb(68, 230, 160), accent, 0.14),
+        );
+        let sky = scene.add_material(
+            "Sky",
+            tint_color(egui::Color32::from_rgb(76, 166, 255), accent, 0.12),
+        );
+        let amber = scene.add_material(
+            "Amber",
+            tint_color(egui::Color32::from_rgb(255, 184, 72), accent, 0.12),
+        );
+        let violet = scene.add_material(
+            "Violet",
+            tint_color(egui::Color32::from_rgb(178, 116, 255), accent, 0.14),
+        );
+        let coral = scene.add_material(
+            "Coral",
+            tint_color(egui::Color32::from_rgb(255, 104, 116), accent, 0.12),
         );
         let cube = scene.add_object("Cube", Primitive3d::cube(1.0), MaterialId(1));
         if let Some(object) = scene.object_mut(cube) {
             object.transform.translation = [-0.75, 0.55, 0.0];
             object.selected = true;
         }
-        let small = scene.add_object("Small cube", Primitive3d::cube(0.65), washed);
+        let small = scene.add_object("Small cube", Primitive3d::cube(0.65), mint);
         if let Some(object) = scene.object_mut(small) {
             object.transform.translation = [0.85, 0.35, -0.35];
         }
-        let sphere = scene.add_object("Sphere", Primitive3d::sphere(0.38, 32), washed);
+        let sphere = scene.add_object("Sphere", Primitive3d::sphere(0.38, 32), sky);
         if let Some(object) = scene.object_mut(sphere) {
             object.transform.translation = [0.35, 0.38, 0.85];
         }
         let triangle = scene.add_object(
             "Triangle",
             Primitive3d::triangle([[-0.45, 0.02, -0.35], [0.45, 0.02, -0.25], [0.0, 0.02, 0.45]]),
-            washed,
+            amber,
         );
         if let Some(object) = scene.object_mut(triangle) {
             object.transform.translation = [-0.15, 0.02, -1.35];
         }
-        let spiral = scene.add_object("Spiral polygon", spiral_polygon_mesh(), MaterialId(1));
+        let spiral = scene.add_object("Spiral polygon", spiral_polygon_mesh(), violet);
         if let Some(object) = scene.object_mut(spiral) {
             object.transform.translation = [1.25, 0.0, 0.85];
         }
@@ -506,7 +560,7 @@ impl Scene3d {
                     [0, 2, 1],
                 ],
             ),
-            washed,
+            coral,
         );
         if let Some(object) = scene.object_mut(mesh) {
             object.transform.translation = [-1.4, 0.02, 1.05];
@@ -865,6 +919,53 @@ struct PreviewCamera {
     near: f32,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum GizmoAxis {
+    X,
+    Y,
+    Z,
+}
+
+impl GizmoAxis {
+    const fn normal(self) -> Vec3 {
+        match self {
+            Self::X => [1.0, 0.0, 0.0],
+            Self::Y => [0.0, 1.0, 0.0],
+            Self::Z => [0.0, 0.0, 1.0],
+        }
+    }
+
+    const fn plane_axes(self) -> (Vec3, Vec3) {
+        match self {
+            Self::X => ([0.0, 1.0, 0.0], [0.0, 0.0, 1.0]),
+            Self::Y => ([0.0, 0.0, 1.0], [1.0, 0.0, 0.0]),
+            Self::Z => ([1.0, 0.0, 0.0], [0.0, 1.0, 0.0]),
+        }
+    }
+
+    const fn index(self) -> usize {
+        match self {
+            Self::X => 0,
+            Self::Y => 1,
+            Self::Z => 2,
+        }
+    }
+
+    fn rotation_tangent(self, camera: &PreviewCamera) -> Vec3 {
+        let tangent = match self {
+            Self::X | Self::Y => [0.0, 0.0, 1.0],
+            Self::Z => [0.0, -1.0, 0.0],
+        };
+        let normal = self.normal();
+        let projected = sub3(tangent, mul3(normal, dot3(tangent, normal)));
+        if dot3(projected, projected) <= 1.0e-5 {
+            normalize3(cross3(normal, camera.right))
+        } else {
+            normalize3(projected)
+        }
+    }
+}
+
 impl PreviewCamera {
     fn from_orbit(orbit: Orbit3d, scene_camera: &Camera3d) -> Self {
         let cp = orbit.pitch.cos();
@@ -902,6 +1003,11 @@ impl PreviewCamera {
         } else {
             None
         }
+    }
+
+    fn world_per_screen_point(&self, rect: egui::Rect, depth: f32) -> f32 {
+        let focal = 0.5 * rect.height() / (self.fov_y * 0.5).tan();
+        depth / focal.max(1.0)
     }
 
     fn camera_space(&self, point: Vec3) -> (f32, f32, f32) {
@@ -966,6 +1072,29 @@ impl PreviewCamera {
     }
 }
 
+#[derive(Clone, Debug)]
+struct GizmoDragState {
+    object_id: ObjectId,
+    operation: GizmoOperation,
+    start_pointer: egui::Pos2,
+    origin_screen: egui::Pos2,
+    origin_world: Vec3,
+    start_transform: Transform3d,
+    world_per_point: f32,
+    object_radius: f32,
+    start_angle: f32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum GizmoOperation {
+    TranslateAxis(GizmoAxis),
+    TranslatePlane(GizmoAxis),
+    TranslateView,
+    ScaleAxis(GizmoAxis),
+    RotateAxis(GizmoAxis),
+    RotateView,
+}
+
 /// A Mara surface for a retained 3D scene.
 #[derive(Clone)]
 pub struct View3d {
@@ -973,6 +1102,7 @@ pub struct View3d {
     scene: Scene3d,
     orbit: Orbit3d,
     preview_texture: Option<egui::TextureHandle>,
+    gizmo_drag: Option<GizmoDragState>,
 }
 
 impl View3d {
@@ -983,6 +1113,7 @@ impl View3d {
             scene,
             orbit: Orbit3d::default(),
             preview_texture: None,
+            gizmo_drag: None,
         }
     }
 
@@ -1059,15 +1190,24 @@ impl View3d {
     }
 
     fn paint_preview(&mut self, ui: &mut egui::Ui, rect: egui::Rect, response: &egui::Response) {
-        self.update_orbit(ui, response);
-        self.update_selection(ui, rect, response);
+        let camera = PreviewCamera::from_orbit(self.orbit, &self.scene.camera);
+        let gizmo_used = self.update_gizmo_interaction(ui, rect, response, &camera);
+        if !gizmo_used {
+            self.update_orbit(ui, response);
+            self.update_selection(ui, rect, response);
+        } else if response.has_focus()
+            && ui.input(|input| input.key_pressed(egui::Key::Delete))
+            && self.scene.remove_selected_object().is_some()
+        {
+            self.gizmo_drag = None;
+            ui.ctx().request_repaint();
+        }
 
         let painter = ui.painter_at(rect);
         let accent = mara_core::style::active_accent();
         let background = mara_core::style::fill_for(mara_core::style::FillRole::Pane, accent);
         painter.rect_filled(rect, 0.0, background);
 
-        let camera = PreviewCamera::from_orbit(self.orbit, &self.scene.camera);
         let mut faces = Vec::new();
 
         self.paint_grid(&painter, rect, &camera, 1.0, accent);
@@ -1093,6 +1233,18 @@ impl View3d {
 
         faces.sort_by(|a, b: &PreviewFace| b.depth.total_cmp(&a.depth));
         paint_faces_supersampled(ui, &painter, rect, &mut self.preview_texture, faces);
+        let active_operation = self.gizmo_drag.as_ref().map(|drag| drag.operation);
+        let hover_operation = active_operation.or_else(|| {
+            response
+                .hovered()
+                .then(|| ui.input(|input| input.pointer.hover_pos()))
+                .flatten()
+                .and_then(|pointer| {
+                    self.pick_gizmo(rect, &camera, pointer)
+                        .map(|(_, operation, _, _, _, _)| operation)
+                })
+        });
+        self.paint_transform_gizmo(&painter, rect, &camera, hover_operation, active_operation);
 
         if response.hovered() || response.dragged() {
             ui.ctx().request_repaint();
@@ -1114,6 +1266,256 @@ impl View3d {
             && self.scene.remove_selected_object().is_some()
         {
             ui.ctx().request_repaint();
+        }
+    }
+
+    fn update_gizmo_interaction(
+        &mut self,
+        ui: &egui::Ui,
+        rect: egui::Rect,
+        response: &egui::Response,
+        camera: &PreviewCamera,
+    ) -> bool {
+        if self.gizmo_drag.is_some() && ui.input(|input| input.pointer.primary_released()) {
+            self.gizmo_drag = None;
+            ui.ctx().request_repaint();
+            return true;
+        }
+
+        if let Some(pointer) = ui.input(|input| input.pointer.interact_pos()) {
+            if let Some(drag) = self.gizmo_drag.clone() {
+                self.apply_gizmo_drag(rect, camera, &drag, pointer);
+                ui.ctx().request_repaint();
+                return true;
+            }
+
+            if response.hovered() && ui.input(|input| input.pointer.primary_pressed()) {
+                response.request_focus();
+                if let Some((
+                    object_id,
+                    operation,
+                    origin_screen,
+                    origin_world,
+                    world_per_point,
+                    object_radius,
+                )) = self.pick_gizmo(rect, camera, pointer)
+                {
+                    let Some(object) = self.scene.object(object_id) else {
+                        return false;
+                    };
+                    self.gizmo_drag = Some(GizmoDragState {
+                        object_id,
+                        operation,
+                        start_pointer: pointer,
+                        origin_screen,
+                        origin_world,
+                        start_transform: object.transform.clone(),
+                        world_per_point,
+                        object_radius,
+                        start_angle: pointer_angle(origin_screen, pointer),
+                    });
+                    ui.ctx().request_repaint();
+                    return true;
+                }
+            }
+        }
+
+        self.gizmo_drag.is_some()
+    }
+
+    fn pick_gizmo(
+        &self,
+        rect: egui::Rect,
+        camera: &PreviewCamera,
+        pointer: egui::Pos2,
+    ) -> Option<(ObjectId, GizmoOperation, egui::Pos2, Vec3, f32, f32)> {
+        let object = self
+            .scene
+            .selected_object()
+            .filter(|object| object.visible)?;
+        let origin = transform_point(&object.transform, [0.0, 0.0, 0.0]);
+        let (origin_screen, depth) = camera.project(rect, origin)?;
+        let world_per_point = camera.world_per_screen_point(rect, depth);
+        if !world_per_point.is_finite() || world_per_point <= 0.0 {
+            return None;
+        }
+        let object_radius = object_world_radius(object).max(0.01);
+
+        let inner_radius = GIZMO_SIZE * 0.2;
+        let outer_radius = GIZMO_SIZE + GIZMO_STROKE_WIDTH + 5.0;
+        let center_distance = origin_screen.distance(pointer);
+        if center_distance <= inner_radius + GIZMO_PICK_DISTANCE {
+            return Some((
+                object.id,
+                GizmoOperation::TranslateView,
+                origin_screen,
+                origin,
+                world_per_point,
+                object_radius,
+            ));
+        }
+        if (center_distance - outer_radius).abs() <= GIZMO_PICK_DISTANCE {
+            return Some((
+                object.id,
+                GizmoOperation::RotateView,
+                origin_screen,
+                origin,
+                world_per_point,
+                object_radius,
+            ));
+        }
+
+        let mut best: Option<(GizmoOperation, f32)> = None;
+        for axis in [GizmoAxis::X, GizmoAxis::Y, GizmoAxis::Z] {
+            if let Some(distance) = self.gizmo_axis_handle_distance(
+                rect,
+                camera,
+                origin,
+                world_per_point,
+                pointer,
+                axis,
+                true,
+            ) {
+                update_best_gizmo_pick(&mut best, GizmoOperation::TranslateAxis(axis), distance);
+            }
+            if let Some(distance) = self.gizmo_axis_handle_distance(
+                rect,
+                camera,
+                origin,
+                world_per_point,
+                pointer,
+                axis,
+                false,
+            ) {
+                update_best_gizmo_pick(&mut best, GizmoOperation::ScaleAxis(axis), distance);
+            }
+            if let Some(distance) = self.gizmo_plane_handle_distance(
+                rect,
+                camera,
+                origin,
+                world_per_point,
+                pointer,
+                axis,
+            ) {
+                update_best_gizmo_pick(&mut best, GizmoOperation::TranslatePlane(axis), distance);
+            }
+            if let Some(distance) = self.gizmo_rotation_arc_distance(
+                rect,
+                camera,
+                origin,
+                world_per_point,
+                pointer,
+                axis,
+            ) {
+                update_best_gizmo_pick(&mut best, GizmoOperation::RotateAxis(axis), distance);
+            }
+        }
+
+        best.map(|(operation, _)| {
+            (
+                object.id,
+                operation,
+                origin_screen,
+                origin,
+                world_per_point,
+                object_radius,
+            )
+        })
+    }
+
+    fn apply_gizmo_drag(
+        &mut self,
+        rect: egui::Rect,
+        camera: &PreviewCamera,
+        drag: &GizmoDragState,
+        pointer: egui::Pos2,
+    ) {
+        let delta = pointer - drag.start_pointer;
+        let view_forward = camera.forward;
+        let view_right = camera.right;
+        let view_up = camera.up;
+        let Some(object) = self.scene.object_mut(drag.object_id) else {
+            return;
+        };
+        match drag.operation {
+            GizmoOperation::TranslateAxis(axis) => {
+                let screen_axis = project_screen_direction(
+                    rect,
+                    camera,
+                    drag.origin_world,
+                    axis.normal(),
+                    drag.world_per_point,
+                );
+                let amount = delta.dot(screen_axis) * drag.world_per_point;
+                object.transform.translation = add3(
+                    drag.start_transform.translation,
+                    mul3(axis.normal(), amount),
+                );
+            }
+            GizmoOperation::TranslatePlane(axis) => {
+                let (a, b) = axis.plane_axes();
+                let screen_a = project_screen_direction(
+                    rect,
+                    camera,
+                    drag.origin_world,
+                    a,
+                    drag.world_per_point,
+                );
+                let screen_b = project_screen_direction(
+                    rect,
+                    camera,
+                    drag.origin_world,
+                    b,
+                    drag.world_per_point,
+                );
+                object.transform.translation = add3(
+                    drag.start_transform.translation,
+                    add3(
+                        mul3(a, delta.dot(screen_a) * drag.world_per_point),
+                        mul3(b, delta.dot(screen_b) * drag.world_per_point),
+                    ),
+                );
+            }
+            GizmoOperation::TranslateView => {
+                // View-plane move: screen X/Y directly maps to camera right/up at the gizmo depth.
+                object.transform.translation = add3(
+                    drag.start_transform.translation,
+                    add3(
+                        mul3(view_right, delta.x * drag.world_per_point),
+                        mul3(view_up, -delta.y * drag.world_per_point),
+                    ),
+                );
+            }
+            GizmoOperation::ScaleAxis(axis) => {
+                let screen_axis = project_screen_direction(
+                    rect,
+                    camera,
+                    drag.origin_world,
+                    axis.normal(),
+                    drag.world_per_point,
+                );
+                let amount = delta.dot(screen_axis) * drag.world_per_point;
+                let factor = (1.0 + amount / drag.object_radius).max(0.05);
+                object.transform.scale = drag.start_transform.scale;
+                object.transform.scale[axis.index()] =
+                    (drag.start_transform.scale[axis.index()] * factor).max(0.01);
+            }
+            GizmoOperation::RotateAxis(axis) => {
+                let current = pointer_angle(drag.origin_screen, pointer);
+                let delta_angle = wrap_angle(current - drag.start_angle);
+                object.transform.rotation_xyzw = quat_mul(
+                    axis_angle_quat(axis.normal(), delta_angle),
+                    drag.start_transform.rotation_xyzw,
+                );
+            }
+            GizmoOperation::RotateView => {
+                let current = pointer_angle(drag.origin_screen, pointer);
+                let delta_angle = wrap_angle(current - drag.start_angle);
+                object.transform.rotation_xyzw = quat_mul(
+                    axis_angle_quat(view_forward, delta_angle),
+                    drag.start_transform.rotation_xyzw,
+                );
+            }
         }
     }
 
@@ -1155,6 +1557,488 @@ impl View3d {
             .map_or_else(mara_core::style::active_accent, |material| {
                 material.base_color
             })
+    }
+
+    fn paint_transform_gizmo(
+        &self,
+        painter: &egui::Painter,
+        rect: egui::Rect,
+        camera: &PreviewCamera,
+        hover_operation: Option<GizmoOperation>,
+        active_operation: Option<GizmoOperation>,
+    ) {
+        let Some(object) = self.scene.selected_object().filter(|object| object.visible) else {
+            return;
+        };
+        let origin = transform_point(&object.transform, [0.0, 0.0, 0.0]);
+        let Some((origin_screen, depth)) = camera.project(rect, origin) else {
+            return;
+        };
+        let world_per_point = camera.world_per_screen_point(rect, depth);
+        if !world_per_point.is_finite() || world_per_point <= 0.0 {
+            return;
+        }
+
+        self.paint_gizmo_rotation_arc(
+            painter,
+            rect,
+            camera,
+            origin,
+            world_per_point,
+            GizmoAxis::X,
+            gizmo_operation_highlighted(
+                GizmoOperation::RotateAxis(GizmoAxis::X),
+                hover_operation,
+                active_operation,
+            ),
+        );
+        self.paint_gizmo_rotation_arc(
+            painter,
+            rect,
+            camera,
+            origin,
+            world_per_point,
+            GizmoAxis::Y,
+            gizmo_operation_highlighted(
+                GizmoOperation::RotateAxis(GizmoAxis::Y),
+                hover_operation,
+                active_operation,
+            ),
+        );
+        self.paint_gizmo_rotation_arc(
+            painter,
+            rect,
+            camera,
+            origin,
+            world_per_point,
+            GizmoAxis::Z,
+            gizmo_operation_highlighted(
+                GizmoOperation::RotateAxis(GizmoAxis::Z),
+                hover_operation,
+                active_operation,
+            ),
+        );
+        self.paint_gizmo_view_circle(
+            painter,
+            origin_screen,
+            gizmo_operation_highlighted(
+                GizmoOperation::TranslateView,
+                hover_operation,
+                active_operation,
+            ),
+            gizmo_operation_highlighted(
+                GizmoOperation::RotateView,
+                hover_operation,
+                active_operation,
+            ),
+        );
+
+        self.paint_gizmo_plane(
+            painter,
+            rect,
+            camera,
+            origin,
+            world_per_point,
+            GizmoAxis::X,
+            gizmo_operation_highlighted(
+                GizmoOperation::TranslatePlane(GizmoAxis::X),
+                hover_operation,
+                active_operation,
+            ),
+        );
+        self.paint_gizmo_plane(
+            painter,
+            rect,
+            camera,
+            origin,
+            world_per_point,
+            GizmoAxis::Y,
+            gizmo_operation_highlighted(
+                GizmoOperation::TranslatePlane(GizmoAxis::Y),
+                hover_operation,
+                active_operation,
+            ),
+        );
+        self.paint_gizmo_plane(
+            painter,
+            rect,
+            camera,
+            origin,
+            world_per_point,
+            GizmoAxis::Z,
+            gizmo_operation_highlighted(
+                GizmoOperation::TranslatePlane(GizmoAxis::Z),
+                hover_operation,
+                active_operation,
+            ),
+        );
+
+        self.paint_gizmo_arrow(
+            painter,
+            rect,
+            camera,
+            origin,
+            world_per_point,
+            GizmoAxis::X,
+            gizmo_operation_highlighted(
+                GizmoOperation::TranslateAxis(GizmoAxis::X),
+                hover_operation,
+                active_operation,
+            ),
+            gizmo_operation_highlighted(
+                GizmoOperation::ScaleAxis(GizmoAxis::X),
+                hover_operation,
+                active_operation,
+            ),
+        );
+        self.paint_gizmo_arrow(
+            painter,
+            rect,
+            camera,
+            origin,
+            world_per_point,
+            GizmoAxis::Y,
+            gizmo_operation_highlighted(
+                GizmoOperation::TranslateAxis(GizmoAxis::Y),
+                hover_operation,
+                active_operation,
+            ),
+            gizmo_operation_highlighted(
+                GizmoOperation::ScaleAxis(GizmoAxis::Y),
+                hover_operation,
+                active_operation,
+            ),
+        );
+        self.paint_gizmo_arrow(
+            painter,
+            rect,
+            camera,
+            origin,
+            world_per_point,
+            GizmoAxis::Z,
+            gizmo_operation_highlighted(
+                GizmoOperation::TranslateAxis(GizmoAxis::Z),
+                hover_operation,
+                active_operation,
+            ),
+            gizmo_operation_highlighted(
+                GizmoOperation::ScaleAxis(GizmoAxis::Z),
+                hover_operation,
+                active_operation,
+            ),
+        );
+    }
+
+    fn paint_gizmo_arrow(
+        &self,
+        painter: &egui::Painter,
+        rect: egui::Rect,
+        camera: &PreviewCamera,
+        origin: Vec3,
+        world_per_point: f32,
+        axis: GizmoAxis,
+        translate_highlighted: bool,
+        scale_highlighted: bool,
+    ) {
+        let direction = axis.normal();
+        let visibility = gizmo_arrow_visibility(camera, origin, direction);
+        if visibility <= 1.0e-4 {
+            return;
+        }
+        let scale_color = gizmo_axis_color(axis, visibility, scale_highlighted);
+        let translate_color = gizmo_axis_color(axis, visibility, translate_highlighted);
+        let scale_width = highlighted_width(GIZMO_STROKE_WIDTH, scale_highlighted);
+        let translate_width = highlighted_width(GIZMO_STROKE_WIDTH, translate_highlighted);
+
+        // Scale handle: the original gizmo draws a thick terminal segment
+        // when scale is enabled on the same axis.
+        let scale_start = GIZMO_SIZE * 0.2 + GIZMO_STROKE_WIDTH * 0.5;
+        let scale_end = GIZMO_SIZE;
+        let scale_tip_start = scale_end - GIZMO_STROKE_WIDTH * 2.4;
+        let scale_points = [
+            add3(origin, mul3(direction, scale_start * world_per_point)),
+            add3(origin, mul3(direction, scale_tip_start * world_per_point)),
+            add3(origin, mul3(direction, scale_end * world_per_point)),
+        ];
+        if let (Some((a, _)), Some((b, _)), Some((c, _))) = (
+            camera.project(rect, scale_points[0]),
+            camera.project(rect, scale_points[1]),
+            camera.project(rect, scale_points[2]),
+        ) {
+            painter.line_segment([a, b], egui::Stroke::new(scale_width, scale_color));
+            painter.line_segment([b, c], egui::Stroke::new(scale_width * 2.4, scale_color));
+        }
+
+        // Translation handle: the original gizmo offsets movement arrows
+        // past the scale handle when both translate and scale modes exist.
+        let translate_start = GIZMO_SIZE + GIZMO_STROKE_WIDTH * 3.0;
+        let translate_end = translate_start + GIZMO_SIZE * 0.2 + GIZMO_STROKE_WIDTH;
+        let translate_tip_start = translate_end - GIZMO_STROKE_WIDTH * 2.4;
+        let translate_points = [
+            add3(origin, mul3(direction, translate_start * world_per_point)),
+            add3(
+                origin,
+                mul3(direction, translate_tip_start * world_per_point),
+            ),
+            add3(origin, mul3(direction, translate_end * world_per_point)),
+        ];
+        let (Some((a, _)), Some((b, _)), Some((c, _))) = (
+            camera.project(rect, translate_points[0]),
+            camera.project(rect, translate_points[1]),
+            camera.project(rect, translate_points[2]),
+        ) else {
+            return;
+        };
+        painter.line_segment([a, b], egui::Stroke::new(translate_width, translate_color));
+        paint_gizmo_arrow_head(painter, b, c, translate_color, translate_width);
+    }
+
+    fn paint_gizmo_plane(
+        &self,
+        painter: &egui::Painter,
+        rect: egui::Rect,
+        camera: &PreviewCamera,
+        origin: Vec3,
+        world_per_point: f32,
+        axis: GizmoAxis,
+        highlighted: bool,
+    ) {
+        let normal = axis.normal();
+        let visibility = gizmo_plane_visibility(camera, origin, normal);
+        if visibility <= 1.0e-4 {
+            return;
+        }
+        let offset = GIZMO_SIZE * 0.5 * world_per_point;
+        let half = (GIZMO_SIZE * 0.1 + GIZMO_STROKE_WIDTH * 2.0) * 0.5 * world_per_point;
+        let (a, b) = axis.plane_axes();
+        let center = add3(origin, mul3(add3(a, b), offset));
+        let corners = [
+            sub3(sub3(center, mul3(a, half)), mul3(b, half)),
+            add3(sub3(center, mul3(a, half)), mul3(b, half)),
+            add3(add3(center, mul3(a, half)), mul3(b, half)),
+            sub3(add3(center, mul3(a, half)), mul3(b, half)),
+        ];
+        let mut projected = Vec::with_capacity(4);
+        for corner in corners {
+            let Some((point, _)) = camera.project(rect, corner) else {
+                return;
+            };
+            projected.push(point);
+        }
+        let color = gizmo_axis_color(
+            axis,
+            visibility * if highlighted { 0.78 } else { 0.42 },
+            highlighted,
+        );
+        painter.add(egui::Shape::convex_polygon(
+            projected,
+            color,
+            egui::Stroke::new(
+                if highlighted {
+                    GIZMO_STROKE_WIDTH * 0.75
+                } else {
+                    0.0
+                },
+                gizmo_axis_color(axis, visibility, highlighted),
+            ),
+        ));
+    }
+
+    fn paint_gizmo_rotation_arc(
+        &self,
+        painter: &egui::Painter,
+        rect: egui::Rect,
+        camera: &PreviewCamera,
+        origin: Vec3,
+        world_per_point: f32,
+        axis: GizmoAxis,
+        highlighted: bool,
+    ) {
+        let normal = axis.normal();
+        let dot = dot3(normal, camera.forward).abs();
+        let arc_t = ((dot - GIZMO_ARC_FADE_START) / (GIZMO_ARC_FADE_END - GIZMO_ARC_FADE_START))
+            .clamp(0.0, 1.0);
+        let angle = std::f32::consts::FRAC_PI_2 + arc_t * std::f32::consts::FRAC_PI_2;
+        let radius = GIZMO_SIZE * world_per_point;
+        let tangent = axis.rotation_tangent(camera);
+        let bitangent = normalize3(cross3(normal, tangent));
+        let start = std::f32::consts::FRAC_PI_2 - angle;
+        let end = std::f32::consts::FRAC_PI_2 + angle;
+        let mut screen_points = Vec::with_capacity(GIZMO_ROTATION_SEGMENTS + 1);
+        for i in 0..=GIZMO_ROTATION_SEGMENTS {
+            let t = i as f32 / GIZMO_ROTATION_SEGMENTS as f32;
+            let angle = start + (end - start) * t;
+            let world = add3(
+                origin,
+                add3(
+                    mul3(tangent, angle.cos() * radius),
+                    mul3(bitangent, angle.sin() * radius),
+                ),
+            );
+            let Some((screen, _)) = camera.project(rect, world) else {
+                continue;
+            };
+            screen_points.push(screen);
+        }
+        if screen_points.len() >= 2 {
+            painter.add(egui::Shape::line(
+                screen_points,
+                egui::Stroke::new(
+                    highlighted_width(GIZMO_STROKE_WIDTH, highlighted),
+                    gizmo_axis_color(axis, 1.0, highlighted),
+                ),
+            ));
+        }
+    }
+
+    fn paint_gizmo_view_circle(
+        &self,
+        painter: &egui::Painter,
+        origin: egui::Pos2,
+        translate_highlighted: bool,
+        rotate_highlighted: bool,
+    ) {
+        painter.circle_stroke(
+            origin,
+            GIZMO_SIZE + GIZMO_STROKE_WIDTH + 5.0,
+            egui::Stroke::new(
+                highlighted_width(GIZMO_STROKE_WIDTH, rotate_highlighted),
+                gizmo_view_color(rotate_highlighted),
+            ),
+        );
+        painter.circle_stroke(
+            origin,
+            GIZMO_SIZE * 0.2,
+            egui::Stroke::new(
+                highlighted_width(GIZMO_STROKE_WIDTH, translate_highlighted),
+                gizmo_view_color(translate_highlighted),
+            ),
+        );
+    }
+
+    fn gizmo_axis_handle_distance(
+        &self,
+        rect: egui::Rect,
+        camera: &PreviewCamera,
+        origin: Vec3,
+        world_per_point: f32,
+        pointer: egui::Pos2,
+        axis: GizmoAxis,
+        translate: bool,
+    ) -> Option<f32> {
+        let direction = axis.normal();
+        if gizmo_arrow_visibility(camera, origin, direction) <= 1.0e-4 {
+            return None;
+        }
+        let (start, end) = if translate {
+            let start = GIZMO_SIZE + GIZMO_STROKE_WIDTH * 3.0;
+            (start, start + GIZMO_SIZE * 0.2 + GIZMO_STROKE_WIDTH)
+        } else {
+            (GIZMO_SIZE * 0.2 + GIZMO_STROKE_WIDTH * 0.5, GIZMO_SIZE)
+        };
+        let a = add3(origin, mul3(direction, start * world_per_point));
+        let b = add3(origin, mul3(direction, end * world_per_point));
+        let (Some((a, _)), Some((b, _))) = (camera.project(rect, a), camera.project(rect, b))
+        else {
+            return None;
+        };
+        let distance = distance_to_screen_segment(pointer, a, b);
+        let pick_width = if translate {
+            GIZMO_PICK_DISTANCE
+        } else {
+            GIZMO_PICK_DISTANCE.max(GIZMO_STROKE_WIDTH * 2.4)
+        };
+        (distance <= pick_width).then_some(distance)
+    }
+
+    fn gizmo_plane_handle_distance(
+        &self,
+        rect: egui::Rect,
+        camera: &PreviewCamera,
+        origin: Vec3,
+        world_per_point: f32,
+        pointer: egui::Pos2,
+        axis: GizmoAxis,
+    ) -> Option<f32> {
+        let normal = axis.normal();
+        if gizmo_plane_visibility(camera, origin, normal) <= 1.0e-4 {
+            return None;
+        }
+        let offset = GIZMO_SIZE * 0.5 * world_per_point;
+        let half = (GIZMO_SIZE * 0.1 + GIZMO_STROKE_WIDTH * 2.0) * 0.5 * world_per_point;
+        let (a, b) = axis.plane_axes();
+        let center = add3(origin, mul3(add3(a, b), offset));
+        let corners = [
+            sub3(sub3(center, mul3(a, half)), mul3(b, half)),
+            add3(sub3(center, mul3(a, half)), mul3(b, half)),
+            add3(add3(center, mul3(a, half)), mul3(b, half)),
+            sub3(add3(center, mul3(a, half)), mul3(b, half)),
+        ];
+        let mut projected = Vec::with_capacity(4);
+        for corner in corners {
+            let Some((point, _)) = camera.project(rect, corner) else {
+                return None;
+            };
+            projected.push(point);
+        }
+        if point_in_screen_polygon(pointer, &projected) {
+            Some(0.0)
+        } else {
+            let distance = projected
+                .iter()
+                .enumerate()
+                .map(|(i, point)| {
+                    distance_to_screen_segment(
+                        pointer,
+                        *point,
+                        projected[(i + 1) % projected.len()],
+                    )
+                })
+                .fold(f32::INFINITY, f32::min);
+            (distance <= GIZMO_PICK_DISTANCE).then_some(distance)
+        }
+    }
+
+    fn gizmo_rotation_arc_distance(
+        &self,
+        rect: egui::Rect,
+        camera: &PreviewCamera,
+        origin: Vec3,
+        world_per_point: f32,
+        pointer: egui::Pos2,
+        axis: GizmoAxis,
+    ) -> Option<f32> {
+        let normal = axis.normal();
+        let dot = dot3(normal, camera.forward).abs();
+        let arc_t = ((dot - GIZMO_ARC_FADE_START) / (GIZMO_ARC_FADE_END - GIZMO_ARC_FADE_START))
+            .clamp(0.0, 1.0);
+        let angle = std::f32::consts::FRAC_PI_2 + arc_t * std::f32::consts::FRAC_PI_2;
+        let radius = GIZMO_SIZE * world_per_point;
+        let tangent = axis.rotation_tangent(camera);
+        let bitangent = normalize3(cross3(normal, tangent));
+        let start = std::f32::consts::FRAC_PI_2 - angle;
+        let end = std::f32::consts::FRAC_PI_2 + angle;
+        let mut last = None;
+        let mut best = f32::INFINITY;
+        for i in 0..=GIZMO_ROTATION_SEGMENTS {
+            let t = i as f32 / GIZMO_ROTATION_SEGMENTS as f32;
+            let angle = start + (end - start) * t;
+            let world = add3(
+                origin,
+                add3(
+                    mul3(tangent, angle.cos() * radius),
+                    mul3(bitangent, angle.sin() * radius),
+                ),
+            );
+            let Some((screen, _)) = camera.project(rect, world) else {
+                continue;
+            };
+            if let Some(last) = last {
+                best = best.min(distance_to_screen_segment(pointer, last, screen));
+            }
+            last = Some(screen);
+        }
+        (best <= GIZMO_PICK_DISTANCE).then_some(best)
     }
 
     fn paint_grid(
@@ -1469,22 +2353,7 @@ impl View3d {
         object: &Object3d,
     ) -> f32 {
         let center = transform_point(&object.transform, [0.0, 0.0, 0.0]);
-        let local_radius = match &object.primitive {
-            Primitive3d::Triangles(mesh) => local_radius(&mesh.vertices),
-        };
-        let edge = add3(
-            center,
-            mul3(
-                camera.right,
-                local_radius
-                    * object
-                        .transform
-                        .scale
-                        .iter()
-                        .copied()
-                        .fold(0.0_f32, |acc, value| acc.max(value.abs())),
-            ),
-        );
+        let edge = add3(center, mul3(camera.right, object_world_radius(object)));
         match (camera.project(rect, center), camera.project(rect, edge)) {
             (Some((center, _)), Some((edge, _))) => center.distance(edge),
             _ => 0.0,
@@ -1715,6 +2584,134 @@ fn interpolate_color(colors: [egui::Color32; 3], weights: [f32; 3]) -> egui::Col
     )
 }
 
+fn paint_gizmo_arrow_head(
+    painter: &egui::Painter,
+    base_start: egui::Pos2,
+    tip: egui::Pos2,
+    color: egui::Color32,
+    stroke_width: f32,
+) {
+    let screen_dir = tip - base_start;
+    if screen_dir.length_sq() <= 1.0e-4 {
+        return;
+    }
+    let screen_dir = screen_dir.normalized();
+    let side = egui::vec2(-screen_dir.y, screen_dir.x);
+    let tip_len = stroke_width * 2.4;
+    let tip_width = tip_len * 0.58;
+    let base = tip - screen_dir * tip_len;
+    painter.add(egui::Shape::convex_polygon(
+        vec![tip, base + side * tip_width, base - side * tip_width],
+        color,
+        egui::Stroke::NONE,
+    ));
+}
+
+fn update_best_gizmo_pick(
+    best: &mut Option<(GizmoOperation, f32)>,
+    operation: GizmoOperation,
+    distance: f32,
+) {
+    if distance <= GIZMO_PICK_DISTANCE
+        && best.is_none_or(|(_, best_distance)| distance < best_distance)
+    {
+        *best = Some((operation, distance));
+    }
+}
+
+fn gizmo_operation_highlighted(
+    operation: GizmoOperation,
+    hover_operation: Option<GizmoOperation>,
+    active_operation: Option<GizmoOperation>,
+) -> bool {
+    active_operation == Some(operation)
+        || active_operation.is_none() && hover_operation == Some(operation)
+}
+
+fn highlighted_width(width: f32, highlighted: bool) -> f32 {
+    if highlighted {
+        width * GIZMO_HIGHLIGHT_WIDTH_SCALE
+    } else {
+        width
+    }
+}
+
+fn project_screen_direction(
+    rect: egui::Rect,
+    camera: &PreviewCamera,
+    origin: Vec3,
+    direction: Vec3,
+    world_per_point: f32,
+) -> egui::Vec2 {
+    let distance = (world_per_point * 64.0).max(0.01);
+    let Some((a, _)) = camera.project(rect, origin) else {
+        return egui::Vec2::X;
+    };
+    let Some((b, _)) = camera.project(rect, add3(origin, mul3(direction, distance))) else {
+        return egui::Vec2::X;
+    };
+    let delta = b - a;
+    if delta.length_sq() <= 1.0e-6 {
+        egui::Vec2::X
+    } else {
+        delta.normalized()
+    }
+}
+
+fn distance_to_screen_segment(point: egui::Pos2, a: egui::Pos2, b: egui::Pos2) -> f32 {
+    let ab = b - a;
+    let len_sq = ab.length_sq();
+    if len_sq <= f32::EPSILON {
+        return point.distance(a);
+    }
+    let t = ((point - a).dot(ab) / len_sq).clamp(0.0, 1.0);
+    point.distance(a + ab * t)
+}
+
+fn point_in_screen_polygon(point: egui::Pos2, polygon: &[egui::Pos2]) -> bool {
+    if polygon.len() < 3 {
+        return false;
+    }
+    let mut inside = false;
+    let mut j = polygon.len() - 1;
+    for i in 0..polygon.len() {
+        let pi = polygon[i];
+        let pj = polygon[j];
+        if ((pi.y > point.y) != (pj.y > point.y))
+            && (point.x < (pj.x - pi.x) * (point.y - pi.y) / (pj.y - pi.y).max(1.0e-6) + pi.x)
+        {
+            inside = !inside;
+        }
+        j = i;
+    }
+    inside
+}
+
+fn pointer_angle(origin: egui::Pos2, pointer: egui::Pos2) -> f32 {
+    let delta = pointer - origin;
+    delta.y.atan2(delta.x)
+}
+
+fn wrap_angle(angle: f32) -> f32 {
+    (angle + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI
+}
+
+fn axis_angle_quat(axis: Vec3, angle: f32) -> Quat {
+    let axis = normalize3(axis);
+    let half = angle * 0.5;
+    let sin = half.sin();
+    [axis[0] * sin, axis[1] * sin, axis[2] * sin, half.cos()]
+}
+
+fn quat_mul(a: Quat, b: Quat) -> Quat {
+    normalize_quat([
+        a[3] * b[0] + a[0] * b[3] + a[1] * b[2] - a[2] * b[1],
+        a[3] * b[1] - a[0] * b[2] + a[1] * b[3] + a[2] * b[0],
+        a[3] * b[2] + a[0] * b[1] - a[1] * b[0] + a[2] * b[3],
+        a[3] * b[3] - a[0] * b[0] - a[1] * b[1] - a[2] * b[2],
+    ])
+}
+
 fn triangle_screen_is_stable(rect: egui::Rect, points: [egui::Pos2; 3]) -> bool {
     let diag = rect.size().length().max(1.0);
     let max_edge = points[0]
@@ -1776,6 +2773,67 @@ fn local_radius(points: &[Vec3]) -> f32 {
         .iter()
         .map(|point| dot3(*point, *point).sqrt())
         .fold(0.0, f32::max)
+}
+
+fn object_world_radius(object: &Object3d) -> f32 {
+    let local = match &object.primitive {
+        Primitive3d::Triangles(mesh) => local_radius(&mesh.vertices),
+    };
+    local
+        * object
+            .transform
+            .scale
+            .iter()
+            .copied()
+            .fold(0.0_f32, |acc, value| acc.max(value.abs()))
+}
+
+fn gizmo_axis_color(axis: GizmoAxis, visibility: f32, highlighted: bool) -> egui::Color32 {
+    let (r, g, b) = match axis {
+        GizmoAxis::X => (255, 0, 125),
+        GizmoAxis::Y => (0, 255, 125),
+        GizmoAxis::Z => (0, 125, 255),
+    };
+    let alpha_base = if highlighted {
+        1.0
+    } else {
+        GIZMO_INACTIVE_ALPHA
+    };
+    let color = egui::Color32::from_rgba_unmultiplied(r, g, b, 255);
+    let color = if highlighted {
+        tint_color(color, egui::Color32::WHITE, 0.22)
+    } else {
+        color
+    };
+    let alpha = (255.0 * alpha_base * visibility.clamp(0.0, 1.0))
+        .round()
+        .clamp(0.0, 255.0) as u8;
+    egui::Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), alpha)
+}
+
+fn gizmo_view_color(highlighted: bool) -> egui::Color32 {
+    let alpha = (255.0
+        * if highlighted {
+            1.0
+        } else {
+            GIZMO_INACTIVE_ALPHA
+        })
+    .round() as u8;
+    egui::Color32::from_rgba_unmultiplied(255, 255, 255, alpha)
+}
+
+fn gizmo_arrow_visibility(camera: &PreviewCamera, origin: Vec3, direction: Vec3) -> f32 {
+    let eye_to_model = normalize3(sub3(origin, camera.eye));
+    let dot = dot3(eye_to_model, direction).abs();
+    (1.0 - (dot - GIZMO_ARROW_FADE_START) / (GIZMO_ARROW_FADE_END - GIZMO_ARROW_FADE_START))
+        .min(1.0)
+}
+
+fn gizmo_plane_visibility(camera: &PreviewCamera, origin: Vec3, normal: Vec3) -> f32 {
+    let eye_to_model = normalize3(sub3(origin, camera.eye));
+    let dot = dot3(eye_to_model, normal).abs();
+    (1.0 - ((1.0 - dot) - GIZMO_PLANE_FADE_START) / (GIZMO_PLANE_FADE_END - GIZMO_PLANE_FADE_START))
+        .min(1.0)
 }
 
 fn rotate3_by_quat(point: Vec3, quat_xyzw: Quat) -> Vec3 {
@@ -1862,15 +2920,33 @@ fn shade_color(base: egui::Color32, normal: Vec3, camera: &PreviewCamera) -> egu
         normal = mul3(normal, -1.0);
     }
 
-    let key = dot3(normalize3(TECH_LIGHT_KEY), normal).max(0.0);
-    let fill = dot3(normalize3(TECH_LIGHT_FILL), normal).max(0.0) * TECH_LIGHT_FILL_STRENGTH;
-    let view = dot3(normal, mul3(camera.forward, -1.0))
-        .abs()
-        .clamp(0.0, 1.0);
-    let rim = (1.0 - view).powf(2.0) * TECH_LIGHT_RIM_STRENGTH;
-    let diffuse = (TECH_LIGHT_AMBIENT + key * 0.9 + fill + rim).clamp(0.0, 1.0);
-    let value = (1.0 - TECH_LIGHT_CONTRAST) + diffuse * TECH_LIGHT_CONTRAST;
-    shade_scalar(base, value)
+    let key_dir = normalize3(TECH_LIGHT_KEY);
+    let fill_dir = normalize3(TECH_LIGHT_FILL);
+    let view_dir = mul3(camera.forward, -1.0);
+
+    let key = dot3(key_dir, normal).max(0.0).powf(0.72);
+    let fill = dot3(fill_dir, normal).max(0.0) * TECH_LIGHT_FILL_STRENGTH;
+    let headlight = dot3(view_dir, normal).max(0.0) * TECH_LIGHT_HEADLIGHT_STRENGTH;
+    let sky = normal[1].max(0.0) * TECH_LIGHT_SKY_STRENGTH;
+    let view = dot3(normal, view_dir).abs().clamp(0.0, 1.0);
+    let rim = (1.0 - view).powf(2.35) * TECH_LIGHT_RIM_STRENGTH;
+    let half_vector = normalize3(add3(key_dir, view_dir));
+    let specular = dot3(normal, half_vector)
+        .max(0.0)
+        .powf(TECH_LIGHT_SPECULAR_POWER)
+        * TECH_LIGHT_SPECULAR_STRENGTH;
+
+    let diffuse = (TECH_LIGHT_AMBIENT + key * 0.68 + fill + headlight + sky).clamp(0.0, 1.35);
+    let value = ((1.0 - TECH_LIGHT_CONTRAST) + diffuse * TECH_LIGHT_CONTRAST).clamp(0.42, 1.12);
+    let mut color = shade_scalar(base, value.min(1.0));
+    if value > 1.0 {
+        color = tint_color(color, egui::Color32::WHITE, (value - 1.0) * 0.55);
+    }
+    tint_color(
+        color,
+        egui::Color32::WHITE,
+        (specular + rim * 0.55).clamp(0.0, 0.22),
+    )
 }
 
 fn shade_scalar(base: egui::Color32, value: f32) -> egui::Color32 {
