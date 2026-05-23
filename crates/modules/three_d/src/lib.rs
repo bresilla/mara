@@ -58,6 +58,8 @@ const GIZMO_HIGHLIGHT_WIDTH_SCALE: f32 = 1.35;
 const OBJECT_TRIANGLE_MAX_SCREEN_FRAC: f32 = 1.8;
 const OBJECT_SSAA_SCALE: usize = 3;
 const OBJECT_SSAA_MAX_DIMENSION: usize = 2400;
+const INTERACTIVE_SELECTED_TRIANGLE_BUDGET: usize = 18_000;
+const INTERACTIVE_BACKGROUND_TRIANGLE_BUDGET: usize = 4_000;
 
 /// Re-export of the renderer backend used by this module.
 ///
@@ -2822,6 +2824,8 @@ pub struct View3d {
     gpu_callback_id: u64,
     #[cfg(feature = "gpu-preview")]
     gpu_target_format: Option<wgpu::TextureFormat>,
+    #[cfg(feature = "gpu-preview")]
+    gpu_scene_cache: GpuSceneGeometryCache,
 }
 
 impl View3d {
@@ -2837,6 +2841,8 @@ impl View3d {
             gpu_callback_id: next_gpu_callback_id(),
             #[cfg(feature = "gpu-preview")]
             gpu_target_format: None,
+            #[cfg(feature = "gpu-preview")]
+            gpu_scene_cache: GpuSceneGeometryCache::default(),
         }
     }
 
@@ -2947,57 +2953,38 @@ impl View3d {
         let accent = mara_core::style::active_accent();
         let background = mara_core::style::fill_for(mara_core::style::FillRole::Pane, accent);
         painter.rect_filled(rect, 0.0, background);
-
-        let mut faces = Vec::new();
+        let interactive_preview = gizmo_used
+            || self.gizmo_drag.is_some()
+            || response.dragged()
+            || ui.input(|input| input.pointer.any_down());
 
         self.paint_grid(&painter, rect, &camera, 1.0, accent);
 
-        for object in &self.scene.objects {
-            if !object.visible {
-                continue;
-            }
-            match &object.primitive {
-                Primitive3d::Triangles(mesh) => {
-                    self.collect_mesh_faces(
-                        &mut faces,
-                        rect,
-                        &camera,
-                        object,
-                        &object.transform,
-                        &mesh.vertices,
-                        &mesh.indices,
-                        &mesh.normals,
-                        &mesh.uvs,
-                        &mesh.vertex_colors,
-                    );
-                    for instance in &object.instances {
-                        let transform = combine_transform(&object.transform, instance);
-                        self.collect_mesh_faces(
-                            &mut faces,
-                            rect,
-                            &camera,
-                            object,
-                            &transform,
-                            &mesh.vertices,
-                            &mesh.indices,
-                            &mesh.normals,
-                            &mesh.uvs,
-                            &mesh.vertex_colors,
-                        );
-                    }
-                }
-            }
-        }
-
-        faces.sort_by(|a, b: &PreviewFace| b.depth.total_cmp(&a.depth));
         #[cfg(feature = "gpu-preview")]
         if let Some(target_format) = self.gpu_target_format {
-            paint_faces_gpu(&painter, rect, self.gpu_callback_id, target_format, faces);
+            let geometry = self.gpu_scene_geometry().clone();
+            paint_scene_gpu(
+                &painter,
+                rect,
+                self.gpu_callback_id,
+                target_format,
+                &camera,
+                &self.scene,
+                &geometry,
+            );
         } else {
+            let mut faces = Vec::new();
+            self.collect_preview_faces(&mut faces, rect, &camera, interactive_preview);
+            faces.sort_by(|a, b: &PreviewFace| b.depth.total_cmp(&a.depth));
             paint_faces_supersampled(ui, &painter, rect, &mut self.preview_texture, faces);
         }
         #[cfg(not(feature = "gpu-preview"))]
-        paint_faces_supersampled(ui, &painter, rect, &mut self.preview_texture, faces);
+        {
+            let mut faces = Vec::new();
+            self.collect_preview_faces(&mut faces, rect, &camera, interactive_preview);
+            faces.sort_by(|a, b: &PreviewFace| b.depth.total_cmp(&a.depth));
+            paint_faces_supersampled(ui, &painter, rect, &mut self.preview_texture, faces);
+        }
         self.paint_scene_gizmos(&painter, rect, &camera);
         let active_operation = self.gizmo_drag.as_ref().map(|drag| drag.operation);
         let hover_operation = active_operation.or_else(|| {
@@ -3014,6 +3001,64 @@ impl View3d {
 
         if response.hovered() || response.dragged() {
             ui.ctx().request_repaint();
+        }
+    }
+
+    #[cfg(feature = "gpu-preview")]
+    fn gpu_scene_geometry(&mut self) -> &GpuSceneGeometryCache {
+        let signature = gpu_scene_signature(&self.scene);
+        if self.gpu_scene_cache.signature != Some(signature) {
+            self.gpu_scene_cache = build_gpu_scene_geometry(&self.scene, signature);
+        }
+        &self.gpu_scene_cache
+    }
+
+    fn collect_preview_faces(
+        &self,
+        faces: &mut Vec<PreviewFace>,
+        rect: egui::Rect,
+        camera: &PreviewCamera,
+        interactive_preview: bool,
+    ) {
+        for object in &self.scene.objects {
+            if !object.visible {
+                continue;
+            }
+            match &object.primitive {
+                Primitive3d::Triangles(mesh) => {
+                    let triangle_stride =
+                        interactive_triangle_stride(mesh, object.selected, interactive_preview);
+                    self.collect_mesh_faces(
+                        faces,
+                        rect,
+                        camera,
+                        object,
+                        &object.transform,
+                        &mesh.vertices,
+                        &mesh.indices,
+                        &mesh.normals,
+                        &mesh.uvs,
+                        &mesh.vertex_colors,
+                        triangle_stride,
+                    );
+                    for instance in &object.instances {
+                        let transform = combine_transform(&object.transform, instance);
+                        self.collect_mesh_faces(
+                            faces,
+                            rect,
+                            camera,
+                            object,
+                            &transform,
+                            &mesh.vertices,
+                            &mesh.indices,
+                            &mesh.normals,
+                            &mesh.uvs,
+                            &mesh.vertex_colors,
+                            triangle_stride,
+                        );
+                    }
+                }
+            }
         }
     }
 
@@ -4129,6 +4174,7 @@ impl View3d {
         normals: &[Vec3],
         uvs: &[[f32; 2]],
         vertex_colors: &[Color],
+        triangle_stride: usize,
     ) {
         if vertices.is_empty() || indices.is_empty() {
             return;
@@ -4156,7 +4202,7 @@ impl View3d {
             .and_then(|texture| self.scene.texture(texture))
             .cloned();
 
-        for triangle in indices {
+        for triangle in indices.iter().step_by(triangle_stride.max(1)) {
             let triangle = triangle.map(|index| index as usize);
             if triangle.iter().any(|index| *index >= world.len()) {
                 continue;
@@ -4352,6 +4398,7 @@ struct PreviewFace {
 
 #[cfg(feature = "gpu-preview")]
 #[derive(Clone, Debug)]
+#[allow(dead_code)]
 struct GpuPreviewCallback {
     id: u64,
     target_format: wgpu::TextureFormat,
@@ -4359,6 +4406,19 @@ struct GpuPreviewCallback {
     vertices: Vec<GpuPreviewVertex>,
     batches: Vec<GpuPreviewBatch>,
     textures: Vec<GpuPreviewTextureSource>,
+}
+
+#[cfg(feature = "gpu-preview")]
+#[derive(Clone, Debug)]
+struct GpuSceneCallback {
+    id: u64,
+    geometry_signature: u64,
+    target_format: wgpu::TextureFormat,
+    viewport_points: [f32; 2],
+    uniform: GpuSceneUniform,
+    vertices: std::sync::Arc<[GpuSceneVertex]>,
+    batches: Vec<GpuPreviewBatch>,
+    textures: std::sync::Arc<[GpuPreviewTextureSource]>,
 }
 
 #[cfg(feature = "gpu-preview")]
@@ -4387,15 +4447,48 @@ struct GpuPreviewVertex {
 }
 
 #[cfg(feature = "gpu-preview")]
+#[repr(C)]
+#[derive(Clone, Copy, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+struct GpuSceneVertex {
+    position: [f32; 3],
+    normal: [f32; 3],
+    uv: [f32; 2],
+    color: u32,
+}
+
+#[cfg(feature = "gpu-preview")]
+#[derive(Clone, Default)]
+struct GpuSceneGeometryCache {
+    signature: Option<u64>,
+    vertices: std::sync::Arc<[GpuSceneVertex]>,
+    batches: Vec<GpuPreviewBatch>,
+    textures: std::sync::Arc<[GpuPreviewTextureSource]>,
+}
+
+#[cfg(feature = "gpu-preview")]
+#[repr(C)]
+#[derive(Clone, Copy, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+struct GpuSceneUniform {
+    eye: [f32; 4],
+    right: [f32; 4],
+    up: [f32; 4],
+    forward: [f32; 4],
+    params: [f32; 4],
+}
+
+#[cfg(feature = "gpu-preview")]
 #[derive(Default)]
 struct GpuPreviewResources {
     pipeline_format: Option<wgpu::TextureFormat>,
     mesh_pipeline: Option<wgpu::RenderPipeline>,
+    scene_pipeline: Option<wgpu::RenderPipeline>,
     quad_pipeline: Option<wgpu::RenderPipeline>,
     bind_group_layout: Option<wgpu::BindGroupLayout>,
+    scene_uniform_layout: Option<wgpu::BindGroupLayout>,
     sampler: Option<wgpu::Sampler>,
     white_bind_group: Option<wgpu::BindGroup>,
     textures: std::collections::HashMap<TextureId, GpuPreviewTextureResource>,
+    scene_vertex_buffers: std::collections::HashMap<u64, GpuSceneVertexBuffer>,
     prepared: std::collections::HashMap<u64, GpuPreparedPreview>,
 }
 
@@ -4406,8 +4499,18 @@ struct GpuPreviewTextureResource {
 }
 
 #[cfg(feature = "gpu-preview")]
+struct GpuSceneVertexBuffer {
+    buffer: wgpu::Buffer,
+    vertex_count: u32,
+}
+
+#[cfg(feature = "gpu-preview")]
 struct GpuPreparedPreview {
     vertex_buffer: wgpu::Buffer,
+    #[allow(dead_code)]
+    uniform_buffer: Option<wgpu::Buffer>,
+    #[allow(dead_code)]
+    uniform_bind_group: Option<wgpu::BindGroup>,
     vertex_count: u32,
     batches: Vec<GpuPreviewBatch>,
     target_bind_group: wgpu::BindGroup,
@@ -4431,6 +4534,7 @@ struct GpuPreviewTarget {
 
 #[cfg(feature = "gpu-preview")]
 impl GpuPreviewCallback {
+    #[allow(dead_code)]
     fn from_faces(
         id: u64,
         target_format: wgpu::TextureFormat,
@@ -4499,6 +4603,299 @@ impl GpuPreviewCallback {
 }
 
 #[cfg(feature = "gpu-preview")]
+impl GpuSceneCallback {
+    fn from_geometry(
+        id: u64,
+        target_format: wgpu::TextureFormat,
+        rect: egui::Rect,
+        camera: &PreviewCamera,
+        scene: &Scene3d,
+        geometry: &GpuSceneGeometryCache,
+    ) -> Self {
+        Self {
+            id,
+            geometry_signature: geometry.signature.unwrap_or(0),
+            target_format,
+            viewport_points: [rect.width().max(1.0), rect.height().max(1.0)],
+            uniform: GpuSceneUniform::new(rect, camera, scene),
+            vertices: geometry.vertices.clone(),
+            batches: geometry.batches.clone(),
+            textures: geometry.textures.clone(),
+        }
+    }
+}
+
+#[cfg(feature = "gpu-preview")]
+fn build_gpu_scene_geometry(scene: &Scene3d, signature: u64) -> GpuSceneGeometryCache {
+    let mut vertices = Vec::new();
+    let mut batches = Vec::new();
+    let mut textures = std::collections::HashMap::<TextureId, GpuPreviewTextureSource>::new();
+    let mut active_texture = None;
+    let mut active_start = 0_u32;
+
+    let push_batch = |vertices_len: usize,
+                      batches: &mut Vec<GpuPreviewBatch>,
+                      active_texture: Option<TextureId>,
+                      active_start: &mut u32| {
+        let current = vertices_len as u32;
+        if current > *active_start {
+            batches.push(GpuPreviewBatch {
+                start: *active_start,
+                end: current,
+                texture: active_texture,
+            });
+        }
+        *active_start = current;
+    };
+
+    for object in &scene.objects {
+        if !object.visible {
+            continue;
+        }
+        let Primitive3d::Triangles(mesh) = &object.primitive;
+        let texture = scene
+            .material(object.material)
+            .and_then(|material| material.albedo_texture)
+            .and_then(|texture| scene.texture(texture));
+        let texture_id = texture.map(|texture| texture.id);
+        if texture_id != active_texture {
+            push_batch(
+                vertices.len(),
+                &mut batches,
+                active_texture,
+                &mut active_start,
+            );
+            active_texture = texture_id;
+        }
+        if let Some(texture) = texture {
+            textures
+                .entry(texture.id)
+                .or_insert_with(|| GpuPreviewTextureSource {
+                    id: texture.id,
+                    size: [texture.size[0].max(1) as u32, texture.size[1].max(1) as u32],
+                    pixels: texture.pixels.clone(),
+                });
+        }
+        append_gpu_scene_mesh(&mut vertices, scene, object, &object.transform, mesh);
+        for instance in &object.instances {
+            let transform = combine_transform(&object.transform, instance);
+            append_gpu_scene_mesh(&mut vertices, scene, object, &transform, mesh);
+        }
+    }
+    push_batch(
+        vertices.len(),
+        &mut batches,
+        active_texture,
+        &mut active_start,
+    );
+
+    GpuSceneGeometryCache {
+        signature: Some(signature),
+        vertices: vertices.into(),
+        batches,
+        textures: textures.into_values().collect::<Vec<_>>().into(),
+    }
+}
+
+#[cfg(feature = "gpu-preview")]
+impl GpuSceneUniform {
+    fn new(rect: egui::Rect, camera: &PreviewCamera, scene: &Scene3d) -> Self {
+        let aspect = rect.width().max(1.0) / rect.height().max(1.0);
+        let tan_half = (camera.fov_y * 0.5).tan().max(1.0e-4);
+        let far = scene.camera.far.max(camera.near + 1.0);
+        Self {
+            eye: [camera.eye[0], camera.eye[1], camera.eye[2], 0.0],
+            right: [camera.right[0], camera.right[1], camera.right[2], 0.0],
+            up: [camera.up[0], camera.up[1], camera.up[2], 0.0],
+            forward: [camera.forward[0], camera.forward[1], camera.forward[2], 0.0],
+            params: [1.0 / (aspect * tan_half), 1.0 / tan_half, camera.near, far],
+        }
+    }
+}
+
+#[cfg(feature = "gpu-preview")]
+fn append_gpu_scene_mesh(
+    out: &mut Vec<GpuSceneVertex>,
+    scene: &Scene3d,
+    object: &Object3d,
+    transform: &Transform3d,
+    mesh: &TriangleMesh3d,
+) {
+    if mesh.vertices.is_empty() || mesh.indices.is_empty() {
+        return;
+    }
+    let base = scene
+        .material(object.material)
+        .map_or(egui::Color32::WHITE, |material| material.base_color);
+    for triangle in &mesh.indices {
+        let triangle = triangle.map(|index| index as usize);
+        if triangle.iter().any(|index| *index >= mesh.vertices.len()) {
+            continue;
+        }
+        let world = [
+            transform_point(transform, mesh.vertices[triangle[0]]),
+            transform_point(transform, mesh.vertices[triangle[1]]),
+            transform_point(transform, mesh.vertices[triangle[2]]),
+        ];
+        let face_normal = face_normal(world);
+        for index in triangle {
+            let normal = if mesh.normals.len() == mesh.vertices.len() {
+                transform_normal(transform, mesh.normals[index])
+            } else {
+                face_normal
+            };
+            let color = mesh
+                .vertex_colors
+                .get(index)
+                .copied()
+                .map_or(base, |vertex| multiply_color(base, vertex));
+            out.push(GpuSceneVertex {
+                position: transform_point(transform, mesh.vertices[index]),
+                normal,
+                uv: if mesh.uvs.len() == mesh.vertices.len() {
+                    mesh.uvs[index]
+                } else {
+                    [0.0, 0.0]
+                },
+                color: pack_color32(color),
+            });
+        }
+    }
+}
+
+#[cfg(feature = "gpu-preview")]
+fn gpu_scene_signature(scene: &Scene3d) -> u64 {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    use std::hash::{Hash, Hasher};
+
+    scene.objects.len().hash(&mut hasher);
+    scene.materials.len().hash(&mut hasher);
+    scene.textures.len().hash(&mut hasher);
+
+    for material in &scene.materials {
+        material.id.hash(&mut hasher);
+        material.name.hash(&mut hasher);
+        hash_color(&mut hasher, material.base_color);
+        material.albedo_texture.hash(&mut hasher);
+    }
+    for texture in &scene.textures {
+        texture.id.hash(&mut hasher);
+        texture.name.hash(&mut hasher);
+        texture.size.hash(&mut hasher);
+        texture.pixels.len().hash(&mut hasher);
+        hash_color_samples(&mut hasher, &texture.pixels);
+    }
+    for object in &scene.objects {
+        object.id.hash(&mut hasher);
+        object.name.hash(&mut hasher);
+        object.visible.hash(&mut hasher);
+        object.material.hash(&mut hasher);
+        hash_transform(&mut hasher, &object.transform);
+        object.instances.len().hash(&mut hasher);
+        for instance in &object.instances {
+            hash_transform(&mut hasher, instance);
+        }
+        let Primitive3d::Triangles(mesh) = &object.primitive;
+        hash_mesh_shape(&mut hasher, mesh);
+    }
+
+    hasher.finish()
+}
+
+#[cfg(feature = "gpu-preview")]
+fn hash_mesh_shape(hasher: &mut impl std::hash::Hasher, mesh: &TriangleMesh3d) {
+    use std::hash::Hash;
+
+    mesh.vertices.len().hash(hasher);
+    mesh.indices.len().hash(hasher);
+    mesh.normals.len().hash(hasher);
+    mesh.uvs.len().hash(hasher);
+    mesh.vertex_colors.len().hash(hasher);
+    (mesh.vertices.as_ptr() as usize).hash(hasher);
+    (mesh.indices.as_ptr() as usize).hash(hasher);
+    (mesh.normals.as_ptr() as usize).hash(hasher);
+    (mesh.uvs.as_ptr() as usize).hash(hasher);
+    (mesh.vertex_colors.as_ptr() as usize).hash(hasher);
+    hash_vec3_samples(hasher, &mesh.vertices);
+    hash_index_samples(hasher, &mesh.indices);
+    hash_vec3_samples(hasher, &mesh.normals);
+    hash_uv_samples(hasher, &mesh.uvs);
+    hash_color_samples(hasher, &mesh.vertex_colors);
+}
+
+#[cfg(feature = "gpu-preview")]
+fn hash_transform(hasher: &mut impl std::hash::Hasher, transform: &Transform3d) {
+    hash_vec3(hasher, transform.translation);
+    for value in transform.rotation_xyzw {
+        hash_f32(hasher, value);
+    }
+    hash_vec3(hasher, transform.scale);
+}
+
+#[cfg(feature = "gpu-preview")]
+fn hash_vec3_samples(hasher: &mut impl std::hash::Hasher, values: &[Vec3]) {
+    hash_samples(hasher, values, |hasher, value| hash_vec3(hasher, *value));
+}
+
+#[cfg(feature = "gpu-preview")]
+fn hash_index_samples(hasher: &mut impl std::hash::Hasher, values: &[[u32; 3]]) {
+    hash_samples(hasher, values, |hasher, value| {
+        for index in *value {
+            std::hash::Hash::hash(&index, hasher);
+        }
+    });
+}
+
+#[cfg(feature = "gpu-preview")]
+fn hash_uv_samples(hasher: &mut impl std::hash::Hasher, values: &[[f32; 2]]) {
+    hash_samples(hasher, values, |hasher, value| {
+        hash_f32(hasher, value[0]);
+        hash_f32(hasher, value[1]);
+    });
+}
+
+#[cfg(feature = "gpu-preview")]
+fn hash_color_samples(hasher: &mut impl std::hash::Hasher, values: &[Color]) {
+    hash_samples(hasher, values, |hasher, value| hash_color(hasher, *value));
+}
+
+#[cfg(feature = "gpu-preview")]
+fn hash_samples<T, H: std::hash::Hasher>(
+    hasher: &mut H,
+    values: &[T],
+    mut hash_value: impl FnMut(&mut H, &T),
+) {
+    if values.is_empty() {
+        return;
+    }
+    let last = values.len() - 1;
+    let middle = values.len() / 2;
+    let quarter = values.len() / 4;
+    let three_quarter = values.len() * 3 / 4;
+    for index in [0, quarter, middle, three_quarter, last] {
+        std::hash::Hash::hash(&index, hasher);
+        hash_value(hasher, &values[index]);
+    }
+}
+
+#[cfg(feature = "gpu-preview")]
+fn hash_vec3(hasher: &mut impl std::hash::Hasher, value: Vec3) {
+    hash_f32(hasher, value[0]);
+    hash_f32(hasher, value[1]);
+    hash_f32(hasher, value[2]);
+}
+
+#[cfg(feature = "gpu-preview")]
+fn hash_f32(hasher: &mut impl std::hash::Hasher, value: f32) {
+    std::hash::Hash::hash(&value.to_bits(), hasher);
+}
+
+#[cfg(feature = "gpu-preview")]
+fn hash_color(hasher: &mut impl std::hash::Hasher, value: Color) {
+    std::hash::Hash::hash(&value.to_array(), hasher);
+}
+
+#[cfg(feature = "gpu-preview")]
 impl egui_wgpu::CallbackTrait for GpuPreviewCallback {
     fn prepare(
         &self,
@@ -4513,7 +4910,7 @@ impl egui_wgpu::CallbackTrait for GpuPreviewCallback {
             .or_insert_with(GpuPreviewResources::default);
         resources.ensure_pipeline(device, self.target_format);
         resources.ensure_white_texture(device, queue);
-        for texture in &self.textures {
+        for texture in self.textures.iter() {
             resources.ensure_texture(device, queue, texture);
         }
 
@@ -4578,6 +4975,8 @@ impl egui_wgpu::CallbackTrait for GpuPreviewCallback {
             self.id,
             GpuPreparedPreview {
                 vertex_buffer,
+                uniform_buffer: None,
+                uniform_bind_group: None,
                 vertex_count: self.vertices.len() as u32,
                 batches: self.batches.clone(),
                 target_bind_group: target.bind_group,
@@ -4623,9 +5022,183 @@ impl egui_wgpu::CallbackTrait for GpuPreviewCallback {
 }
 
 #[cfg(feature = "gpu-preview")]
+impl egui_wgpu::CallbackTrait for GpuSceneCallback {
+    fn prepare(
+        &self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        screen_descriptor: &egui_wgpu::ScreenDescriptor,
+        egui_encoder: &mut wgpu::CommandEncoder,
+        callback_resources: &mut egui_wgpu::CallbackResources,
+    ) -> Vec<wgpu::CommandBuffer> {
+        let resources = callback_resources
+            .entry::<GpuPreviewResources>()
+            .or_insert_with(GpuPreviewResources::default);
+        resources.ensure_pipeline(device, self.target_format);
+        resources.ensure_white_texture(device, queue);
+        for texture in self.textures.iter() {
+            resources.ensure_texture(device, queue, texture);
+        }
+
+        let (vertex_buffer, vertex_count) = {
+            let cached_scene_buffer = resources.scene_vertex_buffer(
+                device,
+                self.geometry_signature,
+                bytemuck::cast_slice(self.vertices.as_ref()),
+            );
+            (
+                cached_scene_buffer.buffer.clone(),
+                cached_scene_buffer.vertex_count,
+            )
+        };
+        let uniform_buffer = create_uniform_buffer(
+            device,
+            "mara_3d_gpu_scene_uniform",
+            bytemuck::bytes_of(&self.uniform),
+        );
+        let uniform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("mara_3d_gpu_scene_uniform_bind_group"),
+            layout: resources
+                .scene_uniform_layout
+                .as_ref()
+                .expect("pipeline creates scene uniform layout"),
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: uniform_buffer.as_entire_binding(),
+            }],
+        });
+        let target_size = gpu_preview_target_size(self.viewport_points, screen_descriptor);
+        let target = create_gpu_preview_target(device, queue, resources, target_size);
+
+        {
+            let mut render_pass = egui_encoder
+                .begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("mara_3d_gpu_scene_offscreen_pass"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &target.view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                            store: wgpu::StoreOp::Store,
+                        },
+                        depth_slice: None,
+                    })],
+                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                        view: &target.depth_view,
+                        depth_ops: Some(wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(1.0),
+                            store: wgpu::StoreOp::Store,
+                        }),
+                        stencil_ops: None,
+                    }),
+                    timestamp_writes: None,
+                    occlusion_query_set: None,
+                })
+                .forget_lifetime();
+
+            let (Some(scene_pipeline), Some(white_bind_group)) = (
+                resources.scene_pipeline.as_ref(),
+                resources.white_bind_group.as_ref(),
+            ) else {
+                return Vec::new();
+            };
+            render_pass.set_pipeline(scene_pipeline);
+            render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
+            render_pass.set_bind_group(1, &uniform_bind_group, &[]);
+            for batch in &self.batches {
+                let bind_group = batch
+                    .texture
+                    .and_then(|id| {
+                        resources
+                            .textures
+                            .get(&id)
+                            .map(|texture| &texture.bind_group)
+                    })
+                    .unwrap_or(white_bind_group);
+                render_pass.set_bind_group(0, bind_group, &[]);
+                render_pass.draw(batch.start..batch.end, 0..1);
+            }
+        }
+
+        resources.prepared.insert(
+            self.id,
+            GpuPreparedPreview {
+                vertex_buffer,
+                uniform_buffer: Some(uniform_buffer),
+                uniform_bind_group: Some(uniform_bind_group),
+                vertex_count,
+                batches: self.batches.clone(),
+                target_bind_group: target.bind_group,
+                target_size,
+                target_texture: target.texture,
+                target_view: target.view,
+                depth_texture: target.depth_texture,
+            },
+        );
+
+        Vec::new()
+    }
+
+    fn paint(
+        &self,
+        _info: egui::PaintCallbackInfo,
+        render_pass: &mut wgpu::RenderPass<'static>,
+        callback_resources: &egui_wgpu::CallbackResources,
+    ) {
+        let Some(resources) = callback_resources.get::<GpuPreviewResources>() else {
+            return;
+        };
+        let Some(pipeline) = resources.quad_pipeline.as_ref() else {
+            return;
+        };
+        let Some(prepared) = resources.prepared.get(&self.id) else {
+            return;
+        };
+        if prepared.vertex_count == 0 {
+            return;
+        }
+
+        let _keep_alive = (
+            &prepared.vertex_buffer,
+            prepared.vertex_count,
+            &prepared.batches,
+            prepared.target_size,
+        );
+        render_pass.set_pipeline(pipeline);
+        render_pass.set_bind_group(0, &prepared.target_bind_group, &[]);
+        render_pass.draw(0..3, 0..1);
+    }
+}
+
+#[cfg(feature = "gpu-preview")]
 impl GpuPreviewResources {
+    fn scene_vertex_buffer(
+        &mut self,
+        device: &wgpu::Device,
+        signature: u64,
+        vertices: &[u8],
+    ) -> &GpuSceneVertexBuffer {
+        if !self.scene_vertex_buffers.contains_key(&signature) {
+            if self.scene_vertex_buffers.len() > 8 {
+                self.scene_vertex_buffers.clear();
+            }
+            let buffer = create_vertex_buffer(device, "mara_3d_gpu_scene_vertices", vertices);
+            self.scene_vertex_buffers.insert(
+                signature,
+                GpuSceneVertexBuffer {
+                    buffer,
+                    vertex_count: (vertices.len() / std::mem::size_of::<GpuSceneVertex>()) as u32,
+                },
+            );
+        }
+        self.scene_vertex_buffers
+            .get(&signature)
+            .expect("scene vertex buffer was inserted")
+    }
+
     fn ensure_pipeline(&mut self, device: &wgpu::Device, format: wgpu::TextureFormat) {
         if self.mesh_pipeline.is_some()
+            && self.scene_pipeline.is_some()
             && self.quad_pipeline.is_some()
             && self.pipeline_format == Some(format)
         {
@@ -4653,11 +5226,31 @@ impl GpuPreviewResources {
                 },
             ],
         });
+        let scene_uniform_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("mara_3d_gpu_scene_uniform_layout"),
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+            });
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("mara_3d_gpu_preview_pipeline_layout"),
             bind_group_layouts: &[&bind_group_layout],
             push_constant_ranges: &[],
         });
+        let scene_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("mara_3d_gpu_scene_pipeline_layout"),
+                bind_group_layouts: &[&bind_group_layout, &scene_uniform_layout],
+                push_constant_ranges: &[],
+            });
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("mara_3d_gpu_preview_shader"),
             source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(GPU_PREVIEW_WGSL)),
@@ -4699,6 +5292,65 @@ impl GpuPreviewResources {
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
                 entry_point: Some("fs_mesh_gamma"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: wgpu::TextureFormat::Rgba8Unorm,
+                    blend: Some(wgpu::BlendState {
+                        color: wgpu::BlendComponent {
+                            src_factor: wgpu::BlendFactor::One,
+                            dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                            operation: wgpu::BlendOperation::Add,
+                        },
+                        alpha: wgpu::BlendComponent {
+                            src_factor: wgpu::BlendFactor::OneMinusDstAlpha,
+                            dst_factor: wgpu::BlendFactor::One,
+                            operation: wgpu::BlendOperation::Add,
+                        },
+                    }),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            }),
+            multiview: None,
+            cache: None,
+        });
+        let scene_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("mara_3d_gpu_scene_pipeline"),
+            layout: Some(&scene_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_scene"),
+                buffers: &[wgpu::VertexBufferLayout {
+                    array_stride: std::mem::size_of::<GpuSceneVertex>() as wgpu::BufferAddress,
+                    step_mode: wgpu::VertexStepMode::Vertex,
+                    attributes: &wgpu::vertex_attr_array![
+                        0 => Float32x3,
+                        1 => Float32x3,
+                        2 => Float32x2,
+                        3 => Uint32
+                    ],
+                }],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            },
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: None,
+                polygon_mode: wgpu::PolygonMode::Fill,
+                unclipped_depth: false,
+                conservative: false,
+            },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: wgpu::TextureFormat::Depth32Float,
+                depth_write_enabled: true,
+                depth_compare: wgpu::CompareFunction::Less,
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
+            multisample: wgpu::MultisampleState::default(),
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_scene"),
                 targets: &[Some(wgpu::ColorTargetState {
                     format: wgpu::TextureFormat::Rgba8Unorm,
                     blend: Some(wgpu::BlendState {
@@ -4771,8 +5423,10 @@ impl GpuPreviewResources {
 
         self.pipeline_format = Some(format);
         self.mesh_pipeline = Some(mesh_pipeline);
+        self.scene_pipeline = Some(scene_pipeline);
         self.quad_pipeline = Some(quad_pipeline);
         self.bind_group_layout = Some(bind_group_layout);
+        self.scene_uniform_layout = Some(scene_uniform_layout);
         self.sampler = Some(device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("mara_3d_gpu_preview_sampler"),
             address_mode_u: wgpu::AddressMode::Repeat,
@@ -4825,6 +5479,22 @@ fn create_vertex_buffer(device: &wgpu::Device, label: &str, bytes: &[u8]) -> wgp
         label: Some(label),
         size: bytes.len().max(4) as wgpu::BufferAddress,
         usage: wgpu::BufferUsages::VERTEX,
+        mapped_at_creation: true,
+    });
+    {
+        let mut mapped = buffer.slice(..).get_mapped_range_mut();
+        mapped[..bytes.len()].copy_from_slice(bytes);
+    }
+    buffer.unmap();
+    buffer
+}
+
+#[cfg(feature = "gpu-preview")]
+fn create_uniform_buffer(device: &wgpu::Device, label: &str, bytes: &[u8]) -> wgpu::Buffer {
+    let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some(label),
+        size: bytes.len().max(4) as wgpu::BufferAddress,
+        usage: wgpu::BufferUsages::UNIFORM,
         mapped_at_creation: true,
     });
     {
@@ -5006,6 +5676,7 @@ fn texture_source_hash(source: &GpuPreviewTextureSource) -> u64 {
 }
 
 #[cfg(feature = "gpu-preview")]
+#[allow(dead_code)]
 fn point_to_viewport_ndc(rect: egui::Rect, point: egui::Pos2) -> [f32; 2] {
     [
         ((point.x - rect.left()) / rect.width().max(1.0)) * 2.0 - 1.0,
@@ -5014,6 +5685,7 @@ fn point_to_viewport_ndc(rect: egui::Rect, point: egui::Pos2) -> [f32; 2] {
 }
 
 #[cfg(feature = "gpu-preview")]
+#[allow(dead_code)]
 fn gpu_depth(depth: f32) -> f32 {
     (depth / 10_000.0).clamp(0.0, 1.0)
 }
@@ -5040,9 +5712,24 @@ struct VertexOut {
     @builtin(position) position: vec4<f32>,
 };
 
+struct SceneOut {
+    @location(0) uv: vec2<f32>,
+    @location(1) color: vec4<f32>,
+    @location(2) normal: vec3<f32>,
+    @builtin(position) position: vec4<f32>,
+};
+
 struct QuadOut {
     @location(0) uv: vec2<f32>,
     @builtin(position) position: vec4<f32>,
+};
+
+struct SceneUniform {
+    eye: vec4<f32>,
+    right: vec4<f32>,
+    up: vec4<f32>,
+    forward: vec4<f32>,
+    params: vec4<f32>,
 };
 
 fn linear_from_gamma_rgb(srgb: vec3<f32>) -> vec3<f32> {
@@ -5094,6 +5781,7 @@ fn vs_quad(@builtin(vertex_index) vertex_index: u32) -> QuadOut {
 
 @group(0) @binding(0) var r_sampler: sampler;
 @group(0) @binding(1) var r_texture: texture_2d<f32>;
+@group(1) @binding(0) var<uniform> scene: SceneUniform;
 
 fn preview_color(in: VertexOut) -> vec4<f32> {
     return in.color * textureSample(r_texture, r_sampler, in.uv);
@@ -5102,6 +5790,64 @@ fn preview_color(in: VertexOut) -> vec4<f32> {
 @fragment
 fn fs_mesh_gamma(in: VertexOut) -> @location(0) vec4<f32> {
     return preview_color(in);
+}
+
+@vertex
+fn vs_scene(
+    @location(0) position: vec3<f32>,
+    @location(1) normal: vec3<f32>,
+    @location(2) uv: vec2<f32>,
+    @location(3) color: u32,
+) -> SceneOut {
+    let rel = position - scene.eye.xyz;
+    let z = max(dot(rel, scene.forward.xyz), scene.params.z);
+    let ndc = vec2<f32>(
+        dot(rel, scene.right.xyz) * scene.params.x / z,
+        dot(rel, scene.up.xyz) * scene.params.y / z,
+    );
+    var out: SceneOut;
+    out.position = vec4<f32>(
+        ndc.x,
+        ndc.y,
+        clamp((z - scene.params.z) / max(scene.params.w - scene.params.z, 1.0), 0.0, 1.0),
+        1.0,
+    );
+    out.uv = uv;
+    out.color = unpack_color(color);
+    out.normal = normal;
+    return out;
+}
+
+fn shade_scene_color(base: vec4<f32>, normal_raw: vec3<f32>) -> vec4<f32> {
+    var normal = normalize(normal_raw);
+    if dot(normal, scene.forward.xyz) > 0.0 {
+        normal = -normal;
+    }
+    let key_dir = normalize(vec3<f32>(0.8, 1.8, 1.25));
+    let fill_dir = normalize(vec3<f32>(-1.2, 0.65, -1.8));
+    let view_dir = -scene.forward.xyz;
+    let key = pow(max(dot(key_dir, normal), 0.0), 0.72);
+    let fill = max(dot(fill_dir, normal), 0.0) * 0.20;
+    let headlight = max(dot(view_dir, normal), 0.0) * 0.18;
+    let sky = max(normal.y, 0.0) * 0.10;
+    let view = clamp(abs(dot(normal, view_dir)), 0.0, 1.0);
+    let rim = pow(1.0 - view, 2.35) * 0.11;
+    let half_vector = normalize(key_dir + view_dir);
+    let specular = pow(max(dot(normal, half_vector), 0.0), 34.0) * 0.13;
+    let diffuse = clamp(0.36 + key * 0.68 + fill + headlight + sky, 0.0, 1.35);
+    let value = clamp((1.0 - 0.56) + diffuse * 0.56, 0.42, 1.12);
+    var color = vec4<f32>(base.rgb * min(value, 1.0), base.a);
+    if value > 1.0 {
+        color = vec4<f32>(mix(color.rgb, vec3<f32>(1.0), (value - 1.0) * 0.55), color.a);
+    }
+    color = vec4<f32>(mix(color.rgb, vec3<f32>(1.0), clamp(specular + rim * 0.55, 0.0, 0.22)), color.a);
+    return color;
+}
+
+@fragment
+fn fs_scene(in: SceneOut) -> @location(0) vec4<f32> {
+    let tex = textureSample(r_texture, r_sampler, in.uv);
+    return shade_scene_color(in.color * tex, in.normal);
 }
 
 @fragment
@@ -5179,6 +5925,7 @@ fn paint_faces_supersampled(
 }
 
 #[cfg(feature = "gpu-preview")]
+#[allow(dead_code)]
 fn paint_faces_gpu(
     painter: &egui::Painter,
     rect: egui::Rect,
@@ -5190,6 +5937,24 @@ fn paint_faces_gpu(
         return;
     }
     let callback = GpuPreviewCallback::from_faces(callback_id, target_format, rect, faces);
+    painter.add(egui_wgpu::Callback::new_paint_callback(rect, callback));
+}
+
+#[cfg(feature = "gpu-preview")]
+fn paint_scene_gpu(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    callback_id: u64,
+    target_format: wgpu::TextureFormat,
+    camera: &PreviewCamera,
+    scene: &Scene3d,
+    geometry: &GpuSceneGeometryCache,
+) {
+    let callback =
+        GpuSceneCallback::from_geometry(callback_id, target_format, rect, camera, scene, geometry);
+    if callback.vertices.is_empty() {
+        return;
+    }
     painter.add(egui_wgpu::Callback::new_paint_callback(rect, callback));
 }
 
@@ -5569,6 +6334,22 @@ fn local_radius(points: &[Vec3]) -> f32 {
         .iter()
         .map(|point| dot3(*point, *point).sqrt())
         .fold(0.0, f32::max)
+}
+
+fn interactive_triangle_stride(
+    mesh: &TriangleMesh3d,
+    selected: bool,
+    interactive_preview: bool,
+) -> usize {
+    if !interactive_preview {
+        return 1;
+    }
+    let budget = if selected {
+        INTERACTIVE_SELECTED_TRIANGLE_BUDGET
+    } else {
+        INTERACTIVE_BACKGROUND_TRIANGLE_BUDGET
+    };
+    mesh.indices.len().div_ceil(budget.max(1)).max(1)
 }
 
 fn object_world_radius(object: &Object3d) -> f32 {
