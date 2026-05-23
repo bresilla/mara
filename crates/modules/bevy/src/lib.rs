@@ -159,6 +159,7 @@ pub struct BevyViewportBridge {
     external_wgpu: Option<BevyViewportWgpuResources>,
     renderer: Option<BevyViewportRenderer>,
     renderer_failed: bool,
+    rendering_enabled: bool,
     latest_frame: Option<CapturedBevyFrame>,
     input: BevyViewportInput,
     scene_state: Option<EmbeddedViewportSceneState>,
@@ -180,6 +181,7 @@ impl BevyViewportBridge {
             external_wgpu: None,
             renderer: None,
             renderer_failed: false,
+            rendering_enabled: true,
             latest_frame: None,
             input: BevyViewportInput::default(),
             scene_state: None,
@@ -219,6 +221,29 @@ impl BevyViewportBridge {
         if self.renderer.is_none() && !self.renderer_failed {
             self.external_wgpu = Some(resources);
         }
+    }
+
+    /// Enable or disable the embedded Bevy render loop.
+    ///
+    /// Hosts should call this when the viewport's Mara view is not
+    /// the active content surface. Disabling keeps the latest
+    /// captured frame/texture around, but prevents `app.update()`
+    /// and flips Bevy cameras inactive so no offscreen camera work is
+    /// scheduled while another Mara view is foregrounded.
+    pub fn set_rendering_enabled(&mut self, enabled: bool) {
+        if self.rendering_enabled == enabled {
+            return;
+        }
+        self.rendering_enabled = enabled;
+        self.input = BevyViewportInput::default();
+        if let Some(renderer) = &mut self.renderer {
+            renderer.set_cameras_active(enabled);
+        }
+    }
+
+    #[must_use]
+    pub fn rendering_enabled(&self) -> bool {
+        self.rendering_enabled
     }
 
     pub fn resize(&mut self, width: u32, height: u32) {
@@ -277,6 +302,11 @@ impl BevyViewportBridge {
         dt_seconds: f32,
         input: BevyViewportInput,
     ) -> Option<&CapturedBevyFrame> {
+        if !self.rendering_enabled {
+            self.input = BevyViewportInput::default();
+            return self.latest_frame.as_ref();
+        }
+
         self.resize(width, height);
         self.tick(dt_seconds);
         self.input = input;
@@ -294,6 +324,7 @@ impl BevyViewportBridge {
                     self.configure_app.clone(),
                 )
             });
+            renderer.set_cameras_active(true);
             if renderer.texture() != texture {
                 let scene_state = renderer.scene_state().or(self.scene_state);
                 if !renderer.resize(texture) {
@@ -334,6 +365,11 @@ impl BevyViewportBridge {
         dt_seconds: f32,
         input: BevyViewportInput,
     ) -> Option<CapturedBevyTexture> {
+        if !self.rendering_enabled {
+            self.input = BevyViewportInput::default();
+            return None;
+        }
+
         self.resize(width, height);
         self.tick(dt_seconds);
         self.input = input;
@@ -351,6 +387,7 @@ impl BevyViewportBridge {
                     self.configure_app.clone(),
                 )
             });
+            renderer.set_cameras_active(true);
             if renderer.texture() != texture {
                 let scene_state = renderer.scene_state().or(self.scene_state);
                 if !renderer.resize(texture) {
@@ -544,6 +581,14 @@ impl BevyViewportRenderer {
 
     pub fn texture(&self) -> BevyViewportTexture {
         self.texture
+    }
+
+    pub fn set_cameras_active(&mut self, active: bool) {
+        let world = self.app.world_mut();
+        let mut cameras = world.query::<&mut Camera>();
+        for mut camera in cameras.iter_mut(world) {
+            camera.is_active = active;
+        }
     }
 
     pub fn resize(&mut self, texture: BevyViewportTexture) -> bool {
@@ -1116,6 +1161,15 @@ impl BevyEmbeddedView {
 
     pub fn attach_wgpu_resources(&mut self, resources: BevyViewportWgpuResources) {
         self.bridge.attach_wgpu_resources(resources);
+    }
+
+    pub fn set_rendering_enabled(&mut self, enabled: bool) {
+        self.bridge.set_rendering_enabled(enabled);
+    }
+
+    #[must_use]
+    pub fn rendering_enabled(&self) -> bool {
+        self.bridge.rendering_enabled()
     }
 
     pub fn bridge(&self) -> &BevyViewportBridge {

@@ -3681,9 +3681,12 @@ dependencies = [
 name = "mara_3d"
 version = "0.2.0"
 dependencies = [
+ "bytemuck",
  "egui",
+ "egui-wgpu",
  "mara_core",
  "three-d",
+ "wgpu",
 ]
 
 [[package]]
@@ -3745,6 +3748,7 @@ dependencies = [
  "mara",
  "mara_core",
  "mara_map",
+ "tobj",
  "wasm-bindgen-futures",
  "web-sys",
  "wgpu",
@@ -5466,6 +5470,15 @@ name = "tinyvec_macros"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
+
+[[package]]
+name = "tobj"
+version = "4.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "04aca6092e5978e708ee784e8ab9b5cf3cdb598b28f99a2f257446e7081a7025"
+dependencies = [
+ "ahash",
+]
 
 [[package]]
 name = "toml_datetime"

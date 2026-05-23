@@ -451,6 +451,18 @@ impl MapSurface {
     pub fn defer_full_detail(&mut self) {
         self.fast_frames_remaining = self.fast_frames_remaining.max(10);
     }
+
+    /// Start/poll vector-tile loading without painting the map.
+    ///
+    /// Hosts can call this while the map view is inactive so the
+    /// current viewport's basemap is already in the shared surface
+    /// cache when the user switches to the map.
+    pub fn prewarm_tiles(&mut self, ctx: &egui::Context, size: egui::Vec2) {
+        if size.x < 16.0 || size.y < 16.0 {
+            return;
+        }
+        mvt::prewarm_vector_basemap(ctx, self.viewport, size, &mut self.vector_tiles);
+    }
 }
 
 pub struct MaraMap<'a> {

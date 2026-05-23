@@ -122,12 +122,33 @@ impl MaraBevyViewport {
             native_texture_size: [0, 0],
         }
     }
+
+    /// Pause/resume the embedded Bevy renderer.
+    ///
+    /// Call this from the host when the Bevy viewport is not the
+    /// active Mara view. The last texture is retained, but Bevy's
+    /// offscreen app is not ticked and its cameras are marked
+    /// inactive until the view is active again.
+    pub fn set_active(&mut self, active: bool) {
+        self.bevy.set_rendering_enabled(active);
+        if !active {
+            self.primary_drag_active = false;
+            self.last_pointer_pos = None;
+        }
+    }
+
+    #[must_use]
+    pub fn is_active(&self) -> bool {
+        self.bevy.rendering_enabled()
+    }
+
     pub fn show(
         &mut self,
         ctx: &egui::Context,
         render_state: Option<&egui_wgpu::RenderState>,
         accent: egui::Color32,
     ) -> Option<egui::Color32> {
+        self.set_active(true);
         let mut picked_color = None;
         egui::CentralPanel::default()
             .frame(egui::Frame::new().fill(egui::Color32::TRANSPARENT))

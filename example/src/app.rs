@@ -24,6 +24,8 @@
     clippy::upper_case_acronyms
 )]
 
+use std::io::Cursor;
+
 use eframe::egui;
 
 use mara_core::container::SeparatorStyle;
@@ -46,7 +48,7 @@ use mara_map::{
 // offscreen renderer is created from `mara::host::MaraHostCtx`.
 use mara::host::{EframeNodeViewBackend, MaraHostCtx};
 use mara::ui::modules::bevy::MaraBevyViewport;
-use mara::ui::modules::three_d::{Scene3d, View3d};
+use mara::ui::modules::three_d::{Scene3d, TriangleMesh3d, View3d};
 use mara_core::extras::code::Syntax;
 use mara_core::extras::graph::{
     Graph, InPin, InPinId, NodePin, NodeViewState, NodeViewer, OutPin, OutPinId, PinInfo,
@@ -1648,11 +1650,167 @@ struct ThreeDViewState {
 
 impl Default for ThreeDViewState {
     fn default() -> Self {
+        let mut scene = Scene3d::demo("3D");
+        add_demo_obj_model(&mut scene);
         Self {
-            view: View3d::new("demo-three-d", Scene3d::demo("3D")),
+            view: View3d::new("demo-three-d", scene),
             workspace: WorkspaceStack::new("demo-three-d-workspace"),
         }
     }
+}
+
+const STANFORD_BUNNY_OBJ: &str = include_str!("../assets/stanford-bunny.obj");
+const STANFORD_DRAGON_OBJ: &str = include_str!("../assets/stanford-dragon.obj");
+
+fn add_demo_obj_model(scene: &mut Scene3d) {
+    add_demo_obj_asset(
+        scene,
+        "Stanford Bunny",
+        STANFORD_BUNNY_OBJ,
+        [-1.1, 0.0, -3.65],
+        egui::Color32::from_rgb(218, 186, 142),
+    );
+    add_demo_obj_asset(
+        scene,
+        "Stanford Dragon",
+        STANFORD_DRAGON_OBJ,
+        [1.15, 0.0, -3.65],
+        egui::Color32::from_rgb(155, 205, 220),
+    );
+}
+
+fn add_demo_obj_asset(
+    scene: &mut Scene3d,
+    label: &str,
+    obj: &str,
+    translation: [f32; 3],
+    color: egui::Color32,
+) {
+    let mut reader = Cursor::new(obj.as_bytes());
+    let options = tobj::LoadOptions {
+        triangulate: true,
+        single_index: true,
+        ..Default::default()
+    };
+    let Ok((models, _materials)) = tobj::load_obj_buf(&mut reader, &options, |_| {
+        Err(tobj::LoadError::OpenFileFailed)
+    }) else {
+        return;
+    };
+    if models.is_empty() {
+        return;
+    }
+
+    let Some(bounds) = obj_bounds(&models) else {
+        return;
+    };
+    let center = [
+        (bounds.min[0] + bounds.max[0]) * 0.5,
+        (bounds.min[1] + bounds.max[1]) * 0.5,
+        (bounds.min[2] + bounds.max[2]) * 0.5,
+    ];
+    let extent = (bounds.max[0] - bounds.min[0])
+        .max(bounds.max[1] - bounds.min[1])
+        .max(bounds.max[2] - bounds.min[2])
+        .max(1.0e-6);
+    let scale = 1.45 / extent;
+    let height = (bounds.max[1] - bounds.min[1]) * scale;
+    let figurine_material = scene.add_material(format!("Downloaded {label} OBJ"), color);
+
+    for (index, model) in models.into_iter().enumerate() {
+        let mesh = &model.mesh;
+        if mesh.positions.len() < 9 || mesh.indices.len() < 3 {
+            continue;
+        }
+
+        let vertices = mesh
+            .positions
+            .chunks_exact(3)
+            .map(|position| {
+                [
+                    (position[0] - center[0]) * scale,
+                    (position[1] - center[1]) * scale,
+                    (position[2] - center[2]) * scale,
+                ]
+            })
+            .collect::<Vec<_>>();
+        let indices = mesh
+            .indices
+            .chunks_exact(3)
+            .map(|triangle| [triangle[0], triangle[1], triangle[2]])
+            .collect::<Vec<_>>();
+        let normals = if mesh.normals.len() / 3 == vertices.len() {
+            mesh.normals
+                .chunks_exact(3)
+                .map(|normal| [normal[0], normal[1], normal[2]])
+                .collect()
+        } else {
+            Vec::new()
+        };
+        let uvs = if mesh.texcoords.len() / 2 == vertices.len() {
+            mesh.texcoords
+                .chunks_exact(2)
+                .map(|uv| [uv[0], uv[1]])
+                .collect()
+        } else {
+            Vec::new()
+        };
+
+        let mesh = if normals.len() == vertices.len() {
+            TriangleMesh3d {
+                vertices,
+                indices,
+                normals,
+                uvs,
+                vertex_colors: Vec::new(),
+            }
+        } else if uvs.len() == vertices.len() {
+            TriangleMesh3d::with_generated_normals_and_uvs(vertices, indices, uvs)
+        } else {
+            TriangleMesh3d::with_generated_normals(vertices, indices)
+        };
+
+        let object = scene.add_mesh_object(
+            if model.name.is_empty() {
+                format!("Downloaded {label} OBJ")
+            } else {
+                format!("{label} {}", model.name)
+            },
+            mesh,
+            figurine_material,
+        );
+        if let Some(object) = scene.object_mut(object) {
+            object.transform.translation = [
+                translation[0],
+                translation[1] + height * 0.5 + 0.02,
+                translation[2] + index as f32 * 0.03,
+            ];
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+struct ObjBounds {
+    min: [f32; 3],
+    max: [f32; 3],
+}
+
+fn obj_bounds(models: &[tobj::Model]) -> Option<ObjBounds> {
+    let mut bounds = ObjBounds {
+        min: [f32::INFINITY; 3],
+        max: [f32::NEG_INFINITY; 3],
+    };
+    let mut any = false;
+    for model in models {
+        for position in model.mesh.positions.chunks_exact(3) {
+            any = true;
+            for axis in 0..3 {
+                bounds.min[axis] = bounds.min[axis].min(position[axis]);
+                bounds.max[axis] = bounds.max[axis].max(position[axis]);
+            }
+        }
+    }
+    any.then_some(bounds)
 }
 
 #[derive(Default)]
@@ -1890,10 +2048,18 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
         },
     );
 
+    let bevy_view_active = *root_view == DemoRootView::BevyScene && !*bevy_hosted_scene;
+    bevy_view.set_active(bevy_view_active);
+    if !root_view.is_coreviz() {
+        map_view
+            .surface
+            .prewarm_tiles(ctx, ctx.content_rect().size());
+    }
+
     // Actual root/L0 canvas switch. The app shell is always eframe;
     // Bevy is represented as an embedded viewport surface, not the
     // top-level window owner.
-    if *root_view == DemoRootView::BevyScene && !*bevy_hosted_scene {
+    if bevy_view_active {
         if let Some(color) = bevy_view.show(host.egui(), host.render_state(), accent_col) {
             accent.0 = color;
             host.apply_theme(*accent, *glass);
@@ -2327,6 +2493,7 @@ fn three_d_root_view(
         accent,
         content_avoidance: RibbonAvoidance::none(),
     };
+    three_d.view.set_gpu_render_state(host.render_state());
     three_d.view.show(&mut view_ctx);
 }
 

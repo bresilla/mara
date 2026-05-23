@@ -74,6 +74,10 @@ pub type Color = egui::Color32;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct ObjectId(pub u64);
 
+/// Stable gizmo id inside a retained 3D scene.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct GizmoId(pub u64);
+
 /// Stable light id inside a retained 3D scene.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct LightId(pub u64);
@@ -81,6 +85,10 @@ pub struct LightId(pub u64);
 /// Stable material id inside a retained 3D scene.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct MaterialId(pub u64);
+
+/// Stable texture id inside a retained 3D scene.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct TextureId(pub u64);
 
 /// Camera definition independent from any renderer/window implementation.
 #[derive(Clone, Debug, PartialEq)]
@@ -130,6 +138,8 @@ pub struct TriangleMesh3d {
     pub vertices: Vec<Vec3>,
     pub indices: Vec<[u32; 3]>,
     pub normals: Vec<Vec3>,
+    pub uvs: Vec<[f32; 2]>,
+    pub vertex_colors: Vec<Color>,
 }
 
 impl TriangleMesh3d {
@@ -139,6 +149,8 @@ impl TriangleMesh3d {
             vertices,
             indices,
             normals: Vec::new(),
+            uvs: Vec::new(),
+            vertex_colors: Vec::new(),
         }
     }
 
@@ -148,7 +160,31 @@ impl TriangleMesh3d {
             vertices,
             indices,
             normals,
+            uvs: Vec::new(),
+            vertex_colors: Vec::new(),
         }
+    }
+
+    #[must_use]
+    pub fn with_uvs(vertices: Vec<Vec3>, indices: Vec<[u32; 3]>, uvs: Vec<[f32; 2]>) -> Self {
+        Self {
+            vertices,
+            indices,
+            normals: Vec::new(),
+            uvs,
+            vertex_colors: Vec::new(),
+        }
+    }
+
+    #[must_use]
+    pub fn with_vertex_colors(
+        vertices: Vec<Vec3>,
+        indices: Vec<[u32; 3]>,
+        vertex_colors: Vec<Color>,
+    ) -> Self {
+        let mut mesh = Self::with_generated_normals(vertices, indices);
+        mesh.vertex_colors = vertex_colors;
+        mesh
     }
 
     #[must_use]
@@ -175,7 +211,20 @@ impl TriangleMesh3d {
             vertices,
             indices,
             normals,
+            uvs: Vec::new(),
+            vertex_colors: Vec::new(),
         }
+    }
+
+    #[must_use]
+    pub fn with_generated_normals_and_uvs(
+        vertices: Vec<Vec3>,
+        indices: Vec<[u32; 3]>,
+        uvs: Vec<[f32; 2]>,
+    ) -> Self {
+        let mut mesh = Self::with_generated_normals(vertices, indices);
+        mesh.uvs = uvs;
+        mesh
     }
 }
 
@@ -199,8 +248,274 @@ impl Primitive3d {
     }
 
     #[must_use]
+    pub fn tri_mesh(mesh: TriangleMesh3d) -> Self {
+        Self::Triangles(mesh)
+    }
+
+    #[must_use]
+    pub fn mesh_with_uvs(vertices: Vec<Vec3>, indices: Vec<[u32; 3]>, uvs: Vec<[f32; 2]>) -> Self {
+        Self::Triangles(TriangleMesh3d::with_generated_normals_and_uvs(
+            vertices, indices, uvs,
+        ))
+    }
+
+    #[must_use]
+    pub fn mesh_with_vertex_colors(
+        vertices: Vec<Vec3>,
+        indices: Vec<[u32; 3]>,
+        vertex_colors: Vec<Color>,
+    ) -> Self {
+        Self::Triangles(TriangleMesh3d::with_vertex_colors(
+            vertices,
+            indices,
+            vertex_colors,
+        ))
+    }
+
+    #[must_use]
     pub fn triangle(vertices: [Vec3; 3]) -> Self {
         Self::mesh(vertices.to_vec(), vec![[0, 1, 2]])
+    }
+
+    #[must_use]
+    pub fn plane(width: f32, depth: f32) -> Self {
+        let hw = width * 0.5;
+        let hd = depth * 0.5;
+        Self::Triangles(TriangleMesh3d::with_normals(
+            vec![
+                [-hw, 0.0, -hd],
+                [hw, 0.0, -hd],
+                [hw, 0.0, hd],
+                [-hw, 0.0, hd],
+            ],
+            vec![[0, 1, 2], [0, 2, 3]],
+            vec![[0.0, 1.0, 0.0]; 4],
+        ))
+    }
+
+    #[must_use]
+    pub fn rectangle(width: f32, height: f32) -> Self {
+        Self::plane(width, height)
+    }
+
+    #[must_use]
+    pub fn square(size: f32) -> Self {
+        Self::plane(size, size)
+    }
+
+    #[must_use]
+    pub fn disc(radius: f32, segments: u32) -> Self {
+        let segments = segments.max(3) as usize;
+        let mut vertices = Vec::with_capacity(segments + 1);
+        let mut normals = Vec::with_capacity(segments + 1);
+        let mut indices = Vec::with_capacity(segments);
+        vertices.push([0.0, 0.0, 0.0]);
+        normals.push([0.0, 1.0, 0.0]);
+        for i in 0..segments {
+            let angle = std::f32::consts::TAU * i as f32 / segments as f32;
+            vertices.push([radius * angle.cos(), 0.0, radius * angle.sin()]);
+            normals.push([0.0, 1.0, 0.0]);
+        }
+        for i in 0..segments {
+            indices.push([0, 1 + i as u32, 1 + ((i + 1) % segments) as u32]);
+        }
+        Self::Triangles(TriangleMesh3d::with_normals(vertices, indices, normals))
+    }
+
+    #[must_use]
+    pub fn regular_polygon(radius: f32, sides: u32) -> Self {
+        let sides = sides.max(3) as usize;
+        let outline = (0..sides)
+            .map(|i| {
+                let angle =
+                    std::f32::consts::TAU * i as f32 / sides as f32 + std::f32::consts::FRAC_PI_2;
+                [radius * angle.cos(), 0.0, radius * angle.sin()]
+            })
+            .collect();
+        Self::polygon(outline)
+    }
+
+    #[must_use]
+    pub fn star(outer_radius: f32, inner_radius: f32, points: u32) -> Self {
+        let points = points.max(2) as usize;
+        let count = points * 2;
+        let outline = (0..count)
+            .map(|i| {
+                let radius = if i % 2 == 0 {
+                    outer_radius
+                } else {
+                    inner_radius
+                };
+                let angle =
+                    std::f32::consts::TAU * i as f32 / count as f32 + std::f32::consts::FRAC_PI_2;
+                [radius * angle.cos(), 0.0, radius * angle.sin()]
+            })
+            .collect();
+        Self::polygon(outline)
+    }
+
+    #[must_use]
+    pub fn annulus(inner_radius: f32, outer_radius: f32, segments: u32) -> Self {
+        let segments = segments.max(3) as usize;
+        let inner_radius = inner_radius.min(outer_radius).max(0.0);
+        let outer_radius = outer_radius.max(inner_radius + 1.0e-4);
+        let mut vertices = Vec::with_capacity(segments * 2);
+        let mut normals = Vec::with_capacity(segments * 2);
+        let mut indices = Vec::with_capacity(segments * 2);
+        for i in 0..segments {
+            let angle = std::f32::consts::TAU * i as f32 / segments as f32;
+            let dir = [angle.cos(), 0.0, angle.sin()];
+            vertices.push(mul3(dir, outer_radius));
+            vertices.push(mul3(dir, inner_radius));
+            normals.extend([[0.0, 1.0, 0.0]; 2]);
+        }
+        for i in 0..segments {
+            let next = (i + 1) % segments;
+            let o0 = (i * 2) as u32;
+            let i0 = o0 + 1;
+            let o1 = (next * 2) as u32;
+            let i1 = o1 + 1;
+            indices.push([o0, o1, i1]);
+            indices.push([o0, i1, i0]);
+        }
+        Self::Triangles(TriangleMesh3d::with_normals(vertices, indices, normals))
+    }
+
+    #[must_use]
+    pub fn polyline(points: Vec<Vec3>, width: f32) -> Self {
+        ribbon_mesh(points, width, false)
+    }
+
+    #[must_use]
+    pub fn closed_polyline(points: Vec<Vec3>, width: f32) -> Self {
+        ribbon_mesh(points, width, true)
+    }
+
+    #[must_use]
+    pub fn path(points: Vec<Vec3>, width: f32, closed: bool) -> Self {
+        ribbon_mesh(points, width, closed)
+    }
+
+    /// Rerun-style `LineStrips3D`: a real scene-radius 3D tube path.
+    #[must_use]
+    pub fn line_strip_3d(points: Vec<Vec3>, radius: f32, segments: u32) -> Self {
+        tube_path_mesh(points, radius, segments, false)
+    }
+
+    /// Closed variant of [`Self::line_strip_3d`].
+    #[must_use]
+    pub fn closed_line_strip_3d(points: Vec<Vec3>, radius: f32, segments: u32) -> Self {
+        tube_path_mesh(points, radius, segments, true)
+    }
+
+    /// Rerun-style `Points3D`: points expanded to small triangle spheres.
+    #[must_use]
+    pub fn points_3d(points: Vec<Vec3>, radius: f32, segments: u32) -> Self {
+        point_cloud_mesh(points, radius, segments)
+    }
+
+    /// Rerun-style `Arrows3D`: a shaft plus cone head, aligned to `vector`.
+    #[must_use]
+    pub fn arrow_3d(vector: Vec3, radius: f32, segments: u32) -> Self {
+        arrow_mesh([0.0, 0.0, 0.0], vector, radius, segments)
+    }
+
+    #[must_use]
+    pub fn arrow_2d(length: f32, shaft_width: f32, head_length: f32, head_width: f32) -> Self {
+        let length = length.max(1.0e-4);
+        let head_length = head_length.clamp(0.0, length);
+        let shaft_half = shaft_width.max(1.0e-4) * 0.5;
+        let head_half = head_width.max(shaft_width) * 0.5;
+        let body = length - head_length;
+        Self::polygon(vec![
+            [0.0, 0.0, -shaft_half],
+            [body, 0.0, -shaft_half],
+            [body, 0.0, -head_half],
+            [length, 0.0, 0.0],
+            [body, 0.0, head_half],
+            [body, 0.0, shaft_half],
+            [0.0, 0.0, shaft_half],
+        ])
+    }
+
+    #[must_use]
+    pub fn cross_2d(width: f32, height: f32, bar: f32) -> Self {
+        let hw = width * 0.5;
+        let hh = height * 0.5;
+        let hb = bar * 0.5;
+        Self::polygon(vec![
+            [-hb, 0.0, -hh],
+            [hb, 0.0, -hh],
+            [hb, 0.0, -hb],
+            [hw, 0.0, -hb],
+            [hw, 0.0, hb],
+            [hb, 0.0, hb],
+            [hb, 0.0, hh],
+            [-hb, 0.0, hh],
+            [-hb, 0.0, hb],
+            [-hw, 0.0, hb],
+            [-hw, 0.0, -hb],
+            [-hb, 0.0, -hb],
+        ])
+    }
+
+    #[must_use]
+    pub fn cuboid(size: Vec3) -> Self {
+        let hx = size[0] * 0.5;
+        let hy = size[1] * 0.5;
+        let hz = size[2] * 0.5;
+        let mut vertices = Vec::with_capacity(24);
+        let mut normals = Vec::with_capacity(24);
+        let mut indices = Vec::with_capacity(12);
+        let faces = [
+            (
+                [0.0, 0.0, -1.0],
+                [
+                    [-hx, -hy, -hz],
+                    [hx, -hy, -hz],
+                    [hx, hy, -hz],
+                    [-hx, hy, -hz],
+                ],
+            ),
+            (
+                [0.0, 0.0, 1.0],
+                [[-hx, -hy, hz], [-hx, hy, hz], [hx, hy, hz], [hx, -hy, hz]],
+            ),
+            (
+                [0.0, -1.0, 0.0],
+                [
+                    [-hx, -hy, -hz],
+                    [-hx, -hy, hz],
+                    [hx, -hy, hz],
+                    [hx, -hy, -hz],
+                ],
+            ),
+            (
+                [0.0, 1.0, 0.0],
+                [[-hx, hy, -hz], [hx, hy, -hz], [hx, hy, hz], [-hx, hy, hz]],
+            ),
+            (
+                [1.0, 0.0, 0.0],
+                [[hx, -hy, -hz], [hx, -hy, hz], [hx, hy, hz], [hx, hy, -hz]],
+            ),
+            (
+                [-1.0, 0.0, 0.0],
+                [
+                    [-hx, -hy, -hz],
+                    [-hx, hy, -hz],
+                    [-hx, hy, hz],
+                    [-hx, -hy, hz],
+                ],
+            ),
+        ];
+        for (normal, points) in faces {
+            let base = vertices.len() as u32;
+            vertices.extend(points);
+            normals.extend([normal; 4]);
+            indices.push([base, base + 1, base + 2]);
+            indices.push([base, base + 2, base + 3]);
+        }
+        Self::Triangles(TriangleMesh3d::with_normals(vertices, indices, normals))
     }
 
     /// Build one filled polygon from an outline.
@@ -222,44 +537,85 @@ impl Primitive3d {
 
     #[must_use]
     pub fn cube(size: f32) -> Self {
+        Self::cuboid([size, size, size])
+    }
+
+    #[must_use]
+    pub fn pyramid(size: f32, height: f32) -> Self {
         let h = size * 0.5;
-        let mut vertices = Vec::with_capacity(24);
-        let mut normals = Vec::with_capacity(24);
-        let mut indices = Vec::with_capacity(12);
-        let faces = [
-            (
-                [0.0, 0.0, -1.0],
-                [[-h, -h, -h], [h, -h, -h], [h, h, -h], [-h, h, -h]],
-            ),
-            (
-                [0.0, 0.0, 1.0],
-                [[-h, -h, h], [-h, h, h], [h, h, h], [h, -h, h]],
-            ),
-            (
-                [0.0, -1.0, 0.0],
-                [[-h, -h, -h], [-h, -h, h], [h, -h, h], [h, -h, -h]],
-            ),
-            (
-                [0.0, 1.0, 0.0],
-                [[-h, h, -h], [h, h, -h], [h, h, h], [-h, h, h]],
-            ),
-            (
-                [1.0, 0.0, 0.0],
-                [[h, -h, -h], [h, -h, h], [h, h, h], [h, h, -h]],
-            ),
-            (
-                [-1.0, 0.0, 0.0],
-                [[-h, -h, -h], [-h, h, -h], [-h, h, h], [-h, -h, h]],
-            ),
-        ];
-        for (normal, points) in faces {
-            let base = vertices.len() as u32;
-            vertices.extend(points);
-            normals.extend([normal; 4]);
-            indices.push([base, base + 1, base + 2]);
-            indices.push([base, base + 2, base + 3]);
+        Self::Triangles(TriangleMesh3d::with_generated_normals(
+            vec![
+                [-h, 0.0, -h],
+                [h, 0.0, -h],
+                [h, 0.0, h],
+                [-h, 0.0, h],
+                [0.0, height, 0.0],
+            ],
+            vec![
+                [0, 1, 4],
+                [1, 2, 4],
+                [2, 3, 4],
+                [3, 0, 4],
+                [0, 3, 2],
+                [0, 2, 1],
+            ],
+        ))
+    }
+
+    #[must_use]
+    pub fn cone(radius: f32, height: f32, segments: u32) -> Self {
+        let segments = segments.max(3) as usize;
+        let mut vertices = Vec::with_capacity(segments + 2);
+        vertices.push([0.0, -height * 0.5, 0.0]);
+        vertices.push([0.0, height * 0.5, 0.0]);
+        for i in 0..segments {
+            let angle = std::f32::consts::TAU * i as f32 / segments as f32;
+            vertices.push([radius * angle.cos(), -height * 0.5, radius * angle.sin()]);
         }
-        Self::Triangles(TriangleMesh3d::with_normals(vertices, indices, normals))
+
+        let mut indices = Vec::with_capacity(segments * 2);
+        for i in 0..segments {
+            let next = (i + 1) % segments;
+            let a = 2 + i as u32;
+            let b = 2 + next as u32;
+            indices.push([a, b, 1]);
+            indices.push([0, b, a]);
+        }
+        Self::Triangles(TriangleMesh3d::with_generated_normals(vertices, indices))
+    }
+
+    #[must_use]
+    pub fn frustum(bottom_radius: f32, top_radius: f32, height: f32, segments: u32) -> Self {
+        let segments = segments.max(3) as usize;
+        let mut vertices = Vec::with_capacity(2 + segments * 2);
+        let bottom_center = 0_u32;
+        let top_center = 1_u32;
+        vertices.push([0.0, -height * 0.5, 0.0]);
+        vertices.push([0.0, height * 0.5, 0.0]);
+        for i in 0..segments {
+            let angle = std::f32::consts::TAU * i as f32 / segments as f32;
+            let dir = [angle.cos(), 0.0, angle.sin()];
+            vertices.push([
+                bottom_radius * dir[0],
+                -height * 0.5,
+                bottom_radius * dir[2],
+            ]);
+            vertices.push([top_radius * dir[0], height * 0.5, top_radius * dir[2]]);
+        }
+
+        let mut indices = Vec::with_capacity(segments * 4);
+        for i in 0..segments {
+            let next = (i + 1) % segments;
+            let b0 = 2 + (i * 2) as u32;
+            let t0 = b0 + 1;
+            let b1 = 2 + (next * 2) as u32;
+            let t1 = b1 + 1;
+            indices.push([b0, b1, t1]);
+            indices.push([b0, t1, t0]);
+            indices.push([bottom_center, b1, b0]);
+            indices.push([top_center, t0, t1]);
+        }
+        Self::Triangles(TriangleMesh3d::with_generated_normals(vertices, indices))
     }
 
     #[must_use]
@@ -291,6 +647,328 @@ impl Primitive3d {
             indices.push([top_center, t0, t1]);
         }
         Self::mesh(vertices, indices)
+    }
+
+    #[must_use]
+    pub fn tube(inner_radius: f32, outer_radius: f32, height: f32, segments: u32) -> Self {
+        let segments = segments.max(3) as usize;
+        let inner_radius = inner_radius.min(outer_radius).max(0.0);
+        let outer_radius = outer_radius.max(inner_radius + 1.0e-4);
+        let mut vertices = Vec::with_capacity(segments * 4);
+        for i in 0..segments {
+            let angle = std::f32::consts::TAU * i as f32 / segments as f32;
+            let dir = [angle.cos(), 0.0, angle.sin()];
+            vertices.push([outer_radius * dir[0], -height * 0.5, outer_radius * dir[2]]);
+            vertices.push([outer_radius * dir[0], height * 0.5, outer_radius * dir[2]]);
+            vertices.push([inner_radius * dir[0], -height * 0.5, inner_radius * dir[2]]);
+            vertices.push([inner_radius * dir[0], height * 0.5, inner_radius * dir[2]]);
+        }
+
+        let mut indices = Vec::with_capacity(segments * 8);
+        for i in 0..segments {
+            let next = (i + 1) % segments;
+            let o0b = (i * 4) as u32;
+            let o0t = o0b + 1;
+            let i0b = o0b + 2;
+            let i0t = o0b + 3;
+            let o1b = (next * 4) as u32;
+            let o1t = o1b + 1;
+            let i1b = o1b + 2;
+            let i1t = o1b + 3;
+            indices.push([o0b, o1b, o1t]);
+            indices.push([o0b, o1t, o0t]);
+            indices.push([i0b, i0t, i1t]);
+            indices.push([i0b, i1t, i1b]);
+            indices.push([o0t, o1t, i1t]);
+            indices.push([o0t, i1t, i0t]);
+            indices.push([o0b, i1b, o1b]);
+            indices.push([o0b, i0b, i1b]);
+        }
+        Self::Triangles(TriangleMesh3d::with_generated_normals(vertices, indices))
+    }
+
+    #[must_use]
+    pub fn tetrahedron(size: f32) -> Self {
+        let s = size * 0.5;
+        Self::Triangles(TriangleMesh3d::with_generated_normals(
+            vec![[s, s, s], [-s, -s, s], [-s, s, -s], [s, -s, -s]],
+            vec![[0, 1, 2], [0, 3, 1], [0, 2, 3], [1, 3, 2]],
+        ))
+    }
+
+    #[must_use]
+    pub fn octahedron(size: f32) -> Self {
+        let s = size * 0.5;
+        Self::Triangles(TriangleMesh3d::with_generated_normals(
+            vec![
+                [0.0, s, 0.0],
+                [s, 0.0, 0.0],
+                [0.0, 0.0, s],
+                [-s, 0.0, 0.0],
+                [0.0, 0.0, -s],
+                [0.0, -s, 0.0],
+            ],
+            vec![
+                [0, 1, 2],
+                [0, 2, 3],
+                [0, 3, 4],
+                [0, 4, 1],
+                [5, 2, 1],
+                [5, 3, 2],
+                [5, 4, 3],
+                [5, 1, 4],
+            ],
+        ))
+    }
+
+    #[must_use]
+    pub fn icosahedron(radius: f32) -> Self {
+        let phi = (1.0 + 5.0_f32.sqrt()) * 0.5;
+        let raw = [
+            [-1.0, phi, 0.0],
+            [1.0, phi, 0.0],
+            [-1.0, -phi, 0.0],
+            [1.0, -phi, 0.0],
+            [0.0, -1.0, phi],
+            [0.0, 1.0, phi],
+            [0.0, -1.0, -phi],
+            [0.0, 1.0, -phi],
+            [phi, 0.0, -1.0],
+            [phi, 0.0, 1.0],
+            [-phi, 0.0, -1.0],
+            [-phi, 0.0, 1.0],
+        ];
+        let vertices = raw
+            .into_iter()
+            .map(|point| mul3(normalize3(point), radius))
+            .collect();
+        Self::Triangles(TriangleMesh3d::with_generated_normals(
+            vertices,
+            vec![
+                [0, 11, 5],
+                [0, 5, 1],
+                [0, 1, 7],
+                [0, 7, 10],
+                [0, 10, 11],
+                [1, 5, 9],
+                [5, 11, 4],
+                [11, 10, 2],
+                [10, 7, 6],
+                [7, 1, 8],
+                [3, 9, 4],
+                [3, 4, 2],
+                [3, 2, 6],
+                [3, 6, 8],
+                [3, 8, 9],
+                [4, 9, 5],
+                [2, 4, 11],
+                [6, 2, 10],
+                [8, 6, 7],
+                [9, 8, 1],
+            ],
+        ))
+    }
+
+    #[must_use]
+    pub fn triangular_prism(width: f32, height: f32, depth: f32) -> Self {
+        let hw = width * 0.5;
+        let hd = depth * 0.5;
+        Self::Triangles(TriangleMesh3d::with_generated_normals(
+            vec![
+                [-hw, 0.0, -hd],
+                [hw, 0.0, -hd],
+                [0.0, height, -hd],
+                [-hw, 0.0, hd],
+                [hw, 0.0, hd],
+                [0.0, height, hd],
+            ],
+            vec![
+                [0, 1, 2],
+                [3, 5, 4],
+                [0, 3, 4],
+                [0, 4, 1],
+                [1, 4, 5],
+                [1, 5, 2],
+                [2, 5, 3],
+                [2, 3, 0],
+            ],
+        ))
+    }
+
+    #[must_use]
+    pub fn wedge(size: Vec3) -> Self {
+        let hx = size[0] * 0.5;
+        let hy = size[1];
+        let hz = size[2] * 0.5;
+        Self::Triangles(TriangleMesh3d::with_generated_normals(
+            vec![
+                [-hx, 0.0, -hz],
+                [hx, 0.0, -hz],
+                [-hx, 0.0, hz],
+                [hx, 0.0, hz],
+                [-hx, hy, hz],
+                [hx, hy, hz],
+            ],
+            vec![
+                [0, 1, 3],
+                [0, 3, 2],
+                [2, 3, 5],
+                [2, 5, 4],
+                [0, 2, 4],
+                [0, 4, 1],
+                [1, 4, 5],
+                [1, 5, 3],
+                [0, 4, 2],
+                [1, 5, 4],
+            ],
+        ))
+    }
+
+    #[must_use]
+    pub fn torus(
+        major_radius: f32,
+        minor_radius: f32,
+        major_segments: u32,
+        minor_segments: u32,
+    ) -> Self {
+        let major_segments = major_segments.max(3) as usize;
+        let minor_segments = minor_segments.max(3) as usize;
+        let mut vertices = Vec::with_capacity(major_segments * minor_segments);
+        let mut normals = Vec::with_capacity(major_segments * minor_segments);
+        let mut indices = Vec::with_capacity(major_segments * minor_segments * 2);
+
+        for major in 0..major_segments {
+            let u = std::f32::consts::TAU * major as f32 / major_segments as f32;
+            let center = [major_radius * u.cos(), 0.0, major_radius * u.sin()];
+            let radial = normalize3([u.cos(), 0.0, u.sin()]);
+            for minor in 0..minor_segments {
+                let v = std::f32::consts::TAU * minor as f32 / minor_segments as f32;
+                let normal = normalize3(add3(mul3(radial, v.cos()), [0.0, v.sin(), 0.0]));
+                vertices.push(add3(center, mul3(normal, minor_radius)));
+                normals.push(normal);
+            }
+        }
+
+        let vertex = |major: usize, minor: usize| -> u32 {
+            ((major % major_segments) * minor_segments + (minor % minor_segments)) as u32
+        };
+        for major in 0..major_segments {
+            for minor in 0..minor_segments {
+                let a = vertex(major, minor);
+                let b = vertex(major + 1, minor);
+                let c = vertex(major + 1, minor + 1);
+                let d = vertex(major, minor + 1);
+                indices.push([a, b, c]);
+                indices.push([a, c, d]);
+            }
+        }
+        Self::Triangles(TriangleMesh3d::with_normals(vertices, indices, normals))
+    }
+
+    #[must_use]
+    pub fn capsule(radius: f32, height: f32, segments: u32) -> Self {
+        let longitude = segments.max(8) as usize;
+        let latitude = (longitude / 2).max(4);
+        let cylinder_half = (height * 0.5 - radius).max(0.0);
+        let mut vertices = Vec::new();
+        let mut normals = Vec::new();
+
+        for lat in 0..=latitude {
+            let theta = std::f32::consts::FRAC_PI_2 * lat as f32 / latitude as f32;
+            let y = cylinder_half + radius * theta.cos();
+            let r = radius * theta.sin();
+            for lon in 0..longitude {
+                let phi = std::f32::consts::TAU * lon as f32 / longitude as f32;
+                let normal = normalize3([r * phi.cos(), y - cylinder_half, r * phi.sin()]);
+                vertices.push([r * phi.cos(), y, r * phi.sin()]);
+                normals.push(normal);
+            }
+        }
+        for lat in 1..=latitude {
+            let theta = std::f32::consts::FRAC_PI_2 * lat as f32 / latitude as f32;
+            let y = -cylinder_half - radius * theta.sin();
+            let r = radius * theta.cos();
+            for lon in 0..longitude {
+                let phi = std::f32::consts::TAU * lon as f32 / longitude as f32;
+                let normal = normalize3([r * phi.cos(), y + cylinder_half, r * phi.sin()]);
+                vertices.push([r * phi.cos(), y, r * phi.sin()]);
+                normals.push(normal);
+            }
+        }
+
+        let rings = vertices.len() / longitude;
+        let mut indices = Vec::with_capacity((rings.saturating_sub(1)) * longitude * 2);
+        let vertex =
+            |ring: usize, lon: usize| -> u32 { (ring * longitude + lon % longitude) as u32 };
+        for ring in 0..rings.saturating_sub(1) {
+            for lon in 0..longitude {
+                let a = vertex(ring, lon);
+                let b = vertex(ring + 1, lon);
+                let c = vertex(ring + 1, lon + 1);
+                let d = vertex(ring, lon + 1);
+                indices.push([a, b, c]);
+                indices.push([a, c, d]);
+            }
+        }
+        Self::Triangles(TriangleMesh3d::with_normals(vertices, indices, normals))
+    }
+
+    /// Rerun-style `Ellipsoids3D`: a sphere scaled by half-size on each axis.
+    #[must_use]
+    pub fn ellipsoid(half_sizes: Vec3, segments: u32) -> Self {
+        let longitude = segments.max(8) as usize;
+        let latitude = (longitude / 2).max(4);
+        let radii = [
+            half_sizes[0].abs().max(1.0e-5),
+            half_sizes[1].abs().max(1.0e-5),
+            half_sizes[2].abs().max(1.0e-5),
+        ];
+        let mut vertices = Vec::with_capacity(2 + (latitude - 1) * longitude);
+        let mut normals = Vec::with_capacity(2 + (latitude - 1) * longitude);
+        vertices.push([0.0, radii[1], 0.0]);
+        normals.push([0.0, 1.0, 0.0]);
+        for lat in 1..latitude {
+            let theta = std::f32::consts::PI * lat as f32 / latitude as f32;
+            let y = theta.cos();
+            let r = theta.sin();
+            for lon in 0..longitude {
+                let phi = std::f32::consts::TAU * lon as f32 / longitude as f32;
+                let unit = [r * phi.cos(), y, r * phi.sin()];
+                vertices.push([unit[0] * radii[0], unit[1] * radii[1], unit[2] * radii[2]]);
+                normals.push(normalize3([
+                    unit[0] / radii[0],
+                    unit[1] / radii[1],
+                    unit[2] / radii[2],
+                ]));
+            }
+        }
+        let bottom = vertices.len() as u32;
+        vertices.push([0.0, -radii[1], 0.0]);
+        normals.push([0.0, -1.0, 0.0]);
+
+        let ring = |lat: usize, lon: usize| -> u32 { 1 + ((lat - 1) * longitude + lon) as u32 };
+        let mut indices = Vec::new();
+        for lon in 0..longitude {
+            indices.push([0, ring(1, lon), ring(1, (lon + 1) % longitude)]);
+        }
+        for lat in 1..(latitude - 1) {
+            for lon in 0..longitude {
+                let a = ring(lat, lon);
+                let b = ring(lat, (lon + 1) % longitude);
+                let c = ring(lat + 1, lon);
+                let d = ring(lat + 1, (lon + 1) % longitude);
+                indices.push([a, c, d]);
+                indices.push([a, d, b]);
+            }
+        }
+        for lon in 0..longitude {
+            indices.push([
+                bottom,
+                ring(latitude - 1, (lon + 1) % longitude),
+                ring(latitude - 1, lon),
+            ]);
+        }
+        Self::Triangles(TriangleMesh3d::with_normals(vertices, indices, normals))
     }
 
     #[must_use]
@@ -346,6 +1024,198 @@ impl Primitive3d {
     }
 }
 
+fn point_cloud_mesh(points: Vec<Vec3>, radius: f32, segments: u32) -> Primitive3d {
+    let mut out = TriangleMesh3d::new(Vec::new(), Vec::new());
+    let radius = radius.max(1.0e-4);
+    for point in points {
+        append_primitive_transformed(
+            &mut out,
+            &Primitive3d::sphere(radius, segments.max(8)),
+            &Transform3d {
+                translation: point,
+                rotation_xyzw: [0.0, 0.0, 0.0, 1.0],
+                scale: [1.0, 1.0, 1.0],
+            },
+        );
+    }
+    Primitive3d::Triangles(out)
+}
+
+fn tube_path_mesh(points: Vec<Vec3>, radius: f32, segments: u32, closed: bool) -> Primitive3d {
+    let points = if closed && points.len() > 2 {
+        let mut p = points;
+        p.push(p[0]);
+        p
+    } else {
+        points
+    };
+    let mut out = TriangleMesh3d::new(Vec::new(), Vec::new());
+    let radius = radius.max(1.0e-4);
+    let segments = segments.max(6);
+    for pair in points.windows(2) {
+        append_cylinder_between(&mut out, pair[0], pair[1], radius, segments);
+    }
+    for point in points {
+        append_primitive_transformed(
+            &mut out,
+            &Primitive3d::sphere(radius * 1.05, segments.max(8)),
+            &Transform3d {
+                translation: point,
+                rotation_xyzw: [0.0, 0.0, 0.0, 1.0],
+                scale: [1.0, 1.0, 1.0],
+            },
+        );
+    }
+    Primitive3d::Triangles(out)
+}
+
+fn arrow_mesh(origin: Vec3, vector: Vec3, radius: f32, segments: u32) -> Primitive3d {
+    let length = dot3(vector, vector).sqrt();
+    if length <= 1.0e-5 {
+        return Primitive3d::mesh(Vec::new(), Vec::new());
+    }
+    let direction = mul3(vector, length.recip());
+    let head_len = (length * 0.24).clamp(radius * 3.0, length * 0.55);
+    let shaft_end = add3(origin, mul3(direction, length - head_len));
+    let tip = add3(origin, vector);
+    let mut out = TriangleMesh3d::new(Vec::new(), Vec::new());
+    append_cylinder_between(
+        &mut out,
+        origin,
+        shaft_end,
+        radius.max(1.0e-4),
+        segments.max(8),
+    );
+    append_cone_between(
+        &mut out,
+        shaft_end,
+        tip,
+        radius.max(1.0e-4) * 2.45,
+        segments.max(8),
+    );
+    Primitive3d::Triangles(out)
+}
+
+fn append_primitive_transformed(
+    out: &mut TriangleMesh3d,
+    primitive: &Primitive3d,
+    transform: &Transform3d,
+) {
+    let Primitive3d::Triangles(mesh) = primitive;
+    let base = out.vertices.len() as u32;
+    out.vertices.extend(
+        mesh.vertices
+            .iter()
+            .copied()
+            .map(|vertex| transform_point(transform, vertex)),
+    );
+    if mesh.normals.len() == mesh.vertices.len() {
+        out.normals.extend(
+            mesh.normals
+                .iter()
+                .copied()
+                .map(|normal| transform_normal(transform, normal)),
+        );
+    }
+    if mesh.uvs.len() == mesh.vertices.len() {
+        out.uvs.extend(mesh.uvs.iter().copied());
+    }
+    if mesh.vertex_colors.len() == mesh.vertices.len() {
+        out.vertex_colors.extend(mesh.vertex_colors.iter().copied());
+    }
+    out.indices.extend(
+        mesh.indices
+            .iter()
+            .map(|triangle| [triangle[0] + base, triangle[1] + base, triangle[2] + base]),
+    );
+}
+
+fn append_cylinder_between(out: &mut TriangleMesh3d, a: Vec3, b: Vec3, radius: f32, segments: u32) {
+    let axis = sub3(b, a);
+    let length = dot3(axis, axis).sqrt();
+    if length <= 1.0e-5 {
+        return;
+    }
+    let dir = mul3(axis, length.recip());
+    let (side, up) = orthonormal_basis(dir);
+    let base = out.vertices.len() as u32;
+    let segments = segments.max(3) as usize;
+    for i in 0..segments {
+        let angle = std::f32::consts::TAU * i as f32 / segments as f32;
+        let normal = normalize3(add3(mul3(side, angle.cos()), mul3(up, angle.sin())));
+        out.vertices.push(add3(a, mul3(normal, radius)));
+        out.vertices.push(add3(b, mul3(normal, radius)));
+        out.normals.push(normal);
+        out.normals.push(normal);
+    }
+    let bottom_center = out.vertices.len() as u32;
+    out.vertices.push(a);
+    out.normals.push(mul3(dir, -1.0));
+    let top_center = out.vertices.len() as u32;
+    out.vertices.push(b);
+    out.normals.push(dir);
+    for i in 0..segments {
+        let next = (i + 1) % segments;
+        let b0 = base + (i * 2) as u32;
+        let t0 = b0 + 1;
+        let b1 = base + (next * 2) as u32;
+        let t1 = b1 + 1;
+        out.indices.push([b0, b1, t1]);
+        out.indices.push([b0, t1, t0]);
+        out.indices.push([bottom_center, b1, b0]);
+        out.indices.push([top_center, t0, t1]);
+    }
+}
+
+fn append_cone_between(
+    out: &mut TriangleMesh3d,
+    base_center: Vec3,
+    tip: Vec3,
+    radius: f32,
+    segments: u32,
+) {
+    let axis = sub3(tip, base_center);
+    let length = dot3(axis, axis).sqrt();
+    if length <= 1.0e-5 {
+        return;
+    }
+    let dir = mul3(axis, length.recip());
+    let (side, up) = orthonormal_basis(dir);
+    let base = out.vertices.len() as u32;
+    let segments = segments.max(3) as usize;
+    out.vertices.push(base_center);
+    out.normals.push(mul3(dir, -1.0));
+    let tip_index = out.vertices.len() as u32;
+    out.vertices.push(tip);
+    out.normals.push(dir);
+    for i in 0..segments {
+        let angle = std::f32::consts::TAU * i as f32 / segments as f32;
+        let radial = normalize3(add3(mul3(side, angle.cos()), mul3(up, angle.sin())));
+        out.vertices.push(add3(base_center, mul3(radial, radius)));
+        out.normals
+            .push(normalize3(add3(radial, mul3(dir, radius / length))));
+    }
+    for i in 0..segments {
+        let next = (i + 1) % segments;
+        let a = base + 2 + i as u32;
+        let b = base + 2 + next as u32;
+        out.indices.push([a, b, tip_index]);
+        out.indices.push([base, b, a]);
+    }
+}
+
+fn orthonormal_basis(direction: Vec3) -> (Vec3, Vec3) {
+    let direction = normalize3(direction);
+    let helper = if direction[1].abs() < 0.92 {
+        [0.0, 1.0, 0.0]
+    } else {
+        [1.0, 0.0, 0.0]
+    };
+    let side = normalize3(cross3(direction, helper));
+    let up = normalize3(cross3(side, direction));
+    (side, up)
+}
+
 impl Default for Primitive3d {
     fn default() -> Self {
         Self::cube(1.0)
@@ -358,6 +1228,7 @@ pub struct Material3d {
     pub id: MaterialId,
     pub name: String,
     pub base_color: Color,
+    pub albedo_texture: Option<TextureId>,
     pub roughness: f32,
     pub metallic: f32,
 }
@@ -369,9 +1240,84 @@ impl Material3d {
             id,
             name: name.into(),
             base_color,
+            albedo_texture: None,
             roughness: 0.65,
             metallic: 0.0,
         }
+    }
+
+    #[must_use]
+    pub const fn with_texture(mut self, texture: TextureId) -> Self {
+        self.albedo_texture = Some(texture);
+        self
+    }
+}
+
+/// Retained CPU-visible texture data for mesh UVs.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Texture3d {
+    pub id: TextureId,
+    pub name: String,
+    pub size: [usize; 2],
+    pub pixels: Vec<Color>,
+}
+
+impl Texture3d {
+    #[must_use]
+    pub fn new(
+        id: TextureId,
+        name: impl Into<String>,
+        size: [usize; 2],
+        pixels: Vec<Color>,
+    ) -> Self {
+        Self {
+            id,
+            name: name.into(),
+            size,
+            pixels,
+        }
+    }
+
+    #[must_use]
+    pub fn checker(
+        id: TextureId,
+        name: impl Into<String>,
+        size: [usize; 2],
+        a: Color,
+        b: Color,
+        cells: usize,
+    ) -> Self {
+        let width = size[0].max(1);
+        let height = size[1].max(1);
+        let cells = cells.max(1);
+        let mut pixels = Vec::with_capacity(width * height);
+        for y in 0..height {
+            for x in 0..width {
+                let cx = x * cells / width;
+                let cy = y * cells / height;
+                pixels.push(if (cx + cy) % 2 == 0 { a } else { b });
+            }
+        }
+        Self::new(id, name, [width, height], pixels)
+    }
+
+    #[must_use]
+    pub fn sample(&self, uv: [f32; 2]) -> Color {
+        let width = self.size[0].max(1);
+        let height = self.size[1].max(1);
+        if self.pixels.is_empty() {
+            return egui::Color32::WHITE;
+        }
+        let u = uv[0].rem_euclid(1.0);
+        let v = uv[1].rem_euclid(1.0);
+        let x = (u * width as f32).floor().clamp(0.0, (width - 1) as f32) as usize;
+        let y = ((1.0 - v) * height as f32)
+            .floor()
+            .clamp(0.0, (height - 1) as f32) as usize;
+        self.pixels
+            .get(y * width + x)
+            .copied()
+            .unwrap_or(egui::Color32::WHITE)
     }
 }
 
@@ -382,6 +1328,7 @@ pub struct Object3d {
     pub name: String,
     pub primitive: Primitive3d,
     pub transform: Transform3d,
+    pub instances: Vec<Transform3d>,
     pub material: MaterialId,
     pub selected: bool,
     pub visible: bool,
@@ -400,6 +1347,7 @@ impl Object3d {
             name: name.into(),
             primitive,
             transform: Transform3d::default(),
+            instances: Vec::new(),
             material,
             selected: false,
             visible: true,
@@ -409,6 +1357,124 @@ impl Object3d {
     #[must_use]
     pub fn kind_name(&self) -> &'static str {
         self.primitive.kind_name()
+    }
+
+    #[must_use]
+    pub fn with_instances(mut self, instances: Vec<Transform3d>) -> Self {
+        self.instances = instances;
+        self
+    }
+}
+
+/// Simple colored always-on-top visual drawing, separate from real mesh
+/// primitives. Use this for Bevy-style gizmo/debug/annotation marks.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Gizmo3d {
+    pub id: GizmoId,
+    pub name: String,
+    pub kind: Gizmo3dKind,
+    pub style: Gizmo3dStyle,
+    pub visible: bool,
+}
+
+impl Gizmo3d {
+    #[must_use]
+    pub fn new(id: GizmoId, name: impl Into<String>, kind: Gizmo3dKind) -> Self {
+        Self {
+            id,
+            name: name.into(),
+            kind,
+            style: Gizmo3dStyle::default(),
+            visible: true,
+        }
+    }
+
+    #[must_use]
+    pub fn with_style(mut self, style: Gizmo3dStyle) -> Self {
+        self.style = style;
+        self
+    }
+}
+
+/// Bevy-style immediate/overlay primitives. These are not textured meshes.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Gizmo3dKind {
+    Dot {
+        position: Vec3,
+    },
+    Line {
+        a: Vec3,
+        b: Vec3,
+    },
+    Segment {
+        a: Vec3,
+        b: Vec3,
+    },
+    Polyline {
+        points: Vec<Vec3>,
+    },
+    Polygon {
+        points: Vec<Vec3>,
+        closed: bool,
+    },
+    Rectangle {
+        center: Vec3,
+        size: [f32; 2],
+    },
+    Circle {
+        center: Vec3,
+        radius: f32,
+    },
+    Ellipse {
+        center: Vec3,
+        radii: [f32; 2],
+    },
+    Arc {
+        center: Vec3,
+        radius: f32,
+        start: f32,
+        end: f32,
+    },
+    Axes {
+        origin: Vec3,
+        size: f32,
+    },
+}
+
+/// Styling for [`Gizmo3d`] overlay drawing.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Gizmo3dStyle {
+    pub color: Color,
+    pub width: f32,
+    pub radius: f32,
+}
+
+impl Gizmo3dStyle {
+    #[must_use]
+    pub const fn new(color: Color) -> Self {
+        Self {
+            color,
+            width: 2.0,
+            radius: 4.0,
+        }
+    }
+
+    #[must_use]
+    pub const fn with_width(mut self, width: f32) -> Self {
+        self.width = width;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_radius(mut self, radius: f32) -> Self {
+        self.radius = radius;
+        self
+    }
+}
+
+impl Default for Gizmo3dStyle {
+    fn default() -> Self {
+        Self::new(egui::Color32::WHITE)
     }
 }
 
@@ -454,10 +1520,14 @@ pub struct Scene3d {
     pub camera: Camera3d,
     pub background: Color,
     pub materials: Vec<Material3d>,
+    pub textures: Vec<Texture3d>,
     pub objects: Vec<Object3d>,
+    pub gizmos: Vec<Gizmo3d>,
     pub lights: Vec<Light3d>,
     next_object_id: u64,
+    next_gizmo_id: u64,
     next_material_id: u64,
+    next_texture_id: u64,
     next_light_id: u64,
 }
 
@@ -470,7 +1540,9 @@ impl Scene3d {
             camera: Camera3d::default(),
             background: mara_core::style::fill_for(mara_core::style::FillRole::Pane, accent),
             materials: vec![Material3d::new(MaterialId(1), "Accent", accent)],
+            textures: Vec::new(),
             objects: Vec::new(),
+            gizmos: Vec::new(),
             lights: vec![
                 Light3d::Ambient {
                     id: LightId(1),
@@ -487,7 +1559,9 @@ impl Scene3d {
                 },
             ],
             next_object_id: 1,
+            next_gizmo_id: 1,
             next_material_id: 2,
+            next_texture_id: 1,
             next_light_id: 3,
         }
     }
@@ -512,10 +1586,43 @@ impl Scene3d {
             "Violet",
             tint_color(egui::Color32::from_rgb(178, 116, 255), accent, 0.14),
         );
-        let coral = scene.add_material(
-            "Coral",
-            tint_color(egui::Color32::from_rgb(255, 104, 116), accent, 0.12),
+        let rose = scene.add_material(
+            "Rose",
+            tint_color(egui::Color32::from_rgb(255, 92, 172), accent, 0.12),
         );
+        let lime = scene.add_material(
+            "Lime",
+            tint_color(egui::Color32::from_rgb(172, 245, 80), accent, 0.12),
+        );
+        let cyan = scene.add_material(
+            "Cyan",
+            tint_color(egui::Color32::from_rgb(64, 220, 245), accent, 0.12),
+        );
+        let graphite = scene.add_material(
+            "Graphite",
+            tint_color(egui::Color32::from_rgb(112, 128, 152), accent, 0.18),
+        );
+        let crystal_blue = scene.add_material(
+            "Crystal blue",
+            tint_color(egui::Color32::from_rgb(65, 210, 255), accent, 0.10),
+        );
+        let crystal_purple = scene.add_material(
+            "Crystal purple",
+            tint_color(egui::Color32::from_rgb(185, 105, 255), accent, 0.12),
+        );
+        let crystal_gold = scene.add_material(
+            "Crystal gold",
+            tint_color(egui::Color32::from_rgb(255, 190, 70), accent, 0.10),
+        );
+        let checker_texture = scene.add_checker_texture(
+            "Checker texture",
+            [512, 512],
+            tint_color(egui::Color32::from_rgb(245, 245, 245), accent, 0.10),
+            tint_color(egui::Color32::from_rgb(38, 45, 58), accent, 0.25),
+            16,
+        );
+        let checker =
+            scene.add_material_with_texture("Checker mesh", egui::Color32::WHITE, checker_texture);
         let cube = scene.add_object("Cube", Primitive3d::cube(1.0), MaterialId(1));
         if let Some(object) = scene.object_mut(cube) {
             object.transform.translation = [-0.75, 0.55, 0.0];
@@ -543,7 +1650,7 @@ impl Scene3d {
         }
         let mesh = scene.add_object(
             "Mesh pyramid",
-            Primitive3d::mesh(
+            Primitive3d::mesh_with_uvs(
                 vec![
                     [-0.45, 0.0, -0.45],
                     [0.45, 0.0, -0.45],
@@ -559,12 +1666,337 @@ impl Scene3d {
                     [0, 3, 2],
                     [0, 2, 1],
                 ],
+                vec![[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0], [0.5, 0.5]],
             ),
-            coral,
+            checker,
         );
         if let Some(object) = scene.object_mut(mesh) {
             object.transform.translation = [-1.4, 0.02, 1.05];
         }
+        let plane = scene.add_object("Plane", Primitive3d::plane(0.9, 0.55), graphite);
+        if let Some(object) = scene.object_mut(plane) {
+            object.transform.translation = [-2.45, 0.025, -1.0];
+        }
+        let disc = scene.add_object("Disc", Primitive3d::disc(0.34, 48), rose);
+        if let Some(object) = scene.object_mut(disc) {
+            object.transform.translation = [-1.65, 0.03, -1.05];
+        }
+        let cuboid = scene.add_object("Cuboid", Primitive3d::cuboid([0.95, 0.42, 0.38]), cyan);
+        if let Some(object) = scene.object_mut(cuboid) {
+            object.transform.translation = [-2.35, 0.24, 0.15];
+        }
+        let pyramid = scene.add_object("Pyramid", Primitive3d::pyramid(0.72, 0.78), amber);
+        if let Some(object) = scene.object_mut(pyramid) {
+            object.transform.translation = [2.15, 0.03, -0.82];
+        }
+        let cone = scene.add_object("Cone", Primitive3d::cone(0.36, 0.9, 48), lime);
+        if let Some(object) = scene.object_mut(cone) {
+            object.transform.translation = [2.25, 0.48, 0.08];
+        }
+        let cylinder = scene.add_object("Cylinder", Primitive3d::cylinder(0.28, 0.82, 48), sky);
+        if let Some(object) = scene.object_mut(cylinder) {
+            object.transform.translation = [1.8, 0.44, 1.05];
+        }
+        let torus = scene.add_object("Torus", Primitive3d::torus(0.36, 0.095, 56, 18), rose);
+        if let Some(object) = scene.object_mut(torus) {
+            object.transform.translation = [-0.55, 0.68, 1.65];
+        }
+        let capsule = scene.add_object("Capsule", Primitive3d::capsule(0.22, 0.92, 32), mint);
+        if let Some(object) = scene.object_mut(capsule) {
+            object.transform.translation = [0.9, 0.52, 1.7];
+        }
+        let ellipsoid = scene.add_object(
+            "Ellipsoid",
+            Primitive3d::ellipsoid([0.52, 0.24, 0.34], 32),
+            violet,
+        );
+        if let Some(object) = scene.object_mut(ellipsoid) {
+            object.transform.translation = [3.05, 0.38, 1.75];
+        }
+        let arrow3d = scene.add_object(
+            "3D arrow",
+            Primitive3d::arrow_3d([0.85, 0.55, -0.35], 0.055, 24),
+            amber,
+        );
+        if let Some(object) = scene.object_mut(arrow3d) {
+            object.transform.translation = [2.85, 0.22, 2.35];
+        }
+        let line3d = scene.add_object(
+            "LineStrips3D tube",
+            Primitive3d::line_strip_3d(
+                vec![
+                    [-0.45, 0.0, -0.15],
+                    [-0.18, 0.32, 0.22],
+                    [0.18, 0.18, -0.08],
+                    [0.46, 0.48, 0.28],
+                ],
+                0.035,
+                16,
+            ),
+            lime,
+        );
+        if let Some(object) = scene.object_mut(line3d) {
+            object.transform.translation = [3.08, 0.12, -1.1];
+        }
+        let points3d = scene.add_object(
+            "Points3D cloud",
+            Primitive3d::points_3d(
+                (0..18)
+                    .map(|i| {
+                        let angle = std::f32::consts::TAU * i as f32 / 18.0;
+                        [
+                            0.34 * angle.cos(),
+                            0.12 * (i % 4) as f32,
+                            0.34 * angle.sin(),
+                        ]
+                    })
+                    .collect(),
+                0.045,
+                10,
+            ),
+            rose,
+        );
+        if let Some(object) = scene.object_mut(points3d) {
+            object.transform.translation = [2.25, 0.28, -1.42];
+        }
+        let instanced = scene.add_instanced_object(
+            "InstancePoses3D ellipsoids",
+            Primitive3d::ellipsoid([0.13, 0.22, 0.13], 18),
+            cyan,
+            vec![
+                Transform3d {
+                    translation: [-0.38, 0.18, 0.0],
+                    ..Default::default()
+                },
+                Transform3d {
+                    translation: [0.0, 0.32, 0.18],
+                    scale: [1.25, 0.75, 1.25],
+                    ..Default::default()
+                },
+                Transform3d {
+                    translation: [0.38, 0.18, -0.04],
+                    ..Default::default()
+                },
+            ],
+        );
+        if let Some(object) = scene.object_mut(instanced) {
+            object.transform.translation = [1.25, 0.04, 2.45];
+        }
+        let colored_mesh = scene.add_object(
+            "Vertex-color mesh",
+            Primitive3d::mesh_with_vertex_colors(
+                vec![
+                    [-0.34, 0.0, -0.34],
+                    [0.34, 0.0, -0.34],
+                    [0.34, 0.0, 0.34],
+                    [-0.34, 0.0, 0.34],
+                    [0.0, 0.52, 0.0],
+                ],
+                vec![
+                    [0, 1, 4],
+                    [1, 2, 4],
+                    [2, 3, 4],
+                    [3, 0, 4],
+                    [0, 3, 2],
+                    [0, 2, 1],
+                ],
+                vec![
+                    egui::Color32::from_rgb(255, 80, 120),
+                    egui::Color32::from_rgb(255, 220, 80),
+                    egui::Color32::from_rgb(80, 235, 170),
+                    egui::Color32::from_rgb(80, 170, 255),
+                    egui::Color32::from_rgb(240, 120, 255),
+                ],
+            ),
+            MaterialId(1),
+        );
+        if let Some(object) = scene.object_mut(colored_mesh) {
+            object.transform.translation = [3.15, 0.04, -1.9];
+        }
+        let square = scene.add_object("2D square", Primitive3d::square(0.46), cyan);
+        if let Some(object) = scene.object_mut(square) {
+            object.transform.translation = [-3.05, 0.035, -1.85];
+        }
+        let pentagon = scene.add_object("2D polygon", Primitive3d::regular_polygon(0.29, 5), amber);
+        if let Some(object) = scene.object_mut(pentagon) {
+            object.transform.translation = [-2.35, 0.035, -1.85];
+        }
+        let star = scene.add_object("2D star", Primitive3d::star(0.34, 0.15, 5), rose);
+        if let Some(object) = scene.object_mut(star) {
+            object.transform.translation = [-1.65, 0.035, -1.88];
+        }
+        let annulus = scene.add_object("2D annulus", Primitive3d::annulus(0.16, 0.34, 48), lime);
+        if let Some(object) = scene.object_mut(annulus) {
+            object.transform.translation = [-0.9, 0.035, -1.9];
+        }
+        let arrow = scene.add_object(
+            "2D arrow",
+            Primitive3d::arrow_2d(0.75, 0.16, 0.28, 0.42),
+            sky,
+        );
+        if let Some(object) = scene.object_mut(arrow) {
+            object.transform.translation = [-0.12, 0.035, -1.92];
+        }
+        let cross = scene.add_object("2D cross", Primitive3d::cross_2d(0.58, 0.58, 0.18), violet);
+        if let Some(object) = scene.object_mut(cross) {
+            object.transform.translation = [0.82, 0.035, -1.88];
+        }
+        let polyline = scene.add_object(
+            "2D polyline",
+            Primitive3d::polyline(
+                vec![
+                    [-0.36, 0.0, -0.18],
+                    [-0.12, 0.0, 0.22],
+                    [0.18, 0.0, -0.08],
+                    [0.42, 0.0, 0.24],
+                ],
+                0.085,
+            ),
+            mint,
+        );
+        if let Some(object) = scene.object_mut(polyline) {
+            object.transform.translation = [1.62, 0.035, -1.9];
+        }
+        let closed_path = scene.add_object(
+            "2D path",
+            Primitive3d::closed_polyline(
+                vec![
+                    [-0.28, 0.0, -0.2],
+                    [0.25, 0.0, -0.24],
+                    [0.36, 0.0, 0.18],
+                    [-0.05, 0.0, 0.34],
+                    [-0.36, 0.0, 0.08],
+                ],
+                0.07,
+            ),
+            graphite,
+        );
+        if let Some(object) = scene.object_mut(closed_path) {
+            object.transform.translation = [2.48, 0.035, -1.9];
+        }
+        let tetra = scene.add_object("Tetrahedron", Primitive3d::tetrahedron(0.62), rose);
+        if let Some(object) = scene.object_mut(tetra) {
+            object.transform.translation = [-3.05, 0.44, 0.9];
+        }
+        let octa = scene.add_object("Octahedron", Primitive3d::octahedron(0.72), lime);
+        if let Some(object) = scene.object_mut(octa) {
+            object.transform.translation = [-2.35, 0.46, 1.72];
+        }
+        let ico = scene.add_object("Icosahedron", Primitive3d::icosahedron(0.38), cyan);
+        if let Some(object) = scene.object_mut(ico) {
+            object.transform.translation = [-1.55, 0.48, 2.1];
+        }
+        let frustum = scene.add_object("Frustum", Primitive3d::frustum(0.36, 0.2, 0.78, 48), amber);
+        if let Some(object) = scene.object_mut(frustum) {
+            object.transform.translation = [1.7, 0.44, 2.05];
+        }
+        let tube = scene.add_object("Tube", Primitive3d::tube(0.18, 0.34, 0.72, 48), violet);
+        if let Some(object) = scene.object_mut(tube) {
+            object.transform.translation = [2.48, 0.42, 1.72];
+        }
+        let prism = scene.add_object(
+            "Triangular prism",
+            Primitive3d::triangular_prism(0.62, 0.56, 0.55),
+            graphite,
+        );
+        if let Some(object) = scene.object_mut(prism) {
+            object.transform.translation = [3.1, 0.05, 0.85];
+        }
+        let wedge = scene.add_object("Wedge", Primitive3d::wedge([0.72, 0.54, 0.54]), mint);
+        if let Some(object) = scene.object_mut(wedge) {
+            object.transform.translation = [3.08, 0.05, -0.08];
+        }
+        let imported = scene.add_mesh_object("OBJ-like mesh", obj_like_demo_mesh(), checker);
+        if let Some(object) = scene.object_mut(imported) {
+            object.transform.translation = [0.12, 1.05, -2.45];
+        }
+        let crystal_a = scene.add_mesh_object(
+            "OBJ-like crystal blue",
+            low_poly_crystal_mesh(0.28, 1.05, 6, 0.0),
+            crystal_blue,
+        );
+        if let Some(object) = scene.object_mut(crystal_a) {
+            object.transform.translation = [-1.1, 0.02, -2.75];
+        }
+        let crystal_b = scene.add_mesh_object(
+            "OBJ-like crystal purple",
+            low_poly_crystal_mesh(0.22, 0.78, 5, 0.35),
+            crystal_purple,
+        );
+        if let Some(object) = scene.object_mut(crystal_b) {
+            object.transform.translation = [-0.72, 0.02, -2.62];
+            object.transform.rotation_xyzw = axis_angle_quat(WORLD_UP, 0.35);
+        }
+        let crystal_c = scene.add_mesh_object(
+            "OBJ-like crystal gold",
+            low_poly_crystal_mesh(0.18, 0.62, 7, -0.22),
+            crystal_gold,
+        );
+        if let Some(object) = scene.object_mut(crystal_c) {
+            object.transform.translation = [-1.42, 0.02, -2.48];
+            object.transform.rotation_xyzw = axis_angle_quat(WORLD_UP, -0.45);
+        }
+        let _ = scene.add_gizmo_with_style(
+            "Gizmo trajectory",
+            Gizmo3dKind::Polyline {
+                points: vec![
+                    [-2.8, 0.82, -0.65],
+                    [-1.75, 1.0, -0.2],
+                    [-0.65, 0.78, 0.25],
+                    [0.35, 1.05, 0.2],
+                    [1.35, 0.92, -0.25],
+                ],
+            },
+            Gizmo3dStyle::new(tint_color(
+                egui::Color32::from_rgb(255, 210, 72),
+                accent,
+                0.18,
+            ))
+            .with_width(3.0),
+        );
+        let _ = scene.add_gizmo_with_style(
+            "Gizmo target",
+            Gizmo3dKind::Circle {
+                center: [1.35, 0.92, -0.25],
+                radius: 0.24,
+            },
+            Gizmo3dStyle::new(tint_color(
+                egui::Color32::from_rgb(255, 90, 128),
+                accent,
+                0.14,
+            ))
+            .with_width(2.4),
+        );
+        let _ = scene.add_gizmo_with_style(
+            "Gizmo dot",
+            Gizmo3dKind::Dot {
+                position: [-2.8, 0.82, -0.65],
+            },
+            Gizmo3dStyle::new(tint_color(
+                egui::Color32::from_rgb(80, 235, 170),
+                accent,
+                0.12,
+            ))
+            .with_radius(5.5),
+        );
+        let _ = scene.add_gizmo_with_style(
+            "Gizmo polygon",
+            Gizmo3dKind::Polygon {
+                points: vec![
+                    [-0.42, 1.28, -0.5],
+                    [0.1, 1.44, -0.42],
+                    [0.38, 1.22, -0.1],
+                    [-0.18, 1.16, 0.18],
+                ],
+                closed: true,
+            },
+            Gizmo3dStyle::new(tint_color(
+                egui::Color32::from_rgb(120, 180, 255),
+                accent,
+                0.18,
+            ))
+            .with_width(2.0),
+        );
         scene
     }
 
@@ -574,6 +2006,59 @@ impl Scene3d {
         self.next_material_id += 1;
         self.materials.push(Material3d::new(id, name, base_color));
         id
+    }
+
+    #[must_use]
+    pub fn add_material_with_texture(
+        &mut self,
+        name: impl Into<String>,
+        base_color: Color,
+        texture: TextureId,
+    ) -> MaterialId {
+        let id = MaterialId(self.next_material_id);
+        self.next_material_id += 1;
+        self.materials
+            .push(Material3d::new(id, name, base_color).with_texture(texture));
+        id
+    }
+
+    #[must_use]
+    pub fn add_texture(
+        &mut self,
+        name: impl Into<String>,
+        size: [usize; 2],
+        pixels: Vec<Color>,
+    ) -> TextureId {
+        let id = TextureId(self.next_texture_id);
+        self.next_texture_id += 1;
+        self.textures.push(Texture3d::new(id, name, size, pixels));
+        id
+    }
+
+    #[must_use]
+    pub fn add_checker_texture(
+        &mut self,
+        name: impl Into<String>,
+        size: [usize; 2],
+        a: Color,
+        b: Color,
+        cells: usize,
+    ) -> TextureId {
+        let id = TextureId(self.next_texture_id);
+        self.next_texture_id += 1;
+        self.textures
+            .push(Texture3d::checker(id, name, size, a, b, cells));
+        id
+    }
+
+    #[must_use]
+    pub fn material(&self, id: MaterialId) -> Option<&Material3d> {
+        self.materials.iter().find(|candidate| candidate.id == id)
+    }
+
+    #[must_use]
+    pub fn texture(&self, id: TextureId) -> Option<&Texture3d> {
+        self.textures.iter().find(|candidate| candidate.id == id)
     }
 
     #[must_use]
@@ -587,6 +2072,53 @@ impl Scene3d {
         self.next_object_id += 1;
         self.objects
             .push(Object3d::new(id, name, primitive, material));
+        id
+    }
+
+    #[must_use]
+    pub fn add_mesh_object(
+        &mut self,
+        name: impl Into<String>,
+        mesh: TriangleMesh3d,
+        material: MaterialId,
+    ) -> ObjectId {
+        self.add_object(name, Primitive3d::tri_mesh(mesh), material)
+    }
+
+    #[must_use]
+    pub fn add_instanced_object(
+        &mut self,
+        name: impl Into<String>,
+        primitive: Primitive3d,
+        material: MaterialId,
+        instances: Vec<Transform3d>,
+    ) -> ObjectId {
+        let id = ObjectId(self.next_object_id);
+        self.next_object_id += 1;
+        self.objects
+            .push(Object3d::new(id, name, primitive, material).with_instances(instances));
+        id
+    }
+
+    #[must_use]
+    pub fn add_gizmo(&mut self, name: impl Into<String>, kind: Gizmo3dKind) -> GizmoId {
+        let id = GizmoId(self.next_gizmo_id);
+        self.next_gizmo_id += 1;
+        self.gizmos.push(Gizmo3d::new(id, name, kind));
+        id
+    }
+
+    #[must_use]
+    pub fn add_gizmo_with_style(
+        &mut self,
+        name: impl Into<String>,
+        kind: Gizmo3dKind,
+        style: Gizmo3dStyle,
+    ) -> GizmoId {
+        let id = GizmoId(self.next_gizmo_id);
+        self.next_gizmo_id += 1;
+        self.gizmos
+            .push(Gizmo3d::new(id, name, kind).with_style(style));
         id
     }
 
@@ -672,6 +2204,189 @@ fn spiral_polygon_mesh() -> Primitive3d {
     right.reverse();
     left.extend(right);
     Primitive3d::polygon(left)
+}
+
+fn obj_like_demo_mesh() -> TriangleMesh3d {
+    let vertices = vec![
+        [-0.42, 0.0, -0.42],
+        [0.42, 0.0, -0.42],
+        [0.5, 0.0, 0.22],
+        [0.0, 0.0, 0.54],
+        [-0.5, 0.0, 0.22],
+        [-0.24, 0.55, -0.18],
+        [0.24, 0.55, -0.18],
+        [0.0, 0.68, 0.26],
+        [0.0, 1.0, 0.0],
+    ];
+    let indices = vec![
+        [0, 1, 2],
+        [0, 2, 3],
+        [0, 3, 4],
+        [0, 5, 6],
+        [0, 6, 1],
+        [1, 6, 7],
+        [1, 7, 2],
+        [2, 7, 3],
+        [3, 7, 5],
+        [3, 5, 4],
+        [4, 5, 0],
+        [5, 8, 6],
+        [6, 8, 7],
+        [7, 8, 5],
+    ];
+    let uvs = vec![
+        [0.0, 0.0],
+        [1.0, 0.0],
+        [1.0, 0.55],
+        [0.5, 1.0],
+        [0.0, 0.55],
+        [0.25, 0.25],
+        [0.75, 0.25],
+        [0.5, 0.75],
+        [0.5, 0.5],
+    ];
+    TriangleMesh3d::with_generated_normals_and_uvs(vertices, indices, uvs)
+}
+
+fn low_poly_crystal_mesh(radius: f32, height: f32, sides: u32, twist: f32) -> TriangleMesh3d {
+    let sides = sides.max(3) as usize;
+    let lower_y = height * 0.12;
+    let upper_y = height * 0.72;
+    let bottom = 0_u32;
+    let top = 1_u32;
+    let mut vertices = Vec::with_capacity(2 + sides * 2);
+    let mut uvs = Vec::with_capacity(2 + sides * 2);
+    vertices.push([0.0, 0.0, 0.0]);
+    vertices.push([0.0, height, 0.0]);
+    uvs.push([0.5, 0.0]);
+    uvs.push([0.5, 1.0]);
+
+    for i in 0..sides {
+        let angle = std::f32::consts::TAU * i as f32 / sides as f32;
+        vertices.push([
+            radius * 0.78 * angle.cos(),
+            lower_y,
+            radius * 0.78 * angle.sin(),
+        ]);
+        uvs.push([i as f32 / sides as f32, 0.18]);
+    }
+    for i in 0..sides {
+        let angle = std::f32::consts::TAU * i as f32 / sides as f32 + twist;
+        vertices.push([radius * angle.cos(), upper_y, radius * angle.sin()]);
+        uvs.push([i as f32 / sides as f32, 0.74]);
+    }
+
+    let lower = |i: usize| -> u32 { 2 + (i % sides) as u32 };
+    let upper = |i: usize| -> u32 { 2 + sides as u32 + (i % sides) as u32 };
+    let mut indices = Vec::with_capacity(sides * 4);
+    for i in 0..sides {
+        indices.push([bottom, lower(i + 1), lower(i)]);
+        indices.push([lower(i), lower(i + 1), upper(i + 1)]);
+        indices.push([lower(i), upper(i + 1), upper(i)]);
+        indices.push([upper(i), upper(i + 1), top]);
+    }
+
+    TriangleMesh3d::with_generated_normals_and_uvs(vertices, indices, uvs)
+}
+
+fn ribbon_mesh(points: Vec<Vec3>, width: f32, closed: bool) -> Primitive3d {
+    let points = cleaned_line_points(points, closed);
+    if points.len() < 2 || width <= 0.0 || (closed && points.len() < 3) {
+        return Primitive3d::mesh(Vec::new(), Vec::new());
+    }
+
+    // Build one connected triangle strip with mitered joins. The previous
+    // implementation emitted one independent quad per segment, which made
+    // elbows look broken because adjacent segment triangles did not share a
+    // real joint. Here every path vertex owns exactly one left/right pair,
+    // and neighbouring segments share that pair.
+    let half = width * 0.5;
+    let mut vertices = Vec::with_capacity(points.len() * 2);
+    for i in 0..points.len() {
+        let point = points[i];
+        let previous = if i == 0 {
+            if closed {
+                points[points.len() - 1]
+            } else {
+                points[i]
+            }
+        } else {
+            points[i - 1]
+        };
+        let next = if i + 1 == points.len() {
+            if closed { points[0] } else { points[i] }
+        } else {
+            points[i + 1]
+        };
+
+        let offset = if !closed && i == 0 {
+            mul3(ribbon_segment_side(point, next), half)
+        } else if !closed && i + 1 == points.len() {
+            mul3(ribbon_segment_side(previous, point), half)
+        } else {
+            let prev_side = ribbon_segment_side(previous, point);
+            let next_side = ribbon_segment_side(point, next);
+            let mut miter = add3(prev_side, next_side);
+            if dot3(miter, miter) <= 1.0e-6 {
+                miter = next_side;
+            }
+            let miter = normalize3(miter);
+            let denom = dot3(miter, next_side).abs().max(0.24);
+            mul3(miter, (half / denom).min(half * 3.0))
+        };
+
+        vertices.push(add3(point, offset));
+        vertices.push(sub3(point, offset));
+    }
+
+    let segment_count = if closed {
+        points.len()
+    } else {
+        points.len().saturating_sub(1)
+    };
+    let mut indices = Vec::with_capacity(segment_count * 2);
+    for i in 0..segment_count {
+        let next = (i + 1) % points.len();
+        let left_a = (i * 2) as u32;
+        let right_a = left_a + 1;
+        let left_b = (next * 2) as u32;
+        let right_b = left_b + 1;
+        indices.push([left_a, right_a, right_b]);
+        indices.push([left_a, right_b, left_b]);
+    }
+    Primitive3d::Triangles(TriangleMesh3d::with_generated_normals(vertices, indices))
+}
+
+fn cleaned_line_points(points: Vec<Vec3>, closed: bool) -> Vec<Vec3> {
+    const EPS: f32 = 1.0e-6;
+    let mut cleaned = Vec::with_capacity(points.len());
+    for point in points {
+        let duplicate = cleaned
+            .last()
+            .is_some_and(|last| dot3(sub3(point, *last), sub3(point, *last)) <= EPS);
+        if !duplicate {
+            cleaned.push(point);
+        }
+    }
+    if closed
+        && cleaned.len() > 1
+        && dot3(
+            sub3(cleaned[0], *cleaned.last().expect("checked len")),
+            sub3(cleaned[0], *cleaned.last().expect("checked len")),
+        ) <= EPS
+    {
+        cleaned.pop();
+    }
+    cleaned
+}
+
+fn ribbon_segment_side(a: Vec3, b: Vec3) -> Vec3 {
+    let tangent = normalize3(sub3(b, a));
+    let mut side = cross3(WORLD_UP, tangent);
+    if dot3(side, side) <= 1.0e-6 {
+        side = [1.0, 0.0, 0.0];
+    }
+    normalize3(side)
 }
 
 fn cleaned_polygon_outline(outline: Vec<Vec3>) -> Vec<Vec3> {
@@ -1103,6 +2818,10 @@ pub struct View3d {
     orbit: Orbit3d,
     preview_texture: Option<egui::TextureHandle>,
     gizmo_drag: Option<GizmoDragState>,
+    #[cfg(feature = "gpu-preview")]
+    gpu_callback_id: u64,
+    #[cfg(feature = "gpu-preview")]
+    gpu_target_format: Option<wgpu::TextureFormat>,
 }
 
 impl View3d {
@@ -1114,7 +2833,28 @@ impl View3d {
             orbit: Orbit3d::default(),
             preview_texture: None,
             gizmo_drag: None,
+            #[cfg(feature = "gpu-preview")]
+            gpu_callback_id: next_gpu_callback_id(),
+            #[cfg(feature = "gpu-preview")]
+            gpu_target_format: None,
         }
+    }
+
+    /// Enable GPU triangle fill for hosts backed by `egui-wgpu`.
+    ///
+    /// This only switches the filled mesh triangles to the GPU preview
+    /// painter. Grid, dots, gizmo, camera math, and Mara's technical
+    /// shading remain the same as the CPU preview path.
+    #[cfg(feature = "gpu-preview")]
+    pub fn set_gpu_render_state(&mut self, render_state: Option<&egui_wgpu::RenderState>) {
+        self.gpu_target_format = render_state.map(|state| state.target_format);
+    }
+
+    /// Enable GPU triangle fill when the host already knows the egui-wgpu
+    /// output format.
+    #[cfg(feature = "gpu-preview")]
+    pub const fn set_gpu_target_format(&mut self, format: Option<wgpu::TextureFormat>) {
+        self.gpu_target_format = format;
     }
 
     #[must_use]
@@ -1223,16 +2963,42 @@ impl View3d {
                         rect,
                         &camera,
                         object,
+                        &object.transform,
                         &mesh.vertices,
                         &mesh.indices,
                         &mesh.normals,
+                        &mesh.uvs,
+                        &mesh.vertex_colors,
                     );
+                    for instance in &object.instances {
+                        let transform = combine_transform(&object.transform, instance);
+                        self.collect_mesh_faces(
+                            &mut faces,
+                            rect,
+                            &camera,
+                            object,
+                            &transform,
+                            &mesh.vertices,
+                            &mesh.indices,
+                            &mesh.normals,
+                            &mesh.uvs,
+                            &mesh.vertex_colors,
+                        );
+                    }
                 }
             }
         }
 
         faces.sort_by(|a, b: &PreviewFace| b.depth.total_cmp(&a.depth));
+        #[cfg(feature = "gpu-preview")]
+        if let Some(target_format) = self.gpu_target_format {
+            paint_faces_gpu(&painter, rect, self.gpu_callback_id, target_format, faces);
+        } else {
+            paint_faces_supersampled(ui, &painter, rect, &mut self.preview_texture, faces);
+        }
+        #[cfg(not(feature = "gpu-preview"))]
         paint_faces_supersampled(ui, &painter, rect, &mut self.preview_texture, faces);
+        self.paint_scene_gizmos(&painter, rect, &camera);
         let active_operation = self.gizmo_drag.as_ref().map(|drag| drag.operation);
         let hover_operation = active_operation.or_else(|| {
             response
@@ -1523,7 +3289,7 @@ impl View3d {
         if response.dragged_by(egui::PointerButton::Primary) {
             let delta = ui.input(|input| input.pointer.delta());
             self.orbit.yaw -= delta.x * 0.006;
-            self.orbit.pitch = (self.orbit.pitch + delta.y * 0.006).clamp(0.08, 1.35);
+            self.orbit.pitch = (self.orbit.pitch + delta.y * 0.006).clamp(-1.45, 1.45);
             ui.ctx().request_repaint();
         }
         if response.dragged_by(egui::PointerButton::Middle) {
@@ -1551,12 +3317,119 @@ impl View3d {
 
     fn material_color(&self, material: MaterialId) -> egui::Color32 {
         self.scene
-            .materials
-            .iter()
-            .find(|candidate| candidate.id == material)
+            .material(material)
             .map_or_else(mara_core::style::active_accent, |material| {
                 material.base_color
             })
+    }
+
+    fn paint_scene_gizmos(
+        &self,
+        painter: &egui::Painter,
+        rect: egui::Rect,
+        camera: &PreviewCamera,
+    ) {
+        for gizmo in &self.scene.gizmos {
+            if !gizmo.visible {
+                continue;
+            }
+            self.paint_scene_gizmo(painter, rect, camera, gizmo);
+        }
+    }
+
+    fn paint_scene_gizmo(
+        &self,
+        painter: &egui::Painter,
+        rect: egui::Rect,
+        camera: &PreviewCamera,
+        gizmo: &Gizmo3d,
+    ) {
+        let stroke = egui::Stroke::new(gizmo.style.width.max(0.5), gizmo.style.color);
+        match &gizmo.kind {
+            Gizmo3dKind::Dot { position } => {
+                if let Some((screen, _)) = camera.project(rect, *position) {
+                    painter.circle_filled(screen, gizmo.style.radius.max(1.0), gizmo.style.color);
+                }
+            }
+            Gizmo3dKind::Line { a, b } | Gizmo3dKind::Segment { a, b } => {
+                if let (Some((a, _)), Some((b, _))) =
+                    (camera.project(rect, *a), camera.project(rect, *b))
+                {
+                    painter.line_segment([a, b], stroke);
+                }
+            }
+            Gizmo3dKind::Polyline { points } => {
+                paint_projected_polyline(painter, rect, camera, points, false, stroke);
+            }
+            Gizmo3dKind::Polygon { points, closed } => {
+                paint_projected_polyline(painter, rect, camera, points, *closed, stroke);
+            }
+            Gizmo3dKind::Rectangle { center, size } => {
+                let half = [size[0] * 0.5, size[1] * 0.5];
+                let points = [
+                    [center[0] - half[0], center[1], center[2] - half[1]],
+                    [center[0] + half[0], center[1], center[2] - half[1]],
+                    [center[0] + half[0], center[1], center[2] + half[1]],
+                    [center[0] - half[0], center[1], center[2] + half[1]],
+                ];
+                paint_projected_polyline(painter, rect, camera, &points, true, stroke);
+            }
+            Gizmo3dKind::Circle { center, radius } => {
+                let points = sampled_gizmo_ellipse(
+                    *center,
+                    [*radius, *radius],
+                    64,
+                    0.0,
+                    std::f32::consts::TAU,
+                );
+                paint_projected_polyline(painter, rect, camera, &points, true, stroke);
+            }
+            Gizmo3dKind::Ellipse { center, radii } => {
+                let points = sampled_gizmo_ellipse(*center, *radii, 64, 0.0, std::f32::consts::TAU);
+                paint_projected_polyline(painter, rect, camera, &points, true, stroke);
+            }
+            Gizmo3dKind::Arc {
+                center,
+                radius,
+                start,
+                end,
+            } => {
+                let points = sampled_gizmo_ellipse(*center, [*radius, *radius], 48, *start, *end);
+                paint_projected_polyline(painter, rect, camera, &points, false, stroke);
+            }
+            Gizmo3dKind::Axes { origin, size } => {
+                let x = add3(*origin, [*size, 0.0, 0.0]);
+                let y = add3(*origin, [0.0, *size, 0.0]);
+                let z = add3(*origin, [0.0, 0.0, *size]);
+                paint_gizmo_axis_segment(
+                    painter,
+                    rect,
+                    camera,
+                    *origin,
+                    x,
+                    GizmoAxis::X,
+                    gizmo.style.width,
+                );
+                paint_gizmo_axis_segment(
+                    painter,
+                    rect,
+                    camera,
+                    *origin,
+                    y,
+                    GizmoAxis::Y,
+                    gizmo.style.width,
+                );
+                paint_gizmo_axis_segment(
+                    painter,
+                    rect,
+                    camera,
+                    *origin,
+                    z,
+                    GizmoAxis::Z,
+                    gizmo.style.width,
+                );
+            }
+        }
     }
 
     fn paint_transform_gizmo(
@@ -2250,9 +4123,12 @@ impl View3d {
         rect: egui::Rect,
         camera: &PreviewCamera,
         object: &Object3d,
+        transform: &Transform3d,
         vertices: &[Vec3],
         indices: &[[u32; 3]],
         normals: &[Vec3],
+        uvs: &[[f32; 2]],
+        vertex_colors: &[Color],
     ) {
         if vertices.is_empty() || indices.is_empty() {
             return;
@@ -2261,18 +4137,24 @@ impl View3d {
         let world: Vec<Vec3> = vertices
             .iter()
             .copied()
-            .map(|point| transform_point(&object.transform, point))
+            .map(|point| transform_point(transform, point))
             .collect();
         let world_normals: Vec<Vec3> = if normals.len() == vertices.len() {
             normals
                 .iter()
                 .copied()
-                .map(|normal| transform_normal(&object.transform, normal))
+                .map(|normal| transform_normal(transform, normal))
                 .collect()
         } else {
             Vec::new()
         };
         let base = self.material_color(object.material);
+        let material_texture = self
+            .scene
+            .material(object.material)
+            .and_then(|material| material.albedo_texture)
+            .and_then(|texture| self.scene.texture(texture))
+            .cloned();
 
         for triangle in indices {
             let triangle = triangle.map(|index| index as usize);
@@ -2303,15 +4185,43 @@ impl View3d {
                     depth: depth / 3.0,
                     points: [points[0], points[1], points[2]],
                     depths: [depths[0], depths[1], depths[2]],
+                    uvs: if uvs.len() == world.len() {
+                        Some([uvs[triangle[0]], uvs[triangle[1]], uvs[triangle[2]]])
+                    } else {
+                        None
+                    },
+                    texture: material_texture.clone(),
                     fills: if world_normals.len() == world.len() {
                         [
-                            shade_color(base, world_normals[triangle[0]], camera),
-                            shade_color(base, world_normals[triangle[1]], camera),
-                            shade_color(base, world_normals[triangle[2]], camera),
+                            shade_vertex_color(
+                                base,
+                                vertex_colors,
+                                triangle[0],
+                                world_normals[triangle[0]],
+                                camera,
+                            ),
+                            shade_vertex_color(
+                                base,
+                                vertex_colors,
+                                triangle[1],
+                                world_normals[triangle[1]],
+                                camera,
+                            ),
+                            shade_vertex_color(
+                                base,
+                                vertex_colors,
+                                triangle[2],
+                                world_normals[triangle[2]],
+                                camera,
+                            ),
                         ]
                     } else {
                         let fill = shade_color(base, face_normal_world, camera);
-                        [fill; 3]
+                        [
+                            vertex_color_or_base(fill, vertex_colors, triangle[0]),
+                            vertex_color_or_base(fill, vertex_colors, triangle[1]),
+                            vertex_color_or_base(fill, vertex_colors, triangle[2]),
+                        ]
                     },
                 });
             }
@@ -2435,8 +4345,787 @@ struct PreviewFace {
     depth: f32,
     points: [egui::Pos2; 3],
     depths: [f32; 3],
+    uvs: Option<[[f32; 2]; 3]>,
+    texture: Option<Texture3d>,
     fills: [egui::Color32; 3],
 }
+
+#[cfg(feature = "gpu-preview")]
+#[derive(Clone, Debug)]
+struct GpuPreviewCallback {
+    id: u64,
+    target_format: wgpu::TextureFormat,
+    viewport_points: [f32; 2],
+    vertices: Vec<GpuPreviewVertex>,
+    batches: Vec<GpuPreviewBatch>,
+    textures: Vec<GpuPreviewTextureSource>,
+}
+
+#[cfg(feature = "gpu-preview")]
+#[derive(Clone, Debug)]
+struct GpuPreviewBatch {
+    start: u32,
+    end: u32,
+    texture: Option<TextureId>,
+}
+
+#[cfg(feature = "gpu-preview")]
+#[derive(Clone, Debug)]
+struct GpuPreviewTextureSource {
+    id: TextureId,
+    size: [u32; 2],
+    pixels: Vec<egui::Color32>,
+}
+
+#[cfg(feature = "gpu-preview")]
+#[repr(C)]
+#[derive(Clone, Copy, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+struct GpuPreviewVertex {
+    position: [f32; 3],
+    uv: [f32; 2],
+    color: u32,
+}
+
+#[cfg(feature = "gpu-preview")]
+#[derive(Default)]
+struct GpuPreviewResources {
+    pipeline_format: Option<wgpu::TextureFormat>,
+    mesh_pipeline: Option<wgpu::RenderPipeline>,
+    quad_pipeline: Option<wgpu::RenderPipeline>,
+    bind_group_layout: Option<wgpu::BindGroupLayout>,
+    sampler: Option<wgpu::Sampler>,
+    white_bind_group: Option<wgpu::BindGroup>,
+    textures: std::collections::HashMap<TextureId, GpuPreviewTextureResource>,
+    prepared: std::collections::HashMap<u64, GpuPreparedPreview>,
+}
+
+#[cfg(feature = "gpu-preview")]
+struct GpuPreviewTextureResource {
+    hash: u64,
+    bind_group: wgpu::BindGroup,
+}
+
+#[cfg(feature = "gpu-preview")]
+struct GpuPreparedPreview {
+    vertex_buffer: wgpu::Buffer,
+    vertex_count: u32,
+    batches: Vec<GpuPreviewBatch>,
+    target_bind_group: wgpu::BindGroup,
+    target_size: [u32; 2],
+    #[allow(dead_code)]
+    target_texture: wgpu::Texture,
+    #[allow(dead_code)]
+    target_view: wgpu::TextureView,
+    #[allow(dead_code)]
+    depth_texture: wgpu::Texture,
+}
+
+#[cfg(feature = "gpu-preview")]
+struct GpuPreviewTarget {
+    texture: wgpu::Texture,
+    view: wgpu::TextureView,
+    depth_texture: wgpu::Texture,
+    depth_view: wgpu::TextureView,
+    bind_group: wgpu::BindGroup,
+}
+
+#[cfg(feature = "gpu-preview")]
+impl GpuPreviewCallback {
+    fn from_faces(
+        id: u64,
+        target_format: wgpu::TextureFormat,
+        rect: egui::Rect,
+        faces: Vec<PreviewFace>,
+    ) -> Self {
+        let mut vertices = Vec::with_capacity(faces.len() * 3);
+        let mut batches = Vec::new();
+        let mut textures = std::collections::HashMap::<TextureId, GpuPreviewTextureSource>::new();
+        let mut active_texture = None;
+        let mut active_start = 0_u32;
+
+        for face in faces {
+            let texture_id = face.texture.as_ref().map(|texture| texture.id);
+            if texture_id != active_texture {
+                let current = vertices.len() as u32;
+                if current > active_start {
+                    batches.push(GpuPreviewBatch {
+                        start: active_start,
+                        end: current,
+                        texture: active_texture,
+                    });
+                }
+                active_texture = texture_id;
+                active_start = current;
+            }
+
+            if let Some(texture) = face.texture.as_ref() {
+                textures
+                    .entry(texture.id)
+                    .or_insert_with(|| GpuPreviewTextureSource {
+                        id: texture.id,
+                        size: [texture.size[0].max(1) as u32, texture.size[1].max(1) as u32],
+                        pixels: texture.pixels.clone(),
+                    });
+            }
+
+            for i in 0..3 {
+                let [x, y] = point_to_viewport_ndc(rect, face.points[i]);
+                vertices.push(GpuPreviewVertex {
+                    position: [x, y, gpu_depth(face.depths[i])],
+                    uv: face.uvs.map_or([0.0, 0.0], |uvs| uvs[i]),
+                    color: pack_color32(face.fills[i]),
+                });
+            }
+        }
+
+        let current = vertices.len() as u32;
+        if current > active_start {
+            batches.push(GpuPreviewBatch {
+                start: active_start,
+                end: current,
+                texture: active_texture,
+            });
+        }
+
+        Self {
+            id,
+            target_format,
+            viewport_points: [rect.width().max(1.0), rect.height().max(1.0)],
+            vertices,
+            batches,
+            textures: textures.into_values().collect(),
+        }
+    }
+}
+
+#[cfg(feature = "gpu-preview")]
+impl egui_wgpu::CallbackTrait for GpuPreviewCallback {
+    fn prepare(
+        &self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        screen_descriptor: &egui_wgpu::ScreenDescriptor,
+        egui_encoder: &mut wgpu::CommandEncoder,
+        callback_resources: &mut egui_wgpu::CallbackResources,
+    ) -> Vec<wgpu::CommandBuffer> {
+        let resources = callback_resources
+            .entry::<GpuPreviewResources>()
+            .or_insert_with(GpuPreviewResources::default);
+        resources.ensure_pipeline(device, self.target_format);
+        resources.ensure_white_texture(device, queue);
+        for texture in &self.textures {
+            resources.ensure_texture(device, queue, texture);
+        }
+
+        let vertex_buffer = create_vertex_buffer(
+            device,
+            "mara_3d_gpu_preview_vertices",
+            bytemuck::cast_slice(&self.vertices),
+        );
+        let target_size = gpu_preview_target_size(self.viewport_points, screen_descriptor);
+        let target = create_gpu_preview_target(device, queue, resources, target_size);
+
+        {
+            let mut render_pass = egui_encoder
+                .begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("mara_3d_gpu_preview_offscreen_pass"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &target.view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                            store: wgpu::StoreOp::Store,
+                        },
+                        depth_slice: None,
+                    })],
+                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                        view: &target.depth_view,
+                        depth_ops: Some(wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(1.0),
+                            store: wgpu::StoreOp::Store,
+                        }),
+                        stencil_ops: None,
+                    }),
+                    timestamp_writes: None,
+                    occlusion_query_set: None,
+                })
+                .forget_lifetime();
+
+            let (Some(mesh_pipeline), Some(white_bind_group)) = (
+                resources.mesh_pipeline.as_ref(),
+                resources.white_bind_group.as_ref(),
+            ) else {
+                return Vec::new();
+            };
+            render_pass.set_pipeline(mesh_pipeline);
+            render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
+            for batch in &self.batches {
+                let bind_group = batch
+                    .texture
+                    .and_then(|id| {
+                        resources
+                            .textures
+                            .get(&id)
+                            .map(|texture| &texture.bind_group)
+                    })
+                    .unwrap_or(white_bind_group);
+                render_pass.set_bind_group(0, bind_group, &[]);
+                render_pass.draw(batch.start..batch.end, 0..1);
+            }
+        }
+
+        resources.prepared.insert(
+            self.id,
+            GpuPreparedPreview {
+                vertex_buffer,
+                vertex_count: self.vertices.len() as u32,
+                batches: self.batches.clone(),
+                target_bind_group: target.bind_group,
+                target_size,
+                target_texture: target.texture,
+                target_view: target.view,
+                depth_texture: target.depth_texture,
+            },
+        );
+
+        Vec::new()
+    }
+
+    fn paint(
+        &self,
+        _info: egui::PaintCallbackInfo,
+        render_pass: &mut wgpu::RenderPass<'static>,
+        callback_resources: &egui_wgpu::CallbackResources,
+    ) {
+        let Some(resources) = callback_resources.get::<GpuPreviewResources>() else {
+            return;
+        };
+        let Some(pipeline) = resources.quad_pipeline.as_ref() else {
+            return;
+        };
+        let Some(prepared) = resources.prepared.get(&self.id) else {
+            return;
+        };
+        if prepared.vertex_count == 0 {
+            return;
+        }
+
+        let _keep_alive = (
+            &prepared.vertex_buffer,
+            prepared.vertex_count,
+            &prepared.batches,
+            prepared.target_size,
+        );
+        render_pass.set_pipeline(pipeline);
+        render_pass.set_bind_group(0, &prepared.target_bind_group, &[]);
+        render_pass.draw(0..3, 0..1);
+    }
+}
+
+#[cfg(feature = "gpu-preview")]
+impl GpuPreviewResources {
+    fn ensure_pipeline(&mut self, device: &wgpu::Device, format: wgpu::TextureFormat) {
+        if self.mesh_pipeline.is_some()
+            && self.quad_pipeline.is_some()
+            && self.pipeline_format == Some(format)
+        {
+            return;
+        }
+
+        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("mara_3d_gpu_preview_texture_layout"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+            ],
+        });
+        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("mara_3d_gpu_preview_pipeline_layout"),
+            bind_group_layouts: &[&bind_group_layout],
+            push_constant_ranges: &[],
+        });
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("mara_3d_gpu_preview_shader"),
+            source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(GPU_PREVIEW_WGSL)),
+        });
+        let mesh_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("mara_3d_gpu_preview_mesh_pipeline"),
+            layout: Some(&pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_main"),
+                buffers: &[wgpu::VertexBufferLayout {
+                    array_stride: std::mem::size_of::<GpuPreviewVertex>() as wgpu::BufferAddress,
+                    step_mode: wgpu::VertexStepMode::Vertex,
+                    attributes: &wgpu::vertex_attr_array![
+                        0 => Float32x3,
+                        1 => Float32x2,
+                        2 => Uint32
+                    ],
+                }],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            },
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: None,
+                polygon_mode: wgpu::PolygonMode::Fill,
+                unclipped_depth: false,
+                conservative: false,
+            },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: wgpu::TextureFormat::Depth32Float,
+                depth_write_enabled: true,
+                depth_compare: wgpu::CompareFunction::Less,
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
+            multisample: wgpu::MultisampleState::default(),
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_mesh_gamma"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: wgpu::TextureFormat::Rgba8Unorm,
+                    blend: Some(wgpu::BlendState {
+                        color: wgpu::BlendComponent {
+                            src_factor: wgpu::BlendFactor::One,
+                            dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                            operation: wgpu::BlendOperation::Add,
+                        },
+                        alpha: wgpu::BlendComponent {
+                            src_factor: wgpu::BlendFactor::OneMinusDstAlpha,
+                            dst_factor: wgpu::BlendFactor::One,
+                            operation: wgpu::BlendOperation::Add,
+                        },
+                    }),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            }),
+            multiview: None,
+            cache: None,
+        });
+        let quad_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("mara_3d_gpu_preview_quad_pipeline"),
+            layout: Some(&pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_quad"),
+                buffers: &[],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            },
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: None,
+                polygon_mode: wgpu::PolygonMode::Fill,
+                unclipped_depth: false,
+                conservative: false,
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some(if format.is_srgb() {
+                    "fs_quad_linear_framebuffer"
+                } else {
+                    "fs_quad_gamma_framebuffer"
+                }),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format,
+                    blend: Some(wgpu::BlendState {
+                        color: wgpu::BlendComponent {
+                            src_factor: wgpu::BlendFactor::One,
+                            dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                            operation: wgpu::BlendOperation::Add,
+                        },
+                        alpha: wgpu::BlendComponent {
+                            src_factor: wgpu::BlendFactor::OneMinusDstAlpha,
+                            dst_factor: wgpu::BlendFactor::One,
+                            operation: wgpu::BlendOperation::Add,
+                        },
+                    }),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            }),
+            multiview: None,
+            cache: None,
+        });
+
+        self.pipeline_format = Some(format);
+        self.mesh_pipeline = Some(mesh_pipeline);
+        self.quad_pipeline = Some(quad_pipeline);
+        self.bind_group_layout = Some(bind_group_layout);
+        self.sampler = Some(device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("mara_3d_gpu_preview_sampler"),
+            address_mode_u: wgpu::AddressMode::Repeat,
+            address_mode_v: wgpu::AddressMode::Repeat,
+            address_mode_w: wgpu::AddressMode::Repeat,
+            mag_filter: wgpu::FilterMode::Nearest,
+            min_filter: wgpu::FilterMode::Nearest,
+            mipmap_filter: wgpu::FilterMode::Nearest,
+            ..Default::default()
+        }));
+        self.white_bind_group = None;
+        self.textures.clear();
+    }
+
+    fn ensure_white_texture(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) {
+        if self.white_bind_group.is_some() {
+            return;
+        }
+        let source = GpuPreviewTextureSource {
+            id: TextureId(0),
+            size: [1, 1],
+            pixels: vec![egui::Color32::WHITE],
+        };
+        self.white_bind_group = Some(create_texture_bind_group(device, queue, self, &source));
+    }
+
+    fn ensure_texture(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        source: &GpuPreviewTextureSource,
+    ) {
+        let hash = texture_source_hash(source);
+        if self
+            .textures
+            .get(&source.id)
+            .is_some_and(|texture| texture.hash == hash)
+        {
+            return;
+        }
+        let bind_group = create_texture_bind_group(device, queue, self, source);
+        self.textures
+            .insert(source.id, GpuPreviewTextureResource { hash, bind_group });
+    }
+}
+
+#[cfg(feature = "gpu-preview")]
+fn create_vertex_buffer(device: &wgpu::Device, label: &str, bytes: &[u8]) -> wgpu::Buffer {
+    let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some(label),
+        size: bytes.len().max(4) as wgpu::BufferAddress,
+        usage: wgpu::BufferUsages::VERTEX,
+        mapped_at_creation: true,
+    });
+    {
+        let mut mapped = buffer.slice(..).get_mapped_range_mut();
+        mapped[..bytes.len()].copy_from_slice(bytes);
+    }
+    buffer.unmap();
+    buffer
+}
+
+#[cfg(feature = "gpu-preview")]
+fn create_texture_bind_group(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    resources: &GpuPreviewResources,
+    source: &GpuPreviewTextureSource,
+) -> wgpu::BindGroup {
+    let size = wgpu::Extent3d {
+        width: source.size[0].max(1),
+        height: source.size[1].max(1),
+        depth_or_array_layers: 1,
+    };
+    let texture = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("mara_3d_gpu_preview_texture"),
+        size,
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8Unorm,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        view_formats: &[],
+    });
+    let bytes = texture_pixels_as_bytes(&source.pixels, size.width as usize, size.height as usize);
+    queue.write_texture(
+        wgpu::TexelCopyTextureInfo {
+            texture: &texture,
+            mip_level: 0,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        },
+        &bytes,
+        wgpu::TexelCopyBufferLayout {
+            offset: 0,
+            bytes_per_row: Some(4 * size.width),
+            rows_per_image: Some(size.height),
+        },
+        size,
+    );
+    let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+    device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("mara_3d_gpu_preview_texture_bind_group"),
+        layout: resources
+            .bind_group_layout
+            .as_ref()
+            .expect("pipeline creates bind group layout before textures"),
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::Sampler(
+                    resources
+                        .sampler
+                        .as_ref()
+                        .expect("pipeline creates sampler before textures"),
+                ),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: wgpu::BindingResource::TextureView(&view),
+            },
+        ],
+    })
+}
+
+#[cfg(feature = "gpu-preview")]
+fn create_gpu_preview_target(
+    device: &wgpu::Device,
+    _queue: &wgpu::Queue,
+    resources: &GpuPreviewResources,
+    size: [u32; 2],
+) -> GpuPreviewTarget {
+    let extent = wgpu::Extent3d {
+        width: size[0].max(1),
+        height: size[1].max(1),
+        depth_or_array_layers: 1,
+    };
+    let texture = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("mara_3d_gpu_preview_target"),
+        size: extent,
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8Unorm,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+        view_formats: &[],
+    });
+    let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+    let depth_texture = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("mara_3d_gpu_preview_depth"),
+        size: extent,
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Depth32Float,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+        view_formats: &[],
+    });
+    let depth_view = depth_texture.create_view(&wgpu::TextureViewDescriptor::default());
+    let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("mara_3d_gpu_preview_target_bind_group"),
+        layout: resources
+            .bind_group_layout
+            .as_ref()
+            .expect("pipeline creates bind group layout before targets"),
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::Sampler(
+                    resources
+                        .sampler
+                        .as_ref()
+                        .expect("pipeline creates sampler before targets"),
+                ),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: wgpu::BindingResource::TextureView(&view),
+            },
+        ],
+    });
+    GpuPreviewTarget {
+        texture,
+        view,
+        depth_texture,
+        depth_view,
+        bind_group,
+    }
+}
+
+#[cfg(feature = "gpu-preview")]
+fn gpu_preview_target_size(
+    viewport_points: [f32; 2],
+    screen_descriptor: &egui_wgpu::ScreenDescriptor,
+) -> [u32; 2] {
+    let low_width = (viewport_points[0] * screen_descriptor.pixels_per_point)
+        .round()
+        .max(1.0) as usize;
+    let low_height = (viewport_points[1] * screen_descriptor.pixels_per_point)
+        .round()
+        .max(1.0) as usize;
+    let scale = OBJECT_SSAA_SCALE
+        .min((OBJECT_SSAA_MAX_DIMENSION / low_width.max(low_height)).max(1))
+        .max(1);
+    [(low_width * scale) as u32, (low_height * scale) as u32]
+}
+
+#[cfg(feature = "gpu-preview")]
+fn texture_pixels_as_bytes(pixels: &[egui::Color32], width: usize, height: usize) -> Vec<u8> {
+    let mut bytes = vec![255_u8; width * height * 4];
+    for (i, pixel) in pixels.iter().take(width * height).enumerate() {
+        let offset = i * 4;
+        bytes[offset] = pixel.r();
+        bytes[offset + 1] = pixel.g();
+        bytes[offset + 2] = pixel.b();
+        bytes[offset + 3] = pixel.a();
+    }
+    bytes
+}
+
+#[cfg(feature = "gpu-preview")]
+fn texture_source_hash(source: &GpuPreviewTextureSource) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    source.id.hash(&mut hasher);
+    source.size.hash(&mut hasher);
+    for pixel in &source.pixels {
+        pixel.to_array().hash(&mut hasher);
+    }
+    hasher.finish()
+}
+
+#[cfg(feature = "gpu-preview")]
+fn point_to_viewport_ndc(rect: egui::Rect, point: egui::Pos2) -> [f32; 2] {
+    [
+        ((point.x - rect.left()) / rect.width().max(1.0)) * 2.0 - 1.0,
+        1.0 - ((point.y - rect.top()) / rect.height().max(1.0)) * 2.0,
+    ]
+}
+
+#[cfg(feature = "gpu-preview")]
+fn gpu_depth(depth: f32) -> f32 {
+    (depth / 10_000.0).clamp(0.0, 1.0)
+}
+
+#[cfg(feature = "gpu-preview")]
+fn pack_color32(color: egui::Color32) -> u32 {
+    u32::from(color.r())
+        | (u32::from(color.g()) << 8)
+        | (u32::from(color.b()) << 16)
+        | (u32::from(color.a()) << 24)
+}
+
+#[cfg(feature = "gpu-preview")]
+fn next_gpu_callback_id() -> u64 {
+    static NEXT_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    NEXT_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+}
+
+#[cfg(feature = "gpu-preview")]
+const GPU_PREVIEW_WGSL: &str = r#"
+struct VertexOut {
+    @location(0) uv: vec2<f32>,
+    @location(1) color: vec4<f32>,
+    @builtin(position) position: vec4<f32>,
+};
+
+struct QuadOut {
+    @location(0) uv: vec2<f32>,
+    @builtin(position) position: vec4<f32>,
+};
+
+fn linear_from_gamma_rgb(srgb: vec3<f32>) -> vec3<f32> {
+    let cutoff = srgb < vec3<f32>(0.04045);
+    let lower = srgb / vec3<f32>(12.92);
+    let higher = pow((srgb + vec3<f32>(0.055)) / vec3<f32>(1.055), vec3<f32>(2.4));
+    return select(higher, lower, cutoff);
+}
+
+fn unpack_color(color: u32) -> vec4<f32> {
+    return vec4<f32>(
+        f32(color & 255u),
+        f32((color >> 8u) & 255u),
+        f32((color >> 16u) & 255u),
+        f32((color >> 24u) & 255u),
+    ) / 255.0;
+}
+
+@vertex
+fn vs_main(
+    @location(0) position: vec3<f32>,
+    @location(1) uv: vec2<f32>,
+    @location(2) color: u32,
+) -> VertexOut {
+    var out: VertexOut;
+    out.position = vec4<f32>(position, 1.0);
+    out.uv = uv;
+    out.color = unpack_color(color);
+    return out;
+}
+
+@vertex
+fn vs_quad(@builtin(vertex_index) vertex_index: u32) -> QuadOut {
+    var positions = array<vec2<f32>, 3>(
+        vec2<f32>(-1.0, -3.0),
+        vec2<f32>(-1.0, 1.0),
+        vec2<f32>(3.0, 1.0),
+    );
+    var uvs = array<vec2<f32>, 3>(
+        vec2<f32>(0.0, 2.0),
+        vec2<f32>(0.0, 0.0),
+        vec2<f32>(2.0, 0.0),
+    );
+    var out: QuadOut;
+    out.position = vec4<f32>(positions[vertex_index], 0.0, 1.0);
+    out.uv = uvs[vertex_index];
+    return out;
+}
+
+@group(0) @binding(0) var r_sampler: sampler;
+@group(0) @binding(1) var r_texture: texture_2d<f32>;
+
+fn preview_color(in: VertexOut) -> vec4<f32> {
+    return in.color * textureSample(r_texture, r_sampler, in.uv);
+}
+
+@fragment
+fn fs_mesh_gamma(in: VertexOut) -> @location(0) vec4<f32> {
+    return preview_color(in);
+}
+
+@fragment
+fn fs_quad_linear_framebuffer(in: QuadOut) -> @location(0) vec4<f32> {
+    let color = textureSample(r_texture, r_sampler, in.uv);
+    return vec4<f32>(linear_from_gamma_rgb(color.rgb), color.a);
+}
+
+@fragment
+fn fs_quad_gamma_framebuffer(in: QuadOut) -> @location(0) vec4<f32> {
+    return textureSample(r_texture, r_sampler, in.uv);
+}
+
+@fragment
+fn fs_main_linear_framebuffer(in: VertexOut) -> @location(0) vec4<f32> {
+    let color = preview_color(in);
+    return vec4<f32>(linear_from_gamma_rgb(color.rgb), color.a);
+}
+
+@fragment
+fn fs_main_gamma_framebuffer(in: VertexOut) -> @location(0) vec4<f32> {
+    return preview_color(in);
+}
+"#;
 
 fn paint_faces_supersampled(
     ui: &egui::Ui,
@@ -2487,6 +5176,21 @@ fn paint_faces_supersampled(
             egui::Color32::WHITE,
         );
     }
+}
+
+#[cfg(feature = "gpu-preview")]
+fn paint_faces_gpu(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    callback_id: u64,
+    target_format: wgpu::TextureFormat,
+    faces: Vec<PreviewFace>,
+) {
+    if faces.is_empty() {
+        return;
+    }
+    let callback = GpuPreviewCallback::from_faces(callback_id, target_format, rect, faces);
+    painter.add(egui_wgpu::Callback::new_paint_callback(rect, callback));
 }
 
 fn rasterize_face(
@@ -2559,7 +5263,16 @@ fn rasterize_face(
                 continue;
             }
             depth[index] = z;
-            pixels[index] = interpolate_color(face.fills, [b0, b1, b2]);
+            let shaded = interpolate_color(face.fills, [b0, b1, b2]);
+            pixels[index] = if let (Some(uvs), Some(texture)) = (face.uvs, face.texture.as_ref()) {
+                let uv = [
+                    uvs[0][0] * b0 + uvs[1][0] * b1 + uvs[2][0] * b2,
+                    uvs[0][1] * b0 + uvs[1][1] * b1 + uvs[2][1] * b2,
+                ];
+                multiply_color(shaded, texture.sample(uv))
+            } else {
+                shaded
+            };
         }
     }
 }
@@ -2581,6 +5294,15 @@ fn interpolate_color(colors: [egui::Color32; 3], weights: [f32; 3]) -> egui::Col
         channel([colors[0].g(), colors[1].g(), colors[2].g()]),
         channel([colors[0].b(), colors[1].b(), colors[2].b()]),
         channel([colors[0].a(), colors[1].a(), colors[2].a()]),
+    )
+}
+
+fn multiply_color(a: egui::Color32, b: egui::Color32) -> egui::Color32 {
+    egui::Color32::from_rgba_unmultiplied(
+        ((a.r() as u16 * b.r() as u16) / 255) as u8,
+        ((a.g() as u16 * b.g() as u16) / 255) as u8,
+        ((a.b() as u16 * b.b() as u16) / 255) as u8,
+        ((a.a() as u16 * b.a() as u16) / 255) as u8,
     )
 }
 
@@ -2687,6 +5409,68 @@ fn point_in_screen_polygon(point: egui::Pos2, polygon: &[egui::Pos2]) -> bool {
     inside
 }
 
+fn paint_projected_polyline(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    camera: &PreviewCamera,
+    points: &[Vec3],
+    closed: bool,
+    stroke: egui::Stroke,
+) {
+    if points.len() < 2 {
+        return;
+    }
+    let mut projected = Vec::with_capacity(points.len() + usize::from(closed));
+    for point in points {
+        if let Some((screen, _)) = camera.project(rect, *point) {
+            projected.push(screen);
+        }
+    }
+    if closed && projected.len() > 2 {
+        projected.push(projected[0]);
+    }
+    if projected.len() >= 2 {
+        painter.add(egui::Shape::line(projected, stroke));
+    }
+}
+
+fn sampled_gizmo_ellipse(
+    center: Vec3,
+    radii: [f32; 2],
+    segments: usize,
+    start: f32,
+    end: f32,
+) -> Vec<Vec3> {
+    let segments = segments.max(3);
+    (0..=segments)
+        .map(|i| {
+            let t = i as f32 / segments as f32;
+            let angle = start + (end - start) * t;
+            [
+                center[0] + radii[0] * angle.cos(),
+                center[1],
+                center[2] + radii[1] * angle.sin(),
+            ]
+        })
+        .collect()
+}
+
+fn paint_gizmo_axis_segment(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    camera: &PreviewCamera,
+    a: Vec3,
+    b: Vec3,
+    axis: GizmoAxis,
+    width: f32,
+) {
+    if let (Some((a, _)), Some((b, _))) = (camera.project(rect, a), camera.project(rect, b)) {
+        let color = gizmo_axis_color(axis, 1.0, true);
+        painter.line_segment([a, b], egui::Stroke::new(width.max(1.0), color));
+        paint_gizmo_arrow_head(painter, a, b, color, width.max(1.0));
+    }
+}
+
 fn pointer_angle(origin: egui::Pos2, pointer: egui::Pos2) -> f32 {
     let delta = pointer - origin;
     delta.y.atan2(delta.x)
@@ -2762,6 +5546,18 @@ fn transform_point(transform: &Transform3d, point: Vec3) -> Vec3 {
         transform.translation,
         rotate3_by_quat(scaled, transform.rotation_xyzw),
     )
+}
+
+fn combine_transform(parent: &Transform3d, child: &Transform3d) -> Transform3d {
+    Transform3d {
+        translation: transform_point(parent, child.translation),
+        rotation_xyzw: quat_mul(parent.rotation_xyzw, child.rotation_xyzw),
+        scale: [
+            parent.scale[0] * child.scale[0],
+            parent.scale[1] * child.scale[1],
+            parent.scale[2] * child.scale[2],
+        ],
+    }
 }
 
 fn transform_normal(transform: &Transform3d, normal: Vec3) -> Vec3 {
@@ -2947,6 +5743,31 @@ fn shade_color(base: egui::Color32, normal: Vec3, camera: &PreviewCamera) -> egu
         egui::Color32::WHITE,
         (specular + rim * 0.55).clamp(0.0, 0.22),
     )
+}
+
+fn shade_vertex_color(
+    base: egui::Color32,
+    vertex_colors: &[egui::Color32],
+    index: usize,
+    normal: Vec3,
+    camera: &PreviewCamera,
+) -> egui::Color32 {
+    let base = vertex_colors
+        .get(index)
+        .copied()
+        .map_or(base, |vertex| multiply_color(base, vertex));
+    shade_color(base, normal, camera)
+}
+
+fn vertex_color_or_base(
+    shaded_base: egui::Color32,
+    vertex_colors: &[egui::Color32],
+    index: usize,
+) -> egui::Color32 {
+    vertex_colors
+        .get(index)
+        .copied()
+        .map_or(shaded_base, |vertex| multiply_color(shaded_base, vertex))
 }
 
 fn shade_scalar(base: egui::Color32, value: f32) -> egui::Color32 {
@@ -3167,7 +5988,8 @@ fn tint_color(a: egui::Color32, b: egui::Color32, amount: f32) -> egui::Color32 
 
 pub mod prelude {
     pub use crate::{
-        Camera3d, Color, Light3d, LightId, Material3d, MaterialId, Object3d, ObjectId, Orbit3d,
-        Primitive3d, Renderer3d, Scene3d, Transform3d, Vec3, View3d, Viewport3d,
+        Camera3d, Color, Gizmo3d, Gizmo3dKind, Gizmo3dStyle, GizmoId, Light3d, LightId, Material3d,
+        MaterialId, Object3d, ObjectId, Orbit3d, Primitive3d, Renderer3d, Scene3d, Texture3d,
+        TextureId, Transform3d, Vec3, View3d, Viewport3d,
     };
 }

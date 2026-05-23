@@ -66,64 +66,9 @@ pub(crate) fn paint_vector_basemap(
     let palette = MapPalette::current();
     ui.painter().rect_filled(rect, 0.0, palette.background);
 
-    let z = viewport.zoom.floor().clamp(0.0, MAX_SOURCE_ZOOM) as u8;
-    let zf = f64::from(z);
-    let scale = 2.0_f64.powf(viewport.zoom - zf);
-    let center_world = geo_to_world(viewport.center, zf);
-    let top_left_world = (
-        center_world.0 - f64::from(rect.width()) / (2.0 * scale),
-        center_world.1 - f64::from(rect.height()) / (2.0 * scale),
-    );
-    let bottom_right_world = (
-        center_world.0 + f64::from(rect.width()) / (2.0 * scale),
-        center_world.1 + f64::from(rect.height()) / (2.0 * scale),
-    );
-    let min_x = (top_left_world.0 / TILE_SIZE).floor() as i64;
-    let max_x = (bottom_right_world.0 / TILE_SIZE).ceil() as i64;
-    let min_y = (top_left_world.1 / TILE_SIZE).floor() as i64;
-    let max_y = (bottom_right_world.1 / TILE_SIZE).ceil() as i64;
-    let tile_count = 1_i64 << u32::from(z);
+    let visible_tiles = visible_tile_keys(viewport, rect.size());
 
-    let center_tile_x = center_world.0 / TILE_SIZE;
-    let center_tile_y = center_world.1 / TILE_SIZE;
-    let mut visible_tiles = Vec::new();
-    for y in min_y..=max_y {
-        if !(0..tile_count).contains(&y) {
-            continue;
-        }
-        for x in min_x..=max_x {
-            let wrapped_x = x.rem_euclid(tile_count);
-            let key = TileKey {
-                z,
-                x: wrapped_x as u32,
-                y: y as u32,
-            };
-            visible_tiles.push(key);
-        }
-    }
-    visible_tiles.sort_by(|a, b| {
-        let ax = f64::from(a.x) + 0.5 - center_tile_x;
-        let ay = f64::from(a.y) + 0.5 - center_tile_y;
-        let bx = f64::from(b.x) + 0.5 - center_tile_x;
-        let by = f64::from(b.y) + 0.5 - center_tile_y;
-        (ax * ax + ay * ay).total_cmp(&(bx * bx + by * by))
-    });
-
-    let mut has_loading = cache.has_pending_decode();
-    let mut started_requests = 0;
-    for key in &visible_tiles {
-        if cache.is_missing(*key) {
-            if started_requests < MAX_TILE_REQUESTS_PER_PAINT {
-                started_requests += usize::from(cache.request(*key));
-            } else {
-                has_loading = true;
-                continue;
-            }
-        }
-        if matches!(cache.tiles.get(key), Some(TileEntry::Loading) | None) {
-            has_loading = true;
-        }
-    }
+    let has_loading = request_visible_tiles(cache, &visible_tiles);
 
     let painter = ui.painter();
     let mut labels = LabelState::default();
@@ -159,6 +104,88 @@ pub(crate) fn paint_vector_basemap(
     if fast_mode {
         ui.ctx().request_repaint_after(Duration::from_millis(80));
     }
+}
+
+pub(crate) fn prewarm_vector_basemap(
+    ctx: &egui::Context,
+    viewport: MapViewport,
+    size: egui::Vec2,
+    cache: &mut VectorTileCache,
+) {
+    let cache_changed = cache.poll_finished();
+    let visible_tiles = visible_tile_keys(viewport, size);
+    let has_loading = request_visible_tiles(cache, &visible_tiles);
+    if cache_changed {
+        ctx.request_repaint();
+    }
+    if has_loading || cache.has_pending_decode() {
+        ctx.request_repaint_after(Duration::from_millis(40));
+    }
+}
+
+fn visible_tile_keys(viewport: MapViewport, size: egui::Vec2) -> Vec<TileKey> {
+    let z = viewport.zoom.floor().clamp(0.0, MAX_SOURCE_ZOOM) as u8;
+    let zf = f64::from(z);
+    let scale = 2.0_f64.powf(viewport.zoom - zf);
+    let center_world = geo_to_world(viewport.center, zf);
+    let top_left_world = (
+        center_world.0 - f64::from(size.x) / (2.0 * scale),
+        center_world.1 - f64::from(size.y) / (2.0 * scale),
+    );
+    let bottom_right_world = (
+        center_world.0 + f64::from(size.x) / (2.0 * scale),
+        center_world.1 + f64::from(size.y) / (2.0 * scale),
+    );
+    let min_x = (top_left_world.0 / TILE_SIZE).floor() as i64;
+    let max_x = (bottom_right_world.0 / TILE_SIZE).ceil() as i64;
+    let min_y = (top_left_world.1 / TILE_SIZE).floor() as i64;
+    let max_y = (bottom_right_world.1 / TILE_SIZE).ceil() as i64;
+    let tile_count = 1_i64 << u32::from(z);
+
+    let center_tile_x = center_world.0 / TILE_SIZE;
+    let center_tile_y = center_world.1 / TILE_SIZE;
+    let mut visible_tiles = Vec::new();
+    for y in min_y..=max_y {
+        if !(0..tile_count).contains(&y) {
+            continue;
+        }
+        for x in min_x..=max_x {
+            let wrapped_x = x.rem_euclid(tile_count);
+            let key = TileKey {
+                z,
+                x: wrapped_x as u32,
+                y: y as u32,
+            };
+            visible_tiles.push(key);
+        }
+    }
+    visible_tiles.sort_by(|a, b| {
+        let ax = f64::from(a.x) + 0.5 - center_tile_x;
+        let ay = f64::from(a.y) + 0.5 - center_tile_y;
+        let bx = f64::from(b.x) + 0.5 - center_tile_x;
+        let by = f64::from(b.y) + 0.5 - center_tile_y;
+        (ax * ax + ay * ay).total_cmp(&(bx * bx + by * by))
+    });
+    visible_tiles
+}
+
+fn request_visible_tiles(cache: &mut VectorTileCache, visible_tiles: &[TileKey]) -> bool {
+    let mut has_loading = cache.has_pending_decode();
+    let mut started_requests = 0;
+    for key in visible_tiles {
+        if cache.is_missing(*key) {
+            if started_requests < MAX_TILE_REQUESTS_PER_PAINT {
+                started_requests += usize::from(cache.request(*key));
+            } else {
+                has_loading = true;
+                continue;
+            }
+        }
+        if matches!(cache.tiles.get(key), Some(TileEntry::Loading) | None) {
+            has_loading = true;
+        }
+    }
+    has_loading
 }
 
 impl VectorTileCache {

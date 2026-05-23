@@ -14,6 +14,9 @@ Per-crate acknowledgements:
   — vendored `egui-snarl` used by `mara_graph`.
 - [`crates/modules/code/ACKNOWLEDGEMENTS.md`](crates/modules/code/ACKNOWLEDGEMENTS.md)
   — vendored `egui_code_editor` used by `mara_code`.
+- [`example/assets/stanford-bunny.obj`](example/assets/stanford-bunny.obj)
+  and [`example/assets/stanford-dragon.obj`](example/assets/stanford-dragon.obj)
+  — Stanford Bunny and Dragon OBJ meshes used only by the root demo's OBJ loader.
 
 ---
 
@@ -53,6 +56,20 @@ under the **SIL Open Font License 1.1**.
 - Upstream: <https://github.com/be5invis/Iosevka>
 - License: SIL Open Font License 1.1
 - Loaded by: `style.rs::install_fonts` via `include_bytes!`.
+
+---
+
+## `example/assets/stanford-bunny.obj` and `example/assets/stanford-dragon.obj`
+
+The root example includes the Stanford Bunny and Stanford Dragon
+meshes as demo-only imported OBJ assets.
+
+- Upstream OBJ mirrors:
+  - <https://github.com/alecjacobson/common-3d-test-models/blob/master/data/stanford-bunny.obj>
+  - <https://github.com/alecjacobson/common-3d-test-models/blob/master/data/xyzrgb_dragon.obj>
+- Original source:
+  <https://graphics.stanford.edu/data/3Dscanrep/>
+- Loaded by: `example/src/app.rs::add_demo_obj_model`.
 
 ---
 
