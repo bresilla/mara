@@ -876,322 +876,350 @@ fn render_shelf_body(input: ShelfBodyInput<'_, '_, '_, '_>) {
     // Zero item spacing so the ghost gap sits flush against
     // neighbouring containers (matches `Pane::lay_out_flex`).
     viewport.spacing_mut().item_spacing = egui::vec2(0.0, 0.0);
-
-    pane::begin_drag_frame(viewport.ctx(), pane_id);
-    pane::clear_container_dot_rects(viewport.ctx(), pane_id);
-    clear_external_container_gap(viewport.ctx(), pane_id);
-    let pre_body_drag = pane::drag_state(viewport.ctx(), pane_id);
-    if let (Some(item), Some(pos)) = (pre_body_drag.item, viewport.ctx().pointer_interact_pos()) {
-        pane::set_drag(
-            viewport.ctx(),
-            pane_id,
-            pane::DragState {
-                item: Some(item),
-                cursor: Some(pos),
-            },
-        );
-    }
-    pane::tab_drag::begin_frame(viewport.ctx(), pane_id);
-
-    let screen_shelf_rect = shelf_rect.translate(screen_offset);
-    let pointer_cursor = viewport
-        .ctx()
-        .pointer_interact_pos()
-        .or_else(|| viewport.ctx().pointer_latest_pos());
-    let suppress_source_container_gap = should_suppress_source_container_gap(
-        pre_body_drag,
-        state.container_move,
-        pane_id,
-        shelf.edge,
-        screen_shelf_rect,
-        layout,
-        pointer_cursor,
-    );
-    pane::set_ghost_gap_suppressed(viewport.ctx(), pane_id, suppress_source_container_gap);
-    let external_container_gap = should_render_external_container_gap(
-        pre_body_drag,
-        state.container_move,
-        shelf.edge,
-        screen_shelf_rect,
-        pointer_cursor,
-    )
-    .then_some(())
-    .and(state.container_move);
-    let saved_target_snapshot = if let Some(drag) = external_container_gap {
-        let mut synthetic_snapshot = pane::snapshot(viewport.ctx(), pane_id);
-        synthetic_snapshot.retain(|entry| entry.id != drag.container_id);
-        let size = container_move_ghost_size_for_edge(
-            viewport.ctx(),
-            drag.container_id,
-            shelf.edge,
-            content_rect,
-        );
-        synthetic_snapshot.push(pane::RectEntry {
-            id: drag.container_id,
-            rect: Rect::from_min_size(content_rect.min, size),
-            frame: None,
-        });
-        pane::set_snapshot(viewport.ctx(), pane_id, synthetic_snapshot);
-        pane::set_drag(
-            viewport.ctx(),
-            pane_id,
-            pane::DragState {
-                item: Some(drag.container_id),
-                cursor: Some(pointer_cursor.unwrap_or(drag.cursor)),
-            },
-        );
-        mark_external_container_gap(viewport.ctx(), pane_id);
-        Some(pre_body_drag)
+    let scroll_area = if horizontal_stack {
+        egui::ScrollArea::horizontal().max_width(content_rect.width().max(0.0))
     } else {
-        None
-    };
-    if saved_target_snapshot.is_none()
-        && let Some(dragged_id) = pre_body_drag.item
-    {
-        reanchor_source_shelf_snapshot(
-            viewport.ctx(),
-            pane_id,
-            dragged_id,
-            shelf.edge,
-            content_rect,
-        );
+        egui::ScrollArea::vertical().max_height(content_rect.height().max(0.0))
     }
-
-    let active_key = shelf_active_container_key(&shelf);
-    let specs: Vec<_> = shelf
-        .containers
-        .into_iter()
-        .map(|container| container.spec)
-        .collect();
-    let declared_order: Vec<Id> = specs.iter().map(|spec| spec.container_id()).collect();
-    let responses = crate::pane::render_containers_with_tab_scope(
+    .id_salt(pane_id.with("mara_shelf_body_scroll"))
+    .auto_shrink([false, false]);
+    crate::scroll::show_sticky_scroll_area(
         &mut viewport,
-        pane_id,
-        tab_routing_id,
-        anchor,
-        shelf.accent,
-        specs,
-        tab_scope,
-        Some(shelf.edge.container_tab_strip_side()),
-    );
-
-    let effective_active = resolve_visible_active_container(
-        viewport.ctx(),
-        pane_id,
-        state.active_container_for_group(active_key),
-        &declared_order,
-        |id| responses.contains_key(&id),
-    );
-    if let Some(container_id) = effective_active {
-        state.set_active_container_for_group(active_key, container_id);
-    }
-    if let Some(container_id) = effective_active {
-        state.set_active_container(shelf.id, container_id);
-    } else {
-        state.clear_active_container(shelf.id);
-        state.clear_active_container_for_group(active_key);
-    }
-
-    // ── Trailing ghost gap ──
-    //
-    // Same logic as `Pane::lay_out_flex`: when the cursor's slot is
-    // past the last rendered container, paint the gap inline at the
-    // end of the viewport so the trailing drop position is visible.
-    let drag_state = pane::drag_state(viewport.ctx(), pane_id);
-    if let Some(dragged_id) = drag_state.item
-        && !pane::ghost_gap_suppressed(viewport.ctx(), pane_id)
-    {
-        let snap = pane::target_cache(viewport.ctx(), pane_id);
-        let total = pane::current_cache(viewport.ctx(), pane_id).len();
-        let cursor = viewport.ctx().pointer_interact_pos().or(drag_state.cursor);
-        if let Some(c) = cursor {
-            let cursor_axis = if horizontal_stack { c.x } else { c.y };
-            let target_idx = pane::compute_target(&snap, dragged_id, cursor_axis, horizontal_stack);
-            if target_idx >= total
-                && let Some(entry) = pane::dragged_entry(&snap, dragged_id)
-            {
-                let entry = source_shelf_gap_entry(
-                    viewport.ctx(),
-                    dragged_id,
-                    shelf.edge,
-                    content_rect,
-                    entry,
-                );
-                pane::paint_ghost_gap_entry_inline(
-                    &mut viewport,
-                    entry,
-                    shelf.accent,
-                    horizontal_stack,
-                );
-            }
-        }
-    }
-
-    pane::finalize_snapshot(viewport.ctx(), pane_id);
-    publish_shelf_pane_info(
-        viewport.ctx(),
-        ShelfPaneInfo {
-            shelf_id: shelf.id,
-            pane_id,
-            edge: shelf.edge,
-            horizontal_stack,
-            content_rect,
-            screen_rect: shelf_rect.translate(screen_offset),
-            screen_offset,
-            accent: shelf.accent,
-        },
-    );
-    update_container_move_target_slot(
-        &mut viewport,
-        shelf.id,
-        pane_id,
-        shelf.edge,
-        horizontal_stack,
-        content_rect,
-        state,
-    );
-
-    let external_gap_drag = saved_target_snapshot.is_some();
-    if let Some(saved_drag) = saved_target_snapshot {
-        if saved_drag.item.is_some() {
-            pane::set_drag(viewport.ctx(), pane_id, saved_drag);
+        if horizontal_stack {
+            crate::scroll::StickyScrollAxis::Horizontal
         } else {
-            pane::clear_drag(viewport.ctx(), pane_id);
-        }
-    }
-    if external_gap_drag {
-        return;
-    }
+            crate::scroll::StickyScrollAxis::Vertical
+        },
+        scroll_area,
+        |mut viewport| {
+            // The ScrollArea content Ui gets its own spacing copy; keep
+            // the exact pane container stacking invariant inside it too.
+            viewport.spacing_mut().item_spacing = egui::vec2(0.0, 0.0);
 
-    if let Some(dragged_id) = drag_state.item {
-        let snap = pane::target_cache(viewport.ctx(), pane_id);
-        let cursor = viewport.ctx().pointer_interact_pos().or(drag_state.cursor);
-        if let Some(c) = cursor {
-            if let Some(entry) = pane::dragged_entry(&snap, dragged_id) {
-                let screen_shelf_rect = shelf_rect.translate(screen_offset);
-                let target_edge =
-                    container_move_target_for_cursor(c, screen_shelf_rect, layout, shelf.edge);
-                let target_size = target_edge
-                    .map(|edge| {
-                        container_move_ghost_size_for_edge(
-                            viewport.ctx(),
-                            dragged_id,
-                            edge,
-                            content_rect,
-                        )
-                    })
-                    .unwrap_or_else(|| entry.rect.size());
-                state.update_container_move(ShelfContainerMoveUpdate {
-                    container_id: dragged_id,
-                    source_shelf: shelf.id,
-                    source_pane: pane_id,
-                    source_edge: shelf.edge,
-                    cursor: c,
-                    target_edge,
-                    container_size: target_size,
-                });
-                update_container_move_target_from_published(viewport.ctx(), state);
+            pane::begin_drag_frame(viewport.ctx(), pane_id);
+            pane::clear_container_dot_rects(viewport.ctx(), pane_id);
+            clear_external_container_gap(viewport.ctx(), pane_id);
+            let pre_body_drag = pane::drag_state(viewport.ctx(), pane_id);
+            if let (Some(item), Some(pos)) =
+                (pre_body_drag.item, viewport.ctx().pointer_interact_pos())
+            {
+                pane::set_drag(
+                    viewport.ctx(),
+                    pane_id,
+                    pane::DragState {
+                        item: Some(item),
+                        cursor: Some(pos),
+                    },
+                );
             }
-            if should_paint_source_container_preview(
-                drag_state,
+            pane::tab_drag::begin_frame(viewport.ctx(), pane_id);
+
+            let screen_shelf_rect = shelf_rect.translate(screen_offset);
+            let pointer_cursor = viewport
+                .ctx()
+                .pointer_interact_pos()
+                .or_else(|| viewport.ctx().pointer_latest_pos());
+            let suppress_source_container_gap = should_suppress_source_container_gap(
+                pre_body_drag,
                 state.container_move,
                 pane_id,
                 shelf.edge,
-            ) {
-                pane::paint_drag_preview(
+                screen_shelf_rect,
+                layout,
+                pointer_cursor,
+            );
+            pane::set_ghost_gap_suppressed(viewport.ctx(), pane_id, suppress_source_container_gap);
+            let external_container_gap = should_render_external_container_gap(
+                pre_body_drag,
+                state.container_move,
+                shelf.edge,
+                screen_shelf_rect,
+                pointer_cursor,
+            )
+            .then_some(())
+            .and(state.container_move);
+            let saved_target_snapshot = if let Some(drag) = external_container_gap {
+                let mut synthetic_snapshot = pane::snapshot(viewport.ctx(), pane_id);
+                synthetic_snapshot.retain(|entry| entry.id != drag.container_id);
+                let size = container_move_ghost_size_for_edge(
+                    viewport.ctx(),
+                    drag.container_id,
+                    shelf.edge,
+                    content_rect,
+                );
+                synthetic_snapshot.push(pane::RectEntry {
+                    id: drag.container_id,
+                    rect: Rect::from_min_size(content_rect.min, size),
+                    frame: None,
+                });
+                pane::set_snapshot(viewport.ctx(), pane_id, synthetic_snapshot);
+                pane::set_drag(
                     viewport.ctx(),
                     pane_id,
-                    &snap,
-                    dragged_id,
-                    c,
-                    shelf.accent,
+                    pane::DragState {
+                        item: Some(drag.container_id),
+                        cursor: Some(pointer_cursor.unwrap_or(drag.cursor)),
+                    },
                 );
-            }
-            viewport.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
-        }
-
-        if viewport.ctx().input(|i| i.pointer.any_released()) {
-            if let Some(drag) = state
-                .container_move
-                .filter(|drag| drag.container_id == dragged_id)
+                mark_external_container_gap(viewport.ctx(), pane_id);
+                Some(pre_body_drag)
+            } else {
+                None
+            };
+            if saved_target_snapshot.is_none()
+                && let Some(dragged_id) = pre_body_drag.item
             {
-                if drag.target_edge.is_some() {
-                    return;
-                }
-                let screen_shelf_rect = shelf_rect.translate(screen_offset);
-                if should_cancel_no_target_container_release(cursor, screen_shelf_rect) {
-                    pane::clear_drag(viewport.ctx(), pane_id);
-                    state.clear_container_move();
-                    return;
-                }
-            }
-            if let Some(c) = cursor {
-                let cursor_axis = if horizontal_stack { c.x } else { c.y };
-                commit_shelf_container_reorder(
+                reanchor_source_shelf_snapshot(
                     viewport.ctx(),
                     pane_id,
                     dragged_id,
-                    cursor_axis,
-                    horizontal_stack,
+                    shelf.edge,
+                    content_rect,
                 );
             }
-            pane::clear_drag(viewport.ctx(), pane_id);
-            state.clear_container_move();
-        }
-    }
 
-    // ── Tab drag: preview + commit-on-release (Shelf scope) ──
-    //
-    // `render_containers` runs through the same tab-drag plumbing as
-    // a normal Pane, so the drag STARTS work in a Shelf. Without
-    // this block the pointer-release event has nowhere to commit /
-    // clear, leaving the dragged tab stuck to the cursor.
-    if let Some(tab_drag_state) = pane::tab_drag::drag_state(viewport.ctx(), pane_id) {
-        let cursor = viewport
-            .ctx()
-            .pointer_latest_pos()
-            .or(tab_drag_state.cursor);
-        if let Some(c) = cursor {
-            pane::tab_drag::set_drag(
+            let active_key = shelf_active_container_key(&shelf);
+            let specs: Vec<_> = shelf
+                .containers
+                .into_iter()
+                .map(|container| container.spec)
+                .collect();
+            let declared_order: Vec<Id> = specs.iter().map(|spec| spec.container_id()).collect();
+            let responses = crate::pane::render_containers_with_tab_scope(
+                &mut viewport,
+                pane_id,
+                tab_routing_id,
+                anchor,
+                shelf.accent,
+                specs,
+                tab_scope,
+                Some(shelf.edge.container_tab_strip_side()),
+            );
+
+            let effective_active = resolve_visible_active_container(
                 viewport.ctx(),
                 pane_id,
-                pane::tab_drag::TabDragState {
-                    cursor: Some(c),
-                    ..tab_drag_state
+                state.active_container_for_group(active_key),
+                &declared_order,
+                |id| responses.contains_key(&id),
+            );
+            if let Some(container_id) = effective_active {
+                state.set_active_container_for_group(active_key, container_id);
+            }
+            if let Some(container_id) = effective_active {
+                state.set_active_container(shelf.id, container_id);
+            } else {
+                state.clear_active_container(shelf.id);
+                state.clear_active_container_for_group(active_key);
+            }
+
+            // ── Trailing ghost gap ──
+            //
+            // Same logic as `Pane::lay_out_flex`: when the cursor's slot is
+            // past the last rendered container, paint the gap inline at the
+            // end of the viewport so the trailing drop position is visible.
+            let drag_state = pane::drag_state(viewport.ctx(), pane_id);
+            if let Some(dragged_id) = drag_state.item
+                && !pane::ghost_gap_suppressed(viewport.ctx(), pane_id)
+            {
+                let snap = pane::target_cache(viewport.ctx(), pane_id);
+                let total = pane::current_cache(viewport.ctx(), pane_id).len();
+                let cursor = viewport.ctx().pointer_interact_pos().or(drag_state.cursor);
+                if let Some(c) = cursor {
+                    let cursor_axis = if horizontal_stack { c.x } else { c.y };
+                    let target_idx =
+                        pane::compute_target(&snap, dragged_id, cursor_axis, horizontal_stack);
+                    if target_idx >= total
+                        && let Some(entry) = pane::dragged_entry(&snap, dragged_id)
+                    {
+                        let entry = source_shelf_gap_entry(
+                            viewport.ctx(),
+                            dragged_id,
+                            shelf.edge,
+                            content_rect,
+                            entry,
+                        );
+                        pane::paint_ghost_gap_entry_inline(
+                            &mut viewport,
+                            entry,
+                            shelf.accent,
+                            horizontal_stack,
+                        );
+                    }
+                }
+            }
+
+            pane::finalize_snapshot(viewport.ctx(), pane_id);
+            publish_shelf_pane_info(
+                viewport.ctx(),
+                ShelfPaneInfo {
+                    shelf_id: shelf.id,
+                    pane_id,
+                    edge: shelf.edge,
+                    horizontal_stack,
+                    content_rect,
+                    screen_rect: shelf_rect.translate(screen_offset),
+                    screen_offset,
+                    accent: shelf.accent,
                 },
             );
-            pane::tab_drag::paint_drag_preview(
-                viewport.ctx(),
+            update_container_move_target_slot(
+                &mut viewport,
+                shelf.id,
                 pane_id,
-                egui::vec2(28.0, 28.0),
-                c,
-                shelf.accent,
-                "",
-                tab_drag_state.icon,
+                shelf.edge,
+                horizontal_stack,
+                content_rect,
+                state,
             );
-            viewport.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
-        }
-        if viewport.ctx().input(|i| i.pointer.any_released()) {
-            if let Some(c) = cursor
-                && let Some((tgt_cid, slot)) = pane::tab_drag::find_drop_target_for_drag(
-                    viewport.ctx(),
-                    pane_id,
-                    c,
-                    tab_drag_state,
-                )
-            {
-                pane::tab_drag::commit_drop(
-                    viewport.ctx(),
-                    tab_routing_id,
-                    tab_drag_state.tab_id,
-                    tab_drag_state.source_container,
-                    tgt_cid,
-                    slot,
-                );
+
+            let external_gap_drag = saved_target_snapshot.is_some();
+            if let Some(saved_drag) = saved_target_snapshot {
+                if saved_drag.item.is_some() {
+                    pane::set_drag(viewport.ctx(), pane_id, saved_drag);
+                } else {
+                    pane::clear_drag(viewport.ctx(), pane_id);
+                }
             }
-            pane::tab_drag::clear_drag(viewport.ctx(), pane_id);
-        }
-    }
+            if external_gap_drag {
+                return;
+            }
+
+            if let Some(dragged_id) = drag_state.item {
+                let snap = pane::target_cache(viewport.ctx(), pane_id);
+                let cursor = viewport.ctx().pointer_interact_pos().or(drag_state.cursor);
+                if let Some(c) = cursor {
+                    if let Some(entry) = pane::dragged_entry(&snap, dragged_id) {
+                        let screen_shelf_rect = shelf_rect.translate(screen_offset);
+                        let target_edge = container_move_target_for_cursor(
+                            c,
+                            screen_shelf_rect,
+                            layout,
+                            shelf.edge,
+                        );
+                        let target_size = target_edge
+                            .map(|edge| {
+                                container_move_ghost_size_for_edge(
+                                    viewport.ctx(),
+                                    dragged_id,
+                                    edge,
+                                    content_rect,
+                                )
+                            })
+                            .unwrap_or_else(|| entry.rect.size());
+                        state.update_container_move(ShelfContainerMoveUpdate {
+                            container_id: dragged_id,
+                            source_shelf: shelf.id,
+                            source_pane: pane_id,
+                            source_edge: shelf.edge,
+                            cursor: c,
+                            target_edge,
+                            container_size: target_size,
+                        });
+                        update_container_move_target_from_published(viewport.ctx(), state);
+                    }
+                    if should_paint_source_container_preview(
+                        drag_state,
+                        state.container_move,
+                        pane_id,
+                        shelf.edge,
+                    ) {
+                        pane::paint_drag_preview(
+                            viewport.ctx(),
+                            pane_id,
+                            &snap,
+                            dragged_id,
+                            c,
+                            shelf.accent,
+                        );
+                    }
+                    viewport.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+                }
+
+                if viewport.ctx().input(|i| i.pointer.any_released()) {
+                    if let Some(drag) = state
+                        .container_move
+                        .filter(|drag| drag.container_id == dragged_id)
+                    {
+                        if drag.target_edge.is_some() {
+                            return;
+                        }
+                        let screen_shelf_rect = shelf_rect.translate(screen_offset);
+                        if should_cancel_no_target_container_release(cursor, screen_shelf_rect) {
+                            pane::clear_drag(viewport.ctx(), pane_id);
+                            state.clear_container_move();
+                            return;
+                        }
+                    }
+                    if let Some(c) = cursor {
+                        let cursor_axis = if horizontal_stack { c.x } else { c.y };
+                        commit_shelf_container_reorder(
+                            viewport.ctx(),
+                            pane_id,
+                            dragged_id,
+                            cursor_axis,
+                            horizontal_stack,
+                        );
+                    }
+                    pane::clear_drag(viewport.ctx(), pane_id);
+                    state.clear_container_move();
+                }
+            }
+
+            // ── Tab drag: preview + commit-on-release (Shelf scope) ──
+            //
+            // `render_containers` runs through the same tab-drag plumbing as
+            // a normal Pane, so the drag STARTS work in a Shelf. Without
+            // this block the pointer-release event has nowhere to commit /
+            // clear, leaving the dragged tab stuck to the cursor.
+            if let Some(tab_drag_state) = pane::tab_drag::drag_state(viewport.ctx(), pane_id) {
+                let cursor = viewport
+                    .ctx()
+                    .pointer_latest_pos()
+                    .or(tab_drag_state.cursor);
+                if let Some(c) = cursor {
+                    pane::tab_drag::set_drag(
+                        viewport.ctx(),
+                        pane_id,
+                        pane::tab_drag::TabDragState {
+                            cursor: Some(c),
+                            ..tab_drag_state
+                        },
+                    );
+                    pane::tab_drag::paint_drag_preview(
+                        viewport.ctx(),
+                        pane_id,
+                        egui::vec2(28.0, 28.0),
+                        c,
+                        shelf.accent,
+                        "",
+                        tab_drag_state.icon,
+                    );
+                    viewport.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+                }
+                if viewport.ctx().input(|i| i.pointer.any_released()) {
+                    if let Some(c) = cursor
+                        && let Some((tgt_cid, slot)) = pane::tab_drag::find_drop_target_for_drag(
+                            viewport.ctx(),
+                            pane_id,
+                            c,
+                            tab_drag_state,
+                        )
+                    {
+                        pane::tab_drag::commit_drop(
+                            viewport.ctx(),
+                            tab_routing_id,
+                            tab_drag_state.tab_id,
+                            tab_drag_state.source_container,
+                            tgt_cid,
+                            slot,
+                        );
+                    }
+                    pane::tab_drag::clear_drag(viewport.ctx(), pane_id);
+                }
+            }
+        },
+    );
 }
 
 fn resolve_visible_active_container(

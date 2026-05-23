@@ -39,6 +39,7 @@ pub mod module;
 pub mod pane;
 pub mod pod;
 pub mod ribbon;
+pub(crate) mod scroll;
 pub mod shelf;
 pub mod style;
 pub mod themes;

@@ -716,18 +716,11 @@ impl Pane {
             anchor::TitleSide::Top => (has_top, has_bottom),
             anchor::TitleSide::Bottom => (has_bottom, has_top),
         };
-        // Reserve TWICE `RAIL_INSET` on each side that has a ribbon —
-        // one ribbon's-worth of clearance to clear the ribbon button
-        // itself, plus another ribbon's-worth of breathing room so
-        // the pane (with its shadow + corner radius) doesn't crowd
-        // the ribbon visually. Single-inset was leaving the pane
-        // flush against the ribbon edge.
-        let own_inset = if own_present { RAIL_INSET * 2.0 } else { 0.0 };
-        let opp_inset = if opposite_present {
-            RAIL_INSET * 2.0
-        } else {
-            0.0
-        };
+        // Reserve exactly one ribbon button row. Do not reserve a
+        // second hidden "breathing" row: Pane2 should be allowed to
+        // grow close to the opposite ribbon/button bar.
+        let own_inset = if own_present { RAIL_INSET } else { 0.0 };
+        let opp_inset = if opposite_present { RAIL_INSET } else { 0.0 };
         let screen_flow_avail = if horizontal_strip {
             (screen.height() - own_inset - opp_inset).max(MIN_USER_FLOW)
         } else {
@@ -764,7 +757,14 @@ impl Pane {
                 })
                 .collect();
             opens.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-            for (cid, _, cf) in opens.iter() {
+            for (idx, (cid, _, cf)) in opens.iter().enumerate() {
+                if idx == 0 {
+                    // Keep one container open. If this last open bar
+                    // exceeds the pane budget, the body ScrollArea below
+                    // clips/scrolls it instead of closing everything.
+                    budget = (budget - cf).max(0.0);
+                    continue;
+                }
                 if budget >= *cf {
                     budget -= cf;
                 } else {
@@ -804,6 +804,13 @@ impl Pane {
         // pane outgrow the screen. Clip is a no-op when the auto-fold
         // walk above already brought us under budget; it catches the
         // first-frame case where prev_cids_snapshot was empty.
+        let body_needs_flow_scroll = pane_flow > screen_flow_avail;
+        ctx.data_mut(|d| {
+            d.insert_temp(
+                self.id.with("mara_pane_body_scroll_enabled"),
+                body_needs_flow_scroll,
+            );
+        });
         pane_flow = pane_flow.min(screen_flow_avail);
 
         // SPAN-axis clamp — perpendicular to flow. `Middle`-anchored
@@ -818,16 +825,8 @@ impl Pane {
         } else {
             (has_top, has_bottom)
         };
-        let span_lead_inset = if span_lead_present {
-            RAIL_INSET * 2.0
-        } else {
-            0.0
-        };
-        let span_trail_inset = if span_trail_present {
-            RAIL_INSET * 2.0
-        } else {
-            0.0
-        };
+        let span_lead_inset = if span_lead_present { RAIL_INSET } else { 0.0 };
+        let span_trail_inset = if span_trail_present { RAIL_INSET } else { 0.0 };
         let screen_span_avail = if horizontal_strip {
             (screen.width() - span_lead_inset - span_trail_inset).max(MIN_USER_SPAN)
         } else {
@@ -1166,141 +1165,193 @@ impl Pane {
         if pane_title_to_body_pad > 0.0 {
             ui.add_space(pane_title_to_body_pad);
         }
-        // Reset per-frame drag bookkeeping (current cache + section
-        // idx counter). Snapshot from prev frame stays available
-        // for size lookups.
-        drag::begin_frame(ui.ctx(), id);
-        dots::clear_container_dot_rects(ui.ctx(), id);
+        let mut body = Some(body);
+        let mut render_body = |ui: &mut egui::Ui| {
+            // Reset per-frame drag bookkeeping (current cache + section
+            // idx counter). Snapshot from prev frame stays available
+            // for size lookups.
+            drag::begin_frame(ui.ctx(), id);
+            dots::clear_container_dot_rects(ui.ctx(), id);
 
-        // Update cursor BEFORE body runs so `Normal::show`'s
-        // target_idx computation sees this frame's cursor.
-        let pre_body_drag = drag::state(ui.ctx(), id);
-        if let (Some(item), Some(pos)) = (pre_body_drag.item, ui.ctx().pointer_interact_pos()) {
-            drag::set_drag(
-                ui.ctx(),
-                id,
-                drag::DragState {
-                    item: Some(item),
-                    cursor: Some(pos),
-                },
-            );
-        }
-
-        // Wrap the body Ui in the typed `PaneBody` builder — the
-        // user closure only sees the typed API, never the raw Ui.
-        // After the closure returns, `PaneBody::finish` dispatches
-        // the accumulated container specs through `render_containers`.
-        tab_drag::begin_frame(ui.ctx(), id);
-        let mut pane_body = PaneBody::new(ui, id, anchor, accent);
-        body(&mut pane_body);
-        let _ = pane_body.finish();
-
-        // Stack axis: matches `body` layout direction — BottomRail /
-        // TopRail panes stack vertically (Y), LeftRail / RightRail
-        // stack horizontally (X).
-        let horizontal_stack = !title_side.is_horizontal_strip();
-
-        // ── Trailing ghost gap ──
-        //
-        // If the cursor's target slot is AFTER the last rendered
-        // container (target == total non-dragged), paint the ghost
-        // gap inline at the end of the body layout. The inline gaps
-        // inside `Normal::show` handle every other position.
-        let drag_state = drag::state(ui.ctx(), id);
-        if let Some(dragged_id) = drag_state.item
-            && !drag::ghost_gap_suppressed(ui.ctx(), id)
-        {
-            let snap = drag::target_cache(ui.ctx(), id);
-            let total = drag::current_cache(ui.ctx(), id).len();
-            let cursor = ui.ctx().pointer_interact_pos().or(drag_state.cursor);
-            if let Some(c) = cursor {
-                let cursor_axis = if horizontal_stack { c.x } else { c.y };
-                let target_idx =
-                    drag::compute_target(&snap, dragged_id, cursor_axis, horizontal_stack);
-                if target_idx >= total
-                    && let Some(entry) = drag::dragged_entry(&snap, dragged_id)
-                {
-                    drag::paint_ghost_gap_entry_inline(ui, entry, accent, horizontal_stack);
-                }
-            }
-        }
-
-        // ── Build snapshot for next frame ──
-        //
-        // current cache (this frame's renders) + dragged entry
-        // carried forward from prev snapshot.
-        drag::finalize_snapshot(ui.ctx(), id);
-
-        // ── Floating preview + cursor + release commit ──
-        if let Some(dragged_id) = drag_state.item {
-            let snap = drag::target_cache(ui.ctx(), id);
-            let cursor = ui.ctx().pointer_interact_pos().or(drag_state.cursor);
-            if let Some(c) = cursor {
-                drag::paint_drag_preview(ui.ctx(), id, &snap, dragged_id, c, accent);
-                ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+            // Update cursor BEFORE body runs so `Normal::show`'s
+            // target_idx computation sees this frame's cursor.
+            let pre_body_drag = drag::state(ui.ctx(), id);
+            if let (Some(item), Some(pos)) = (pre_body_drag.item, ui.ctx().pointer_interact_pos()) {
+                drag::set_drag(
+                    ui.ctx(),
+                    id,
+                    drag::DragState {
+                        item: Some(item),
+                        cursor: Some(pos),
+                    },
+                );
             }
 
-            if ui.ctx().input(|i| i.pointer.any_released()) {
+            // Wrap the body Ui in the typed `PaneBody` builder — the
+            // user closure only sees the typed API, never the raw Ui.
+            // After the closure returns, `PaneBody::finish` dispatches
+            // the accumulated container specs through `render_containers`.
+            tab_drag::begin_frame(ui.ctx(), id);
+            let mut pane_body = PaneBody::new(ui, id, anchor, accent);
+            let body = body
+                .take()
+                .expect("pane body renderer must only be called once");
+            body(&mut pane_body);
+            let _ = pane_body.finish();
+
+            // Stack axis: matches `body` layout direction — BottomRail /
+            // TopRail panes stack vertically (Y), LeftRail / RightRail
+            // stack horizontally (X).
+            let horizontal_stack = !title_side.is_horizontal_strip();
+
+            // ── Trailing ghost gap ──
+            //
+            // If the cursor's target slot is AFTER the last rendered
+            // container (target == total non-dragged), paint the ghost
+            // gap inline at the end of the body layout. The inline gaps
+            // inside `Normal::show` handle every other position.
+            let drag_state = drag::state(ui.ctx(), id);
+            if let Some(dragged_id) = drag_state.item
+                && !drag::ghost_gap_suppressed(ui.ctx(), id)
+            {
+                let snap = drag::target_cache(ui.ctx(), id);
+                let total = drag::current_cache(ui.ctx(), id).len();
+                let cursor = ui.ctx().pointer_interact_pos().or(drag_state.cursor);
                 if let Some(c) = cursor {
                     let cursor_axis = if horizontal_stack { c.x } else { c.y };
                     let target_idx =
                         drag::compute_target(&snap, dragged_id, cursor_axis, horizontal_stack);
-                    let defaults: Vec<Id> = snap.iter().map(|e| e.id).collect();
-                    let mut order = drag::section_order_for(ui.ctx(), id, &defaults);
-                    order.retain(|cid| *cid != dragged_id);
-                    let clamped = target_idx.min(order.len());
-                    order.insert(clamped, dragged_id);
-                    drag::set_section_order(ui.ctx(), id, order);
+                    if target_idx >= total
+                        && let Some(entry) = drag::dragged_entry(&snap, dragged_id)
+                    {
+                        drag::paint_ghost_gap_entry_inline(ui, entry, accent, horizontal_stack);
+                    }
                 }
-                drag::clear_drag(ui.ctx(), id);
             }
-        }
 
-        // ── Tab drag: preview + commit-on-release ──
-        if let Some(tab_drag_state) = tab_drag::drag_state(ui.ctx(), id) {
-            let cursor = ui.ctx().pointer_latest_pos().or(tab_drag_state.cursor);
-            if let Some(c) = cursor {
-                // Persist the cursor pos so next frame can paint at
-                // the right spot even if egui drops the input.
-                tab_drag::set_drag(
-                    ui.ctx(),
-                    id,
-                    tab_drag::TabDragState {
-                        cursor: Some(c),
-                        ..tab_drag_state
-                    },
-                );
-                // Floating preview at the cursor, carrying the tab's
-                // own icon so the drag affordance doesn't turn into a
-                // blank accent card while crossing containers.
-                let preview_size = egui::vec2(28.0, 28.0);
-                tab_drag::paint_drag_preview(
-                    ui.ctx(),
-                    id,
-                    preview_size,
-                    c,
-                    accent,
-                    "",
-                    tab_drag_state.icon,
-                );
-                ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+            // ── Build snapshot for next frame ──
+            //
+            // current cache (this frame's renders) + dragged entry
+            // carried forward from prev snapshot.
+            drag::finalize_snapshot(ui.ctx(), id);
+
+            // ── Floating preview + cursor + release commit ──
+            if let Some(dragged_id) = drag_state.item {
+                let snap = drag::target_cache(ui.ctx(), id);
+                let cursor = ui.ctx().pointer_interact_pos().or(drag_state.cursor);
+                if let Some(c) = cursor {
+                    drag::paint_drag_preview(ui.ctx(), id, &snap, dragged_id, c, accent);
+                    ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+                }
+
+                if ui.ctx().input(|i| i.pointer.any_released()) {
+                    if let Some(c) = cursor {
+                        let cursor_axis = if horizontal_stack { c.x } else { c.y };
+                        let target_idx =
+                            drag::compute_target(&snap, dragged_id, cursor_axis, horizontal_stack);
+                        let defaults: Vec<Id> = snap.iter().map(|e| e.id).collect();
+                        let mut order = drag::section_order_for(ui.ctx(), id, &defaults);
+                        order.retain(|cid| *cid != dragged_id);
+                        let clamped = target_idx.min(order.len());
+                        order.insert(clamped, dragged_id);
+                        drag::set_section_order(ui.ctx(), id, order);
+                    }
+                    drag::clear_drag(ui.ctx(), id);
+                }
             }
-            if ui.ctx().input(|i| i.pointer.any_released()) {
-                if let Some(c) = cursor
-                    && let Some((tgt_cid, slot)) =
-                        tab_drag::find_drop_target_for_drag(ui.ctx(), id, c, tab_drag_state)
-                {
-                    tab_drag::commit_drop(
+
+            // ── Tab drag: preview + commit-on-release ──
+            if let Some(tab_drag_state) = tab_drag::drag_state(ui.ctx(), id) {
+                let cursor = ui.ctx().pointer_latest_pos().or(tab_drag_state.cursor);
+                if let Some(c) = cursor {
+                    // Persist the cursor pos so next frame can paint at
+                    // the right spot even if egui drops the input.
+                    tab_drag::set_drag(
                         ui.ctx(),
                         id,
-                        tab_drag_state.tab_id,
-                        tab_drag_state.source_container,
-                        tgt_cid,
-                        slot,
+                        tab_drag::TabDragState {
+                            cursor: Some(c),
+                            ..tab_drag_state
+                        },
                     );
+                    // Floating preview at the cursor, carrying the tab's
+                    // own icon so the drag affordance doesn't turn into a
+                    // blank accent card while crossing containers.
+                    let preview_size = egui::vec2(28.0, 28.0);
+                    tab_drag::paint_drag_preview(
+                        ui.ctx(),
+                        id,
+                        preview_size,
+                        c,
+                        accent,
+                        "",
+                        tab_drag_state.icon,
+                    );
+                    ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
                 }
-                tab_drag::clear_drag(ui.ctx(), id);
+                if ui.ctx().input(|i| i.pointer.any_released()) {
+                    if let Some(c) = cursor
+                        && let Some((tgt_cid, slot)) =
+                            tab_drag::find_drop_target_for_drag(ui.ctx(), id, c, tab_drag_state)
+                    {
+                        tab_drag::commit_drop(
+                            ui.ctx(),
+                            id,
+                            tab_drag_state.tab_id,
+                            tab_drag_state.source_container,
+                            tgt_cid,
+                            slot,
+                        );
+                    }
+                    tab_drag::clear_drag(ui.ctx(), id);
+                }
             }
+        };
+
+        let body_scroll_enabled = ui
+            .ctx()
+            .data(|d| d.get_temp::<bool>(id.with("mara_pane_body_scroll_enabled")))
+            .unwrap_or(false);
+        if body_scroll_enabled {
+            let max_body_flow = if horizontal_strip {
+                ui.available_height()
+            } else {
+                ui.available_width()
+            }
+            .max(0.0);
+            let scroll_area = if horizontal_strip {
+                egui::ScrollArea::vertical()
+                    .max_height(max_body_flow)
+                    .min_scrolled_width(span_inner)
+            } else {
+                egui::ScrollArea::horizontal()
+                    .max_width(max_body_flow)
+                    .min_scrolled_height(span_inner)
+            }
+            .id_salt(id.with("mara_pane_body_scroll"))
+            .auto_shrink([false, false]);
+            crate::scroll::show_sticky_scroll_area(
+                ui,
+                if horizontal_strip {
+                    crate::scroll::StickyScrollAxis::Vertical
+                } else {
+                    crate::scroll::StickyScrollAxis::Horizontal
+                },
+                scroll_area,
+                |ui| {
+                    if horizontal_strip {
+                        ui.set_min_width(span_inner);
+                        ui.set_max_width(span_inner);
+                    } else {
+                        ui.set_min_height(span_inner);
+                        ui.set_max_height(span_inner);
+                    }
+                    ui.spacing_mut().item_spacing = egui::vec2(0.0, 0.0);
+                    render_body(ui);
+                },
+            );
+        } else {
+            render_body(ui);
         }
     }
 }
