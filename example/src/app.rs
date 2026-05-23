@@ -1902,7 +1902,7 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
     } else if *root_view == DemoRootView::Canvas {
         canvas_root_view(ctx, accent_col, canvas_view, &mut canvas_shelves.0);
     } else if *root_view == DemoRootView::ThreeD {
-        three_d_root_view(ctx, accent_col, three_d_view);
+        three_d_root_view(host, accent_col, three_d_view);
     } else if root_view.is_coreviz() {
         map_root_view(ctx, map_view);
     }
@@ -2315,9 +2315,14 @@ fn map_root_view(ctx: &egui::Context, map: &mut MapViewState) {
 
 // ─── 3D root view ──────────────────────────────────────────────────
 
-fn three_d_root_view(ctx: &egui::Context, accent: egui::Color32, three_d: &mut ThreeDViewState) {
+fn three_d_root_view(
+    host: &mut MaraHostCtx<'_>,
+    accent: egui::Color32,
+    three_d: &mut ThreeDViewState,
+) {
+    let ctx = host.egui().clone();
     let mut view_ctx = ViewCtx {
-        egui_ctx: ctx,
+        egui_ctx: &ctx,
         workspace: &mut three_d.workspace,
         accent,
         content_avoidance: RibbonAvoidance::none(),

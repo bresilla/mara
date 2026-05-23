@@ -308,6 +308,7 @@ impl<A: WindowApp> NativeWinitApp<A> {
         let Some(render_state) = painter.render_state() else {
             return;
         };
+
         let full_output = self.egui_ctx.run(raw_input, |ctx| {
             let mut host = MaraHostCtx::mara_window(ctx, Some(&render_state));
             app.update(&mut host);
