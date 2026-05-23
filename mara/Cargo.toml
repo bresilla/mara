@@ -13,6 +13,7 @@ mara_core = { path = "../crates/core", version = "0.2.0", default-features = fal
 mara_graph = { workspace = true, optional = true }
 mara_image = { workspace = true, optional = true }
 mara_map = { workspace = true, optional = true }
+mara_3d = { workspace = true, optional = true }
 mara_bevy = { workspace = true, optional = true }
 egui = { workspace = true }
 egui-wgpu = { workspace = true }
@@ -34,6 +35,7 @@ code = ["dep:mara_code", "mara_core/code"]
 graph = ["dep:mara_graph", "mara_core/graph"]
 image = ["dep:mara_image"]
 map = ["dep:mara_map"]
+three-d = ["dep:mara_3d"]
 bevy = ["dep:mara_bevy"]
 window = [
     "egui-wgpu/winit",

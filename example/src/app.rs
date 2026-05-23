@@ -46,10 +46,12 @@ use mara_map::{
 // offscreen renderer is created from `mara::host::MaraHostCtx`.
 use mara::host::{EframeNodeViewBackend, MaraHostCtx};
 use mara::ui::modules::bevy::MaraBevyViewport;
+use mara::ui::modules::three_d::{Scene3d, View3d};
 use mara_core::extras::code::Syntax;
 use mara_core::extras::graph::{
     Graph, InPin, InPinId, NodePin, NodeViewState, NodeViewer, OutPin, OutPinId, PinInfo,
 };
+use mara_core::{MaraView, RibbonAvoidance, ViewCtx, WorkspaceStack};
 
 // ─── Ribbon / pane ids ──────────────────────────────────────────────
 
@@ -79,6 +81,8 @@ const PANE_CANVAS_ASSETS: &str = "demo_canvas_pane_assets";
 const PANE_CANVAS_INSPECTOR: &str = "demo_canvas_pane_inspector";
 const PANE_CANVAS_HISTORY: &str = "demo_canvas_pane_history";
 const PANE_CANVAS_EXPORT: &str = "demo_canvas_pane_export";
+const PANE_3D_SCENE: &str = "demo_3d_pane_scene";
+const PANE_3D_INSPECTOR: &str = "demo_3d_pane_inspector";
 const PANE_COREVIZ_ZONES: &str = "demo_coreviz_pane_zones";
 const PANE_COREVIZ_REFERENCE: &str = "demo_coreviz_pane_reference";
 const PANE_COREVIZ_NODES: &str = "demo_coreviz_pane_nodes";
@@ -96,6 +100,7 @@ const ACTION_NEXT_CUBE: &str = "demo_action_next_cube";
 const ACTION_CANVAS_CLEAR: &str = "demo_action_canvas_clear";
 const ACTION_VIEW_BEVY: &str = "demo_action_view_bevy";
 const ACTION_VIEW_CANVAS: &str = "demo_action_view_canvas";
+const ACTION_VIEW_3D: &str = "demo_action_view_3d";
 const ACTION_COREVIZ_ZONES: &str = "demo_action_coreviz_zones";
 const ACTION_COREVIZ_GRAPH: &str = "demo_action_coreviz_graph";
 const ACTION_COREVIZ_MANAGEMENT: &str = "demo_action_coreviz_management";
@@ -208,6 +213,18 @@ const PANE_DEFS: &[(&str, &str, PaneAnchor, &str)] = &[
         PANE_CANVAS_EXPORT,
         PaneAnchor::BottomRail(RailZone::Start),
         "Export",
+    ),
+    (
+        RIBBON_LEFT,
+        PANE_3D_SCENE,
+        PaneAnchor::LeftRail(RailZone::Start),
+        "3D Scene",
+    ),
+    (
+        RIBBON_RIGHT,
+        PANE_3D_INSPECTOR,
+        PaneAnchor::RightRail(RailZone::Start),
+        "3D Inspector",
     ),
     (
         RIBBON_LEFT,
@@ -379,6 +396,17 @@ const RIBBON_ITEMS_PERSISTENT_TOP: &[RibbonButtonSpec] = &[
         draggable: false,
         glyph: RibbonGlyph::Icon("location"),
         tooltip: "Management view",
+        child_ribbon: None,
+        role: Some(RibbonRole::Icon),
+    },
+    RibbonButtonSpec {
+        id: ACTION_VIEW_3D,
+        ribbon: RIBBON_TOP,
+        cluster: RibbonCluster::Middle,
+        slot: 5,
+        draggable: false,
+        glyph: RibbonGlyph::Icon("cube"),
+        tooltip: "Three-d scene view",
         child_ribbon: None,
         role: Some(RibbonRole::Icon),
     },
@@ -672,6 +700,31 @@ const RIBBON_ITEMS_ROOT_VIEW: &[RibbonButtonSpec] = &[
         tooltip: "Clear canvas strokes",
         child_ribbon: None,
         role: Some(RibbonRole::Icon),
+    },
+];
+
+const RIBBON_ITEMS_3D_VIEW: &[RibbonButtonSpec] = &[
+    RibbonButtonSpec {
+        id: PANE_3D_SCENE,
+        ribbon: RIBBON_LEFT,
+        cluster: RibbonCluster::Start,
+        slot: 0,
+        draggable: true,
+        glyph: RibbonGlyph::Icon("folder"),
+        tooltip: "3D scene objects",
+        child_ribbon: None,
+        role: None,
+    },
+    RibbonButtonSpec {
+        id: PANE_3D_INSPECTOR,
+        ribbon: RIBBON_RIGHT,
+        cluster: RibbonCluster::Start,
+        slot: 0,
+        draggable: true,
+        glyph: RibbonGlyph::Icon("options"),
+        tooltip: "3D selection inspector",
+        child_ribbon: None,
+        role: None,
     },
 ];
 
@@ -1368,9 +1421,11 @@ mod tests {
 
     #[test]
     fn demo_ribbon_icons_are_renderable() {
-        for item in RIBBON_ITEMS
+        for item in RIBBON_ITEMS_PERSISTENT_TOP
             .iter()
+            .chain(RIBBON_ITEMS)
             .chain(RIBBON_ITEMS_ROOT_VIEW)
+            .chain(RIBBON_ITEMS_3D_VIEW)
             .chain(RIBBON_ITEMS_MAP_VIEW)
             .chain(RIBBON_ITEMS_MAP_GRAPH_VIEW)
             .chain(RIBBON_ITEMS_MAP_MANAGEMENT_VIEW)
@@ -1387,6 +1442,17 @@ mod tests {
                 icon
             );
         }
+    }
+
+    #[test]
+    fn three_d_view_stays_on_persistent_bar() {
+        let item = find_item(RIBBON_ITEMS_PERSISTENT_TOP, ACTION_VIEW_3D)
+            .expect("missing three-d view button");
+        assert_eq!(item.ribbon, RIBBON_TOP);
+        assert_eq!(item.cluster, RibbonCluster::Middle);
+        assert_eq!(item.slot, 5);
+        assert!(!item.draggable);
+        assert_eq!(item.role, Some(RibbonRole::Icon));
     }
 
     #[test]
@@ -1418,6 +1484,7 @@ mod tests {
         for items in [
             RIBBON_ITEMS,
             RIBBON_ITEMS_ROOT_VIEW,
+            RIBBON_ITEMS_3D_VIEW,
             RIBBON_ITEMS_MAP_VIEW,
             RIBBON_ITEMS_MAP_GRAPH_VIEW,
             RIBBON_ITEMS_MAP_MANAGEMENT_VIEW,
@@ -1440,6 +1507,7 @@ fn is_persistent_top_item(id: &'static str) -> bool {
         id,
         ACTION_VIEW_BEVY
             | ACTION_VIEW_CANVAS
+            | ACTION_VIEW_3D
             | ACTION_COREVIZ_ZONES
             | ACTION_COREVIZ_GRAPH
             | ACTION_COREVIZ_MANAGEMENT
@@ -1553,6 +1621,7 @@ enum DemoRootView {
     #[default]
     BevyScene,
     Canvas,
+    ThreeD,
     CorevizZones,
     CorevizGraph,
     CorevizManagement,
@@ -1570,6 +1639,20 @@ impl DemoRootView {
 #[derive(Default)]
 struct CanvasViewState {
     strokes: Vec<Vec<egui::Pos2>>,
+}
+
+struct ThreeDViewState {
+    view: View3d,
+    workspace: WorkspaceStack,
+}
+
+impl Default for ThreeDViewState {
+    fn default() -> Self {
+        Self {
+            view: View3d::new("demo-three-d", Scene3d::demo("3D")),
+            workspace: WorkspaceStack::new("demo-three-d-workspace"),
+        }
+    }
 }
 
 #[derive(Default)]
@@ -1668,6 +1751,7 @@ pub struct DemoApp {
     tint: TintRgba,
     root_view: DemoRootView,
     canvas_view: CanvasViewState,
+    three_d_view: ThreeDViewState,
     canvas_shelves: CanvasShelfState,
     map_view: MapViewState,
     bevy_view: MaraBevyViewport,
@@ -1774,6 +1858,7 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
         tint,
         root_view,
         canvas_view,
+        three_d_view,
         canvas_shelves,
         map_view,
         bevy_view,
@@ -1816,6 +1901,8 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
         }
     } else if *root_view == DemoRootView::Canvas {
         canvas_root_view(ctx, accent_col, canvas_view, &mut canvas_shelves.0);
+    } else if *root_view == DemoRootView::ThreeD {
+        three_d_root_view(ctx, accent_col, three_d_view);
     } else if root_view.is_coreviz() {
         map_root_view(ctx, map_view);
     }
@@ -1862,6 +1949,8 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
         RIBBON_ITEMS_FS_GRAPH
     } else if *root_view == DemoRootView::Canvas {
         RIBBON_ITEMS_ROOT_VIEW
+    } else if *root_view == DemoRootView::ThreeD {
+        RIBBON_ITEMS_3D_VIEW
     } else if root_view.is_coreviz() {
         map_ribbon_items(*root_view)
     } else {
@@ -1985,6 +2074,8 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
                 PANE_CANVAS_INSPECTOR => canvas_inspector_pane(body),
                 PANE_CANVAS_HISTORY => canvas_history_pane(body),
                 PANE_CANVAS_EXPORT => canvas_export_pane(body),
+                PANE_3D_SCENE => three_d_scene_pane(body, three_d_view),
+                PANE_3D_INSPECTOR => three_d_inspector_pane(body, three_d_view),
                 PANE_COREVIZ_ZONES => coreviz_zones_pane(body),
                 PANE_COREVIZ_REFERENCE => coreviz_reference_pane(body),
                 PANE_COREVIZ_NODES => coreviz_nodes_pane(body),
@@ -2035,6 +2126,7 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
             |id| match *root_view {
                 DemoRootView::BevyScene => id == ACTION_VIEW_BEVY,
                 DemoRootView::Canvas => id == ACTION_VIEW_CANVAS,
+                DemoRootView::ThreeD => id == ACTION_VIEW_3D,
                 DemoRootView::CorevizZones => {
                     id == ACTION_COREVIZ_ZONES
                         || matches!(
@@ -2104,6 +2196,16 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
                 mara_core::embed::restore_fullscreen(ctx);
             }
             *root_view = DemoRootView::Canvas;
+            ctx.request_repaint();
+            continue;
+        }
+        if click.item == egui::Id::new(ACTION_VIEW_3D) {
+            if fs_active {
+                mara_core::embed::restore_fullscreen(ctx);
+            }
+            *root_view = DemoRootView::ThreeD;
+            open.set(RIBBON_LEFT, PANE_3D_SCENE);
+            open.set(RIBBON_RIGHT, PANE_3D_INSPECTOR);
             ctx.request_repaint();
             continue;
         }
@@ -2209,6 +2311,18 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
 
 fn map_root_view(ctx: &egui::Context, map: &mut MapViewState) {
     let _ = MaraMap::new(&mut map.surface, &mut map.interaction).show(ctx);
+}
+
+// ─── 3D root view ──────────────────────────────────────────────────
+
+fn three_d_root_view(ctx: &egui::Context, accent: egui::Color32, three_d: &mut ThreeDViewState) {
+    let mut view_ctx = ViewCtx {
+        egui_ctx: ctx,
+        workspace: &mut three_d.workspace,
+        accent,
+        content_avoidance: RibbonAvoidance::none(),
+    };
+    three_d.view.show(&mut view_ctx);
 }
 
 // ─── Canvas root view ──────────────────────────────────────────────
@@ -3498,6 +3612,97 @@ fn canvas_export_pane(body: &mut PaneBody) {
                 .with_separator(SeparatorStyle::None)
                 .with_button("Export canvas", accent),
         ],
+    );
+}
+
+fn three_d_scene_pane(body: &mut PaneBody, three_d: &ThreeDViewState) {
+    let scene = three_d.view.scene();
+    let mut pods = Vec::with_capacity(scene.objects.len().saturating_add(1));
+    pods.push(
+        Pod::new(pid(PANE_3D_SCENE, "summary", 0))
+            .with_separator(SeparatorStyle::Line)
+            .with_readout("objects", scene.objects.len().to_string()),
+    );
+    for (index, object) in scene.objects.iter().enumerate() {
+        let state = if object.selected {
+            format!("{} · selected", object.kind_name())
+        } else if object.visible {
+            object.kind_name().to_owned()
+        } else {
+            format!("{} · hidden", object.kind_name())
+        };
+        pods.push(
+            Pod::new(pid(PANE_3D_SCENE, "object", index))
+                .with_separator(if index + 1 == scene.objects.len() {
+                    SeparatorStyle::None
+                } else {
+                    SeparatorStyle::Line
+                })
+                .with_readout(object.name.clone(), state),
+        );
+    }
+    body.add_normal(cid(PANE_3D_SCENE, "objects"), "Objects", "folder", pods);
+}
+
+fn three_d_inspector_pane(body: &mut PaneBody, three_d: &ThreeDViewState) {
+    let scene = three_d.view.scene();
+    let orbit = three_d.view.orbit();
+    let selected = scene.selected_object();
+    let mut pods = vec![
+        Pod::new(pid(PANE_3D_INSPECTOR, "selection", 0))
+            .with_separator(SeparatorStyle::Line)
+            .with_readout(
+                "selection",
+                selected.map_or_else(|| "none".to_owned(), |object| object.name.clone()),
+            ),
+        Pod::new(pid(PANE_3D_INSPECTOR, "selection", 1))
+            .with_separator(SeparatorStyle::Line)
+            .with_readout(
+                "orbit",
+                format!(
+                    "yaw {:.2} · pitch {:.2} · dist {:.2}",
+                    orbit.yaw, orbit.pitch, orbit.distance
+                ),
+            ),
+    ];
+
+    if let Some(object) = selected {
+        pods.push(
+            Pod::new(pid(PANE_3D_INSPECTOR, "selection", 2))
+                .with_separator(SeparatorStyle::Line)
+                .with_readout("id", format!("#{}", object.id.0)),
+        );
+        pods.push(
+            Pod::new(pid(PANE_3D_INSPECTOR, "selection", 3))
+                .with_separator(SeparatorStyle::Line)
+                .with_readout(
+                    "position",
+                    format!(
+                        "{:.2}, {:.2}, {:.2}",
+                        object.transform.translation[0],
+                        object.transform.translation[1],
+                        object.transform.translation[2]
+                    ),
+                ),
+        );
+        pods.push(
+            Pod::new(pid(PANE_3D_INSPECTOR, "selection", 4))
+                .with_separator(SeparatorStyle::None)
+                .with_readout("primitive", object.kind_name()),
+        );
+    } else {
+        pods.push(
+            Pod::new(pid(PANE_3D_INSPECTOR, "selection", 2))
+                .with_separator(SeparatorStyle::None)
+                .with_readout("hint", "click an object"),
+        );
+    }
+
+    body.add_normal(
+        cid(PANE_3D_INSPECTOR, "selection"),
+        "Selection",
+        "options",
+        pods,
     );
 }
 

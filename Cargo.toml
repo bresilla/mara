@@ -9,6 +9,7 @@ members = [
     "crates/modules/image",
     "crates/modules/canvas",
     "crates/modules/map",
+    "crates/modules/three_d",
     "crates/modules/bevy",
     "example",
 ]
@@ -68,6 +69,8 @@ mara_image = { path = "crates/modules/image", version = "0.2.0" }
 mara_canvas = { path = "crates/modules/canvas", version = "0.2.0" }
 # `mara_map` — retained f64 map annotations and a Mara map component.
 mara_map = { path = "crates/modules/map", version = "0.2.0" }
+# `mara_3d` — retained scene/camera/object 3D module surface backed by three-d.
+mara_3d = { path = "crates/modules/three_d", version = "0.2.0" }
 # `mara_bevy` — embedded Bevy viewport module for egui/Mara hosts.
 mara_bevy = { path = "crates/modules/bevy", version = "0.2.0" }
 

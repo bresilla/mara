@@ -6,6 +6,8 @@
 
 pub use egui;
 
+#[cfg(feature = "three-d")]
+pub use mara_3d;
 #[cfg(feature = "canvas")]
 pub use mara_canvas;
 #[cfg(feature = "code")]
@@ -22,6 +24,8 @@ pub use mara_map;
 pub use crate::host::{MaraHostCtx, MaraWindowHost};
 
 pub mod modules {
+    #[cfg(feature = "three-d")]
+    pub use mara_3d as three_d;
     #[cfg(feature = "canvas")]
     pub use mara_canvas as canvas;
     #[cfg(feature = "code")]
@@ -40,6 +44,8 @@ pub mod modules {
 pub mod prelude {
     pub use crate::host::{MaraHostCtx, MaraWindowHost};
     pub use egui;
+    #[cfg(feature = "three-d")]
+    pub use mara_3d;
     #[cfg(feature = "canvas")]
     pub use mara_canvas;
     #[cfg(feature = "code")]

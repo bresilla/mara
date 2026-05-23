@@ -1,0 +1,12 @@
+[package]
+name = "mara_3d"
+description = "Host-agnostic Mara 3D scene/view module backed by three-d."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+egui = { workspace = true, default-features = false }
+mara_core = { workspace = true }
+three-d = { version = "0.19", default-features = false }
