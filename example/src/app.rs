@@ -24,6 +24,8 @@
     clippy::upper_case_acronyms
 )]
 
+use std::io::Cursor;
+
 use eframe::egui;
 
 use mara_core::container::SeparatorStyle;
@@ -46,10 +48,12 @@ use mara_map::{
 // offscreen renderer is created from `mara::host::MaraHostCtx`.
 use mara::host::{EframeNodeViewBackend, MaraHostCtx};
 use mara::ui::modules::bevy::MaraBevyViewport;
+use mara::ui::modules::three_d::{Scene3d, TriangleMesh3d, View3d};
 use mara_core::extras::code::Syntax;
 use mara_core::extras::graph::{
     Graph, InPin, InPinId, NodePin, NodeViewState, NodeViewer, OutPin, OutPinId, PinInfo,
 };
+use mara_core::{MaraView, RibbonAvoidance, ViewCtx, WorkspaceStack};
 
 // ─── Ribbon / pane ids ──────────────────────────────────────────────
 
@@ -79,6 +83,8 @@ const PANE_CANVAS_ASSETS: &str = "demo_canvas_pane_assets";
 const PANE_CANVAS_INSPECTOR: &str = "demo_canvas_pane_inspector";
 const PANE_CANVAS_HISTORY: &str = "demo_canvas_pane_history";
 const PANE_CANVAS_EXPORT: &str = "demo_canvas_pane_export";
+const PANE_3D_SCENE: &str = "demo_3d_pane_scene";
+const PANE_3D_INSPECTOR: &str = "demo_3d_pane_inspector";
 const PANE_COREVIZ_ZONES: &str = "demo_coreviz_pane_zones";
 const PANE_COREVIZ_REFERENCE: &str = "demo_coreviz_pane_reference";
 const PANE_COREVIZ_NODES: &str = "demo_coreviz_pane_nodes";
@@ -96,6 +102,7 @@ const ACTION_NEXT_CUBE: &str = "demo_action_next_cube";
 const ACTION_CANVAS_CLEAR: &str = "demo_action_canvas_clear";
 const ACTION_VIEW_BEVY: &str = "demo_action_view_bevy";
 const ACTION_VIEW_CANVAS: &str = "demo_action_view_canvas";
+const ACTION_VIEW_3D: &str = "demo_action_view_3d";
 const ACTION_COREVIZ_ZONES: &str = "demo_action_coreviz_zones";
 const ACTION_COREVIZ_GRAPH: &str = "demo_action_coreviz_graph";
 const ACTION_COREVIZ_MANAGEMENT: &str = "demo_action_coreviz_management";
@@ -208,6 +215,18 @@ const PANE_DEFS: &[(&str, &str, PaneAnchor, &str)] = &[
         PANE_CANVAS_EXPORT,
         PaneAnchor::BottomRail(RailZone::Start),
         "Export",
+    ),
+    (
+        RIBBON_LEFT,
+        PANE_3D_SCENE,
+        PaneAnchor::LeftRail(RailZone::Start),
+        "3D Scene",
+    ),
+    (
+        RIBBON_RIGHT,
+        PANE_3D_INSPECTOR,
+        PaneAnchor::RightRail(RailZone::Start),
+        "3D Inspector",
     ),
     (
         RIBBON_LEFT,
@@ -326,6 +345,75 @@ const RIBBONS: &[RibbonSpec] = &[
     },
 ];
 
+const RIBBON_ITEMS_PERSISTENT_TOP: &[RibbonButtonSpec] = &[
+    RibbonButtonSpec {
+        id: ACTION_VIEW_BEVY,
+        ribbon: RIBBON_TOP,
+        cluster: RibbonCluster::Middle,
+        slot: 0,
+        draggable: false,
+        glyph: RibbonGlyph::Icon("cube"),
+        tooltip: "Bevy scene view",
+        child_ribbon: None,
+        role: Some(RibbonRole::Icon),
+    },
+    RibbonButtonSpec {
+        id: ACTION_VIEW_CANVAS,
+        ribbon: RIBBON_TOP,
+        cluster: RibbonCluster::Middle,
+        slot: 1,
+        draggable: false,
+        glyph: RibbonGlyph::Icon("pen"),
+        tooltip: "Canvas / whiteboard view",
+        child_ribbon: None,
+        role: Some(RibbonRole::Icon),
+    },
+    RibbonButtonSpec {
+        id: ACTION_COREVIZ_ZONES,
+        ribbon: RIBBON_TOP,
+        cluster: RibbonCluster::Middle,
+        slot: 2,
+        draggable: false,
+        glyph: RibbonGlyph::Icon("shape-union"),
+        tooltip: "Zones view",
+        child_ribbon: None,
+        role: Some(RibbonRole::Icon),
+    },
+    RibbonButtonSpec {
+        id: ACTION_COREVIZ_GRAPH,
+        ribbon: RIBBON_TOP,
+        cluster: RibbonCluster::Middle,
+        slot: 3,
+        draggable: false,
+        glyph: RibbonGlyph::Icon("flowchart"),
+        tooltip: "Graph view",
+        child_ribbon: None,
+        role: Some(RibbonRole::Icon),
+    },
+    RibbonButtonSpec {
+        id: ACTION_COREVIZ_MANAGEMENT,
+        ribbon: RIBBON_TOP,
+        cluster: RibbonCluster::Middle,
+        slot: 4,
+        draggable: false,
+        glyph: RibbonGlyph::Icon("location"),
+        tooltip: "Management view",
+        child_ribbon: None,
+        role: Some(RibbonRole::Icon),
+    },
+    RibbonButtonSpec {
+        id: ACTION_VIEW_3D,
+        ribbon: RIBBON_TOP,
+        cluster: RibbonCluster::Middle,
+        slot: 5,
+        draggable: false,
+        glyph: RibbonGlyph::Icon("cube"),
+        tooltip: "Three-d scene view",
+        child_ribbon: None,
+        role: Some(RibbonRole::Icon),
+    },
+];
+
 const RIBBON_ITEMS: &[RibbonButtonSpec] = &[
     // LEFT rail — primary navigation cluster.
     RibbonButtonSpec {
@@ -381,18 +469,6 @@ const RIBBON_ITEMS: &[RibbonButtonSpec] = &[
         draggable: true,
         glyph: RibbonGlyph::Icon("keyboard"),
         tooltip: "Keys & gestures",
-        child_ribbon: None,
-        role: None,
-    },
-    // TOP rail — meta.
-    RibbonButtonSpec {
-        id: PANE_ABOUT,
-        ribbon: RIBBON_TOP,
-        cluster: RibbonCluster::Start,
-        slot: 0,
-        draggable: false,
-        glyph: RibbonGlyph::Icon("line-horizontal-3"),
-        tooltip: "App menu and about",
         child_ribbon: None,
         role: None,
     },
@@ -453,17 +529,6 @@ const RIBBON_ITEMS: &[RibbonButtonSpec] = &[
         child_ribbon: None,
         role: Some(RibbonRole::Icon),
     },
-    RibbonButtonSpec {
-        id: ACTION_CLOSE_APP,
-        ribbon: RIBBON_TOP,
-        cluster: RibbonCluster::End,
-        slot: 0,
-        draggable: false,
-        glyph: RibbonGlyph::Icon("dismiss"),
-        tooltip: "Close application",
-        child_ribbon: None,
-        role: Some(RibbonRole::Icon),
-    },
     // BOTTOM rail — Editor plus the
     // one-shot cube-cycle action buttons in the End cluster.
     RibbonButtonSpec {
@@ -503,17 +568,6 @@ const RIBBON_ITEMS: &[RibbonButtonSpec] = &[
 
 const RIBBON_ITEMS_ROOT_VIEW: &[RibbonButtonSpec] = &[
     // TOP rail — the only persistent/shared bar.
-    RibbonButtonSpec {
-        id: PANE_ABOUT,
-        ribbon: RIBBON_TOP,
-        cluster: RibbonCluster::Start,
-        slot: 0,
-        draggable: false,
-        glyph: RibbonGlyph::Icon("line-horizontal-3"),
-        tooltip: "App menu and about",
-        child_ribbon: None,
-        role: None,
-    },
     RibbonButtonSpec {
         id: ACTION_VIEW_BEVY,
         ribbon: RIBBON_TOP,
@@ -566,17 +620,6 @@ const RIBBON_ITEMS_ROOT_VIEW: &[RibbonButtonSpec] = &[
         draggable: false,
         glyph: RibbonGlyph::Icon("location"),
         tooltip: "Management view",
-        child_ribbon: None,
-        role: Some(RibbonRole::Icon),
-    },
-    RibbonButtonSpec {
-        id: ACTION_CLOSE_APP,
-        ribbon: RIBBON_TOP,
-        cluster: RibbonCluster::End,
-        slot: 0,
-        draggable: false,
-        glyph: RibbonGlyph::Icon("dismiss"),
-        tooltip: "Close application",
         child_ribbon: None,
         role: Some(RibbonRole::Icon),
     },
@@ -662,18 +705,32 @@ const RIBBON_ITEMS_ROOT_VIEW: &[RibbonButtonSpec] = &[
     },
 ];
 
-const RIBBON_ITEMS_MAP_VIEW: &[RibbonButtonSpec] = &[
+const RIBBON_ITEMS_3D_VIEW: &[RibbonButtonSpec] = &[
     RibbonButtonSpec {
-        id: PANE_ABOUT,
-        ribbon: RIBBON_TOP,
+        id: PANE_3D_SCENE,
+        ribbon: RIBBON_LEFT,
         cluster: RibbonCluster::Start,
         slot: 0,
-        draggable: false,
-        glyph: RibbonGlyph::Icon("line-horizontal-3"),
-        tooltip: "App menu and about",
+        draggable: true,
+        glyph: RibbonGlyph::Icon("folder"),
+        tooltip: "3D scene objects",
         child_ribbon: None,
         role: None,
     },
+    RibbonButtonSpec {
+        id: PANE_3D_INSPECTOR,
+        ribbon: RIBBON_RIGHT,
+        cluster: RibbonCluster::Start,
+        slot: 0,
+        draggable: true,
+        glyph: RibbonGlyph::Icon("options"),
+        tooltip: "3D selection inspector",
+        child_ribbon: None,
+        role: None,
+    },
+];
+
+const RIBBON_ITEMS_MAP_VIEW: &[RibbonButtonSpec] = &[
     RibbonButtonSpec {
         id: ACTION_VIEW_BEVY,
         ribbon: RIBBON_TOP,
@@ -693,17 +750,6 @@ const RIBBON_ITEMS_MAP_VIEW: &[RibbonButtonSpec] = &[
         draggable: false,
         glyph: RibbonGlyph::Icon("pen"),
         tooltip: "Canvas / whiteboard view",
-        child_ribbon: None,
-        role: Some(RibbonRole::Icon),
-    },
-    RibbonButtonSpec {
-        id: ACTION_CLOSE_APP,
-        ribbon: RIBBON_TOP,
-        cluster: RibbonCluster::End,
-        slot: 0,
-        draggable: false,
-        glyph: RibbonGlyph::Icon("dismiss"),
-        tooltip: "Close application",
         child_ribbon: None,
         role: Some(RibbonRole::Icon),
     },
@@ -821,17 +867,6 @@ const RIBBON_ITEMS_MAP_VIEW: &[RibbonButtonSpec] = &[
 
 const RIBBON_ITEMS_MAP_GRAPH_VIEW: &[RibbonButtonSpec] = &[
     RibbonButtonSpec {
-        id: PANE_ABOUT,
-        ribbon: RIBBON_TOP,
-        cluster: RibbonCluster::Start,
-        slot: 0,
-        draggable: false,
-        glyph: RibbonGlyph::Icon("line-horizontal-3"),
-        tooltip: "App menu and about",
-        child_ribbon: None,
-        role: None,
-    },
-    RibbonButtonSpec {
         id: ACTION_VIEW_BEVY,
         ribbon: RIBBON_TOP,
         cluster: RibbonCluster::Middle,
@@ -850,17 +885,6 @@ const RIBBON_ITEMS_MAP_GRAPH_VIEW: &[RibbonButtonSpec] = &[
         draggable: false,
         glyph: RibbonGlyph::Icon("pen"),
         tooltip: "Canvas / whiteboard view",
-        child_ribbon: None,
-        role: Some(RibbonRole::Icon),
-    },
-    RibbonButtonSpec {
-        id: ACTION_CLOSE_APP,
-        ribbon: RIBBON_TOP,
-        cluster: RibbonCluster::End,
-        slot: 0,
-        draggable: false,
-        glyph: RibbonGlyph::Icon("dismiss"),
-        tooltip: "Close application",
         child_ribbon: None,
         role: Some(RibbonRole::Icon),
     },
@@ -978,17 +1002,6 @@ const RIBBON_ITEMS_MAP_GRAPH_VIEW: &[RibbonButtonSpec] = &[
 
 const RIBBON_ITEMS_MAP_MANAGEMENT_VIEW: &[RibbonButtonSpec] = &[
     RibbonButtonSpec {
-        id: PANE_ABOUT,
-        ribbon: RIBBON_TOP,
-        cluster: RibbonCluster::Start,
-        slot: 0,
-        draggable: false,
-        glyph: RibbonGlyph::Icon("line-horizontal-3"),
-        tooltip: "App menu and about",
-        child_ribbon: None,
-        role: None,
-    },
-    RibbonButtonSpec {
         id: ACTION_VIEW_BEVY,
         ribbon: RIBBON_TOP,
         cluster: RibbonCluster::Middle,
@@ -1007,17 +1020,6 @@ const RIBBON_ITEMS_MAP_MANAGEMENT_VIEW: &[RibbonButtonSpec] = &[
         draggable: false,
         glyph: RibbonGlyph::Icon("pen"),
         tooltip: "Canvas / whiteboard view",
-        child_ribbon: None,
-        role: Some(RibbonRole::Icon),
-    },
-    RibbonButtonSpec {
-        id: ACTION_CLOSE_APP,
-        ribbon: RIBBON_TOP,
-        cluster: RibbonCluster::End,
-        slot: 0,
-        draggable: false,
-        glyph: RibbonGlyph::Icon("dismiss"),
-        tooltip: "Close application",
         child_ribbon: None,
         role: Some(RibbonRole::Icon),
     },
@@ -1169,17 +1171,6 @@ const RIBBON_ITEMS_FS_GRAPH: &[RibbonButtonSpec] = &[
     // The system-control slot changes meaning here: close becomes
     // restore-to-parent/fullscreen-exit, not app close.
     RibbonButtonSpec {
-        id: PANE_ABOUT,
-        ribbon: RIBBON_TOP,
-        cluster: RibbonCluster::Start,
-        slot: 0,
-        draggable: false,
-        glyph: RibbonGlyph::Icon("line-horizontal-3"),
-        tooltip: "App menu and about",
-        child_ribbon: None,
-        role: None,
-    },
-    RibbonButtonSpec {
         id: ACTION_VIEW_BEVY,
         ribbon: RIBBON_TOP,
         cluster: RibbonCluster::Middle,
@@ -1307,17 +1298,6 @@ const RIBBON_ITEMS_FS_GRAPH: &[RibbonButtonSpec] = &[
 // left (main.rs / lib.rs / Cargo.toml).
 const RIBBON_ITEMS_FS_CODE: &[RibbonButtonSpec] = &[
     RibbonButtonSpec {
-        id: PANE_ABOUT,
-        ribbon: RIBBON_TOP,
-        cluster: RibbonCluster::Start,
-        slot: 0,
-        draggable: false,
-        glyph: RibbonGlyph::Icon("line-horizontal-3"),
-        tooltip: "App menu and about",
-        child_ribbon: None,
-        role: None,
-    },
-    RibbonButtonSpec {
         id: ACTION_VIEW_BEVY,
         ribbon: RIBBON_TOP,
         cluster: RibbonCluster::Middle,
@@ -1443,9 +1423,11 @@ mod tests {
 
     #[test]
     fn demo_ribbon_icons_are_renderable() {
-        for item in RIBBON_ITEMS
+        for item in RIBBON_ITEMS_PERSISTENT_TOP
             .iter()
+            .chain(RIBBON_ITEMS)
             .chain(RIBBON_ITEMS_ROOT_VIEW)
+            .chain(RIBBON_ITEMS_3D_VIEW)
             .chain(RIBBON_ITEMS_MAP_VIEW)
             .chain(RIBBON_ITEMS_MAP_GRAPH_VIEW)
             .chain(RIBBON_ITEMS_MAP_MANAGEMENT_VIEW)
@@ -1462,6 +1444,17 @@ mod tests {
                 icon
             );
         }
+    }
+
+    #[test]
+    fn three_d_view_stays_on_persistent_bar() {
+        let item = find_item(RIBBON_ITEMS_PERSISTENT_TOP, ACTION_VIEW_3D)
+            .expect("missing three-d view button");
+        assert_eq!(item.ribbon, RIBBON_TOP);
+        assert_eq!(item.cluster, RibbonCluster::Middle);
+        assert_eq!(item.slot, 5);
+        assert!(!item.draggable);
+        assert_eq!(item.role, Some(RibbonRole::Icon));
     }
 
     #[test]
@@ -1493,6 +1486,7 @@ mod tests {
         for items in [
             RIBBON_ITEMS,
             RIBBON_ITEMS_ROOT_VIEW,
+            RIBBON_ITEMS_3D_VIEW,
             RIBBON_ITEMS_MAP_VIEW,
             RIBBON_ITEMS_MAP_GRAPH_VIEW,
             RIBBON_ITEMS_MAP_MANAGEMENT_VIEW,
@@ -1510,6 +1504,18 @@ fn ribbon_action(id: &'static str) -> RibbonAction {
     }
 }
 
+fn is_persistent_top_item(id: &'static str) -> bool {
+    matches!(
+        id,
+        ACTION_VIEW_BEVY
+            | ACTION_VIEW_CANVAS
+            | ACTION_VIEW_3D
+            | ACTION_COREVIZ_ZONES
+            | ACTION_COREVIZ_GRAPH
+            | ACTION_COREVIZ_MANAGEMENT
+    )
+}
+
 fn draw_unified_ribbons(
     ctx: &egui::Context,
     accent: egui::Color32,
@@ -1520,6 +1526,14 @@ fn draw_unified_ribbons(
     drag: &mut RibbonDrag,
     active: impl Fn(&'static str) -> bool,
 ) -> Vec<RibbonSlotClick> {
+    let mut stable_items: Vec<&RibbonButtonSpec> = Vec::with_capacity(
+        RIBBON_ITEMS_PERSISTENT_TOP
+            .len()
+            .saturating_add(items.len()),
+    );
+    stable_items.extend(RIBBON_ITEMS_PERSISTENT_TOP.iter());
+    stable_items.extend(items.iter().filter(|item| !is_persistent_top_item(item.id)));
+
     let mut resolved = Vec::new();
     for ribbon in ribbons {
         for cluster in [
@@ -1527,8 +1541,9 @@ fn draw_unified_ribbons(
             RibbonCluster::Middle,
             RibbonCluster::End,
         ] {
-            let slot_items: Vec<RibbonSlotItem> = items
+            let slot_items: Vec<RibbonSlotItem> = stable_items
                 .iter()
+                .copied()
                 .filter(|item| item.ribbon == ribbon.id && item.cluster == cluster)
                 .map(|item| {
                     let icon = match item.glyph {
@@ -1608,6 +1623,7 @@ enum DemoRootView {
     #[default]
     BevyScene,
     Canvas,
+    ThreeD,
     CorevizZones,
     CorevizGraph,
     CorevizManagement,
@@ -1625,6 +1641,176 @@ impl DemoRootView {
 #[derive(Default)]
 struct CanvasViewState {
     strokes: Vec<Vec<egui::Pos2>>,
+}
+
+struct ThreeDViewState {
+    view: View3d,
+    workspace: WorkspaceStack,
+}
+
+impl Default for ThreeDViewState {
+    fn default() -> Self {
+        let mut scene = Scene3d::demo("3D");
+        add_demo_obj_model(&mut scene);
+        Self {
+            view: View3d::new("demo-three-d", scene),
+            workspace: WorkspaceStack::new("demo-three-d-workspace"),
+        }
+    }
+}
+
+const STANFORD_BUNNY_OBJ: &str = include_str!("../assets/stanford-bunny.obj");
+const STANFORD_DRAGON_OBJ: &str = include_str!("../assets/stanford-dragon.obj");
+
+fn add_demo_obj_model(scene: &mut Scene3d) {
+    add_demo_obj_asset(
+        scene,
+        "Stanford Bunny",
+        STANFORD_BUNNY_OBJ,
+        [-1.1, 0.0, -3.65],
+        egui::Color32::from_rgb(218, 186, 142),
+    );
+    add_demo_obj_asset(
+        scene,
+        "Stanford Dragon",
+        STANFORD_DRAGON_OBJ,
+        [1.15, 0.0, -3.65],
+        egui::Color32::from_rgb(155, 205, 220),
+    );
+}
+
+fn add_demo_obj_asset(
+    scene: &mut Scene3d,
+    label: &str,
+    obj: &str,
+    translation: [f32; 3],
+    color: egui::Color32,
+) {
+    let mut reader = Cursor::new(obj.as_bytes());
+    let options = tobj::LoadOptions {
+        triangulate: true,
+        single_index: true,
+        ..Default::default()
+    };
+    let Ok((models, _materials)) = tobj::load_obj_buf(&mut reader, &options, |_| {
+        Err(tobj::LoadError::OpenFileFailed)
+    }) else {
+        return;
+    };
+    if models.is_empty() {
+        return;
+    }
+
+    let Some(bounds) = obj_bounds(&models) else {
+        return;
+    };
+    let center = [
+        (bounds.min[0] + bounds.max[0]) * 0.5,
+        (bounds.min[1] + bounds.max[1]) * 0.5,
+        (bounds.min[2] + bounds.max[2]) * 0.5,
+    ];
+    let extent = (bounds.max[0] - bounds.min[0])
+        .max(bounds.max[1] - bounds.min[1])
+        .max(bounds.max[2] - bounds.min[2])
+        .max(1.0e-6);
+    let scale = 1.45 / extent;
+    let height = (bounds.max[1] - bounds.min[1]) * scale;
+    let figurine_material = scene.add_material(format!("Downloaded {label} OBJ"), color);
+
+    for (index, model) in models.into_iter().enumerate() {
+        let mesh = &model.mesh;
+        if mesh.positions.len() < 9 || mesh.indices.len() < 3 {
+            continue;
+        }
+
+        let vertices = mesh
+            .positions
+            .chunks_exact(3)
+            .map(|position| {
+                [
+                    (position[0] - center[0]) * scale,
+                    (position[1] - center[1]) * scale,
+                    (position[2] - center[2]) * scale,
+                ]
+            })
+            .collect::<Vec<_>>();
+        let indices = mesh
+            .indices
+            .chunks_exact(3)
+            .map(|triangle| [triangle[0], triangle[1], triangle[2]])
+            .collect::<Vec<_>>();
+        let normals = if mesh.normals.len() / 3 == vertices.len() {
+            mesh.normals
+                .chunks_exact(3)
+                .map(|normal| [normal[0], normal[1], normal[2]])
+                .collect()
+        } else {
+            Vec::new()
+        };
+        let uvs = if mesh.texcoords.len() / 2 == vertices.len() {
+            mesh.texcoords
+                .chunks_exact(2)
+                .map(|uv| [uv[0], uv[1]])
+                .collect()
+        } else {
+            Vec::new()
+        };
+
+        let mesh = if normals.len() == vertices.len() {
+            TriangleMesh3d {
+                vertices,
+                indices,
+                normals,
+                uvs,
+                vertex_colors: Vec::new(),
+            }
+        } else if uvs.len() == vertices.len() {
+            TriangleMesh3d::with_generated_normals_and_uvs(vertices, indices, uvs)
+        } else {
+            TriangleMesh3d::with_generated_normals(vertices, indices)
+        };
+
+        let object = scene.add_mesh_object(
+            if model.name.is_empty() {
+                format!("Downloaded {label} OBJ")
+            } else {
+                format!("{label} {}", model.name)
+            },
+            mesh,
+            figurine_material,
+        );
+        if let Some(object) = scene.object_mut(object) {
+            object.transform.translation = [
+                translation[0],
+                translation[1] + height * 0.5 + 0.02,
+                translation[2] + index as f32 * 0.03,
+            ];
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+struct ObjBounds {
+    min: [f32; 3],
+    max: [f32; 3],
+}
+
+fn obj_bounds(models: &[tobj::Model]) -> Option<ObjBounds> {
+    let mut bounds = ObjBounds {
+        min: [f32::INFINITY; 3],
+        max: [f32::NEG_INFINITY; 3],
+    };
+    let mut any = false;
+    for model in models {
+        for position in model.mesh.positions.chunks_exact(3) {
+            any = true;
+            for axis in 0..3 {
+                bounds.min[axis] = bounds.min[axis].min(position[axis]);
+                bounds.max[axis] = bounds.max[axis].max(position[axis]);
+            }
+        }
+    }
+    any.then_some(bounds)
 }
 
 #[derive(Default)]
@@ -1723,9 +1909,11 @@ pub struct DemoApp {
     tint: TintRgba,
     root_view: DemoRootView,
     canvas_view: CanvasViewState,
+    three_d_view: ThreeDViewState,
     canvas_shelves: CanvasShelfState,
     map_view: MapViewState,
     bevy_view: MaraBevyViewport,
+    bevy_hosted_scene: bool,
     editor_node_view: EditorNodeView,
     editor_graph: EditorGraph,
 }
@@ -1734,23 +1922,14 @@ impl DemoApp {
     /// Built once by `eframe::WebRunner`. No persistence — every
     /// session starts from the default mara layout.
     pub fn new(_cc: &eframe::CreationContext<'_>) -> Self {
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            return Self {
-                bevy_view: MaraBevyViewport::with_content(crate::bevy_content::configure_app),
-                ..Self::default()
-            };
-        }
-
-        #[cfg(target_arch = "wasm32")]
         Self {
-            bevy_view: MaraBevyViewport::new(),
+            bevy_view: MaraBevyViewport::with_content(crate::bevy_content::configure_app),
             ..Self::default()
         }
     }
 
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn new_winit(render_state: Option<&egui_wgpu::RenderState>) -> Self {
+    pub fn new_winit(render_state: Option<&eframe::egui_wgpu::RenderState>) -> Self {
         Self {
             bevy_view: MaraBevyViewport::with_render_state_and_content(
                 render_state,
@@ -1760,10 +1939,30 @@ impl DemoApp {
         }
     }
 
+    /// Build the same Mara demo state for a Bevy-owned window. In
+    /// this mode the root Bevy scene is the real Bevy world behind
+    /// `bevy_egui`, so the Mara root view must not create a second
+    /// embedded/offscreen Bevy renderer.
+    pub fn new_bevy_hosted() -> Self {
+        Self {
+            bevy_hosted_scene: true,
+            ..Self::default()
+        }
+    }
+
+    pub fn set_accent_color(&mut self, color: egui::Color32) {
+        self.accent.0 = color;
+    }
+
+    #[must_use]
+    pub fn bevy_host_scene_visible(&self) -> bool {
+        self.bevy_hosted_scene && self.root_view == DemoRootView::BevyScene
+    }
+
     pub fn update_with_render_state(
         &mut self,
         ctx: &egui::Context,
-        render_state: &egui_wgpu::RenderState,
+        render_state: &eframe::egui_wgpu::RenderState,
     ) {
         let mut host = MaraHostCtx::ui_only(ctx, Some(render_state));
         ui_system(self, &mut host);
@@ -1771,6 +1970,14 @@ impl DemoApp {
 }
 
 impl eframe::App for DemoApp {
+    #[cfg(target_arch = "wasm32")]
+    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
+        // The web Bevy view is a real browser canvas behind/inside
+        // Mara's transparent egui canvas. Do not clear the whole
+        // eframe canvas opaquely or it hides Bevy.
+        [0.0, 0.0, 0.0, 0.0]
+    }
+
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         let render_state = frame
             .wgpu_render_state()
@@ -1795,7 +2002,7 @@ impl mara::window::WindowApp for DemoApp {
 /// Per-frame UI — the body of the old Bevy `ui_system`, now driven by
 /// eframe/winit. `app` carries the state the Bevy build held as
 /// resources; `host` provides app-level actions and render helpers.
-fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
+pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
     let ctx = host.egui();
     let DemoApp {
         accent,
@@ -1809,9 +2016,11 @@ fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
         tint,
         root_view,
         canvas_view,
+        three_d_view,
         canvas_shelves,
         map_view,
         bevy_view,
+        bevy_hosted_scene,
         editor_node_view,
         editor_graph,
     } = app;
@@ -1839,10 +2048,18 @@ fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
         },
     );
 
+    let bevy_view_active = *root_view == DemoRootView::BevyScene && !*bevy_hosted_scene;
+    bevy_view.set_active(bevy_view_active);
+    if !root_view.is_coreviz() {
+        map_view
+            .surface
+            .prewarm_tiles(ctx, ctx.content_rect().size());
+    }
+
     // Actual root/L0 canvas switch. The app shell is always eframe;
     // Bevy is represented as an embedded viewport surface, not the
     // top-level window owner.
-    if *root_view == DemoRootView::BevyScene {
+    if bevy_view_active {
         if let Some(color) = bevy_view.show(host.egui(), host.render_state(), accent_col) {
             accent.0 = color;
             host.apply_theme(*accent, *glass);
@@ -1850,6 +2067,8 @@ fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
         }
     } else if *root_view == DemoRootView::Canvas {
         canvas_root_view(ctx, accent_col, canvas_view, &mut canvas_shelves.0);
+    } else if *root_view == DemoRootView::ThreeD {
+        three_d_root_view(host, accent_col, three_d_view);
     } else if root_view.is_coreviz() {
         map_root_view(ctx, map_view);
     }
@@ -1896,6 +2115,8 @@ fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
         RIBBON_ITEMS_FS_GRAPH
     } else if *root_view == DemoRootView::Canvas {
         RIBBON_ITEMS_ROOT_VIEW
+    } else if *root_view == DemoRootView::ThreeD {
+        RIBBON_ITEMS_3D_VIEW
     } else if root_view.is_coreviz() {
         map_ribbon_items(*root_view)
     } else {
@@ -2019,6 +2240,8 @@ fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
                 PANE_CANVAS_INSPECTOR => canvas_inspector_pane(body),
                 PANE_CANVAS_HISTORY => canvas_history_pane(body),
                 PANE_CANVAS_EXPORT => canvas_export_pane(body),
+                PANE_3D_SCENE => three_d_scene_pane(body, three_d_view),
+                PANE_3D_INSPECTOR => three_d_inspector_pane(body, three_d_view),
                 PANE_COREVIZ_ZONES => coreviz_zones_pane(body),
                 PANE_COREVIZ_REFERENCE => coreviz_reference_pane(body),
                 PANE_COREVIZ_NODES => coreviz_nodes_pane(body),
@@ -2069,6 +2292,7 @@ fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
             |id| match *root_view {
                 DemoRootView::BevyScene => id == ACTION_VIEW_BEVY,
                 DemoRootView::Canvas => id == ACTION_VIEW_CANVAS,
+                DemoRootView::ThreeD => id == ACTION_VIEW_3D,
                 DemoRootView::CorevizZones => {
                     id == ACTION_COREVIZ_ZONES
                         || matches!(
@@ -2108,6 +2332,11 @@ fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
         (191, 115, 242),
     ];
     for click in clicks {
+        if click.action == RibbonAction::Command(mara_core::app_menu_command_id()) {
+            open.set(RIBBON_TOP, PANE_ABOUT);
+            ctx.request_repaint();
+            continue;
+        }
         if click.action == RibbonAction::Command(mara_core::left_shelf_command_id()) {
             canvas_shelves.0.toggle_edge_visible(ShelfEdge::Left);
             continue;
@@ -2125,6 +2354,7 @@ fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
                 mara_core::embed::restore_fullscreen(ctx);
             }
             *root_view = DemoRootView::BevyScene;
+            ctx.request_repaint();
             continue;
         }
         if click.item == egui::Id::new(ACTION_VIEW_CANVAS) {
@@ -2132,6 +2362,17 @@ fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
                 mara_core::embed::restore_fullscreen(ctx);
             }
             *root_view = DemoRootView::Canvas;
+            ctx.request_repaint();
+            continue;
+        }
+        if click.item == egui::Id::new(ACTION_VIEW_3D) {
+            if fs_active {
+                mara_core::embed::restore_fullscreen(ctx);
+            }
+            *root_view = DemoRootView::ThreeD;
+            open.set(RIBBON_LEFT, PANE_3D_SCENE);
+            open.set(RIBBON_RIGHT, PANE_3D_INSPECTOR);
+            ctx.request_repaint();
             continue;
         }
         if click.item == egui::Id::new(ACTION_RESTORE_FULLSCREEN) {
@@ -2152,9 +2393,11 @@ fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
                 mara_core::embed::restore_fullscreen(ctx);
             }
             *root_view = DemoRootView::CorevizZones;
+            map_view.surface.defer_full_detail();
             map_view.interaction.set_tool(MapTool::Select);
             open.set(RIBBON_LEFT, PANE_COREVIZ_ZONES);
             open.set(RIBBON_RIGHT, PANE_COREVIZ_DETAILS);
+            ctx.request_repaint();
             continue;
         }
         if click.item == egui::Id::new(ACTION_COREVIZ_GRAPH) {
@@ -2162,9 +2405,11 @@ fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
                 mara_core::embed::restore_fullscreen(ctx);
             }
             *root_view = DemoRootView::CorevizGraph;
+            map_view.surface.defer_full_detail();
             map_view.interaction.set_tool(MapTool::Select);
             open.set(RIBBON_LEFT, PANE_COREVIZ_NODES);
             open.set(RIBBON_RIGHT, PANE_COREVIZ_DETAILS);
+            ctx.request_repaint();
             continue;
         }
         if click.item == egui::Id::new(ACTION_COREVIZ_MANAGEMENT) {
@@ -2172,9 +2417,11 @@ fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
                 mara_core::embed::restore_fullscreen(ctx);
             }
             *root_view = DemoRootView::CorevizManagement;
+            map_view.surface.defer_full_detail();
             map_view.interaction.set_tool(MapTool::Select);
             open.set(RIBBON_LEFT, PANE_COREVIZ_ROBOTS);
             open.set(RIBBON_RIGHT, PANE_COREVIZ_DETAILS);
+            ctx.request_repaint();
             continue;
         }
         if click.item == egui::Id::new(ACTION_MAP_SELECT) {
@@ -2230,6 +2477,24 @@ fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
 
 fn map_root_view(ctx: &egui::Context, map: &mut MapViewState) {
     let _ = MaraMap::new(&mut map.surface, &mut map.interaction).show(ctx);
+}
+
+// ─── 3D root view ──────────────────────────────────────────────────
+
+fn three_d_root_view(
+    host: &mut MaraHostCtx<'_>,
+    accent: egui::Color32,
+    three_d: &mut ThreeDViewState,
+) {
+    let ctx = host.egui().clone();
+    let mut view_ctx = ViewCtx {
+        egui_ctx: &ctx,
+        workspace: &mut three_d.workspace,
+        accent,
+        content_avoidance: RibbonAvoidance::none(),
+    };
+    three_d.view.set_gpu_render_state(host.render_state());
+    three_d.view.show(&mut view_ctx);
 }
 
 // ─── Canvas root view ──────────────────────────────────────────────
@@ -3519,6 +3784,97 @@ fn canvas_export_pane(body: &mut PaneBody) {
                 .with_separator(SeparatorStyle::None)
                 .with_button("Export canvas", accent),
         ],
+    );
+}
+
+fn three_d_scene_pane(body: &mut PaneBody, three_d: &ThreeDViewState) {
+    let scene = three_d.view.scene();
+    let mut pods = Vec::with_capacity(scene.objects.len().saturating_add(1));
+    pods.push(
+        Pod::new(pid(PANE_3D_SCENE, "summary", 0))
+            .with_separator(SeparatorStyle::Line)
+            .with_readout("objects", scene.objects.len().to_string()),
+    );
+    for (index, object) in scene.objects.iter().enumerate() {
+        let state = if object.selected {
+            format!("{} · selected", object.kind_name())
+        } else if object.visible {
+            object.kind_name().to_owned()
+        } else {
+            format!("{} · hidden", object.kind_name())
+        };
+        pods.push(
+            Pod::new(pid(PANE_3D_SCENE, "object", index))
+                .with_separator(if index + 1 == scene.objects.len() {
+                    SeparatorStyle::None
+                } else {
+                    SeparatorStyle::Line
+                })
+                .with_readout(object.name.clone(), state),
+        );
+    }
+    body.add_normal(cid(PANE_3D_SCENE, "objects"), "Objects", "folder", pods);
+}
+
+fn three_d_inspector_pane(body: &mut PaneBody, three_d: &ThreeDViewState) {
+    let scene = three_d.view.scene();
+    let orbit = three_d.view.orbit();
+    let selected = scene.selected_object();
+    let mut pods = vec![
+        Pod::new(pid(PANE_3D_INSPECTOR, "selection", 0))
+            .with_separator(SeparatorStyle::Line)
+            .with_readout(
+                "selection",
+                selected.map_or_else(|| "none".to_owned(), |object| object.name.clone()),
+            ),
+        Pod::new(pid(PANE_3D_INSPECTOR, "selection", 1))
+            .with_separator(SeparatorStyle::Line)
+            .with_readout(
+                "orbit",
+                format!(
+                    "yaw {:.2} · pitch {:.2} · dist {:.2}",
+                    orbit.yaw, orbit.pitch, orbit.distance
+                ),
+            ),
+    ];
+
+    if let Some(object) = selected {
+        pods.push(
+            Pod::new(pid(PANE_3D_INSPECTOR, "selection", 2))
+                .with_separator(SeparatorStyle::Line)
+                .with_readout("id", format!("#{}", object.id.0)),
+        );
+        pods.push(
+            Pod::new(pid(PANE_3D_INSPECTOR, "selection", 3))
+                .with_separator(SeparatorStyle::Line)
+                .with_readout(
+                    "position",
+                    format!(
+                        "{:.2}, {:.2}, {:.2}",
+                        object.transform.translation[0],
+                        object.transform.translation[1],
+                        object.transform.translation[2]
+                    ),
+                ),
+        );
+        pods.push(
+            Pod::new(pid(PANE_3D_INSPECTOR, "selection", 4))
+                .with_separator(SeparatorStyle::None)
+                .with_readout("primitive", object.kind_name()),
+        );
+    } else {
+        pods.push(
+            Pod::new(pid(PANE_3D_INSPECTOR, "selection", 2))
+                .with_separator(SeparatorStyle::None)
+                .with_readout("hint", "click an object"),
+        );
+    }
+
+    body.add_normal(
+        cid(PANE_3D_INSPECTOR, "selection"),
+        "Selection",
+        "options",
+        pods,
     );
 }
 

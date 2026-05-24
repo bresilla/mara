@@ -1,53 +1,54 @@
-//! Web entry point for the root Mara example.
+//! Web entrypoint for the Mara example.
+//!
+//! The browser path follows the same ownership model as native:
+//! egui/Mara owns the shell, and Bevy is just an embedded view inside
+//! that shell.
 
 #[cfg(not(target_arch = "wasm32"))]
 fn main() {
     eprintln!(
         "mara_example web is a wasm-only binary — build it with \
-         `make serve-web` or `make build-web`."
+         `make serve` or `make build TARGET=web`."
     );
 }
 
 #[cfg(target_arch = "wasm32")]
 fn main() {
-    use eframe::wasm_bindgen::JsCast as _;
-    use mara_example::DemoApp;
-
+    console_error_panic_hook::set_once();
     eframe::WebLogger::init(log::LevelFilter::Debug).ok();
 
-    let mut web_options = eframe::WebOptions::default();
-    if let eframe::egui_wgpu::WgpuSetup::CreateNew(setup) = &mut web_options.wgpu_options.wgpu_setup
-    {
-        setup.instance_descriptor.backends = eframe::wgpu::Backends::GL;
-    }
+    wasm_bindgen_futures::spawn_local(async {
+        let Some(window) = eframe::web_sys::window() else {
+            return;
+        };
+        let Some(document) = window.document() else {
+            return;
+        };
+        let Some(canvas) = document
+            .get_element_by_id("mara_canvas")
+            .and_then(|element| {
+                element
+                    .dyn_into::<eframe::web_sys::HtmlCanvasElement>()
+                    .ok()
+            })
+        else {
+            eframe::web_sys::console::error_1(&"missing #mara_canvas".into());
+            return;
+        };
 
-    wasm_bindgen_futures::spawn_local(async move {
-        let canvas = eframe::web_sys::window()
-            .and_then(|w| w.document())
-            .and_then(|d| d.get_element_by_id("mara_canvas"))
-            .expect("index.html must contain <canvas id=\"mara_canvas\">")
-            .dyn_into::<eframe::web_sys::HtmlCanvasElement>()
-            .expect("#mara_canvas must be a <canvas> element");
-
-        let result = eframe::WebRunner::new()
+        let runner = eframe::WebRunner::new();
+        if let Err(error) = runner
             .start(
                 canvas,
-                web_options,
-                Box::new(|cc| Ok(Box::new(DemoApp::new(cc)))),
+                eframe::WebOptions::default(),
+                Box::new(|cc| Ok(Box::new(mara_example::DemoApp::new(cc)))),
             )
-            .await;
-
-        if let Err(err) = result {
-            log::error!("mara_example web failed to start: {err:?}");
-            if let Some(body) = eframe::web_sys::window()
-                .and_then(|w| w.document())
-                .and_then(|d| d.body())
-            {
-                body.set_inner_html(&format!(
-                    "<p style=\"color:#e2606a;font-family:monospace;padding:1.5rem;\
-                     line-height:1.5\">mara_example failed to start:<br>{err:?}</p>"
-                ));
-            }
+            .await
+        {
+            eframe::web_sys::console::error_1(&error);
         }
     });
 }
+
+#[cfg(target_arch = "wasm32")]
+use eframe::wasm_bindgen::JsCast;

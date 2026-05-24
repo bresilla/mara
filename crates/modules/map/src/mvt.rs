@@ -1,13 +1,18 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet, VecDeque};
+#[cfg(not(target_arch = "wasm32"))]
+use std::sync::{Arc, OnceLock};
 use std::sync::{Mutex, mpsc};
 use std::time::Duration;
 
-use super::{MapViewport, TILE_SIZE, geo_to_world, paint_polygon};
+use super::{MapViewport, TILE_SIZE, geo_to_world, paint_polygon, triangulate_polygon};
 
 const OPENFREEMAP_TILE_URL: &str = "https://tiles.openfreemap.org/planet/latest";
 const MAX_SOURCE_ZOOM: f64 = 14.0;
 const MAP_DESATURATION: f32 = 0.46;
-const MAP_ACCENT_TINT_SCALE: f32 = 1.08;
+const MAP_ACCENT_TINT_SCALE: f32 = 0.54;
+const MAX_TILE_REQUESTS_PER_PAINT: usize = 6;
+#[cfg(target_arch = "wasm32")]
+const MAX_WASM_DECODE_PER_POLL: usize = 1;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct TileKey {
@@ -22,10 +27,20 @@ enum TileEntry {
     Failed,
 }
 
+enum TilePayload {
+    #[cfg(not(target_arch = "wasm32"))]
+    Decoded(DecodedVectorTile),
+    #[cfg(target_arch = "wasm32")]
+    Bytes(Vec<u8>),
+}
+
+type TileMessage = (TileKey, Result<TilePayload, String>);
+
 pub(crate) struct VectorTileCache {
     tiles: HashMap<TileKey, TileEntry>,
-    tx: mpsc::Sender<(TileKey, Result<DecodedVectorTile, String>)>,
-    rx: Mutex<mpsc::Receiver<(TileKey, Result<DecodedVectorTile, String>)>>,
+    pending_decodes: VecDeque<(TileKey, Vec<u8>)>,
+    tx: mpsc::Sender<TileMessage>,
+    rx: Mutex<mpsc::Receiver<TileMessage>>,
 }
 
 impl Default for VectorTileCache {
@@ -33,6 +48,7 @@ impl Default for VectorTileCache {
         let (tx, rx) = mpsc::channel();
         Self {
             tiles: HashMap::new(),
+            pending_decodes: VecDeque::new(),
             tx,
             rx: Mutex::new(rx),
         }
@@ -46,48 +62,13 @@ pub(crate) fn paint_vector_basemap(
     cache: &mut VectorTileCache,
     fast_mode: bool,
 ) {
-    cache.poll_finished();
+    let cache_changed = cache.poll_finished();
     let palette = MapPalette::current();
     ui.painter().rect_filled(rect, 0.0, palette.background);
 
-    let z = viewport.zoom.floor().clamp(0.0, MAX_SOURCE_ZOOM) as u8;
-    let zf = f64::from(z);
-    let scale = 2.0_f64.powf(viewport.zoom - zf);
-    let center_world = geo_to_world(viewport.center, zf);
-    let top_left_world = (
-        center_world.0 - f64::from(rect.width()) / (2.0 * scale),
-        center_world.1 - f64::from(rect.height()) / (2.0 * scale),
-    );
-    let bottom_right_world = (
-        center_world.0 + f64::from(rect.width()) / (2.0 * scale),
-        center_world.1 + f64::from(rect.height()) / (2.0 * scale),
-    );
-    let min_x = (top_left_world.0 / TILE_SIZE).floor() as i64;
-    let max_x = (bottom_right_world.0 / TILE_SIZE).ceil() as i64;
-    let min_y = (top_left_world.1 / TILE_SIZE).floor() as i64;
-    let max_y = (bottom_right_world.1 / TILE_SIZE).ceil() as i64;
-    let tile_count = 1_i64 << u32::from(z);
+    let visible_tiles = visible_tile_keys(viewport, rect.size());
 
-    let mut has_loading = false;
-    let mut visible_tiles = Vec::new();
-    for y in min_y..=max_y {
-        if !(0..tile_count).contains(&y) {
-            continue;
-        }
-        for x in min_x..=max_x {
-            let wrapped_x = x.rem_euclid(tile_count);
-            let key = TileKey {
-                z,
-                x: wrapped_x as u32,
-                y: y as u32,
-            };
-            cache.request(key);
-            visible_tiles.push(key);
-            if matches!(cache.tiles.get(&key), Some(TileEntry::Loading) | None) {
-                has_loading = true;
-            }
-        }
-    }
+    let has_loading = request_visible_tiles(cache, &visible_tiles);
 
     let painter = ui.painter();
     let mut labels = LabelState::default();
@@ -114,6 +95,9 @@ pub(crate) fn paint_vector_basemap(
         }
     }
 
+    if cache_changed {
+        ui.ctx().request_repaint();
+    }
     if has_loading {
         ui.ctx().request_repaint_after(Duration::from_millis(16));
     }
@@ -122,39 +106,214 @@ pub(crate) fn paint_vector_basemap(
     }
 }
 
+pub(crate) fn prewarm_vector_basemap(
+    ctx: &egui::Context,
+    viewport: MapViewport,
+    size: egui::Vec2,
+    cache: &mut VectorTileCache,
+) {
+    let cache_changed = cache.poll_finished();
+    let visible_tiles = visible_tile_keys(viewport, size);
+    let has_loading = request_visible_tiles(cache, &visible_tiles);
+    if cache_changed {
+        ctx.request_repaint();
+    }
+    if has_loading || cache.has_pending_decode() {
+        ctx.request_repaint_after(Duration::from_millis(40));
+    }
+}
+
+fn visible_tile_keys(viewport: MapViewport, size: egui::Vec2) -> Vec<TileKey> {
+    let z = viewport.zoom.floor().clamp(0.0, MAX_SOURCE_ZOOM) as u8;
+    let zf = f64::from(z);
+    let scale = 2.0_f64.powf(viewport.zoom - zf);
+    let center_world = geo_to_world(viewport.center, zf);
+    let top_left_world = (
+        center_world.0 - f64::from(size.x) / (2.0 * scale),
+        center_world.1 - f64::from(size.y) / (2.0 * scale),
+    );
+    let bottom_right_world = (
+        center_world.0 + f64::from(size.x) / (2.0 * scale),
+        center_world.1 + f64::from(size.y) / (2.0 * scale),
+    );
+    let min_x = (top_left_world.0 / TILE_SIZE).floor() as i64;
+    let max_x = (bottom_right_world.0 / TILE_SIZE).ceil() as i64;
+    let min_y = (top_left_world.1 / TILE_SIZE).floor() as i64;
+    let max_y = (bottom_right_world.1 / TILE_SIZE).ceil() as i64;
+    let tile_count = 1_i64 << u32::from(z);
+
+    let center_tile_x = center_world.0 / TILE_SIZE;
+    let center_tile_y = center_world.1 / TILE_SIZE;
+    let mut visible_tiles = Vec::new();
+    for y in min_y..=max_y {
+        if !(0..tile_count).contains(&y) {
+            continue;
+        }
+        for x in min_x..=max_x {
+            let wrapped_x = x.rem_euclid(tile_count);
+            let key = TileKey {
+                z,
+                x: wrapped_x as u32,
+                y: y as u32,
+            };
+            visible_tiles.push(key);
+        }
+    }
+    visible_tiles.sort_by(|a, b| {
+        let ax = f64::from(a.x) + 0.5 - center_tile_x;
+        let ay = f64::from(a.y) + 0.5 - center_tile_y;
+        let bx = f64::from(b.x) + 0.5 - center_tile_x;
+        let by = f64::from(b.y) + 0.5 - center_tile_y;
+        (ax * ax + ay * ay).total_cmp(&(bx * bx + by * by))
+    });
+    visible_tiles
+}
+
+fn request_visible_tiles(cache: &mut VectorTileCache, visible_tiles: &[TileKey]) -> bool {
+    let mut has_loading = cache.has_pending_decode();
+    let mut started_requests = 0;
+    for key in visible_tiles {
+        if cache.is_missing(*key) {
+            if started_requests < MAX_TILE_REQUESTS_PER_PAINT {
+                started_requests += usize::from(cache.request(*key));
+            } else {
+                has_loading = true;
+                continue;
+            }
+        }
+        if matches!(cache.tiles.get(key), Some(TileEntry::Loading) | None) {
+            has_loading = true;
+        }
+    }
+    has_loading
+}
+
 impl VectorTileCache {
-    fn poll_finished(&mut self) {
+    fn poll_finished(&mut self) -> bool {
+        let mut changed = self.decode_pending();
         let Ok(rx) = self.rx.lock() else {
-            return;
+            return changed;
         };
         while let Ok((key, result)) = rx.try_recv() {
             let entry = match result {
+                #[cfg(not(target_arch = "wasm32"))]
+                Ok(TilePayload::Decoded(tile)) => TileEntry::Ready(tile),
+                #[cfg(target_arch = "wasm32")]
+                Ok(TilePayload::Bytes(bytes)) => {
+                    self.pending_decodes.push_back((key, bytes));
+                    continue;
+                }
+                Err(_) => TileEntry::Failed,
+            };
+            self.tiles.insert(key, entry);
+            changed = true;
+        }
+        drop(rx);
+        changed || self.decode_pending()
+    }
+
+    fn decode_pending(&mut self) -> bool {
+        let mut changed = false;
+        let mut remaining_budget = decode_budget_per_poll();
+        while remaining_budget > 0 {
+            let Some((key, bytes)) = self.pending_decodes.pop_front() else {
+                break;
+            };
+            let entry = match decode_vector_tile(&bytes) {
                 Ok(tile) => TileEntry::Ready(tile),
                 Err(_) => TileEntry::Failed,
             };
             self.tiles.insert(key, entry);
+            remaining_budget -= 1;
+            changed = true;
         }
+        changed
     }
 
-    fn request(&mut self, key: TileKey) {
+    fn has_pending_decode(&self) -> bool {
+        !self.pending_decodes.is_empty()
+    }
+
+    fn is_missing(&self, key: TileKey) -> bool {
+        !self.tiles.contains_key(&key)
+    }
+
+    fn request(&mut self, key: TileKey) -> bool {
         if self.tiles.contains_key(&key) {
-            return;
+            return false;
         }
         self.tiles.insert(key, TileEntry::Loading);
         request_tile(key, self.tx.clone());
+        true
     }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn request_tile(key: TileKey, tx: mpsc::Sender<(TileKey, Result<DecodedVectorTile, String>)>) {
-    std::thread::spawn(move || {
-        let result = fetch_tile(key).and_then(|bytes| decode_vector_tile(&bytes));
-        let _ = tx.send((key, result));
-    });
+fn decode_budget_per_poll() -> usize {
+    usize::MAX
 }
 
 #[cfg(target_arch = "wasm32")]
-fn request_tile(key: TileKey, tx: mpsc::Sender<(TileKey, Result<DecodedVectorTile, String>)>) {
+fn decode_budget_per_poll() -> usize {
+    MAX_WASM_DECODE_PER_POLL
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+struct TileJob {
+    key: TileKey,
+    tx: mpsc::Sender<TileMessage>,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn request_tile(key: TileKey, tx: mpsc::Sender<TileMessage>) {
+    if let Err(err) = tile_worker_queue().send(TileJob { key, tx }) {
+        let TileJob { key, tx } = err.0;
+        // Extremely unlikely, but keep the map usable if the shared
+        // worker queue went away for any reason.
+        std::thread::spawn(move || {
+            let result = fetch_tile(key)
+                .and_then(|bytes| decode_vector_tile(&bytes))
+                .map(TilePayload::Decoded);
+            let _ = tx.send((key, result));
+        });
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn tile_worker_queue() -> &'static mpsc::Sender<TileJob> {
+    static TILE_WORKER_QUEUE: OnceLock<mpsc::Sender<TileJob>> = OnceLock::new();
+    TILE_WORKER_QUEUE.get_or_init(|| {
+        let (job_tx, job_rx) = mpsc::channel::<TileJob>();
+        let shared_rx = Arc::new(Mutex::new(job_rx));
+        let worker_count = std::thread::available_parallelism()
+            .map_or(2, |parallelism| (parallelism.get() / 2).clamp(2, 4));
+        for index in 0..worker_count {
+            let shared_rx = Arc::clone(&shared_rx);
+            let name = format!("mara-map-tile-worker-{index}");
+            let _ = std::thread::Builder::new().name(name).spawn(move || {
+                loop {
+                    let job = {
+                        let Ok(rx) = shared_rx.lock() else {
+                            return;
+                        };
+                        rx.recv()
+                    };
+                    let Ok(TileJob { key, tx }) = job else {
+                        return;
+                    };
+                    let result = fetch_tile(key)
+                        .and_then(|bytes| decode_vector_tile(&bytes))
+                        .map(TilePayload::Decoded);
+                    let _ = tx.send((key, result));
+                }
+            });
+        }
+        job_tx
+    })
+}
+
+#[cfg(target_arch = "wasm32")]
+fn request_tile(key: TileKey, tx: mpsc::Sender<TileMessage>) {
     let url = format!("{OPENFREEMAP_TILE_URL}/{}/{}/{}.pbf", key.z, key.x, key.y);
     let mut request = ehttp::Request::get(&url);
     request
@@ -165,7 +324,7 @@ fn request_tile(key: TileKey, tx: mpsc::Sender<(TileKey, Result<DecodedVectorTil
             .map_err(|err| format!("failed to fetch {url}: {err}"))
             .and_then(|response| {
                 if response.ok {
-                    decode_vector_tile(&response.bytes)
+                    Ok(TilePayload::Bytes(response.bytes))
                 } else {
                     Err(format!(
                         "failed to fetch {url}: HTTP {} {}",
@@ -226,6 +385,13 @@ fn paint_tile_pass(
                     water_fill_color(&layer.name, feature, palette),
                 ),
                 PaintPass::BuildingFill => {
+                    let extruded = layer.name == "building"
+                        && paint_building_extrusion(
+                            painter, rect, viewport, key, layer, feature, palette,
+                        );
+                    if extruded {
+                        continue;
+                    }
                     paint_area_fill(
                         painter,
                         rect,
@@ -268,9 +434,6 @@ fn paint_tile_pass(
                         paint_feature_lines(painter, rect, viewport, key, layer, feature, stroke);
                     }
                 }
-                PaintPass::PointSymbol => {
-                    paint_point_symbol(painter, rect, viewport, key, layer, feature, palette);
-                }
                 PaintPass::Label => {
                     paint_label(
                         painter, rect, viewport, key, layer, feature, palette, labels,
@@ -289,19 +452,17 @@ enum PaintPass {
     RoadCasing,
     RoadFill,
     LineOverlay,
-    PointSymbol,
     Label,
 }
 
 impl PaintPass {
-    const ALL: [Self; 8] = [
+    const ALL: [Self; 7] = [
         Self::LandFill,
         Self::WaterFill,
         Self::BuildingFill,
         Self::RoadCasing,
         Self::RoadFill,
         Self::LineOverlay,
-        Self::PointSymbol,
         Self::Label,
     ];
 
@@ -317,6 +478,7 @@ impl PaintPass {
 #[derive(Default)]
 struct LabelState {
     occupied: Vec<egui::Rect>,
+    road_names: HashSet<String>,
 }
 
 #[derive(Clone, Copy)]
@@ -342,9 +504,9 @@ struct MapPalette {
     water_line: egui::Color32,
     building: egui::Color32,
     building_outline: egui::Color32,
+    building_side: egui::Color32,
     boundary: egui::Color32,
     aeroway_line: egui::Color32,
-    poi: egui::Color32,
     label: egui::Color32,
     label_secondary: egui::Color32,
     label_halo: egui::Color32,
@@ -388,9 +550,9 @@ impl MapPalette {
                 water_line: tint(rgb(0x86, 0xbd, 0xcf), accent, 0.07),
                 building: tint(rgb(0xd8, 0xd2, 0xc8), accent, 0.06),
                 building_outline: tint(rgb(0xbe, 0xb8, 0xae), accent, 0.07),
+                building_side: tint(rgb(0xb8, 0xb0, 0xa4), accent, 0.07),
                 boundary: tint(rgba(0x86, 0x7d, 0x74, 155), accent, 0.08),
                 aeroway_line: tint(rgb(0xc4, 0xbd, 0xb3), accent, 0.06),
-                poi: tint(rgba(0x8b, 0x79, 0x66, 190), accent, 0.12),
                 label: tint(rgb(0x4c, 0x45, 0x3d), accent, 0.08),
                 label_secondary: tint(rgb(0x6d, 0x62, 0x55), accent, 0.08),
                 label_halo: tint(rgba(0xff, 0xfc, 0xf4, 220), accent, 0.025),
@@ -408,44 +570,44 @@ impl MapPalette {
             }
         } else {
             Self {
-                background: tint(rgb(0x10, 0x13, 0x18), accent, 0.08),
-                land_default: tint(rgba(0x25, 0x31, 0x26, 180), accent, 0.07),
-                forest: tint(rgb(0x25, 0x3f, 0x2e), accent, 0.08),
-                grass: tint(rgb(0x2f, 0x46, 0x32), accent, 0.08),
-                scrub: tint(rgb(0x3b, 0x40, 0x2b), accent, 0.08),
-                sand: tint(rgb(0x46, 0x41, 0x34), accent, 0.055),
-                wetland: tint(rgb(0x23, 0x42, 0x3d), accent, 0.08),
-                ice: tint(rgb(0x35, 0x45, 0x4e), accent, 0.08),
-                residential: tint(rgb(0x1b, 0x1d, 0x22), accent, 0.075),
-                commercial: tint(rgb(0x25, 0x23, 0x25), accent, 0.06),
-                industrial: tint(rgb(0x24, 0x24, 0x28), accent, 0.075),
-                education: tint(rgb(0x2b, 0x2a, 0x27), accent, 0.06),
-                hospital: tint(rgb(0x2c, 0x25, 0x28), accent, 0.06),
-                cemetery: tint(rgb(0x26, 0x36, 0x2b), accent, 0.08),
-                farmland: tint(rgb(0x36, 0x32, 0x29), accent, 0.055),
-                park: tint(rgb(0x27, 0x44, 0x2e), accent, 0.08),
-                aeroway_fill: tint(rgb(0x2d, 0x2c, 0x30), accent, 0.075),
-                water: tint(rgb(0x19, 0x35, 0x43), accent, 0.09),
-                water_line: tint(rgb(0x2a, 0x67, 0x7a), accent, 0.1),
-                building: tint(rgb(0x2b, 0x2d, 0x32), accent, 0.085),
-                building_outline: tint(rgb(0x3a, 0x3f, 0x48), accent, 0.09),
-                boundary: tint(rgba(0xa3, 0x9b, 0x90, 130), accent, 0.12),
-                aeroway_line: tint(rgb(0x57, 0x58, 0x60), accent, 0.11),
-                poi: tint(rgba(0xd4, 0xca, 0xb8, 185), accent, 0.16),
-                label: tint(rgb(0xd8, 0xd2, 0xc7), accent, 0.09),
-                label_secondary: tint(rgb(0xb6, 0xad, 0x9e), accent, 0.1),
-                label_halo: tint(rgba(0x09, 0x0b, 0x10, 230), accent, 0.06),
-                water_label: tint(rgb(0x8a, 0xc5, 0xd8), accent, 0.1),
-                road_default: tint(rgb(0x43, 0x41, 0x3e), accent, 0.075),
-                road_minor: tint(rgb(0x34, 0x33, 0x31), accent, 0.075),
-                road_medium: tint(rgb(0x52, 0x4b, 0x3c), accent, 0.07),
-                road_major: tint(rgb(0x60, 0x53, 0x42), accent, 0.065),
-                motorway: tint(rgb(0x6d, 0x55, 0x42), accent, 0.065),
-                trunk: tint(rgb(0x68, 0x58, 0x44), accent, 0.065),
-                rail: tint(rgb(0x76, 0x73, 0x6e), accent, 0.12),
-                road_casing: tint(rgb(0x25, 0x27, 0x2c), accent, 0.12),
-                major_casing: tint(rgb(0x34, 0x31, 0x2d), accent, 0.09),
-                rail_casing: tint(rgba(0xbc, 0xb6, 0xab, 120), accent, 0.14),
+                background: dark_style(rgb(0x0b, 0x0f, 0x12), accent, 0.04),
+                land_default: dark_style(rgba(0x18, 0x1f, 0x23, 238), accent, 0.05),
+                forest: dark_style(rgb(0x20, 0x30, 0x28), accent, 0.24),
+                grass: dark_style(rgb(0x27, 0x35, 0x2b), accent, 0.28),
+                scrub: dark_style(rgb(0x34, 0x37, 0x2c), accent, 0.18),
+                sand: dark_style(rgb(0x3d, 0x35, 0x29), accent, 0.06),
+                wetland: dark_style(rgb(0x1c, 0x35, 0x34), accent, 0.11),
+                ice: dark_style(rgb(0x2b, 0x3b, 0x42), accent, 0.08),
+                residential: dark_style(rgb(0x17, 0x1c, 0x21), accent, 0.045),
+                commercial: dark_style(rgb(0x1d, 0x21, 0x26), accent, 0.04),
+                industrial: dark_style(rgb(0x1f, 0x22, 0x27), accent, 0.04),
+                education: dark_style(rgb(0x23, 0x25, 0x24), accent, 0.035),
+                hospital: dark_style(rgb(0x26, 0x22, 0x24), accent, 0.035),
+                cemetery: dark_style(rgb(0x25, 0x32, 0x29), accent, 0.20),
+                farmland: dark_style(rgb(0x3d, 0x34, 0x28), accent, 0.22),
+                park: dark_style(rgb(0x22, 0x34, 0x29), accent, 0.28),
+                aeroway_fill: dark_style(rgb(0x20, 0x23, 0x27), accent, 0.035),
+                water: dark_style(rgb(0x0b, 0x2b, 0x3a), accent, 0.07),
+                water_line: dark_style(rgb(0x14, 0x56, 0x70), accent, 0.075),
+                building: dark_style(rgb(0x26, 0x2b, 0x31), accent, 0.035),
+                building_outline: dark_style(rgb(0x3a, 0x42, 0x49), accent, 0.045),
+                building_side: dark_style(rgb(0x15, 0x19, 0x1d), accent, 0.035),
+                boundary: dark_style(rgba(0x88, 0x90, 0x94, 115), accent, 0.04),
+                aeroway_line: dark_style(rgb(0x5b, 0x60, 0x64), accent, 0.035),
+                label: dark_style(rgb(0xdc, 0xdf, 0xe3), accent, 0.035),
+                label_secondary: dark_style(rgb(0xa4, 0xaa, 0xb0), accent, 0.04),
+                label_halo: dark_style(rgba(0x0a, 0x0e, 0x12, 240), accent, 0.02),
+                water_label: dark_style(rgb(0x8f, 0xbe, 0xcf), accent, 0.05),
+                road_default: dark_style(rgb(0x36, 0x3b, 0x40), accent, 0.035),
+                road_minor: dark_style(rgb(0x28, 0x2d, 0x32), accent, 0.03),
+                road_medium: dark_style(rgb(0x48, 0x45, 0x3d), accent, 0.025),
+                road_major: dark_style(rgb(0x5c, 0x53, 0x42), accent, 0.02),
+                motorway: dark_style(rgb(0x6e, 0x5d, 0x43), accent, 0.018),
+                trunk: dark_style(rgb(0x66, 0x58, 0x40), accent, 0.018),
+                rail: dark_style(rgb(0x71, 0x75, 0x76), accent, 0.035),
+                road_casing: dark_style(rgb(0x11, 0x15, 0x19), accent, 0.025),
+                major_casing: dark_style(rgb(0x20, 0x22, 0x25), accent, 0.025),
+                rail_casing: dark_style(rgba(0xbb, 0xc3, 0xc7, 110), accent, 0.035),
             }
         }
     }
@@ -472,6 +634,191 @@ fn paint_area_fill(
             paint_polygon(painter, &points, fill, egui::Stroke::NONE);
         }
     }
+}
+
+fn paint_building_extrusion(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    viewport: MapViewport,
+    key: TileKey,
+    layer: &DecodedLayer,
+    feature: &DecodedFeature,
+    palette: &MapPalette,
+) -> bool {
+    if viewport.zoom < 17.0 || feature.geometry_type != GeometryType::Polygon {
+        return false;
+    }
+    let render_height = feature
+        .prop_f64("render_height")
+        .or_else(|| feature.prop_f64("height"))
+        .unwrap_or(14.0)
+        .max(0.0);
+    let render_min_height = feature
+        .prop_f64("render_min_height")
+        .or_else(|| feature.prop_f64("min_height"))
+        .unwrap_or(0.0)
+        .max(0.0)
+        .min(render_height);
+    let zoom_gain = smoothstep(17.0, 18.0, viewport.zoom as f32);
+    let meters_to_px = (0.36 + (viewport.zoom as f32 - 15.0).max(0.0) * 0.15).clamp(0.36, 1.12);
+    let height_px = (render_height as f32 * meters_to_px * zoom_gain).clamp(8.0, 300.0);
+    let base_px = (render_min_height as f32 * meters_to_px * zoom_gain).clamp(0.0, height_px);
+    let mut painted = false;
+
+    for path in &feature.paths {
+        let points =
+            normalized_screen_ring(&screen_points(path, layer.extent, key, rect, viewport));
+        if points.len() < 3 || !path_intersects_rect(&points, rect.expand(height_px + 64.0)) {
+            continue;
+        }
+        if polygon_abs_area(&points) < 18.0 {
+            continue;
+        }
+        let Some(center) = polygon_centroid(&points) else {
+            continue;
+        };
+        let away = center - rect.center();
+        let direction = if away.length_sq() <= f32::EPSILON {
+            egui::vec2(0.0, -1.0)
+        } else {
+            away.normalized()
+        };
+        let radial = (away.length() / (rect.size().length() * 0.5).max(1.0)).clamp(0.0, 1.0);
+        let projection = 0.68 + smoothstep(0.08, 0.95, radial) * 1.72;
+        let top_offset = egui::vec2(
+            direction.x * height_px * projection,
+            direction.y * height_px * projection,
+        );
+        let base_offset = egui::vec2(
+            direction.x * base_px * projection,
+            direction.y * base_px * projection,
+        );
+
+        let mut side_mesh = egui::Mesh::default();
+        for (a, b) in points
+            .iter()
+            .zip(points.iter().cycle().skip(1))
+            .take(points.len())
+        {
+            if a.distance(*b) <= 0.5 {
+                continue;
+            }
+            push_quad(
+                &mut side_mesh,
+                *a + base_offset,
+                *b + base_offset,
+                *b + top_offset,
+                *a + top_offset,
+                palette.building_side,
+            );
+        }
+        if !side_mesh.indices.is_empty() {
+            painter.add(egui::Shape::mesh(side_mesh));
+        }
+
+        let roof = points
+            .iter()
+            .map(|point| *point + top_offset)
+            .collect::<Vec<_>>();
+        paint_mesh_polygon(painter, &roof, palette.building);
+        painter.add(egui::Shape::line(
+            closed_path(&roof),
+            egui::Stroke::new(0.65, palette.building_outline),
+        ));
+        painted = true;
+    }
+    painted
+}
+
+fn normalized_screen_ring(points: &[egui::Pos2]) -> Vec<egui::Pos2> {
+    let mut out = Vec::with_capacity(points.len());
+    for point in points {
+        if out
+            .last()
+            .is_none_or(|last: &egui::Pos2| last.distance(*point) > 0.5)
+        {
+            out.push(*point);
+        }
+    }
+    if out.len() > 1
+        && out
+            .first()
+            .zip(out.last())
+            .is_some_and(|(first, last)| first.distance(*last) <= 0.5)
+    {
+        out.pop();
+    }
+    out
+}
+
+fn polygon_abs_area(points: &[egui::Pos2]) -> f32 {
+    points
+        .iter()
+        .zip(points.iter().cycle().skip(1))
+        .take(points.len())
+        .map(|(a, b)| a.x * b.y - b.x * a.y)
+        .sum::<f32>()
+        .abs()
+        * 0.5
+}
+
+fn paint_mesh_polygon(painter: &egui::Painter, points: &[egui::Pos2], color: egui::Color32) {
+    let triangles = triangulate_polygon(points);
+    if triangles.is_empty() {
+        return;
+    }
+    let mut mesh = egui::Mesh::default();
+    for [a, b, c] in triangles {
+        push_triangle(&mut mesh, a, b, c, color);
+    }
+    painter.add(egui::Shape::mesh(mesh));
+}
+
+fn push_triangle(
+    mesh: &mut egui::Mesh,
+    a: egui::Pos2,
+    b: egui::Pos2,
+    c: egui::Pos2,
+    color: egui::Color32,
+) {
+    let start = mesh.vertices.len() as u32;
+    for pos in [a, b, c] {
+        mesh.vertices.push(egui::epaint::Vertex {
+            pos,
+            uv: egui::epaint::WHITE_UV,
+            color,
+        });
+    }
+    mesh.indices
+        .extend_from_slice(&[start, start + 1, start + 2]);
+}
+
+fn push_quad(
+    mesh: &mut egui::Mesh,
+    a: egui::Pos2,
+    b: egui::Pos2,
+    c: egui::Pos2,
+    d: egui::Pos2,
+    color: egui::Color32,
+) {
+    let start = mesh.vertices.len() as u32;
+    for pos in [a, b, c, d] {
+        mesh.vertices.push(egui::epaint::Vertex {
+            pos,
+            uv: egui::epaint::WHITE_UV,
+            color,
+        });
+    }
+    mesh.indices
+        .extend_from_slice(&[start, start + 1, start + 2, start, start + 2, start + 3]);
+}
+
+fn closed_path(points: &[egui::Pos2]) -> Vec<egui::Pos2> {
+    let mut out = points.to_vec();
+    if let Some(first) = points.first().copied() {
+        out.push(first);
+    }
+    out
 }
 
 fn paint_feature_lines(
@@ -620,7 +967,11 @@ fn road_width(feature: &DecodedFeature, zoom: f64) -> f32 {
         "ferry" => 1.2,
         _ => 2.2,
     };
-    let zoom_scale = ((zoom - 9.0) / 6.0).clamp(0.55, 1.55) as f32;
+    let zoom_scale = if zoom <= 14.0 {
+        ((zoom - 9.0) / 6.0).clamp(0.55, 1.45) as f32
+    } else {
+        (1.25 + (zoom as f32 - 14.0) * 0.34).clamp(1.25, 4.2)
+    };
     base * zoom_scale
 }
 
@@ -654,25 +1005,6 @@ fn road_fill_color(feature: &DecodedFeature, palette: &MapPalette) -> egui::Colo
     }
 }
 
-fn paint_point_symbol(
-    painter: &egui::Painter,
-    rect: egui::Rect,
-    viewport: MapViewport,
-    key: TileKey,
-    layer: &DecodedLayer,
-    feature: &DecodedFeature,
-    palette: &MapPalette,
-) {
-    if feature.geometry_type != GeometryType::Point || !matches!(layer.name.as_str(), "poi") {
-        return;
-    }
-    let Some(point) = feature.paths.first().and_then(|path| path.first()) else {
-        return;
-    };
-    let pos = screen_point(*point, layer.extent, key, rect, viewport);
-    painter.circle_filled(pos, 2.3, palette.poi);
-}
-
 fn paint_label(
     painter: &egui::Painter,
     rect: egui::Rect,
@@ -692,8 +1024,17 @@ fn paint_label(
     let Some(style) = label_style(&layer.name, feature, viewport.zoom, palette) else {
         return;
     };
-    let galley = painter.layout_no_wrap(text.to_owned(), style.font.clone(), style.color);
-    let bounds = egui::Rect::from_center_size(pos, galley.size() + egui::vec2(8.0, 4.0));
+    let text = text.to_uppercase();
+    if layer.name == "transportation_name" && !labels.road_names.insert(text.clone()) {
+        return;
+    }
+    let galley = painter.layout_no_wrap(text.clone(), style.font.clone(), style.color);
+    let padding = if layer.name == "transportation_name" {
+        egui::vec2(72.0, 30.0)
+    } else {
+        egui::vec2(12.0, 8.0)
+    };
+    let bounds = egui::Rect::from_center_size(pos, galley.size() + padding);
     if !rect.intersects(bounds) || labels.occupied.iter().any(|taken| taken.intersects(bounds)) {
         return;
     }
@@ -701,7 +1042,7 @@ fn paint_label(
     painter.text(
         pos + egui::vec2(1.0, 1.0),
         egui::Align2::CENTER_CENTER,
-        text,
+        &text,
         style.font.clone(),
         style.halo,
     );
@@ -738,11 +1079,11 @@ fn label_style(
             };
             (size + ((zoom - 10.0).max(0.0) * 0.35) as f32, palette.label)
         }
-        "transportation_name" if zoom >= 12.0 => {
+        "transportation_name" if road_label_visible(class, zoom) => {
             let size = match class {
-                "motorway" | "trunk" | "primary" => 11.5,
-                "secondary" | "tertiary" => 10.5,
-                _ => 9.5,
+                "motorway" | "trunk" | "primary" => 11.0,
+                "secondary" | "tertiary" => 10.0,
+                _ => 9.0,
             };
             (size, palette.label_secondary)
         }
@@ -756,6 +1097,18 @@ fn label_style(
         color,
         halo: palette.label_halo,
     })
+}
+
+fn road_label_visible(class: &str, zoom: f64) -> bool {
+    match class {
+        "motorway" | "trunk" | "primary" => zoom >= 12.6,
+        "secondary" | "tertiary" => zoom >= 14.2,
+        "minor" | "street" => zoom >= 15.8,
+        "service" | "track" => zoom >= 17.0,
+        "path" | "pedestrian" | "footway" | "cycleway" | "bridleway" | "steps" => zoom >= 17.5,
+        "rail" | "transit" | "light_rail" | "subway" => zoom >= 14.8,
+        _ => zoom >= 16.2,
+    }
 }
 
 fn label_position(
@@ -873,6 +1226,11 @@ fn tint(base: egui::Color32, accent: egui::Color32, amount: f32) -> egui::Color3
     lerp_color(muted, accent, amount * MAP_ACCENT_TINT_SCALE)
 }
 
+fn dark_style(base: egui::Color32, accent: egui::Color32, amount: f32) -> egui::Color32 {
+    let softened = desaturate_color(base, 0.18);
+    lerp_color(softened, desaturate_color(accent, 0.58), amount)
+}
+
 fn desaturate_color(color: egui::Color32, amount: f32) -> egui::Color32 {
     let amount = amount.clamp(0.0, 1.0);
     let luma = (0.2126 * f32::from(color.r())
@@ -896,6 +1254,11 @@ fn lerp_color(a: egui::Color32, b: egui::Color32, t: f32) -> egui::Color32 {
         blend(a.b(), b.b()),
         a.a(),
     )
+}
+
+fn smoothstep(edge0: f32, edge1: f32, value: f32) -> f32 {
+    let t = ((value - edge0) / (edge1 - edge0)).clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
 }
 
 fn screen_points(
@@ -968,6 +1331,15 @@ impl DecodedFeature {
             Some(FeatureValue::I64(value)) => Some(*value),
             Some(FeatureValue::U64(value)) => i64::try_from(*value).ok(),
             Some(FeatureValue::F64(value)) => Some(*value as i64),
+            _ => None,
+        }
+    }
+
+    fn prop_f64(&self, key: &str) -> Option<f64> {
+        match self.properties.get(key) {
+            Some(FeatureValue::F64(value)) => Some(*value),
+            Some(FeatureValue::I64(value)) => Some(*value as f64),
+            Some(FeatureValue::U64(value)) => Some(*value as f64),
             _ => None,
         }
     }

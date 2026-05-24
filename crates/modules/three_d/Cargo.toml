@@ -1,0 +1,19 @@
+[package]
+name = "mara_3d"
+description = "Host-agnostic Mara 3D scene/view module backed by three-d."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+bytemuck = { version = "1", features = ["derive"], optional = true }
+egui = { workspace = true, default-features = false }
+egui-wgpu = { workspace = true, optional = true }
+mara_core = { workspace = true }
+three-d = { version = "0.19", default-features = false }
+wgpu = { workspace = true, optional = true }
+
+[features]
+default = []
+gpu-preview = ["dep:bytemuck", "dep:egui-wgpu", "dep:wgpu"]

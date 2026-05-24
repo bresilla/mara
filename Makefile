@@ -14,6 +14,7 @@ DISPLAY ?= :1
 APP_BIN ?= native
 APP_PKG ?= mara_example
 APP_TARGET := -p $(APP_PKG) --bin $(APP_BIN)
+TARGET ?= native
 RUN_WITH ?= nixVulkan
 TYPE ?= patch
 HAS_REL := $(shell command -v git-rel 2>/dev/null)
@@ -23,10 +24,20 @@ $(info Project: $(PROJECT_NAME) v$(PROJECT_VERSION))
 $(info Display: $(BACKEND) backend)
 $(info ------------------------------------------)
 
-.PHONY: build b compile c run r serve-web build-web test t test-all check check-all check-mara-api check-bevy-api check-egui-api check-web-api harden bench clean docs release help h
+.PHONY: build b compile c run r serve test t test-all check harden bench clean docs release help h
 
 build:
-	@$(CARGO) build $(APP_TARGET)
+	@if [ "$(TARGET)" = "native" ]; then \
+		$(CARGO) build $(APP_TARGET); \
+	elif [ "$(TARGET)" = "web" ]; then \
+		cd $(WEB_DIR) && env -u NO_COLOR trunk build --release; \
+	elif [ "$(TARGET)" = "apk" ]; then \
+		echo "TARGET=apk is reserved for Android builds; not implemented yet."; \
+		exit 1; \
+	else \
+		echo "Unknown TARGET=$(TARGET). Use TARGET=native, TARGET=web, or TARGET=apk."; \
+		exit 2; \
+	fi
 
 b: build
 
@@ -41,11 +52,9 @@ run:
 
 WEB_DIR := example
 
-serve-web:
+serve:
+	@$(MAKE) build TARGET=web
 	@cd $(WEB_DIR) && trunk serve --open
-
-build-web:
-	@cd $(WEB_DIR) && trunk build --release
 
 r: run
 
@@ -58,18 +67,7 @@ test-all:
 	@$(CARGO) test --workspace --all-targets
 
 check:
-	@$(CARGO) check $(APP_TARGET)
-
-check-all:
 	@$(CARGO) check --workspace --all-targets
-
-check-mara-api:
-	@$(CARGO) check -p mara --all-features
-
-check-bevy-plugin:
-	@$(CARGO) check -p bevy_mara
-
-check-bevy-api: check-bevy-plugin
 
 harden:
 	@git diff --check
@@ -106,17 +104,13 @@ help:
 	@echo "Usage: make [target]"
 	@echo
 	@echo "Available targets:"
-	@echo "  build        Build the root $(APP_PKG) $(APP_BIN) app"
+	@echo "  build        Build TARGET=native (default), TARGET=web, or TARGET=apk"
 	@echo "  compile      Clean and rebuild"
 	@echo "  run          Run the root $(APP_PKG) $(APP_BIN) app ($(BACKEND) backend, $(RUN_WITH) wrapper)"
-	@echo "  serve-web    Serve the root example UI in a browser (trunk, wasm32)"
-	@echo "  build-web    Build the root example wasm bundle to example/dist"
+	@echo "  serve        Build TARGET=web, then serve the root example UI in a browser"
 	@echo "  test         Test the same app target as build/run ($(APP_PKG) bin $(APP_BIN))"
 	@echo "  test-all     Run the full workspace all-target test suite"
-	@echo "  check        Check the same app target as build/run ($(APP_PKG) bin $(APP_BIN))"
-	@echo "  check-all    Check the full workspace all-target suite"
-	@echo "  check-mara-api Check the unified mara API crate"
-	@echo "  check-bevy-plugin Check the bevy_mara plugin crate"
+	@echo "  check        Check the full workspace all-target suite"
 	@echo "  harden       Run diff whitespace check + fmt/check + strict clippy + all-feature tests"
 	@echo "  bench        Run benchmarks"
 	@echo "  docs         Build documentation with mdbook"
@@ -125,7 +119,12 @@ help:
 	@echo
 	@echo "Examples:"
 	@echo "  make run"
+	@echo "  make build TARGET=native"
+	@echo "  make build TARGET=web"
+	@echo "  make build TARGET=apk        # reserved for Android"
+	@echo "  make serve"
 	@echo "  make run APP_BIN=native       # run a different root example binary"
+	@echo "  make run APP_BIN=bevy         # run the Bevy-owned Mara example"
 	@echo "  make run BACKEND=x11          # force X11 / XWayland (.envrc auto-detects)"
 	@echo "  make run BACKEND=wayland      # force native Wayland"
 	@echo "  make run DISPLAY=:0           # target a different X server (BACKEND=x11)"

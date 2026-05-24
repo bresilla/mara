@@ -294,7 +294,7 @@ Use the repo Makefile:
 make fmt
 make check
 make test-all
-make build-web
+make build TARGET=web
 ```
 
 Inside nix/direnv, the development shell provides Rust, Bevy runtime libraries,
