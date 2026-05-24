@@ -20,6 +20,15 @@ const MAX_MERCATOR_LAT: f64 = 85.051_128_779_806_6;
 pub const DEFAULT_SVG_MARKER: &str = r#"<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12 2 22 12 12 22 2 12Z" fill="currentColor"/></svg>"#;
 static NEXT_UUID_COUNTER: AtomicU64 = AtomicU64::new(1);
 
+fn default_annotation_color() -> egui::Color32 {
+    mara_core::style::raw_accent()
+}
+
+fn default_annotation_fill() -> egui::Color32 {
+    let accent = default_annotation_color();
+    egui::Color32::from_rgba_unmultiplied(accent.r(), accent.g(), accent.b(), 58)
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct GeoPosition {
     pub lon: f64,
@@ -233,7 +242,7 @@ impl MapPoint {
             id: MapAnnotationId::new(id),
             position,
             label: None,
-            color: egui::Color32::from_rgb(0x7c, 0x5c, 0xff),
+            color: default_annotation_color(),
         }
     }
 
@@ -260,7 +269,7 @@ impl MapLine {
             id: MapAnnotationId::new(id),
             points,
             label: None,
-            color: egui::Color32::from_rgb(0x6d, 0xd4, 0xff),
+            color: default_annotation_color(),
         }
     }
 
@@ -288,8 +297,8 @@ impl MapPolygon {
             id: MapAnnotationId::new(id),
             points,
             label: None,
-            fill: egui::Color32::from_rgba_unmultiplied(0x7c, 0x5c, 0xff, 52),
-            stroke: egui::Stroke::new(1.5, egui::Color32::from_rgb(0x7c, 0x5c, 0xff)),
+            fill: default_annotation_fill(),
+            stroke: egui::Stroke::new(1.5, default_annotation_color()),
         }
     }
 
@@ -595,6 +604,8 @@ fn paint_map(
         interaction.clear_selection();
     }
 
+    let mut selected = interaction.selected;
+
     mvt::paint_vector_basemap(
         ui,
         rect,
@@ -602,8 +613,6 @@ fn paint_map(
         &mut surface.vector_tiles,
         fast_basemap,
     );
-
-    let mut selected = interaction.selected;
 
     for annotation in &surface.document.annotations {
         paint_annotation(
@@ -616,6 +625,7 @@ fn paint_map(
         );
     }
     paint_draft(&painter, rect, surface.viewport, interaction);
+    paint_corner_darkening_overlay(&painter, rect);
 
     let hovered_position = response
         .hover_pos()
@@ -661,6 +671,55 @@ fn paint_map(
     }
 }
 
+fn paint_corner_darkening_overlay(painter: &egui::Painter, rect: egui::Rect) {
+    let accent = mara_core::style::raw_accent();
+    let steps = 40;
+    let mut mesh = egui::Mesh::default();
+
+    for y in 0..=steps {
+        let ty = y as f32 / steps as f32;
+        for x in 0..=steps {
+            let tx = x as f32 / steps as f32;
+            let pos = egui::pos2(
+                egui::lerp(rect.left()..=rect.right(), tx),
+                egui::lerp(rect.top()..=rect.bottom(), ty),
+            );
+            let nx = tx * 2.0 - 1.0;
+            let ny = ty * 2.0 - 1.0;
+            let radial = (nx * nx + ny * ny).sqrt().min(1.28) / 1.28;
+            let vignette = smoothstep(0.62, 1.0, radial);
+            let alpha = (vignette * 148.0).round() as u8;
+            let color = egui::Color32::from_rgba_unmultiplied(
+                (f32::from(accent.r()) * 0.038) as u8,
+                (f32::from(accent.g()) * 0.038) as u8,
+                (f32::from(accent.b()) * 0.038) as u8,
+                alpha,
+            );
+            mesh.vertices.push(egui::epaint::Vertex {
+                pos,
+                uv: egui::epaint::WHITE_UV,
+                color,
+            });
+        }
+    }
+
+    let row = steps + 1;
+    for y in 0..steps {
+        for x in 0..steps {
+            let i = (y * row + x) as u32;
+            mesh.indices
+                .extend_from_slice(&[i, i + 1, i + row + 1, i, i + row + 1, i + row]);
+        }
+    }
+
+    painter.add(egui::Shape::mesh(mesh));
+}
+
+fn smoothstep(edge0: f32, edge1: f32, value: f32) -> f32 {
+    let t = ((value - edge0) / (edge1 - edge0)).clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
+}
+
 fn cancel_tool_step(interaction: &mut MapInteraction) {
     match interaction.tool {
         MapTool::Line | MapTool::Polygon => match interaction.draft_len() {
@@ -689,7 +748,7 @@ fn apply_tool(
                 id,
                 position,
                 label: None,
-                color: egui::Color32::from_rgb(0x7c, 0x5c, 0xff),
+                color: default_annotation_color(),
             });
             interaction.select(&annotation);
             document.add(annotation);
@@ -724,8 +783,9 @@ fn apply_tool(
             interaction.draft.push(position);
             if finish && interaction.draft.len() >= 2 {
                 let id = interaction.next_annotation_id();
-                let annotation =
-                    MapAnnotation::from(MapLine::new(id, std::mem::take(&mut interaction.draft)));
+                let mut line = MapLine::new(id, std::mem::take(&mut interaction.draft));
+                line.color = default_annotation_color();
+                let annotation = MapAnnotation::from(line);
                 interaction.select(&annotation);
                 document.add(annotation);
             }
@@ -734,10 +794,10 @@ fn apply_tool(
             interaction.draft.push(position);
             if finish && interaction.draft.len() >= 3 {
                 let id = interaction.next_annotation_id();
-                let annotation = MapAnnotation::from(MapPolygon::new(
-                    id,
-                    std::mem::take(&mut interaction.draft),
-                ));
+                let mut polygon = MapPolygon::new(id, std::mem::take(&mut interaction.draft));
+                polygon.fill = default_annotation_fill();
+                polygon.stroke.color = default_annotation_color();
+                let annotation = MapAnnotation::from(polygon);
                 interaction.select(&annotation);
                 document.add(annotation);
             }
@@ -785,34 +845,49 @@ fn paint_annotation(
     selected: Option<MapAnnotationId>,
 ) {
     let is_selected = selected == Some(annotation.id());
-    let accent = mara_core::style::raw_accent();
-    let accent_fill = egui::Color32::from_rgba_unmultiplied(accent.r(), accent.g(), accent.b(), 64);
     match annotation {
         MapAnnotation::Point(point) => {
             let pos = geo_to_screen(point.position, rect, viewport);
             let radius = if is_selected { 8.0 } else { 5.0 };
-            painter.circle_filled(pos, radius, accent);
+            painter.circle_filled(pos, radius, point.color);
             if is_selected {
                 painter.circle_stroke(
                     pos,
                     radius + 4.0,
-                    egui::Stroke::new(2.0, egui::Color32::WHITE),
+                    egui::Stroke::new(2.0, selection_color(point.color)),
                 );
             }
         }
         MapAnnotation::Line(line) => {
             let points = screen_points(&line.points, rect, viewport);
-            let stroke = egui::Stroke::new(if is_selected { 5.0 } else { 2.5 }, accent);
-            painter.add(egui::Shape::line(points, stroke));
+            if is_selected {
+                painter.add(egui::Shape::line(
+                    points.clone(),
+                    egui::Stroke::new(7.0, selection_color(line.color)),
+                ));
+            }
+            painter.add(egui::Shape::line(
+                points,
+                egui::Stroke::new(if is_selected { 3.5 } else { 2.5 }, line.color),
+            ));
         }
         MapAnnotation::Polygon(poly) => {
             let points = screen_points(&poly.points, rect, viewport);
-            let stroke = if is_selected {
-                egui::Stroke::new(3.0, egui::Color32::WHITE)
-            } else {
-                egui::Stroke::new(poly.stroke.width, accent)
-            };
-            paint_polygon(painter, &points, accent_fill, stroke);
+            paint_polygon(painter, &points, poly.fill, poly.stroke);
+            if is_selected {
+                paint_polygon(
+                    painter,
+                    &points,
+                    egui::Color32::TRANSPARENT,
+                    egui::Stroke::new(poly.stroke.width + 3.0, selection_color(poly.stroke.color)),
+                );
+                paint_polygon(
+                    painter,
+                    &points,
+                    egui::Color32::TRANSPARENT,
+                    egui::Stroke::new(poly.stroke.width + 0.8, poly.stroke.color),
+                );
+            }
         }
         MapAnnotation::Icon(icon) => {
             let pos = geo_to_screen(icon.position, rect, viewport);
@@ -854,6 +929,28 @@ fn paint_annotation(
     }
 }
 
+fn selection_color(base: egui::Color32) -> egui::Color32 {
+    let theme = mara_core::style::theme();
+    let target = if theme.is_light {
+        egui::Color32::BLACK
+    } else {
+        egui::Color32::WHITE
+    };
+    blend_color(target, base, 0.22, 190)
+}
+
+fn blend_color(a: egui::Color32, b: egui::Color32, b_amount: f32, alpha: u8) -> egui::Color32 {
+    let b_amount = b_amount.clamp(0.0, 1.0);
+    let a_amount = 1.0 - b_amount;
+    let blend = |x: u8, y: u8| (f32::from(x) * a_amount + f32::from(y) * b_amount).round() as u8;
+    egui::Color32::from_rgba_unmultiplied(
+        blend(a.r(), b.r()),
+        blend(a.g(), b.g()),
+        blend(a.b(), b.b()),
+        alpha,
+    )
+}
+
 fn paint_draft(
     painter: &egui::Painter,
     rect: egui::Rect,
@@ -873,7 +970,7 @@ fn paint_draft(
     }
 }
 
-fn paint_polygon(
+pub(crate) fn paint_polygon(
     painter: &egui::Painter,
     points: &[egui::Pos2],
     fill: egui::Color32,
@@ -937,7 +1034,7 @@ fn normalized_polygon_points(points: &[egui::Pos2]) -> Vec<egui::Pos2> {
     out
 }
 
-fn triangulate_polygon(points: &[egui::Pos2]) -> Vec<[egui::Pos2; 3]> {
+pub(crate) fn triangulate_polygon(points: &[egui::Pos2]) -> Vec<[egui::Pos2; 3]> {
     if points.len() < 3 {
         return Vec::new();
     }
