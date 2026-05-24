@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.2.1] - 2026-05-24
+
+### <!-- 0 -->⛰️  Features
+
+- Improve map annotation colors and styling
+- Add middle-click pan to Bevy viewport
+- Improve panel layout and scrolling behavior
+- More 3d structures
+- More 3d structures
+- Implement 3D transform gizmos
+- Add triangle mesh rendering to 3D view
+- Integrate 3D scene module with `three-d` backend
+- Improve Bevy embedded viewport rendering
+- Support Bevy as a host for Mara UI
+- Enable WebGL for Bevy modules in Eframe
+
+### <!-- 1 -->🐛 Bug Fixes
+
+- Improve Bevy viewport image scaling and rendering
+- Improve Bevy Egui viewport rendering
+
 ## [0.2.0] - 2026-05-22
 
 ### <!-- 0 -->⛰️  Features
