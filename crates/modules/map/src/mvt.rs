@@ -4,7 +4,10 @@ use std::sync::{Arc, OnceLock};
 use std::sync::{Mutex, mpsc};
 use std::time::Duration;
 
-use super::{MapViewport, TILE_SIZE, geo_to_world, paint_polygon, triangulate_polygon};
+use super::{
+    MapFeatureGeometry, MapFeatureInfo, MapViewport, TILE_SIZE, geo_to_world, paint_polygon,
+    triangulate_polygon,
+};
 
 const OPENFREEMAP_TILE_URL: &str = "https://tiles.openfreemap.org/planet/latest";
 const MAX_SOURCE_ZOOM: f64 = 14.0;
@@ -123,6 +126,40 @@ pub(crate) fn prewarm_vector_basemap(
     }
 }
 
+pub(crate) fn hit_test_vector_feature(
+    rect: egui::Rect,
+    viewport: MapViewport,
+    cache: &VectorTileCache,
+    pos: egui::Pos2,
+) -> Option<MapFeatureInfo> {
+    let visible_tiles = visible_tile_keys(viewport, rect.size());
+    let mut best: Option<FeatureHit> = None;
+    for key in visible_tiles {
+        let Some(TileEntry::Ready(tile)) = cache.tiles.get(&key) else {
+            continue;
+        };
+        for layer in &tile.layers {
+            if !is_interactive_layer(&layer.name) {
+                continue;
+            }
+            for feature in &layer.features {
+                let Some(score) = hit_score(rect, viewport, key, layer, feature, pos) else {
+                    continue;
+                };
+                let hit = FeatureHit {
+                    priority: interactive_priority(&layer.name, feature),
+                    score,
+                    info: feature_info(layer, feature),
+                };
+                if best.as_ref().is_none_or(|best| hit.is_better_than(best)) {
+                    best = Some(hit);
+                }
+            }
+        }
+    }
+    best.map(|hit| hit.info)
+}
+
 fn visible_tile_keys(viewport: MapViewport, size: egui::Vec2) -> Vec<TileKey> {
     let z = viewport.zoom.floor().clamp(0.0, MAX_SOURCE_ZOOM) as u8;
     let zf = f64::from(z);
@@ -167,6 +204,121 @@ fn visible_tile_keys(viewport: MapViewport, size: egui::Vec2) -> Vec<TileKey> {
         (ax * ax + ay * ay).total_cmp(&(bx * bx + by * by))
     });
     visible_tiles
+}
+
+struct FeatureHit {
+    priority: i32,
+    score: f32,
+    info: MapFeatureInfo,
+}
+
+impl FeatureHit {
+    fn is_better_than(&self, other: &Self) -> bool {
+        self.priority > other.priority
+            || (self.priority == other.priority && self.score < other.score)
+    }
+}
+
+fn is_interactive_layer(layer: &str) -> bool {
+    matches!(
+        layer,
+        "building"
+            | "transportation"
+            | "water"
+            | "waterway"
+            | "landuse"
+            | "landcover"
+            | "park"
+            | "aeroway"
+            | "boundary"
+    )
+}
+
+fn interactive_priority(layer: &str, feature: &DecodedFeature) -> i32 {
+    match layer {
+        "building" => 120,
+        "transportation" => 105,
+        "waterway" => 98,
+        "water" => 82,
+        "park" => 74,
+        "landuse" => match feature.class() {
+            "farmland" | "farm" | "orchard" | "vineyard" => 72,
+            _ => 66,
+        },
+        "landcover" => 64,
+        "aeroway" => 56,
+        "boundary" => 22,
+        _ => 0,
+    }
+}
+
+fn hit_score(
+    rect: egui::Rect,
+    viewport: MapViewport,
+    key: TileKey,
+    layer: &DecodedLayer,
+    feature: &DecodedFeature,
+    pos: egui::Pos2,
+) -> Option<f32> {
+    match feature.geometry_type {
+        GeometryType::Point | GeometryType::Unknown => None,
+        GeometryType::LineString => {
+            let tolerance = match layer.name.as_str() {
+                "transportation" => 9.0,
+                "waterway" => 10.0,
+                "boundary" => 7.0,
+                _ => 8.0,
+            };
+            feature
+                .paths
+                .iter()
+                .filter_map(|path| {
+                    let points = screen_points(path, layer.extent, key, rect, viewport);
+                    points
+                        .windows(2)
+                        .map(|w| distance_to_segment(pos, w[0], w[1]))
+                        .min_by(f32::total_cmp)
+                })
+                .filter(|distance| *distance <= tolerance)
+                .min_by(f32::total_cmp)
+        }
+        GeometryType::Polygon => feature
+            .paths
+            .iter()
+            .filter_map(|path| {
+                let points = screen_points(path, layer.extent, key, rect, viewport);
+                if points.len() < 3 || !path_intersects_rect(&points, rect) {
+                    return None;
+                }
+                if point_in_polygon(pos, &points) {
+                    Some(polygon_abs_area(&normalized_screen_ring(&points)))
+                } else {
+                    None
+                }
+            })
+            .min_by(f32::total_cmp),
+    }
+}
+
+fn feature_info(layer: &DecodedLayer, feature: &DecodedFeature) -> MapFeatureInfo {
+    let mut properties = feature
+        .properties
+        .iter()
+        .map(|(key, value)| (key.clone(), value.display_value()))
+        .collect::<Vec<_>>();
+    properties.sort_by(|a, b| a.0.cmp(&b.0));
+    MapFeatureInfo {
+        layer: layer.name.clone(),
+        class: feature.class().to_owned(),
+        geometry: match feature.geometry_type {
+            GeometryType::Point => MapFeatureGeometry::Point,
+            GeometryType::LineString => MapFeatureGeometry::Line,
+            GeometryType::Polygon => MapFeatureGeometry::Polygon,
+            GeometryType::Unknown => MapFeatureGeometry::Point,
+        },
+        name: feature.label_text().map(ToOwned::to_owned),
+        properties,
+    }
 }
 
 fn request_visible_tiles(cache: &mut VectorTileCache, visible_tiles: &[TileKey]) -> bool {
@@ -1299,6 +1451,41 @@ fn path_intersects_rect(points: &[egui::Pos2], rect: egui::Rect) -> bool {
     bounds.intersects(rect)
 }
 
+fn point_in_polygon(pos: egui::Pos2, points: &[egui::Pos2]) -> bool {
+    if points.len() < 3 {
+        return false;
+    }
+    let mut inside = false;
+    for (a, b) in points
+        .iter()
+        .zip(points.iter().cycle().skip(1))
+        .take(points.len())
+    {
+        let crosses = (a.y > pos.y) != (b.y > pos.y);
+        if crosses {
+            let denom = b.y - a.y;
+            if denom.abs() <= f32::EPSILON {
+                continue;
+            }
+            let x = (b.x - a.x) * (pos.y - a.y) / denom + a.x;
+            if pos.x < x {
+                inside = !inside;
+            }
+        }
+    }
+    inside
+}
+
+fn distance_to_segment(p: egui::Pos2, a: egui::Pos2, b: egui::Pos2) -> f32 {
+    let ab = b - a;
+    let denom = ab.dot(ab);
+    if denom <= f32::EPSILON {
+        return p.distance(a);
+    }
+    let t = ((p - a).dot(ab) / denom).clamp(0.0, 1.0);
+    p.distance(a + ab * t)
+}
+
 #[derive(Debug)]
 struct DecodedVectorTile {
     layers: Vec<DecodedLayer>,
@@ -1364,6 +1551,27 @@ enum FeatureValue {
     I64(i64),
     U64(u64),
     Bool(bool),
+}
+
+impl FeatureValue {
+    fn display_value(&self) -> String {
+        match self {
+            Self::String(value) => value.clone(),
+            Self::F64(value) => {
+                let mut formatted = format!("{value:.3}");
+                while formatted.contains('.') && formatted.ends_with('0') {
+                    formatted.pop();
+                }
+                if formatted.ends_with('.') {
+                    formatted.pop();
+                }
+                formatted
+            }
+            Self::I64(value) => value.to_string(),
+            Self::U64(value) => value.to_string(),
+            Self::Bool(value) => value.to_string(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

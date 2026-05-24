@@ -40,8 +40,9 @@ use mara_core::shelf::{ShelfContainer, ShelfDef, ShelfEdge, ShelfState};
 use mara_core::style::{AccentColor, GlassOpacity, Mode, srgb_to_egui};
 use mara_core::widget::{FillStyle, TreeBranchGuide, TreeIconKind, TreeIconSlot};
 use mara_map::{
-    DEFAULT_SVG_MARKER, MapDocument, MapIcon, MapInteraction, MapLine, MapPoint, MapPolygon,
-    MapSurface, MapTool, MapViewport, MaraMap, lon_lat,
+    DEFAULT_SVG_MARKER, MapAnnotation, MapDocument, MapFeatureGeometry, MapFeatureInfo, MapIcon,
+    MapInteraction, MapLine, MapPoint, MapPolygon, MapSurface, MapTool, MapViewport, MaraMap,
+    lon_lat,
 };
 // Vendored extras — node graph + code editor. In the unified `mara`
 // facade they live under `mara_core::extras::*`; the node-graph
@@ -85,6 +86,7 @@ const PANE_CANVAS_HISTORY: &str = "demo_canvas_pane_history";
 const PANE_CANVAS_EXPORT: &str = "demo_canvas_pane_export";
 const PANE_3D_SCENE: &str = "demo_3d_pane_scene";
 const PANE_3D_INSPECTOR: &str = "demo_3d_pane_inspector";
+const PANE_MAP_INFO: &str = "demo_map_pane_info";
 const PANE_COREVIZ_ZONES: &str = "demo_coreviz_pane_zones";
 const PANE_COREVIZ_REFERENCE: &str = "demo_coreviz_pane_reference";
 const PANE_COREVIZ_NODES: &str = "demo_coreviz_pane_nodes";
@@ -104,14 +106,11 @@ const ACTION_VIEW_BEVY: &str = "demo_action_view_bevy";
 const ACTION_VIEW_CANVAS: &str = "demo_action_view_canvas";
 const ACTION_VIEW_3D: &str = "demo_action_view_3d";
 const ACTION_COREVIZ_ZONES: &str = "demo_action_coreviz_zones";
-const ACTION_COREVIZ_GRAPH: &str = "demo_action_coreviz_graph";
 const ACTION_COREVIZ_MANAGEMENT: &str = "demo_action_coreviz_management";
 const ACTION_MAP_SELECT: &str = "demo_action_map_select";
 const ACTION_MAP_POINT: &str = "demo_action_map_point";
 const ACTION_MAP_LINE: &str = "demo_action_map_line";
 const ACTION_MAP_POLYGON: &str = "demo_action_map_polygon";
-const ACTION_MAP_ICON: &str = "demo_action_map_icon";
-const ACTION_MAP_SVG: &str = "demo_action_map_svg";
 const ACTION_MAP_CLEAR: &str = "demo_action_map_clear";
 const ACTION_CLOSE_APP: &str = "demo_action_close_app";
 const ACTION_RESTORE_FULLSCREEN: &str = "demo_action_restore_fullscreen";
@@ -272,6 +271,12 @@ const PANE_DEFS: &[(&str, &str, PaneAnchor, &str)] = &[
     ),
     (
         RIBBON_RIGHT,
+        PANE_MAP_INFO,
+        PaneAnchor::RightRail(RailZone::Start),
+        "Map Selection",
+    ),
+    (
+        RIBBON_RIGHT,
         PANE_COREVIZ_JSON,
         PaneAnchor::RightRail(RailZone::Middle),
         "JSON",
@@ -374,19 +379,8 @@ const RIBBON_ITEMS_PERSISTENT_TOP: &[RibbonButtonSpec] = &[
         cluster: RibbonCluster::Middle,
         slot: 2,
         draggable: false,
-        glyph: RibbonGlyph::Icon("shape-union"),
-        tooltip: "Zones view",
-        child_ribbon: None,
-        role: Some(RibbonRole::Icon),
-    },
-    RibbonButtonSpec {
-        id: ACTION_COREVIZ_GRAPH,
-        ribbon: RIBBON_TOP,
-        cluster: RibbonCluster::Middle,
-        slot: 3,
-        draggable: false,
-        glyph: RibbonGlyph::Icon("flowchart"),
-        tooltip: "Graph view",
+        glyph: RibbonGlyph::Icon("draw-shape"),
+        tooltip: "Map annotation view",
         child_ribbon: None,
         role: Some(RibbonRole::Icon),
     },
@@ -394,10 +388,10 @@ const RIBBON_ITEMS_PERSISTENT_TOP: &[RibbonButtonSpec] = &[
         id: ACTION_COREVIZ_MANAGEMENT,
         ribbon: RIBBON_TOP,
         cluster: RibbonCluster::Middle,
-        slot: 4,
+        slot: 3,
         draggable: false,
         glyph: RibbonGlyph::Icon("location"),
-        tooltip: "Management view",
+        tooltip: "Map object selection view",
         child_ribbon: None,
         role: Some(RibbonRole::Icon),
     },
@@ -405,7 +399,7 @@ const RIBBON_ITEMS_PERSISTENT_TOP: &[RibbonButtonSpec] = &[
         id: ACTION_VIEW_3D,
         ribbon: RIBBON_TOP,
         cluster: RibbonCluster::Middle,
-        slot: 5,
+        slot: 4,
         draggable: false,
         glyph: RibbonGlyph::Icon("cube"),
         tooltip: "Three-d scene view",
@@ -502,19 +496,8 @@ const RIBBON_ITEMS: &[RibbonButtonSpec] = &[
         cluster: RibbonCluster::Middle,
         slot: 2,
         draggable: false,
-        glyph: RibbonGlyph::Icon("shape-union"),
-        tooltip: "Zones view",
-        child_ribbon: None,
-        role: Some(RibbonRole::Icon),
-    },
-    RibbonButtonSpec {
-        id: ACTION_COREVIZ_GRAPH,
-        ribbon: RIBBON_TOP,
-        cluster: RibbonCluster::Middle,
-        slot: 3,
-        draggable: false,
-        glyph: RibbonGlyph::Icon("flowchart"),
-        tooltip: "Graph view",
+        glyph: RibbonGlyph::Icon("draw-shape"),
+        tooltip: "Map annotation view",
         child_ribbon: None,
         role: Some(RibbonRole::Icon),
     },
@@ -522,10 +505,10 @@ const RIBBON_ITEMS: &[RibbonButtonSpec] = &[
         id: ACTION_COREVIZ_MANAGEMENT,
         ribbon: RIBBON_TOP,
         cluster: RibbonCluster::Middle,
-        slot: 4,
+        slot: 3,
         draggable: false,
         glyph: RibbonGlyph::Icon("location"),
-        tooltip: "Management view",
+        tooltip: "Map object selection view",
         child_ribbon: None,
         role: Some(RibbonRole::Icon),
     },
@@ -596,19 +579,8 @@ const RIBBON_ITEMS_ROOT_VIEW: &[RibbonButtonSpec] = &[
         cluster: RibbonCluster::Middle,
         slot: 2,
         draggable: false,
-        glyph: RibbonGlyph::Icon("shape-union"),
-        tooltip: "Zones view",
-        child_ribbon: None,
-        role: Some(RibbonRole::Icon),
-    },
-    RibbonButtonSpec {
-        id: ACTION_COREVIZ_GRAPH,
-        ribbon: RIBBON_TOP,
-        cluster: RibbonCluster::Middle,
-        slot: 3,
-        draggable: false,
-        glyph: RibbonGlyph::Icon("flowchart"),
-        tooltip: "Graph view",
+        glyph: RibbonGlyph::Icon("draw-shape"),
+        tooltip: "Map annotation view",
         child_ribbon: None,
         role: Some(RibbonRole::Icon),
     },
@@ -616,10 +588,10 @@ const RIBBON_ITEMS_ROOT_VIEW: &[RibbonButtonSpec] = &[
         id: ACTION_COREVIZ_MANAGEMENT,
         ribbon: RIBBON_TOP,
         cluster: RibbonCluster::Middle,
-        slot: 4,
+        slot: 3,
         draggable: false,
         glyph: RibbonGlyph::Icon("location"),
-        tooltip: "Management view",
+        tooltip: "Map object selection view",
         child_ribbon: None,
         role: Some(RibbonRole::Icon),
     },
@@ -759,19 +731,8 @@ const RIBBON_ITEMS_MAP_VIEW: &[RibbonButtonSpec] = &[
         cluster: RibbonCluster::Middle,
         slot: 2,
         draggable: false,
-        glyph: RibbonGlyph::Icon("shape-union"),
-        tooltip: "Zones view",
-        child_ribbon: None,
-        role: Some(RibbonRole::Icon),
-    },
-    RibbonButtonSpec {
-        id: ACTION_COREVIZ_GRAPH,
-        ribbon: RIBBON_TOP,
-        cluster: RibbonCluster::Middle,
-        slot: 3,
-        draggable: false,
-        glyph: RibbonGlyph::Icon("flowchart"),
-        tooltip: "Graph view",
+        glyph: RibbonGlyph::Icon("draw-shape"),
+        tooltip: "Map annotation view",
         child_ribbon: None,
         role: Some(RibbonRole::Icon),
     },
@@ -779,10 +740,10 @@ const RIBBON_ITEMS_MAP_VIEW: &[RibbonButtonSpec] = &[
         id: ACTION_COREVIZ_MANAGEMENT,
         ribbon: RIBBON_TOP,
         cluster: RibbonCluster::Middle,
-        slot: 4,
+        slot: 3,
         draggable: false,
         glyph: RibbonGlyph::Icon("location"),
-        tooltip: "Management view",
+        tooltip: "Map object selection view",
         child_ribbon: None,
         role: Some(RibbonRole::Icon),
     },
@@ -815,7 +776,29 @@ const RIBBON_ITEMS_MAP_VIEW: &[RibbonButtonSpec] = &[
         slot: 0,
         draggable: false,
         glyph: RibbonGlyph::Icon("cursor"),
-        tooltip: "Select map items",
+        tooltip: "Select annotations",
+        child_ribbon: None,
+        role: Some(RibbonRole::Icon),
+    },
+    RibbonButtonSpec {
+        id: ACTION_MAP_POINT,
+        ribbon: RIBBON_LEFT,
+        cluster: RibbonCluster::Middle,
+        slot: 1,
+        draggable: false,
+        glyph: RibbonGlyph::Icon("pin"),
+        tooltip: "Add point",
+        child_ribbon: None,
+        role: Some(RibbonRole::Icon),
+    },
+    RibbonButtonSpec {
+        id: ACTION_MAP_LINE,
+        ribbon: RIBBON_LEFT,
+        cluster: RibbonCluster::Middle,
+        slot: 2,
+        draggable: false,
+        glyph: RibbonGlyph::Icon("line"),
+        tooltip: "Draw line",
         child_ribbon: None,
         role: Some(RibbonRole::Icon),
     },
@@ -823,10 +806,10 @@ const RIBBON_ITEMS_MAP_VIEW: &[RibbonButtonSpec] = &[
         id: ACTION_MAP_POLYGON,
         ribbon: RIBBON_LEFT,
         cluster: RibbonCluster::Middle,
-        slot: 1,
+        slot: 3,
         draggable: false,
         glyph: RibbonGlyph::Icon("shape-union"),
-        tooltip: "Draw zone polygon",
+        tooltip: "Draw polygon",
         child_ribbon: None,
         role: Some(RibbonRole::Icon),
     },
@@ -865,141 +848,6 @@ const RIBBON_ITEMS_MAP_VIEW: &[RibbonButtonSpec] = &[
     },
 ];
 
-const RIBBON_ITEMS_MAP_GRAPH_VIEW: &[RibbonButtonSpec] = &[
-    RibbonButtonSpec {
-        id: ACTION_VIEW_BEVY,
-        ribbon: RIBBON_TOP,
-        cluster: RibbonCluster::Middle,
-        slot: 0,
-        draggable: false,
-        glyph: RibbonGlyph::Icon("cube"),
-        tooltip: "Bevy scene view",
-        child_ribbon: None,
-        role: Some(RibbonRole::Icon),
-    },
-    RibbonButtonSpec {
-        id: ACTION_VIEW_CANVAS,
-        ribbon: RIBBON_TOP,
-        cluster: RibbonCluster::Middle,
-        slot: 1,
-        draggable: false,
-        glyph: RibbonGlyph::Icon("pen"),
-        tooltip: "Canvas / whiteboard view",
-        child_ribbon: None,
-        role: Some(RibbonRole::Icon),
-    },
-    RibbonButtonSpec {
-        id: ACTION_COREVIZ_ZONES,
-        ribbon: RIBBON_TOP,
-        cluster: RibbonCluster::Middle,
-        slot: 2,
-        draggable: false,
-        glyph: RibbonGlyph::Icon("shape-union"),
-        tooltip: "Zones view",
-        child_ribbon: None,
-        role: Some(RibbonRole::Icon),
-    },
-    RibbonButtonSpec {
-        id: ACTION_COREVIZ_GRAPH,
-        ribbon: RIBBON_TOP,
-        cluster: RibbonCluster::Middle,
-        slot: 3,
-        draggable: false,
-        glyph: RibbonGlyph::Icon("flowchart"),
-        tooltip: "Graph view",
-        child_ribbon: None,
-        role: Some(RibbonRole::Icon),
-    },
-    RibbonButtonSpec {
-        id: ACTION_COREVIZ_MANAGEMENT,
-        ribbon: RIBBON_TOP,
-        cluster: RibbonCluster::Middle,
-        slot: 4,
-        draggable: false,
-        glyph: RibbonGlyph::Icon("location"),
-        tooltip: "Management view",
-        child_ribbon: None,
-        role: Some(RibbonRole::Icon),
-    },
-    RibbonButtonSpec {
-        id: PANE_COREVIZ_NODES,
-        ribbon: RIBBON_LEFT,
-        cluster: RibbonCluster::Start,
-        slot: 0,
-        draggable: true,
-        glyph: RibbonGlyph::Icon("pin"),
-        tooltip: "Graph nodes",
-        child_ribbon: None,
-        role: None,
-    },
-    RibbonButtonSpec {
-        id: PANE_COREVIZ_EDGES,
-        ribbon: RIBBON_LEFT,
-        cluster: RibbonCluster::Start,
-        slot: 1,
-        draggable: true,
-        glyph: RibbonGlyph::Icon("line"),
-        tooltip: "Graph edges",
-        child_ribbon: None,
-        role: None,
-    },
-    RibbonButtonSpec {
-        id: ACTION_MAP_SELECT,
-        ribbon: RIBBON_LEFT,
-        cluster: RibbonCluster::Middle,
-        slot: 0,
-        draggable: false,
-        glyph: RibbonGlyph::Icon("cursor"),
-        tooltip: "Select graph item",
-        child_ribbon: None,
-        role: Some(RibbonRole::Icon),
-    },
-    RibbonButtonSpec {
-        id: ACTION_MAP_POINT,
-        ribbon: RIBBON_LEFT,
-        cluster: RibbonCluster::Middle,
-        slot: 1,
-        draggable: false,
-        glyph: RibbonGlyph::Icon("pin"),
-        tooltip: "Add node",
-        child_ribbon: None,
-        role: Some(RibbonRole::Icon),
-    },
-    RibbonButtonSpec {
-        id: ACTION_MAP_LINE,
-        ribbon: RIBBON_LEFT,
-        cluster: RibbonCluster::Middle,
-        slot: 2,
-        draggable: false,
-        glyph: RibbonGlyph::Icon("line"),
-        tooltip: "Connect edge",
-        child_ribbon: None,
-        role: Some(RibbonRole::Icon),
-    },
-    RibbonButtonSpec {
-        id: ACTION_MAP_CLEAR,
-        ribbon: RIBBON_LEFT,
-        cluster: RibbonCluster::End,
-        slot: 0,
-        draggable: false,
-        glyph: RibbonGlyph::Icon("delete"),
-        tooltip: "Clear map",
-        child_ribbon: None,
-        role: Some(RibbonRole::Icon),
-    },
-    RibbonButtonSpec {
-        id: PANE_COREVIZ_DETAILS,
-        ribbon: RIBBON_RIGHT,
-        cluster: RibbonCluster::Start,
-        slot: 0,
-        draggable: true,
-        glyph: RibbonGlyph::Icon("options"),
-        tooltip: "Selection inspector",
-        child_ribbon: None,
-        role: None,
-    },
-];
-
 const RIBBON_ITEMS_MAP_MANAGEMENT_VIEW: &[RibbonButtonSpec] = &[
     RibbonButtonSpec {
         id: ACTION_VIEW_BEVY,
@@ -1029,19 +877,8 @@ const RIBBON_ITEMS_MAP_MANAGEMENT_VIEW: &[RibbonButtonSpec] = &[
         cluster: RibbonCluster::Middle,
         slot: 2,
         draggable: false,
-        glyph: RibbonGlyph::Icon("shape-union"),
-        tooltip: "Zones view",
-        child_ribbon: None,
-        role: Some(RibbonRole::Icon),
-    },
-    RibbonButtonSpec {
-        id: ACTION_COREVIZ_GRAPH,
-        ribbon: RIBBON_TOP,
-        cluster: RibbonCluster::Middle,
-        slot: 3,
-        draggable: false,
-        glyph: RibbonGlyph::Icon("flowchart"),
-        tooltip: "Graph view",
+        glyph: RibbonGlyph::Icon("draw-shape"),
+        tooltip: "Map annotation view",
         child_ribbon: None,
         role: Some(RibbonRole::Icon),
     },
@@ -1049,10 +886,10 @@ const RIBBON_ITEMS_MAP_MANAGEMENT_VIEW: &[RibbonButtonSpec] = &[
         id: ACTION_COREVIZ_MANAGEMENT,
         ribbon: RIBBON_TOP,
         cluster: RibbonCluster::Middle,
-        slot: 4,
+        slot: 3,
         draggable: false,
         glyph: RibbonGlyph::Icon("location"),
-        tooltip: "Management view",
+        tooltip: "Map object selection view",
         child_ribbon: None,
         role: Some(RibbonRole::Icon),
     },
@@ -1085,26 +922,26 @@ const RIBBON_ITEMS_MAP_MANAGEMENT_VIEW: &[RibbonButtonSpec] = &[
         slot: 0,
         draggable: false,
         glyph: RibbonGlyph::Icon("cursor"),
-        tooltip: "Select robot",
+        tooltip: "Select map objects",
         child_ribbon: None,
         role: Some(RibbonRole::Icon),
     },
     RibbonButtonSpec {
-        id: ACTION_MAP_ICON,
-        ribbon: RIBBON_LEFT,
-        cluster: RibbonCluster::Middle,
-        slot: 1,
-        draggable: false,
-        glyph: RibbonGlyph::Icon("location"),
-        tooltip: "Place robot marker",
+        id: PANE_MAP_INFO,
+        ribbon: RIBBON_RIGHT,
+        cluster: RibbonCluster::Start,
+        slot: 0,
+        draggable: true,
+        glyph: RibbonGlyph::Icon("map"),
+        tooltip: "Selected map object",
         child_ribbon: None,
-        role: Some(RibbonRole::Icon),
+        role: None,
     },
     RibbonButtonSpec {
         id: PANE_COREVIZ_DETAILS,
         ribbon: RIBBON_RIGHT,
         cluster: RibbonCluster::Start,
-        slot: 0,
+        slot: 1,
         draggable: true,
         glyph: RibbonGlyph::Icon("options"),
         tooltip: "Robot details",
@@ -1115,7 +952,7 @@ const RIBBON_ITEMS_MAP_MANAGEMENT_VIEW: &[RibbonButtonSpec] = &[
         id: PANE_COREVIZ_SCHEDULER,
         ribbon: RIBBON_RIGHT,
         cluster: RibbonCluster::Start,
-        slot: 1,
+        slot: 2,
         draggable: true,
         glyph: RibbonGlyph::Icon("clock"),
         tooltip: "Scheduler",
@@ -1126,7 +963,7 @@ const RIBBON_ITEMS_MAP_MANAGEMENT_VIEW: &[RibbonButtonSpec] = &[
         id: PANE_COREVIZ_TASKS,
         ribbon: RIBBON_RIGHT,
         cluster: RibbonCluster::Start,
-        slot: 2,
+        slot: 3,
         draggable: true,
         glyph: RibbonGlyph::Icon("list"),
         tooltip: "Robot tasks",
@@ -1429,7 +1266,6 @@ mod tests {
             .chain(RIBBON_ITEMS_ROOT_VIEW)
             .chain(RIBBON_ITEMS_3D_VIEW)
             .chain(RIBBON_ITEMS_MAP_VIEW)
-            .chain(RIBBON_ITEMS_MAP_GRAPH_VIEW)
             .chain(RIBBON_ITEMS_MAP_MANAGEMENT_VIEW)
             .chain(RIBBON_ITEMS_FS_GRAPH)
             .chain(RIBBON_ITEMS_FS_CODE)
@@ -1452,7 +1288,7 @@ mod tests {
             .expect("missing three-d view button");
         assert_eq!(item.ribbon, RIBBON_TOP);
         assert_eq!(item.cluster, RibbonCluster::Middle);
-        assert_eq!(item.slot, 5);
+        assert_eq!(item.slot, 4);
         assert!(!item.draggable);
         assert_eq!(item.role, Some(RibbonRole::Icon));
     }
@@ -1463,14 +1299,9 @@ mod tests {
             RIBBON_ITEMS,
             RIBBON_ITEMS_ROOT_VIEW,
             RIBBON_ITEMS_MAP_VIEW,
-            RIBBON_ITEMS_MAP_GRAPH_VIEW,
             RIBBON_ITEMS_MAP_MANAGEMENT_VIEW,
         ] {
-            for (slot, id) in [
-                (2, ACTION_COREVIZ_ZONES),
-                (3, ACTION_COREVIZ_GRAPH),
-                (4, ACTION_COREVIZ_MANAGEMENT),
-            ] {
+            for (slot, id) in [(2, ACTION_COREVIZ_ZONES), (3, ACTION_COREVIZ_MANAGEMENT)] {
                 let item = find_item(items, id).expect("missing Coreviz context button");
                 assert_eq!(item.ribbon, RIBBON_TOP);
                 assert_eq!(item.cluster, RibbonCluster::Middle);
@@ -1488,7 +1319,6 @@ mod tests {
             RIBBON_ITEMS_ROOT_VIEW,
             RIBBON_ITEMS_3D_VIEW,
             RIBBON_ITEMS_MAP_VIEW,
-            RIBBON_ITEMS_MAP_GRAPH_VIEW,
             RIBBON_ITEMS_MAP_MANAGEMENT_VIEW,
         ] {
             assert!(find_item(items, "demo_action_view_map").is_none());
@@ -1511,7 +1341,6 @@ fn is_persistent_top_item(id: &'static str) -> bool {
             | ACTION_VIEW_CANVAS
             | ACTION_VIEW_3D
             | ACTION_COREVIZ_ZONES
-            | ACTION_COREVIZ_GRAPH
             | ACTION_COREVIZ_MANAGEMENT
     )
 }
@@ -1586,6 +1415,25 @@ fn draw_unified_ribbons(
     draw_slot_ribbons_featureful(ctx, accent, &resolved, open, placement, drag)
 }
 
+fn publish_current_pane_ribbon_buttons(
+    ctx: &egui::Context,
+    items: &[RibbonButtonSpec],
+    fullscreen_active: bool,
+) {
+    let mut pane_ids = Vec::new();
+    for item in RIBBON_ITEMS_PERSISTENT_TOP.iter().chain(items).chain(
+        fullscreen_active
+            .then_some(RIBBON_ITEMS)
+            .into_iter()
+            .flatten(),
+    ) {
+        if item.role.is_none() {
+            pane_ids.push(egui::Id::new(item.id));
+        }
+    }
+    mara_core::pane::publish_ribbon_pane_ids(ctx, pane_ids);
+}
+
 fn demo_ribbon_scope(ribbon_id: &'static str) -> mara_core::RibbonScope {
     if ribbon_id == RIBBON_TOP {
         mara_core::RibbonScope::Permanent
@@ -1625,16 +1473,12 @@ enum DemoRootView {
     Canvas,
     ThreeD,
     CorevizZones,
-    CorevizGraph,
     CorevizManagement,
 }
 
 impl DemoRootView {
     fn is_coreviz(self) -> bool {
-        matches!(
-            self,
-            Self::CorevizZones | Self::CorevizGraph | Self::CorevizManagement
-        )
+        matches!(self, Self::CorevizZones | Self::CorevizManagement)
     }
 }
 
@@ -1862,7 +1706,6 @@ impl Default for MapViewState {
 
 fn map_ribbon_items(root_view: DemoRootView) -> &'static [RibbonButtonSpec] {
     match root_view {
-        DemoRootView::CorevizGraph => RIBBON_ITEMS_MAP_GRAPH_VIEW,
         DemoRootView::CorevizManagement => RIBBON_ITEMS_MAP_MANAGEMENT_VIEW,
         _ => RIBBON_ITEMS_MAP_VIEW,
     }
@@ -2070,7 +1913,7 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
     } else if *root_view == DemoRootView::ThreeD {
         three_d_root_view(host, accent_col, three_d_view);
     } else if root_view.is_coreviz() {
-        map_root_view(ctx, map_view);
+        map_root_view(ctx, map_view, *root_view == DemoRootView::CorevizManagement);
     }
 
     // Fullscreen-view branch. The fullscreen overlay paints at
@@ -2123,6 +1966,7 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
         RIBBON_ITEMS
     };
     let current_ribbons: &[RibbonSpec] = if fs_active { RIBBONS_FS } else { RIBBONS };
+    publish_current_pane_ribbon_buttons(ctx, current_ribbon_items, fs_active);
 
     let is_open_in = |items: &[RibbonButtonSpec], id: &'static str| -> bool {
         let Some(item) = find_item(items, id) else {
@@ -2249,6 +2093,7 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
                 PANE_COREVIZ_ZENOH => coreviz_zenoh_pane(body),
                 PANE_COREVIZ_ROBOTS => coreviz_robots_pane(body),
                 PANE_COREVIZ_DETAILS => coreviz_details_pane(body),
+                PANE_MAP_INFO => map_info_pane(body, map_view),
                 PANE_COREVIZ_JSON => coreviz_json_pane(body),
                 PANE_COREVIZ_SCHEDULER => coreviz_scheduler_pane(body),
                 PANE_COREVIZ_TASKS => coreviz_tasks_pane(body),
@@ -2298,23 +2143,16 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
                         || matches!(
                             (id, map_view.interaction.tool),
                             (ACTION_MAP_SELECT, MapTool::Select)
-                                | (ACTION_MAP_POLYGON, MapTool::Polygon)
-                        )
-                }
-                DemoRootView::CorevizGraph => {
-                    id == ACTION_COREVIZ_GRAPH
-                        || matches!(
-                            (id, map_view.interaction.tool),
-                            (ACTION_MAP_SELECT, MapTool::Select)
                                 | (ACTION_MAP_POINT, MapTool::Point)
                                 | (ACTION_MAP_LINE, MapTool::Line)
+                                | (ACTION_MAP_POLYGON, MapTool::Polygon)
                         )
                 }
                 DemoRootView::CorevizManagement => {
                     id == ACTION_COREVIZ_MANAGEMENT
                         || matches!(
                             (id, map_view.interaction.tool),
-                            (ACTION_MAP_SELECT, MapTool::Select) | (ACTION_MAP_ICON, MapTool::Icon)
+                            (ACTION_MAP_SELECT, MapTool::Select)
                         )
                 }
             },
@@ -2395,19 +2233,8 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
             *root_view = DemoRootView::CorevizZones;
             map_view.surface.defer_full_detail();
             map_view.interaction.set_tool(MapTool::Select);
+            map_view.interaction.clear_selection();
             open.set(RIBBON_LEFT, PANE_COREVIZ_ZONES);
-            open.set(RIBBON_RIGHT, PANE_COREVIZ_DETAILS);
-            ctx.request_repaint();
-            continue;
-        }
-        if click.item == egui::Id::new(ACTION_COREVIZ_GRAPH) {
-            if fs_active {
-                mara_core::embed::restore_fullscreen(ctx);
-            }
-            *root_view = DemoRootView::CorevizGraph;
-            map_view.surface.defer_full_detail();
-            map_view.interaction.set_tool(MapTool::Select);
-            open.set(RIBBON_LEFT, PANE_COREVIZ_NODES);
             open.set(RIBBON_RIGHT, PANE_COREVIZ_DETAILS);
             ctx.request_repaint();
             continue;
@@ -2419,8 +2246,9 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
             *root_view = DemoRootView::CorevizManagement;
             map_view.surface.defer_full_detail();
             map_view.interaction.set_tool(MapTool::Select);
+            map_view.interaction.clear_selection();
             open.set(RIBBON_LEFT, PANE_COREVIZ_ROBOTS);
-            open.set(RIBBON_RIGHT, PANE_COREVIZ_DETAILS);
+            open.set(RIBBON_RIGHT, PANE_MAP_INFO);
             ctx.request_repaint();
             continue;
         }
@@ -2438,14 +2266,6 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
         }
         if click.item == egui::Id::new(ACTION_MAP_POLYGON) {
             map_view.interaction.set_tool(MapTool::Polygon);
-            continue;
-        }
-        if click.item == egui::Id::new(ACTION_MAP_ICON) {
-            map_view.interaction.set_tool(MapTool::Icon);
-            continue;
-        }
-        if click.item == egui::Id::new(ACTION_MAP_SVG) {
-            map_view.interaction.set_tool(MapTool::Svg);
             continue;
         }
         if click.item == egui::Id::new(ACTION_MAP_CLEAR) {
@@ -2475,8 +2295,205 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
 
 // ─── Map root view ─────────────────────────────────────────────────
 
-fn map_root_view(ctx: &egui::Context, map: &mut MapViewState) {
+fn map_root_view(ctx: &egui::Context, map: &mut MapViewState, basemap_selection_enabled: bool) {
+    map.interaction.basemap_selection_enabled = basemap_selection_enabled;
     let _ = MaraMap::new(&mut map.surface, &mut map.interaction).show(ctx);
+}
+
+fn map_info_pane(body: &mut PaneBody, map: &MapViewState) {
+    if let Some(feature) = map.interaction.selected_feature.as_ref() {
+        show_map_feature_info(body, feature);
+    } else if let Some(id) = map.interaction.selected {
+        if let Some(annotation) = map.surface.document.get(id) {
+            show_map_annotation_info(body, annotation);
+        } else {
+            body.add_normal(
+                cid(PANE_MAP_INFO, "selection"),
+                "Selection",
+                "info",
+                vec![
+                    Pod::new(pid(PANE_MAP_INFO, "selection", 0))
+                        .with_separator(SeparatorStyle::Line)
+                        .with_readout("selection", "missing"),
+                    Pod::new(pid(PANE_MAP_INFO, "selection", 1))
+                        .with_separator(SeparatorStyle::None)
+                        .with_readout("hint", "click map object"),
+                ],
+            );
+        }
+    } else {
+        body.add_normal(
+            cid(PANE_MAP_INFO, "selection"),
+            "Selection",
+            "info",
+            vec![
+                Pod::new(pid(PANE_MAP_INFO, "selection", 0))
+                    .with_separator(SeparatorStyle::Line)
+                    .with_readout("selection", "none"),
+                Pod::new(pid(PANE_MAP_INFO, "selection", 1))
+                    .with_separator(SeparatorStyle::None)
+                    .with_readout("hint", "click map object"),
+            ],
+        );
+    }
+}
+
+fn show_map_feature_info(body: &mut PaneBody, feature: &MapFeatureInfo) {
+    let mut summary = vec![
+        Pod::new(pid(PANE_MAP_INFO, "feature", 0))
+            .with_separator(SeparatorStyle::Line)
+            .with_readout("type", feature.type_label()),
+        Pod::new(pid(PANE_MAP_INFO, "feature", 1))
+            .with_separator(if feature.name.is_some() {
+                SeparatorStyle::Line
+            } else {
+                SeparatorStyle::None
+            })
+            .with_readout("geometry", map_feature_geometry_label(feature.geometry)),
+    ];
+    if let Some(name) = feature.name.as_deref() {
+        summary.push(
+            Pod::new(pid(PANE_MAP_INFO, "feature", 2))
+                .with_separator(SeparatorStyle::None)
+                .with_readout("name", sanitize_readout(name)),
+        );
+    }
+    body.add_normal(cid(PANE_MAP_INFO, "feature"), "Feature", "map", summary);
+
+    let properties = feature
+        .properties
+        .iter()
+        .take(18)
+        .enumerate()
+        .map(|(idx, (key, value))| {
+            Pod::new(pid(PANE_MAP_INFO, "property", idx))
+                .with_separator(if idx >= feature.properties.len().min(18) - 1 {
+                    SeparatorStyle::None
+                } else {
+                    SeparatorStyle::Line
+                })
+                .with_readout(sanitize_readout(key), sanitize_readout(value))
+        })
+        .collect::<Vec<_>>();
+    if !properties.is_empty() {
+        body.add_normal(
+            cid(PANE_MAP_INFO, "properties"),
+            "Properties",
+            "document",
+            properties,
+        );
+    }
+}
+
+fn show_map_annotation_info(body: &mut PaneBody, annotation: &MapAnnotation) {
+    let mut pods = vec![
+        Pod::new(pid(PANE_MAP_INFO, "annotation", 0))
+            .with_separator(SeparatorStyle::Line)
+            .with_readout("type", map_annotation_label(annotation)),
+        Pod::new(pid(PANE_MAP_INFO, "annotation", 1))
+            .with_separator(SeparatorStyle::Line)
+            .with_readout("uuid", annotation.id().hyphenated()),
+    ];
+    match annotation {
+        MapAnnotation::Point(point) => {
+            push_geo_position_pods(&mut pods, "annotation", 2, point.position);
+            if let Some(label) = point.label.as_deref() {
+                pods.push(
+                    Pod::new(pid(PANE_MAP_INFO, "annotation", pods.len()))
+                        .with_separator(SeparatorStyle::Line)
+                        .with_readout("label", sanitize_readout(label)),
+                );
+            }
+        }
+        MapAnnotation::Line(line) => {
+            pods.push(
+                Pod::new(pid(PANE_MAP_INFO, "annotation", pods.len()))
+                    .with_separator(SeparatorStyle::Line)
+                    .with_readout("points", line.points.len().to_string()),
+            );
+            if let Some(label) = line.label.as_deref() {
+                pods.push(
+                    Pod::new(pid(PANE_MAP_INFO, "annotation", pods.len()))
+                        .with_separator(SeparatorStyle::Line)
+                        .with_readout("label", sanitize_readout(label)),
+                );
+            }
+        }
+        MapAnnotation::Polygon(poly) => {
+            pods.push(
+                Pod::new(pid(PANE_MAP_INFO, "annotation", pods.len()))
+                    .with_separator(SeparatorStyle::Line)
+                    .with_readout("points", poly.points.len().to_string()),
+            );
+            if let Some(label) = poly.label.as_deref() {
+                pods.push(
+                    Pod::new(pid(PANE_MAP_INFO, "annotation", pods.len()))
+                        .with_separator(SeparatorStyle::Line)
+                        .with_readout("label", sanitize_readout(label)),
+                );
+            }
+        }
+        MapAnnotation::Icon(icon) => {
+            push_geo_position_pods(&mut pods, "annotation", 2, icon.position);
+            if let Some(label) = icon.label.as_deref() {
+                pods.push(
+                    Pod::new(pid(PANE_MAP_INFO, "annotation", pods.len()))
+                        .with_separator(SeparatorStyle::Line)
+                        .with_readout("label", sanitize_readout(label)),
+                );
+            }
+        }
+    }
+    body.add_normal(
+        cid(PANE_MAP_INFO, "annotation"),
+        "Annotation",
+        "location",
+        pods,
+    );
+}
+
+fn push_geo_position_pods(
+    pods: &mut Vec<Pod>,
+    container: &'static str,
+    start: usize,
+    position: mara_map::GeoPosition,
+) {
+    pods.push(
+        Pod::new(pid(PANE_MAP_INFO, container, start))
+            .with_separator(SeparatorStyle::Line)
+            .with_readout("lon", format!("{:.9}", position.lon)),
+    );
+    pods.push(
+        Pod::new(pid(PANE_MAP_INFO, container, start + 1))
+            .with_separator(SeparatorStyle::Line)
+            .with_readout("lat", format!("{:.9}", position.lat)),
+    );
+}
+
+fn sanitize_readout(value: impl AsRef<str>) -> String {
+    let value = value.as_ref().trim();
+    if value.is_empty() {
+        "—".to_owned()
+    } else {
+        value.to_owned()
+    }
+}
+
+fn map_feature_geometry_label(geometry: MapFeatureGeometry) -> &'static str {
+    match geometry {
+        MapFeatureGeometry::Point => "point",
+        MapFeatureGeometry::Line => "line",
+        MapFeatureGeometry::Polygon => "polygon",
+    }
+}
+
+fn map_annotation_label(annotation: &MapAnnotation) -> &'static str {
+    match annotation {
+        MapAnnotation::Point(_) => "point",
+        MapAnnotation::Line(_) => "line",
+        MapAnnotation::Polygon(_) => "polygon",
+        MapAnnotation::Icon(_) => "icon",
+    }
 }
 
 // ─── 3D root view ──────────────────────────────────────────────────

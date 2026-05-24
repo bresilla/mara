@@ -29,6 +29,28 @@ fn default_annotation_fill() -> egui::Color32 {
     egui::Color32::from_rgba_unmultiplied(accent.r(), accent.g(), accent.b(), 58)
 }
 
+fn annotation_accent_color(stored: egui::Color32) -> egui::Color32 {
+    if is_neutral_annotation_default(stored) {
+        default_annotation_color()
+    } else {
+        stored
+    }
+}
+
+fn annotation_accent_fill(stored: egui::Color32) -> egui::Color32 {
+    if is_neutral_annotation_default(stored) {
+        default_annotation_fill()
+    } else {
+        stored
+    }
+}
+
+fn is_neutral_annotation_default(color: egui::Color32) -> bool {
+    let min = color.r().min(color.g()).min(color.b());
+    let max = color.r().max(color.g()).max(color.b());
+    max.saturating_sub(min) <= 4 && min >= 220
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct GeoPosition {
     pub lon: f64,
@@ -375,12 +397,41 @@ pub enum MapTool {
     Svg,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MapFeatureGeometry {
+    Point,
+    Line,
+    Polygon,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct MapFeatureInfo {
+    pub layer: String,
+    pub class: String,
+    pub geometry: MapFeatureGeometry,
+    pub name: Option<String>,
+    pub properties: Vec<(String, String)>,
+}
+
+impl MapFeatureInfo {
+    #[must_use]
+    pub fn type_label(&self) -> String {
+        if self.class.is_empty() {
+            self.layer.clone()
+        } else {
+            format!("{} / {}", self.layer, self.class)
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct MapInteraction {
     pub tool: MapTool,
     pub selected: Option<MapAnnotationId>,
     pub selected_kind: Option<MapAnnotationKind>,
     pub selected_uuid: Option<u128>,
+    pub selected_feature: Option<MapFeatureInfo>,
+    pub basemap_selection_enabled: bool,
     draft: Vec<GeoPosition>,
 }
 
@@ -405,12 +456,21 @@ impl MapInteraction {
         self.selected = Some(id);
         self.selected_kind = Some(annotation.kind());
         self.selected_uuid = Some(id.uuid);
+        self.selected_feature = None;
+    }
+
+    pub fn select_feature(&mut self, feature: MapFeatureInfo) {
+        self.selected = None;
+        self.selected_kind = None;
+        self.selected_uuid = None;
+        self.selected_feature = Some(feature);
     }
 
     pub fn clear_selection(&mut self) {
         self.selected = None;
         self.selected_kind = None;
         self.selected_uuid = None;
+        self.selected_feature = None;
     }
 
     #[must_use]
@@ -423,13 +483,14 @@ impl MapInteraction {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct MaraMapResponse {
     pub hovered_position: Option<GeoPosition>,
     pub clicked_position: Option<GeoPosition>,
     pub selected: Option<MapAnnotationId>,
     pub selected_kind: Option<MapAnnotationKind>,
     pub selected_uuid: Option<u128>,
+    pub selected_feature: Option<MapFeatureInfo>,
     pub deleted: Option<MapAnnotationId>,
 }
 
@@ -645,11 +706,28 @@ fn paint_map(
         .interact_pointer_pos()
         .filter(|_| response.clicked_by(egui::PointerButton::Primary))
     {
-        if let Some(hit) = hit_test(&surface.document, rect, surface.viewport, pos) {
+        if !interaction.basemap_selection_enabled
+            && let Some(hit) = hit_test(&surface.document, rect, surface.viewport, pos)
+        {
             if let Some(annotation) = surface.document.get(hit) {
                 interaction.select(annotation);
             }
             selected = Some(hit);
+        } else if interaction.tool == MapTool::Select && interaction.basemap_selection_enabled {
+            if let Some(feature) =
+                mvt::hit_test_vector_feature(rect, surface.viewport, &surface.vector_tiles, pos)
+            {
+                interaction.select_feature(feature);
+                selected = None;
+            } else if let Some(geo) = clicked_position {
+                apply_tool(
+                    &mut surface.document,
+                    interaction,
+                    geo,
+                    response.double_clicked(),
+                );
+                selected = interaction.selected;
+            }
         } else if let Some(geo) = clicked_position {
             apply_tool(
                 &mut surface.document,
@@ -667,6 +745,7 @@ fn paint_map(
         selected,
         selected_kind: interaction.selected_kind,
         selected_uuid: interaction.selected_uuid,
+        selected_feature: interaction.selected_feature.clone(),
         deleted,
     }
 }
@@ -849,43 +928,47 @@ fn paint_annotation(
         MapAnnotation::Point(point) => {
             let pos = geo_to_screen(point.position, rect, viewport);
             let radius = if is_selected { 8.0 } else { 5.0 };
-            painter.circle_filled(pos, radius, point.color);
+            let color = annotation_accent_color(point.color);
+            painter.circle_filled(pos, radius, color);
             if is_selected {
                 painter.circle_stroke(
                     pos,
                     radius + 4.0,
-                    egui::Stroke::new(2.0, selection_color(point.color)),
+                    egui::Stroke::new(2.0, selection_color(color)),
                 );
             }
         }
         MapAnnotation::Line(line) => {
             let points = screen_points(&line.points, rect, viewport);
+            let color = annotation_accent_color(line.color);
             if is_selected {
                 painter.add(egui::Shape::line(
                     points.clone(),
-                    egui::Stroke::new(7.0, selection_color(line.color)),
+                    egui::Stroke::new(7.0, selection_color(color)),
                 ));
             }
             painter.add(egui::Shape::line(
                 points,
-                egui::Stroke::new(if is_selected { 3.5 } else { 2.5 }, line.color),
+                egui::Stroke::new(if is_selected { 3.5 } else { 2.5 }, color),
             ));
         }
         MapAnnotation::Polygon(poly) => {
             let points = screen_points(&poly.points, rect, viewport);
-            paint_polygon(painter, &points, poly.fill, poly.stroke);
+            let stroke_color = annotation_accent_color(poly.stroke.color);
+            let stroke = egui::Stroke::new(poly.stroke.width, stroke_color);
+            paint_polygon(painter, &points, annotation_accent_fill(poly.fill), stroke);
             if is_selected {
                 paint_polygon(
                     painter,
                     &points,
                     egui::Color32::TRANSPARENT,
-                    egui::Stroke::new(poly.stroke.width + 3.0, selection_color(poly.stroke.color)),
+                    egui::Stroke::new(poly.stroke.width + 3.0, selection_color(stroke_color)),
                 );
                 paint_polygon(
                     painter,
                     &points,
                     egui::Color32::TRANSPARENT,
-                    egui::Stroke::new(poly.stroke.width + 0.8, poly.stroke.color),
+                    egui::Stroke::new(poly.stroke.width + 0.8, stroke_color),
                 );
             }
         }
