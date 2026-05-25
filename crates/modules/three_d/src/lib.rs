@@ -184,9 +184,62 @@ impl TriangleMesh3d {
         indices: Vec<[u32; 3]>,
         vertex_colors: Vec<Color>,
     ) -> Self {
-        let mut mesh = Self::with_generated_normals(vertices, indices);
-        mesh.vertex_colors = vertex_colors;
-        mesh
+        // Per-face flat shading: duplicate each triangle's vertices so
+        // the face carries a single face normal at all three corners.
+        // Per-vertex colors are duplicated alongside so the original
+        // color gradient still interpolates across the face — but the
+        // shading no longer drifts because of normals averaged across
+        // faces with different orientations (the bug visible on the
+        // apex of a vertex-colored pyramid).
+        let mut out_v = Vec::with_capacity(indices.len() * 3);
+        let mut out_n = Vec::with_capacity(indices.len() * 3);
+        let mut out_c = Vec::with_capacity(indices.len() * 3);
+        let mut out_i = Vec::with_capacity(indices.len());
+        for tri in &indices {
+            let i0 = tri[0] as usize;
+            let i1 = tri[1] as usize;
+            let i2 = tri[2] as usize;
+            if i0 >= vertices.len() || i1 >= vertices.len() || i2 >= vertices.len() {
+                continue;
+            }
+            let a = vertices[i0];
+            let b = vertices[i1];
+            let c = vertices[i2];
+            let n = face_normal([a, b, c]);
+            let base = out_v.len() as u32;
+            out_v.push(a);
+            out_v.push(b);
+            out_v.push(c);
+            out_n.push(n);
+            out_n.push(n);
+            out_n.push(n);
+            out_c.push(
+                vertex_colors
+                    .get(i0)
+                    .copied()
+                    .unwrap_or(egui::Color32::WHITE),
+            );
+            out_c.push(
+                vertex_colors
+                    .get(i1)
+                    .copied()
+                    .unwrap_or(egui::Color32::WHITE),
+            );
+            out_c.push(
+                vertex_colors
+                    .get(i2)
+                    .copied()
+                    .unwrap_or(egui::Color32::WHITE),
+            );
+            out_i.push([base, base + 1, base + 2]);
+        }
+        Self {
+            vertices: out_v,
+            indices: out_i,
+            normals: out_n,
+            uvs: Vec::new(),
+            vertex_colors: out_c,
+        }
     }
 
     #[must_use]
@@ -545,110 +598,217 @@ impl Primitive3d {
     #[must_use]
     pub fn pyramid(size: f32, height: f32) -> Self {
         let h = size * 0.5;
-        Self::Triangles(TriangleMesh3d::with_generated_normals(
-            vec![
-                [-h, 0.0, -h],
-                [h, 0.0, -h],
-                [h, 0.0, h],
-                [-h, 0.0, h],
-                [0.0, height, 0.0],
-            ],
-            vec![
-                [0, 1, 4],
-                [1, 2, 4],
-                [2, 3, 4],
-                [3, 0, 4],
-                [0, 3, 2],
-                [0, 2, 1],
-            ],
-        ))
+        let vertices = vec![
+            [-h, 0.0, -h],
+            [h, 0.0, -h],
+            [h, 0.0, h],
+            [-h, 0.0, h],
+            [0.0, height, 0.0],
+        ];
+        // Side faces wound so face_normal points outward (apex first
+        // for the slanted sides), base faces wound so the normal
+        // points down. The original winding pointed every normal
+        // inward, which only rendered correctly thanks to the
+        // two-sided auto-flip in `shade_color` — that flip cannot
+        // pick a stable side when the face is near edge-on to the
+        // camera, so adjacent faces ended up shading inconsistently.
+        let indices = vec![
+            [0, 4, 1],
+            [1, 4, 2],
+            [2, 4, 3],
+            [3, 4, 0],
+            [0, 2, 3],
+            [0, 1, 2],
+        ];
+        Self::Triangles(flat_shaded_mesh(&vertices, &indices))
     }
 
     #[must_use]
     pub fn cone(radius: f32, height: f32, segments: u32) -> Self {
         let segments = segments.max(3) as usize;
-        let mut vertices = Vec::with_capacity(segments + 2);
-        vertices.push([0.0, -height * 0.5, 0.0]);
-        vertices.push([0.0, height * 0.5, 0.0]);
+        let r = radius.max(0.0);
+        let h = height;
+        let slant = (r * r + h * h).sqrt().max(1.0e-5);
+        // Slope-tilted normal at angle phi on a cone with apex up and
+        // bottom radius r, height h. Derivation: normal = (cos*h, r,
+        // sin*h) / sqrt(r²+h²).
+        let side_normal = |angle: f32| -> Vec3 {
+            [
+                angle.cos() * h / slant,
+                r / slant,
+                angle.sin() * h / slant,
+            ]
+        };
+
+        let mut vertices = Vec::new();
+        let mut normals = Vec::new();
+        let mut indices = Vec::new();
+
+        let bottom_center = vertices.len() as u32;
+        vertices.push([0.0, -h * 0.5, 0.0]);
+        normals.push([0.0, -1.0, 0.0]);
+        let bottom_cap = vertices.len() as u32;
         for i in 0..segments {
             let angle = std::f32::consts::TAU * i as f32 / segments as f32;
-            vertices.push([radius * angle.cos(), -height * 0.5, radius * angle.sin()]);
+            vertices.push([r * angle.cos(), -h * 0.5, r * angle.sin()]);
+            normals.push([0.0, -1.0, 0.0]);
+        }
+        // Side ring: bottom verts (smooth around axis) + per-segment
+        // apex verts whose normal matches the segment midpoint so the
+        // tip of the cone shades continuously with its slanted side.
+        let side_ring = vertices.len() as u32;
+        for i in 0..segments {
+            let angle = std::f32::consts::TAU * i as f32 / segments as f32;
+            vertices.push([r * angle.cos(), -h * 0.5, r * angle.sin()]);
+            normals.push(side_normal(angle));
+        }
+        let side_apex = vertices.len() as u32;
+        for i in 0..segments {
+            let mid = std::f32::consts::TAU * (i as f32 + 0.5) / segments as f32;
+            vertices.push([0.0, h * 0.5, 0.0]);
+            normals.push(side_normal(mid));
         }
 
-        let mut indices = Vec::with_capacity(segments * 2);
         for i in 0..segments {
             let next = (i + 1) % segments;
-            let a = 2 + i as u32;
-            let b = 2 + next as u32;
-            indices.push([a, b, 1]);
-            indices.push([0, b, a]);
+            indices.push([
+                bottom_center,
+                bottom_cap + next as u32,
+                bottom_cap + i as u32,
+            ]);
+            let b0 = side_ring + i as u32;
+            let b1 = side_ring + next as u32;
+            let apex = side_apex + i as u32;
+            indices.push([b0, b1, apex]);
         }
-        Self::Triangles(TriangleMesh3d::with_generated_normals(vertices, indices))
+        Self::Triangles(TriangleMesh3d::with_normals(vertices, indices, normals))
     }
 
     #[must_use]
     pub fn frustum(bottom_radius: f32, top_radius: f32, height: f32, segments: u32) -> Self {
         let segments = segments.max(3) as usize;
-        let mut vertices = Vec::with_capacity(2 + segments * 2);
-        let bottom_center = 0_u32;
-        let top_center = 1_u32;
-        vertices.push([0.0, -height * 0.5, 0.0]);
-        vertices.push([0.0, height * 0.5, 0.0]);
+        let rb = bottom_radius.max(0.0);
+        let rt = top_radius.max(0.0);
+        let hh = height * 0.5;
+        // Tilt of the side surface from vertical: dr/dy = (rb - rt) / h.
+        // The outward normal at angle phi is (cos*h, rb-rt, sin*h)
+        // normalized. This degenerates correctly to a cylinder when
+        // rb == rt (ny becomes 0).
+        let dr = rb - rt;
+        let slant = (dr * dr + height * height).sqrt().max(1.0e-5);
+        let nx_scale = height / slant;
+        let ny = dr / slant;
+        let side_normal = |angle: f32| -> Vec3 {
+            [angle.cos() * nx_scale, ny, angle.sin() * nx_scale]
+        };
+
+        let mut vertices = Vec::new();
+        let mut normals = Vec::new();
+        let mut indices = Vec::new();
+
+        let bottom_center = vertices.len() as u32;
+        vertices.push([0.0, -hh, 0.0]);
+        normals.push([0.0, -1.0, 0.0]);
+        let bottom_cap = vertices.len() as u32;
         for i in 0..segments {
             let angle = std::f32::consts::TAU * i as f32 / segments as f32;
-            let dir = [angle.cos(), 0.0, angle.sin()];
-            vertices.push([
-                bottom_radius * dir[0],
-                -height * 0.5,
-                bottom_radius * dir[2],
-            ]);
-            vertices.push([top_radius * dir[0], height * 0.5, top_radius * dir[2]]);
+            vertices.push([rb * angle.cos(), -hh, rb * angle.sin()]);
+            normals.push([0.0, -1.0, 0.0]);
+        }
+        let top_center = vertices.len() as u32;
+        vertices.push([0.0, hh, 0.0]);
+        normals.push([0.0, 1.0, 0.0]);
+        let top_cap = vertices.len() as u32;
+        for i in 0..segments {
+            let angle = std::f32::consts::TAU * i as f32 / segments as f32;
+            vertices.push([rt * angle.cos(), hh, rt * angle.sin()]);
+            normals.push([0.0, 1.0, 0.0]);
+        }
+        let side = vertices.len() as u32;
+        for i in 0..segments {
+            let angle = std::f32::consts::TAU * i as f32 / segments as f32;
+            let normal = side_normal(angle);
+            vertices.push([rb * angle.cos(), -hh, rb * angle.sin()]);
+            normals.push(normal);
+            vertices.push([rt * angle.cos(), hh, rt * angle.sin()]);
+            normals.push(normal);
         }
 
-        let mut indices = Vec::with_capacity(segments * 4);
         for i in 0..segments {
             let next = (i + 1) % segments;
-            let b0 = 2 + (i * 2) as u32;
+            indices.push([
+                bottom_center,
+                bottom_cap + next as u32,
+                bottom_cap + i as u32,
+            ]);
+            indices.push([top_center, top_cap + i as u32, top_cap + next as u32]);
+            let b0 = side + (i * 2) as u32;
             let t0 = b0 + 1;
-            let b1 = 2 + (next * 2) as u32;
+            let b1 = side + (next * 2) as u32;
             let t1 = b1 + 1;
             indices.push([b0, b1, t1]);
             indices.push([b0, t1, t0]);
-            indices.push([bottom_center, b1, b0]);
-            indices.push([top_center, t0, t1]);
         }
-        Self::Triangles(TriangleMesh3d::with_generated_normals(vertices, indices))
+        Self::Triangles(TriangleMesh3d::with_normals(vertices, indices, normals))
     }
 
     #[must_use]
     pub fn cylinder(radius: f32, height: f32, segments: u32) -> Self {
         let segments = segments.max(3) as usize;
-        let mut vertices = Vec::with_capacity(2 + segments * 2);
-        let bottom_center = 0_u32;
-        let top_center = 1_u32;
-        vertices.push([0.0, -height * 0.5, 0.0]);
-        vertices.push([0.0, height * 0.5, 0.0]);
+        let r = radius.max(0.0);
+        let hh = height * 0.5;
+
+        let mut vertices = Vec::new();
+        let mut normals = Vec::new();
+        let mut indices = Vec::new();
+
+        let bottom_center = vertices.len() as u32;
+        vertices.push([0.0, -hh, 0.0]);
+        normals.push([0.0, -1.0, 0.0]);
+        let bottom_cap = vertices.len() as u32;
         for i in 0..segments {
             let angle = std::f32::consts::TAU * i as f32 / segments as f32;
-            let x = radius * angle.cos();
-            let z = radius * angle.sin();
-            vertices.push([x, -height * 0.5, z]);
-            vertices.push([x, height * 0.5, z]);
+            vertices.push([r * angle.cos(), -hh, r * angle.sin()]);
+            normals.push([0.0, -1.0, 0.0]);
+        }
+        let top_center = vertices.len() as u32;
+        vertices.push([0.0, hh, 0.0]);
+        normals.push([0.0, 1.0, 0.0]);
+        let top_cap = vertices.len() as u32;
+        for i in 0..segments {
+            let angle = std::f32::consts::TAU * i as f32 / segments as f32;
+            vertices.push([r * angle.cos(), hh, r * angle.sin()]);
+            normals.push([0.0, 1.0, 0.0]);
+        }
+        // Side ring: radial normals, paired bottom/top per angle so the
+        // side surface shades smoothly around the axis but stays
+        // independent of the flat cap normals.
+        let side = vertices.len() as u32;
+        for i in 0..segments {
+            let angle = std::f32::consts::TAU * i as f32 / segments as f32;
+            let normal: Vec3 = [angle.cos(), 0.0, angle.sin()];
+            vertices.push([r * angle.cos(), -hh, r * angle.sin()]);
+            normals.push(normal);
+            vertices.push([r * angle.cos(), hh, r * angle.sin()]);
+            normals.push(normal);
         }
 
-        let mut indices = Vec::with_capacity(segments * 4);
         for i in 0..segments {
             let next = (i + 1) % segments;
-            let b0 = 2 + (i * 2) as u32;
+            indices.push([
+                bottom_center,
+                bottom_cap + next as u32,
+                bottom_cap + i as u32,
+            ]);
+            indices.push([top_center, top_cap + i as u32, top_cap + next as u32]);
+            let b0 = side + (i * 2) as u32;
             let t0 = b0 + 1;
-            let b1 = 2 + (next * 2) as u32;
+            let b1 = side + (next * 2) as u32;
             let t1 = b1 + 1;
             indices.push([b0, b1, t1]);
             indices.push([b0, t1, t0]);
-            indices.push([bottom_center, b1, b0]);
-            indices.push([top_center, t0, t1]);
         }
-        Self::mesh(vertices, indices)
+        Self::Triangles(TriangleMesh3d::with_normals(vertices, indices, normals))
     }
 
     #[must_use]
@@ -656,71 +816,130 @@ impl Primitive3d {
         let segments = segments.max(3) as usize;
         let inner_radius = inner_radius.min(outer_radius).max(0.0);
         let outer_radius = outer_radius.max(inner_radius + 1.0e-4);
-        let mut vertices = Vec::with_capacity(segments * 4);
+        let hh = height * 0.5;
+
+        let mut vertices = Vec::new();
+        let mut normals = Vec::new();
+        let mut indices = Vec::new();
+
+        // Outer wall: outward radial normal, paired bottom/top per
+        // angle so it shades smoothly around the axis.
+        let outer = vertices.len() as u32;
         for i in 0..segments {
             let angle = std::f32::consts::TAU * i as f32 / segments as f32;
-            let dir = [angle.cos(), 0.0, angle.sin()];
-            vertices.push([outer_radius * dir[0], -height * 0.5, outer_radius * dir[2]]);
-            vertices.push([outer_radius * dir[0], height * 0.5, outer_radius * dir[2]]);
-            vertices.push([inner_radius * dir[0], -height * 0.5, inner_radius * dir[2]]);
-            vertices.push([inner_radius * dir[0], height * 0.5, inner_radius * dir[2]]);
+            let c = angle.cos();
+            let s = angle.sin();
+            let normal: Vec3 = [c, 0.0, s];
+            vertices.push([outer_radius * c, -hh, outer_radius * s]);
+            normals.push(normal);
+            vertices.push([outer_radius * c, hh, outer_radius * s]);
+            normals.push(normal);
+        }
+        // Inner wall: inward radial normal.
+        let inner = vertices.len() as u32;
+        for i in 0..segments {
+            let angle = std::f32::consts::TAU * i as f32 / segments as f32;
+            let c = angle.cos();
+            let s = angle.sin();
+            let normal: Vec3 = [-c, 0.0, -s];
+            vertices.push([inner_radius * c, -hh, inner_radius * s]);
+            normals.push(normal);
+            vertices.push([inner_radius * c, hh, inner_radius * s]);
+            normals.push(normal);
+        }
+        // Top ring: outer + inner with up-normals.
+        let top_ring = vertices.len() as u32;
+        for i in 0..segments {
+            let angle = std::f32::consts::TAU * i as f32 / segments as f32;
+            let c = angle.cos();
+            let s = angle.sin();
+            vertices.push([outer_radius * c, hh, outer_radius * s]);
+            normals.push([0.0, 1.0, 0.0]);
+            vertices.push([inner_radius * c, hh, inner_radius * s]);
+            normals.push([0.0, 1.0, 0.0]);
+        }
+        // Bottom ring: outer + inner with down-normals.
+        let bot_ring = vertices.len() as u32;
+        for i in 0..segments {
+            let angle = std::f32::consts::TAU * i as f32 / segments as f32;
+            let c = angle.cos();
+            let s = angle.sin();
+            vertices.push([outer_radius * c, -hh, outer_radius * s]);
+            normals.push([0.0, -1.0, 0.0]);
+            vertices.push([inner_radius * c, -hh, inner_radius * s]);
+            normals.push([0.0, -1.0, 0.0]);
         }
 
-        let mut indices = Vec::with_capacity(segments * 8);
         for i in 0..segments {
             let next = (i + 1) % segments;
-            let o0b = (i * 4) as u32;
+            // Outer wall
+            let o0b = outer + (i * 2) as u32;
             let o0t = o0b + 1;
-            let i0b = o0b + 2;
-            let i0t = o0b + 3;
-            let o1b = (next * 4) as u32;
+            let o1b = outer + (next * 2) as u32;
             let o1t = o1b + 1;
-            let i1b = o1b + 2;
-            let i1t = o1b + 3;
             indices.push([o0b, o1b, o1t]);
             indices.push([o0b, o1t, o0t]);
+            // Inner wall (winding reversed so the inward face is front)
+            let i0b = inner + (i * 2) as u32;
+            let i0t = i0b + 1;
+            let i1b = inner + (next * 2) as u32;
+            let i1t = i1b + 1;
             indices.push([i0b, i0t, i1t]);
             indices.push([i0b, i1t, i1b]);
-            indices.push([o0t, o1t, i1t]);
-            indices.push([o0t, i1t, i0t]);
-            indices.push([o0b, i1b, o1b]);
-            indices.push([o0b, i0b, i1b]);
+            // Top annular cap
+            let to0 = top_ring + (i * 2) as u32;
+            let ti0 = to0 + 1;
+            let to1 = top_ring + (next * 2) as u32;
+            let ti1 = to1 + 1;
+            indices.push([to0, to1, ti1]);
+            indices.push([to0, ti1, ti0]);
+            // Bottom annular cap (winding reversed for downward facing)
+            let bo0 = bot_ring + (i * 2) as u32;
+            let bi0 = bo0 + 1;
+            let bo1 = bot_ring + (next * 2) as u32;
+            let bi1 = bo1 + 1;
+            indices.push([bo0, bi1, bo1]);
+            indices.push([bo0, bi0, bi1]);
         }
-        Self::Triangles(TriangleMesh3d::with_generated_normals(vertices, indices))
+        Self::Triangles(TriangleMesh3d::with_normals(vertices, indices, normals))
     }
 
     #[must_use]
     pub fn tetrahedron(size: f32) -> Self {
         let s = size * 0.5;
-        Self::Triangles(TriangleMesh3d::with_generated_normals(
-            vec![[s, s, s], [-s, -s, s], [-s, s, -s], [s, -s, -s]],
-            vec![[0, 1, 2], [0, 3, 1], [0, 2, 3], [1, 3, 2]],
-        ))
+        let vertices = vec![[s, s, s], [-s, -s, s], [-s, s, -s], [s, -s, -s]];
+        // Winding chosen so face_normal points outward from the
+        // centroid (origin). The previous winding pointed inward, which
+        // only rendered acceptably via the two-sided auto-flip in
+        // `shade_color` and produced inconsistent flat-shaded faces.
+        let indices = vec![[0, 2, 1], [0, 1, 3], [0, 3, 2], [1, 2, 3]];
+        Self::Triangles(flat_shaded_mesh(&vertices, &indices))
     }
 
     #[must_use]
     pub fn octahedron(size: f32) -> Self {
         let s = size * 0.5;
-        Self::Triangles(TriangleMesh3d::with_generated_normals(
-            vec![
-                [0.0, s, 0.0],
-                [s, 0.0, 0.0],
-                [0.0, 0.0, s],
-                [-s, 0.0, 0.0],
-                [0.0, 0.0, -s],
-                [0.0, -s, 0.0],
-            ],
-            vec![
-                [0, 1, 2],
-                [0, 2, 3],
-                [0, 3, 4],
-                [0, 4, 1],
-                [5, 2, 1],
-                [5, 3, 2],
-                [5, 4, 3],
-                [5, 1, 4],
-            ],
-        ))
+        let vertices = vec![
+            [0.0, s, 0.0],
+            [s, 0.0, 0.0],
+            [0.0, 0.0, s],
+            [-s, 0.0, 0.0],
+            [0.0, 0.0, -s],
+            [0.0, -s, 0.0],
+        ];
+        // Winding flipped so face_normal points outward (away from
+        // origin) on every face.
+        let indices = vec![
+            [0, 2, 1],
+            [0, 3, 2],
+            [0, 4, 3],
+            [0, 1, 4],
+            [5, 1, 2],
+            [5, 2, 3],
+            [5, 3, 4],
+            [5, 4, 1],
+        ];
+        Self::Triangles(flat_shaded_mesh(&vertices, &indices))
     }
 
     #[must_use]
@@ -775,26 +994,28 @@ impl Primitive3d {
     pub fn triangular_prism(width: f32, height: f32, depth: f32) -> Self {
         let hw = width * 0.5;
         let hd = depth * 0.5;
-        Self::Triangles(TriangleMesh3d::with_generated_normals(
-            vec![
-                [-hw, 0.0, -hd],
-                [hw, 0.0, -hd],
-                [0.0, height, -hd],
-                [-hw, 0.0, hd],
-                [hw, 0.0, hd],
-                [0.0, height, hd],
-            ],
-            vec![
-                [0, 1, 2],
-                [3, 5, 4],
-                [0, 3, 4],
-                [0, 4, 1],
-                [1, 4, 5],
-                [1, 5, 2],
-                [2, 5, 3],
-                [2, 3, 0],
-            ],
-        ))
+        let vertices = vec![
+            [-hw, 0.0, -hd],
+            [hw, 0.0, -hd],
+            [0.0, height, -hd],
+            [-hw, 0.0, hd],
+            [hw, 0.0, hd],
+            [0.0, height, hd],
+        ];
+        // Winding chosen so each face's normal points outward:
+        // back triangle → -z, front triangle → +z, bottom → -y,
+        // left slanted → outward-left, right slanted → outward-right.
+        let indices = vec![
+            [0, 2, 1],
+            [3, 4, 5],
+            [0, 4, 3],
+            [0, 1, 4],
+            [1, 5, 4],
+            [1, 2, 5],
+            [2, 3, 5],
+            [2, 0, 3],
+        ];
+        Self::Triangles(flat_shaded_mesh(&vertices, &indices))
     }
 
     #[must_use]
@@ -802,28 +1023,28 @@ impl Primitive3d {
         let hx = size[0] * 0.5;
         let hy = size[1];
         let hz = size[2] * 0.5;
-        Self::Triangles(TriangleMesh3d::with_generated_normals(
-            vec![
-                [-hx, 0.0, -hz],
-                [hx, 0.0, -hz],
-                [-hx, 0.0, hz],
-                [hx, 0.0, hz],
-                [-hx, hy, hz],
-                [hx, hy, hz],
-            ],
-            vec![
-                [0, 1, 3],
-                [0, 3, 2],
-                [2, 3, 5],
-                [2, 5, 4],
-                [0, 2, 4],
-                [0, 4, 1],
-                [1, 4, 5],
-                [1, 5, 3],
-                [0, 4, 2],
-                [1, 5, 4],
-            ],
-        ))
+        let vertices = vec![
+            [-hx, 0.0, -hz],
+            [hx, 0.0, -hz],
+            [-hx, 0.0, hz],
+            [hx, 0.0, hz],
+            [-hx, hy, hz],
+            [hx, hy, hz],
+        ];
+        // 5 faces, 8 triangles. The previous index list included two
+        // reverse-winding duplicates of the left and right side
+        // triangles — those caused z-fighting and are dropped here.
+        let indices = vec![
+            [0, 1, 3],
+            [0, 3, 2],
+            [2, 3, 5],
+            [2, 5, 4],
+            [0, 2, 4],
+            [0, 4, 1],
+            [1, 4, 5],
+            [1, 5, 3],
+        ];
+        Self::Triangles(flat_shaded_mesh(&vertices, &indices))
     }
 
     #[must_use]
@@ -1795,12 +2016,12 @@ impl Scene3d {
                     [0.0, 0.52, 0.0],
                 ],
                 vec![
-                    [0, 1, 4],
-                    [1, 2, 4],
-                    [2, 3, 4],
-                    [3, 0, 4],
-                    [0, 3, 2],
-                    [0, 2, 1],
+                    [0, 4, 1],
+                    [1, 4, 2],
+                    [2, 4, 3],
+                    [3, 4, 0],
+                    [0, 2, 3],
+                    [0, 1, 2],
                 ],
                 vec![
                     egui::Color32::from_rgb(255, 80, 120),
@@ -6489,6 +6710,37 @@ fn face_normal(points: [Vec3; 3]) -> Vec3 {
         sub3(points[1], points[0]),
         sub3(points[2], points[0]),
     ))
+}
+
+/// Build a flat-shaded mesh by duplicating vertices per triangle so each
+/// face carries its own normal. Use this for hard-edged polyhedra where
+/// averaging normals at shared vertices would smear the shading across
+/// faces with different orientations.
+fn flat_shaded_mesh(vertices: &[Vec3], indices: &[[u32; 3]]) -> TriangleMesh3d {
+    let mut out_v = Vec::with_capacity(indices.len() * 3);
+    let mut out_n = Vec::with_capacity(indices.len() * 3);
+    let mut out_i = Vec::with_capacity(indices.len());
+    for tri in indices {
+        let i0 = tri[0] as usize;
+        let i1 = tri[1] as usize;
+        let i2 = tri[2] as usize;
+        if i0 >= vertices.len() || i1 >= vertices.len() || i2 >= vertices.len() {
+            continue;
+        }
+        let a = vertices[i0];
+        let b = vertices[i1];
+        let c = vertices[i2];
+        let n = face_normal([a, b, c]);
+        let base = out_v.len() as u32;
+        out_v.push(a);
+        out_v.push(b);
+        out_v.push(c);
+        out_n.push(n);
+        out_n.push(n);
+        out_n.push(n);
+        out_i.push([base, base + 1, base + 2]);
+    }
+    TriangleMesh3d::with_normals(out_v, out_i, out_n)
 }
 
 fn shade_color(base: egui::Color32, normal: Vec3, camera: &PreviewCamera) -> egui::Color32 {
