@@ -1067,7 +1067,10 @@ fn paint_building_extrusion(
     let mut painted = false;
 
     for path in &feature.paths {
-        let screen_path = screen_points(path, layer.extent, key, rect, viewport);
+        // Keep this path 1:1 with the tile path — the side-mesh loop
+        // below zips screen edges with tile edges to detect tile
+        // boundary edges.
+        let screen_path = screen_points_raw(path, layer.extent, key, rect, viewport);
         let points = normalized_screen_ring(&screen_path);
         if points.len() < 3 || !path_intersects_rect(&points, rect.expand(height_px + 64.0)) {
             continue;
@@ -1688,6 +1691,42 @@ fn smoothstep(edge0: f32, edge1: f32, value: f32) -> f32 {
 }
 
 fn screen_points(
+    path: &[TilePoint],
+    extent: u32,
+    key: TileKey,
+    rect: egui::Rect,
+    viewport: MapViewport,
+) -> Vec<egui::Pos2> {
+    // Drop consecutive points that project to within < ~0.5 pixels of
+    // the previous kept point. MVT geometry is encoded at extent 4096
+    // and contains many runs of densely packed points (curves, road
+    // segments). Forwarding all of them to egui's tessellator can blow
+    // past wgpu's per-buffer limit at typical viewport zooms.
+    const MIN_STEP_SQ: f32 = 0.25;
+    let scale = 2.0_f64.powf(viewport.zoom - f64::from(key.z));
+    let center_world = geo_to_world(viewport.center, f64::from(key.z));
+    let extent = f64::from(extent.max(1));
+    let mut out: Vec<egui::Pos2> = Vec::with_capacity(path.len());
+    for point in path {
+        let world_x = f64::from(key.x) * TILE_SIZE + f64::from(point.x) / extent * TILE_SIZE;
+        let world_y = f64::from(key.y) * TILE_SIZE + f64::from(point.y) / extent * TILE_SIZE;
+        let p = egui::pos2(
+            rect.center().x + ((world_x - center_world.0) * scale) as f32,
+            rect.center().y + ((world_y - center_world.1) * scale) as f32,
+        );
+        if let Some(last) = out.last() {
+            let dx = p.x - last.x;
+            let dy = p.y - last.y;
+            if dx * dx + dy * dy < MIN_STEP_SQ {
+                continue;
+            }
+        }
+        out.push(p);
+    }
+    out
+}
+
+fn screen_points_raw(
     path: &[TilePoint],
     extent: u32,
     key: TileKey,
