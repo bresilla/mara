@@ -87,6 +87,7 @@ const PANE_CANVAS_EXPORT: &str = "demo_canvas_pane_export";
 const PANE_3D_SCENE: &str = "demo_3d_pane_scene";
 const PANE_3D_INSPECTOR: &str = "demo_3d_pane_inspector";
 const PANE_MAP_INFO: &str = "demo_map_pane_info";
+const PANE_MAP_OBJECTS: &str = "demo_map_pane_objects";
 const PANE_COREVIZ_ZONES: &str = "demo_coreviz_pane_zones";
 const PANE_COREVIZ_REFERENCE: &str = "demo_coreviz_pane_reference";
 const PANE_COREVIZ_NODES: &str = "demo_coreviz_pane_nodes";
@@ -268,6 +269,12 @@ const PANE_DEFS: &[(&str, &str, PaneAnchor, &str)] = &[
         PANE_COREVIZ_DETAILS,
         PaneAnchor::RightRail(RailZone::Start),
         "Details",
+    ),
+    (
+        RIBBON_RIGHT,
+        PANE_MAP_OBJECTS,
+        PaneAnchor::RightRail(RailZone::Middle),
+        "Map Objects",
     ),
     (
         RIBBON_RIGHT,
@@ -825,10 +832,21 @@ const RIBBON_ITEMS_MAP_VIEW: &[RibbonButtonSpec] = &[
         role: Some(RibbonRole::Icon),
     },
     RibbonButtonSpec {
-        id: PANE_COREVIZ_DETAILS,
+        id: PANE_MAP_OBJECTS,
         ribbon: RIBBON_RIGHT,
         cluster: RibbonCluster::Start,
         slot: 0,
+        draggable: true,
+        glyph: RibbonGlyph::Icon("color"),
+        tooltip: "Map object colors",
+        child_ribbon: None,
+        role: None,
+    },
+    RibbonButtonSpec {
+        id: PANE_COREVIZ_DETAILS,
+        ribbon: RIBBON_RIGHT,
+        cluster: RibbonCluster::Start,
+        slot: 1,
         draggable: true,
         glyph: RibbonGlyph::Icon("options"),
         tooltip: "Selection inspector",
@@ -839,7 +857,7 @@ const RIBBON_ITEMS_MAP_VIEW: &[RibbonButtonSpec] = &[
         id: PANE_COREVIZ_JSON,
         ribbon: RIBBON_RIGHT,
         cluster: RibbonCluster::Start,
-        slot: 1,
+        slot: 2,
         draggable: true,
         glyph: RibbonGlyph::Icon("document"),
         tooltip: "Raw workspace JSON",
@@ -938,10 +956,21 @@ const RIBBON_ITEMS_MAP_MANAGEMENT_VIEW: &[RibbonButtonSpec] = &[
         role: None,
     },
     RibbonButtonSpec {
-        id: PANE_COREVIZ_DETAILS,
+        id: PANE_MAP_OBJECTS,
         ribbon: RIBBON_RIGHT,
         cluster: RibbonCluster::Start,
         slot: 1,
+        draggable: true,
+        glyph: RibbonGlyph::Icon("color"),
+        tooltip: "Map object colors",
+        child_ribbon: None,
+        role: None,
+    },
+    RibbonButtonSpec {
+        id: PANE_COREVIZ_DETAILS,
+        ribbon: RIBBON_RIGHT,
+        cluster: RibbonCluster::Start,
+        slot: 2,
         draggable: true,
         glyph: RibbonGlyph::Icon("options"),
         tooltip: "Robot details",
@@ -952,7 +981,7 @@ const RIBBON_ITEMS_MAP_MANAGEMENT_VIEW: &[RibbonButtonSpec] = &[
         id: PANE_COREVIZ_SCHEDULER,
         ribbon: RIBBON_RIGHT,
         cluster: RibbonCluster::Start,
-        slot: 2,
+        slot: 3,
         draggable: true,
         glyph: RibbonGlyph::Icon("clock"),
         tooltip: "Scheduler",
@@ -963,7 +992,7 @@ const RIBBON_ITEMS_MAP_MANAGEMENT_VIEW: &[RibbonButtonSpec] = &[
         id: PANE_COREVIZ_TASKS,
         ribbon: RIBBON_RIGHT,
         cluster: RibbonCluster::Start,
-        slot: 3,
+        slot: 4,
         draggable: true,
         glyph: RibbonGlyph::Icon("list"),
         tooltip: "Robot tasks",
@@ -2094,6 +2123,7 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
                 PANE_COREVIZ_ROBOTS => coreviz_robots_pane(body),
                 PANE_COREVIZ_DETAILS => coreviz_details_pane(body),
                 PANE_MAP_INFO => map_info_pane(body, map_view),
+                PANE_MAP_OBJECTS => map_objects_pane(body, map_view),
                 PANE_COREVIZ_JSON => coreviz_json_pane(body),
                 PANE_COREVIZ_SCHEDULER => coreviz_scheduler_pane(body),
                 PANE_COREVIZ_TASKS => coreviz_tasks_pane(body),
@@ -2235,7 +2265,7 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
             map_view.interaction.set_tool(MapTool::Select);
             map_view.interaction.clear_selection();
             open.set(RIBBON_LEFT, PANE_COREVIZ_ZONES);
-            open.set(RIBBON_RIGHT, PANE_COREVIZ_DETAILS);
+            open.set(RIBBON_RIGHT, PANE_MAP_OBJECTS);
             ctx.request_repaint();
             continue;
         }
@@ -2335,6 +2365,72 @@ fn map_info_pane(body: &mut PaneBody, map: &MapViewState) {
                     .with_readout("hint", "click map object"),
             ],
         );
+    }
+}
+
+fn map_objects_pane(body: &mut PaneBody, map: &mut MapViewState) {
+    let accent = body.accent();
+    let container_id = cid(PANE_MAP_OBJECTS, "objects");
+    let selected = map.interaction.selected;
+    let selected_annotation = selected.and_then(|id| map.surface.document.get(id));
+    let pods = if let Some(annotation) = selected_annotation {
+        vec![
+            Pod::new(pid(PANE_MAP_OBJECTS, "selected", 0))
+                .with_separator(SeparatorStyle::Line)
+                .with_readout(map_annotation_label(annotation), id_short(annotation.id())),
+            Pod::new(egui::Id::new((
+                PANE_MAP_OBJECTS,
+                "selected-color",
+                annotation.id().uuid,
+            )))
+            .with_separator(SeparatorStyle::None)
+            .with_color_rgb("color", map_annotation_rgb(annotation), accent),
+        ]
+    } else if map.interaction.selected_feature.is_some() {
+        vec![
+            Pod::new(pid(PANE_MAP_OBJECTS, "feature", 0))
+                .with_separator(SeparatorStyle::Line)
+                .with_readout("selection", "map feature"),
+            Pod::new(pid(PANE_MAP_OBJECTS, "feature", 1))
+                .with_separator(SeparatorStyle::None)
+                .with_readout("hint", "annotation color only"),
+        ]
+    } else {
+        vec![
+            Pod::new(pid(PANE_MAP_OBJECTS, "empty", 0))
+                .with_separator(SeparatorStyle::Line)
+                .with_readout("selection", "none"),
+            Pod::new(pid(PANE_MAP_OBJECTS, "empty", 1))
+                .with_separator(SeparatorStyle::None)
+                .with_readout("hint", "click point / line / polygon"),
+        ]
+    };
+
+    body.add_normal(container_id, "Selected Object", "color", pods);
+
+    let responses = body.render();
+    let Some(pod_responses) = responses.get(&container_id) else {
+        return;
+    };
+    let Some(color) = pod_responses
+        .iter()
+        .find_map(|pod_response| pod_response.colors.first())
+        .filter(|color| color.changed)
+    else {
+        return;
+    };
+    let Some(id) = selected else {
+        return;
+    };
+    let picked = srgb_to_egui([color.rgba[0], color.rgba[1], color.rgba[2]]);
+    if let Some(annotation) = map
+        .surface
+        .document
+        .annotations
+        .iter_mut()
+        .find(|annotation| annotation.id() == id)
+    {
+        set_map_annotation_color(annotation, picked);
     }
 }
 
@@ -2494,6 +2590,44 @@ fn map_annotation_label(annotation: &MapAnnotation) -> &'static str {
         MapAnnotation::Polygon(_) => "polygon",
         MapAnnotation::Icon(_) => "icon",
     }
+}
+
+fn id_short(id: mara_map::MapAnnotationId) -> String {
+    format!("{:08x}", (id.uuid & 0xffff_ffff) as u32)
+}
+
+fn map_annotation_rgb(annotation: &MapAnnotation) -> [f32; 3] {
+    color32_to_rgb(match annotation {
+        MapAnnotation::Point(point) => point.color,
+        MapAnnotation::Line(line) => line.color,
+        MapAnnotation::Polygon(poly) => poly.stroke.color,
+        MapAnnotation::Icon(icon) => icon.color,
+    })
+}
+
+fn set_map_annotation_color(annotation: &mut MapAnnotation, color: egui::Color32) {
+    match annotation {
+        MapAnnotation::Point(point) => point.color = color,
+        MapAnnotation::Line(line) => line.color = color,
+        MapAnnotation::Polygon(poly) => {
+            poly.stroke.color = color;
+            poly.fill = egui::Color32::from_rgba_unmultiplied(
+                color.r(),
+                color.g(),
+                color.b(),
+                poly.fill.a().max(36),
+            );
+        }
+        MapAnnotation::Icon(icon) => icon.color = color,
+    }
+}
+
+fn color32_to_rgb(color: egui::Color32) -> [f32; 3] {
+    [
+        color.r() as f32 / 255.0,
+        color.g() as f32 / 255.0,
+        color.b() as f32 / 255.0,
+    ]
 }
 
 // ─── 3D root view ──────────────────────────────────────────────────
