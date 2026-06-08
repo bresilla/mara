@@ -13,8 +13,8 @@ const RIGHT_SHELF_RIBBON_CHROME_ID: &str = "mara.system.right_shelf.ribbon";
 const RIGHT_SHELF_ITEM_CHROME_ID: &str = "mara.system.right_shelf.item";
 const BOTTOM_SHELF_RIBBON_CHROME_ID: &str = "mara.system.bottom_shelf.ribbon";
 const BOTTOM_SHELF_ITEM_CHROME_ID: &str = "mara.system.bottom_shelf.item";
-const APP_MENU_RIBBON_CHROME_ID: &str = "mara.system.app_menu.ribbon";
-const APP_MENU_ITEM_CHROME_ID: &str = "mara.system.app_menu.item";
+const MAXIMIZE_RIBBON_CHROME_ID: &str = "mara.system.maximize.ribbon";
+const MAXIMIZE_ITEM_CHROME_ID: &str = "mara.system.maximize.item";
 const CLOSE_RIBBON_CHROME_ID: &str = "mara.system.close.ribbon";
 const CLOSE_ITEM_CHROME_ID: &str = "mara.system.close.item";
 
@@ -50,7 +50,9 @@ pub fn draw_slot_ribbons(
     ribbons: &[ResolvedSlotRibbon],
 ) -> Vec<RibbonSlotClick> {
     let augmented = shelf_augmented_ribbons(ctx, ribbons, ShelfButtonOrder::Simple);
-    let ribbons = augmented.as_deref().unwrap_or(ribbons);
+    let base = augmented.as_deref().unwrap_or(ribbons);
+    let responsive = responsive_phone_ribbons(base);
+    let ribbons = responsive.as_deref().unwrap_or(base);
     draw_slot_ribbons_inner(ctx, accent, ribbons)
 }
 
@@ -84,13 +86,17 @@ pub fn draw_slot_ribbons_featureful(
     drag: &mut RibbonDrag,
 ) -> Vec<RibbonSlotClick> {
     let featureful_augmented = shelf_augmented_ribbons(ctx, ribbons, ShelfButtonOrder::Featureful);
-    let featureful_ribbons = featureful_augmented.as_deref().unwrap_or(ribbons);
+    let featureful_base = featureful_augmented.as_deref().unwrap_or(ribbons);
+    let featureful_responsive = responsive_phone_ribbons(featureful_base);
+    let featureful_ribbons = featureful_responsive.as_deref().unwrap_or(featureful_base);
     if !can_use_featureful_chrome(featureful_ribbons) {
         let simple_augmented = shelf_augmented_ribbons(ctx, ribbons, ShelfButtonOrder::Simple);
+        let simple_base = simple_augmented.as_deref().unwrap_or(ribbons);
+        let simple_responsive = responsive_phone_ribbons(simple_base);
         return draw_slot_ribbons_inner(
             ctx,
             accent,
-            simple_augmented.as_deref().unwrap_or(ribbons),
+            simple_responsive.as_deref().unwrap_or(simple_base),
         );
     }
 
@@ -143,6 +149,11 @@ fn shelf_augmented_ribbons(
     order: ShelfButtonOrder,
 ) -> Option<Vec<ResolvedSlotRibbon>> {
     let visible_layout = crate::shelf::shelf_layout(ctx);
+    // Phones don't need app window controls (the OS / browser owns
+    // close + maximize), so hide both on phone-class. Computed here and
+    // passed in so the augmentation stays a pure function of its args.
+    let hide_window_controls = crate::style::screen_class() == crate::style::Breakpoint::Phone;
+    let maximized = ctx.input(|i| i.viewport().maximized).unwrap_or(false);
     augment_shelf_buttons_with_chrome(
         ribbons,
         crate::window_chrome::window_chrome_host_capabilities(ctx),
@@ -151,6 +162,8 @@ fn shelf_augmented_ribbons(
         visible_layout.is_some_and(|layout| layout.right.is_some()),
         visible_layout.is_some_and(|layout| layout.bottom.is_some()),
         order,
+        maximized,
+        hide_window_controls,
     )
 }
 
@@ -166,7 +179,7 @@ fn augment_shelf_buttons(
     augment_shelf_buttons_with_chrome(
         ribbons,
         crate::window_chrome::WindowChromeHostCapabilities {
-            system_menu: false,
+            system_maximize: false,
             system_close: false,
             ..Default::default()
         },
@@ -175,9 +188,12 @@ fn augment_shelf_buttons(
         right_visible,
         bottom_visible,
         order,
+        false,
+        false,
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 fn augment_shelf_buttons_with_chrome(
     ribbons: &[ResolvedSlotRibbon],
     chrome: crate::window_chrome::WindowChromeHostCapabilities,
@@ -186,17 +202,19 @@ fn augment_shelf_buttons_with_chrome(
     right_visible: bool,
     bottom_visible: bool,
     order: ShelfButtonOrder,
+    maximized: bool,
+    hide_window_controls: bool,
 ) -> Option<Vec<ResolvedSlotRibbon>> {
     let has_left = presence.left;
     let has_right = presence.right;
     let has_bottom = presence.bottom;
     let mut out = ribbons.to_vec();
     let mut changed = false;
-    if chrome.system_menu && !contains_item(&out, app_menu_item_id()) {
-        insert_app_menu_button(&mut out);
+    if chrome.system_maximize && !hide_window_controls && !contains_item(&out, maximize_item_id()) {
+        insert_maximize_button(&mut out, maximized);
         changed = true;
     }
-    if chrome.system_close && !contains_item(&out, close_item_id()) {
+    if chrome.system_close && !hide_window_controls && !contains_item(&out, close_item_id()) {
         insert_close_button(&mut out, order);
         changed = true;
     }
@@ -221,13 +239,13 @@ fn contains_item(ribbons: &[ResolvedSlotRibbon], item_id: Id) -> bool {
         .any(|ribbon| ribbon.items.iter().any(|item| item.id == item_id))
 }
 
-fn insert_app_menu_button(ribbons: &mut Vec<ResolvedSlotRibbon>) {
-    let item = app_menu_item();
+fn insert_maximize_button(ribbons: &mut Vec<ResolvedSlotRibbon>, maximized: bool) {
+    let item = maximize_item(maximized);
     if let Some(ribbon) = find_top_permanent_cluster_mut(ribbons, RibbonCluster::Start) {
         ribbon.items.insert(0, item);
     } else {
         ribbons.push(system_button_ribbon(
-            APP_MENU_RIBBON_CHROME_ID,
+            MAXIMIZE_RIBBON_CHROME_ID,
             RibbonCluster::Start,
             item,
         ));
@@ -257,7 +275,7 @@ fn insert_left_shelf_button(ribbons: &mut Vec<ResolvedSlotRibbon>, active: bool)
         let insert = ribbon
             .items
             .iter()
-            .position(|item| item.id == Id::new("system.app_menu.item"))
+            .position(|item| item.id == maximize_item_id())
             .map_or_else(|| (!ribbon.items.is_empty()) as usize, |idx| idx + 1);
         ribbon.items.insert(insert, item);
     } else {
@@ -332,6 +350,47 @@ fn is_top_permanent_ribbon(ribbon: &ResolvedSlotRibbon) -> bool {
     ribbon.scope == RibbonScope::Permanent && ribbon.edge == RibbonEdge::Top
 }
 
+/// Phone-class ribbon reflow.
+///
+/// On [`Breakpoint::Phone`](crate::style::Breakpoint::Phone):
+/// - the persistent main/top bar drops to the **bottom** (thumb reach)
+///   — the single row that lands there;
+/// - every other horizontal rail (non-permanent top ribbons and the
+///   bottom ribbon) becomes a **vertical side rail**, `End`-cluster to
+///   the right, everything else to the left;
+/// - existing `Left`/`Right` rails are untouched.
+///
+/// Returns `None` above phone-class, so desktop/tablet keep the
+/// borrowed slice with no copy.
+fn responsive_phone_ribbons(ribbons: &[ResolvedSlotRibbon]) -> Option<Vec<ResolvedSlotRibbon>> {
+    if crate::style::screen_class() != crate::style::Breakpoint::Phone {
+        return None;
+    }
+    Some(
+        ribbons
+            .iter()
+            .cloned()
+            .map(|mut ribbon| {
+                ribbon.edge = responsive_phone_edge(&ribbon);
+                ribbon
+            })
+            .collect(),
+    )
+}
+
+fn responsive_phone_edge(ribbon: &ResolvedSlotRibbon) -> RibbonEdge {
+    let to_side = if ribbon.cluster == RibbonCluster::End {
+        RibbonEdge::Right
+    } else {
+        RibbonEdge::Left
+    };
+    match ribbon.edge {
+        RibbonEdge::Top if ribbon.scope == RibbonScope::Permanent => RibbonEdge::Bottom,
+        RibbonEdge::Top | RibbonEdge::Bottom => to_side,
+        other => other,
+    }
+}
+
 fn system_button_ribbon(
     chrome_id: &'static str,
     cluster: RibbonCluster,
@@ -358,16 +417,24 @@ fn shelf_button_ribbon(
     }
 }
 
-fn app_menu_item() -> RibbonSlotItem {
+fn maximize_item(maximized: bool) -> RibbonSlotItem {
+    // Mirrors the close button on the opposite (End) cluster. The glyph
+    // reflects the action: "restore" when already maximized, otherwise
+    // "maximize".
+    let (icon, label, tooltip) = if maximized {
+        ("arrow-minimize", "Restore", "Restore window")
+    } else {
+        ("maximize", "Maximize", "Maximize window")
+    };
     let mut item = RibbonSlotItem::featureful(
-        APP_MENU_ITEM_CHROME_ID,
-        "line-horizontal-3",
-        "Menu",
-        "Open application menu",
-        RibbonAction::Command(crate::ribbon::app_menu_command_id()),
+        MAXIMIZE_ITEM_CHROME_ID,
+        icon,
+        label,
+        tooltip,
+        RibbonAction::ToggleMaximize,
     )
     .with_role(super::RibbonRole::Icon);
-    item.id = app_menu_item_id();
+    item.id = maximize_item_id();
     item
 }
 
@@ -430,8 +497,8 @@ fn left_shelf_item_id() -> Id {
     Id::new("system.left_shelf.item")
 }
 
-fn app_menu_item_id() -> Id {
-    Id::new("system.app_menu.item")
+fn maximize_item_id() -> Id {
+    Id::new("system.maximize.item")
 }
 
 fn close_item_id() -> Id {
@@ -610,13 +677,70 @@ mod tests {
         }
     }
 
+    fn window_caps(
+        system_maximize: bool,
+        system_close: bool,
+    ) -> crate::window_chrome::WindowChromeHostCapabilities {
+        crate::window_chrome::WindowChromeHostCapabilities {
+            system_maximize,
+            system_close,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn window_controls_inject_maximize_and_close_when_shown() {
+        let ribbons = vec![top_ribbon(RibbonCluster::Start, Vec::new())];
+        let augmented = augment_shelf_buttons_with_chrome(
+            &ribbons,
+            window_caps(true, true),
+            presence(false, false, false),
+            false,
+            false,
+            false,
+            ShelfButtonOrder::Featureful,
+            false,
+            false, // not hidden
+        )
+        .expect("window controls should be injected");
+        assert!(contains_item(&augmented, maximize_item_id()));
+        assert!(contains_item(&augmented, close_item_id()));
+    }
+
+    #[test]
+    fn window_controls_hidden_completely_on_phone() {
+        let ribbons = vec![top_ribbon(RibbonCluster::Start, Vec::new())];
+        let augmented = augment_shelf_buttons_with_chrome(
+            &ribbons,
+            window_caps(true, true),
+            presence(false, false, false),
+            false,
+            false,
+            false,
+            ShelfButtonOrder::Featureful,
+            false,
+            true, // phone: hide both
+        );
+        assert!(
+            augmented.is_none(),
+            "phone-class hides both maximize and close completely"
+        );
+    }
+
+    #[test]
+    fn maximize_glyph_reflects_state() {
+        assert_eq!(maximize_item(false).icon, "maximize");
+        assert_eq!(maximize_item(true).icon, "arrow-minimize");
+        assert_eq!(maximize_item(false).action, RibbonAction::ToggleMaximize);
+    }
+
     #[test]
     fn shelf_buttons_are_absent_without_side_shelves() {
         let ribbons = vec![top_ribbon(
             RibbonCluster::Start,
             vec![item(
-                "system.app_menu.item",
-                "line-horizontal-3",
+                "system.maximize.item",
+                "maximize",
                 RibbonAction::Noop,
             )],
         )];
@@ -664,13 +788,13 @@ mod tests {
     }
 
     #[test]
-    fn left_shelf_button_is_inserted_after_menu_button() {
+    fn left_shelf_button_is_inserted_after_maximize_button() {
         let ribbons = vec![top_ribbon(
             RibbonCluster::Start,
             vec![
                 item(
-                    "system.app_menu.item",
-                    "line-horizontal-3",
+                    "system.maximize.item",
+                    "maximize",
                     RibbonAction::Noop,
                 ),
                 item("view.switch.item", "cube", RibbonAction::Noop),
@@ -690,7 +814,7 @@ mod tests {
         assert_eq!(
             ids,
             vec![
-                Id::new("system.app_menu.item"),
+                Id::new("system.maximize.item"),
                 left_shelf_item_id(),
                 Id::new("view.switch.item"),
             ]
@@ -704,8 +828,8 @@ mod tests {
         let ribbons = vec![top_ribbon(
             RibbonCluster::Start,
             vec![item(
-                "system.app_menu.item",
-                "line-horizontal-3",
+                "system.maximize.item",
+                "maximize",
                 RibbonAction::Noop,
             )],
         )];

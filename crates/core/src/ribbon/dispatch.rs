@@ -34,6 +34,7 @@ pub enum RibbonActionResult {
     PushedModuleWorkspace(Id),
     PoppedWorkspace,
     CloseAppRequested,
+    ToggleMaximizeRequested,
 }
 
 /// Dispatch a slot-based ribbon action against the active view router.
@@ -66,6 +67,17 @@ pub fn dispatch_ribbon_action(
                 .allow_app_window_controls
             {
                 Ok(RibbonActionResult::CloseAppRequested)
+            } else {
+                Err(RibbonActionError::AppWindowControlsDenied)
+            }
+        }
+        RibbonAction::ToggleMaximize => {
+            if router
+                .active_workspace()?
+                .current_policy()
+                .allow_app_window_controls
+            {
+                Ok(RibbonActionResult::ToggleMaximizeRequested)
             } else {
                 Err(RibbonActionError::AppWindowControlsDenied)
             }

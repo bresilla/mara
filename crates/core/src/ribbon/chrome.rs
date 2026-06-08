@@ -367,60 +367,29 @@ fn edge_has_ribbon(ribbons: &[ResolvedSlotRibbon], edge: RibbonEdge) -> bool {
     ribbons.iter().any(|ribbon| ribbon.edge == edge)
 }
 
-fn is_main_ribbon(ribbons: &[ResolvedSlotRibbon], ribbon: &ResolvedSlotRibbon) -> bool {
-    ribbons
-        .first()
-        .and_then(ribbon_id)
-        .zip(ribbon_id(ribbon))
-        .is_some_and(|(first, current)| first == current)
-}
-
 fn insets_for_ribbon(
     ribbons: &[ResolvedSlotRibbon],
     ribbon: &ResolvedSlotRibbon,
     base: SideInsets,
 ) -> SideInsets {
     let mut out = base;
-    if is_main_ribbon(ribbons, ribbon) && ribbon.edge == RibbonEdge::Top {
-        out.left = EDGE_GAP;
-        out.right = EDGE_GAP;
-        return out;
-    }
 
+    // Horizontal bars (top AND bottom) span the full width and own
+    // their corners. Side rails sit *between* them, insetting their
+    // top/bottom ends for whichever horizontal bars are present. So a
+    // bottom bar runs corner-to-corner and the side rails stop short
+    // above it — mirroring how the top bar has always behaved.
     let with_rail = EDGE_GAP + SIDE_BTN_SIZE + SIDE_BTN_GAP;
-    let claimed_by = |edge: RibbonEdge| {
-        let Some(current_id) = ribbon_id(ribbon) else {
-            return false;
-        };
-        let current_idx = ribbons
-            .iter()
-            .position(|candidate| ribbon_id(candidate) == Some(current_id))
-            .unwrap_or(usize::MAX);
-        ribbons
-            .iter()
-            .position(|candidate| candidate.edge == edge)
-            .is_some_and(|edge_idx| edge_idx < current_idx)
-    };
-    let corner_inset = |edge: RibbonEdge| {
-        if claimed_by(edge) {
-            with_rail
-        } else {
-            EDGE_GAP
-        }
-    };
+    let corner = |present: bool| if present { with_rail } else { EDGE_GAP };
 
     match ribbon.edge {
-        RibbonEdge::Left | RibbonEdge::Right => {
-            out.top = corner_inset(RibbonEdge::Top);
-            out.bottom = corner_inset(RibbonEdge::Bottom);
-        }
-        RibbonEdge::Bottom => {
-            out.left = corner_inset(RibbonEdge::Left);
-            out.right = corner_inset(RibbonEdge::Right);
-        }
-        RibbonEdge::Top => {
+        RibbonEdge::Top | RibbonEdge::Bottom => {
             out.left = EDGE_GAP;
             out.right = EDGE_GAP;
+        }
+        RibbonEdge::Left | RibbonEdge::Right => {
+            out.top = corner(edge_has_ribbon(ribbons, RibbonEdge::Top));
+            out.bottom = corner(edge_has_ribbon(ribbons, RibbonEdge::Bottom));
         }
     }
     out
@@ -1269,41 +1238,34 @@ mod tests {
     }
 
     #[test]
-    fn bottom_corner_claims_follow_ribbon_initialization_order() {
+    fn bottom_bar_spans_full_width_side_rails_inset() {
+        // The bottom bar runs corner-to-corner; the side rails stop
+        // short above it. Holds in BOTH declaration orders, so a
+        // relocated main bar dropped to the bottom still spans fully.
         let chrome = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(800.0, 480.0));
         let ctx = test_ctx_with_chrome(chrome);
         let left = ribbon_with_id("left", RibbonEdge::Left);
         let bottom = ribbon_with_id("bottom", RibbonEdge::Bottom);
 
-        let side_first = vec![left.clone(), bottom.clone()];
-        let side_first_base = compute_side_insets(&side_first);
-        let side_first_left = strip_rect(
-            &side_first[0],
-            &ctx,
-            insets_for_ribbon(&side_first, &side_first[0], side_first_base),
-        );
-        let side_first_bottom = strip_rect(
-            &side_first[1],
-            &ctx,
-            insets_for_ribbon(&side_first, &side_first[1], side_first_base),
-        );
-        assert_eq!(side_first_left.bottom(), chrome.bottom() - EDGE_GAP);
-        assert!(side_first_bottom.left() > side_first_left.right());
-
-        let bottom_first = vec![bottom, left];
-        let bottom_first_base = compute_side_insets(&bottom_first);
-        let bottom_first_bottom = strip_rect(
-            &bottom_first[0],
-            &ctx,
-            insets_for_ribbon(&bottom_first, &bottom_first[0], bottom_first_base),
-        );
-        let bottom_first_left = strip_rect(
-            &bottom_first[1],
-            &ctx,
-            insets_for_ribbon(&bottom_first, &bottom_first[1], bottom_first_base),
-        );
-        assert_eq!(bottom_first_bottom.left(), chrome.left() + EDGE_GAP);
-        assert!(bottom_first_left.bottom() < bottom_first_bottom.top());
+        for order in [
+            vec![left.clone(), bottom.clone()],
+            vec![bottom.clone(), left.clone()],
+        ] {
+            let base = compute_side_insets(&order);
+            let left_ribbon = order.iter().find(|r| r.edge == RibbonEdge::Left).unwrap();
+            let bottom_ribbon = order.iter().find(|r| r.edge == RibbonEdge::Bottom).unwrap();
+            let left_strip =
+                strip_rect(left_ribbon, &ctx, insets_for_ribbon(&order, left_ribbon, base));
+            let bottom_strip = strip_rect(
+                bottom_ribbon,
+                &ctx,
+                insets_for_ribbon(&order, bottom_ribbon, base),
+            );
+            // Bottom bar reaches the left edge (owns the corner).
+            assert_eq!(bottom_strip.left(), chrome.left() + EDGE_GAP);
+            // Side rail stops above the bottom bar.
+            assert!(left_strip.bottom() < bottom_strip.top());
+        }
     }
 
     #[test]

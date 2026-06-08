@@ -2252,6 +2252,10 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
             host.request_close();
             continue;
         }
+        if matches!(click.action, RibbonAction::ToggleMaximize) {
+            host.request_maximize_toggle();
+            continue;
+        }
         if click.item == egui::Id::new(ACTION_CANVAS_CLEAR) {
             canvas_view.strokes.clear();
             continue;
@@ -2656,7 +2660,7 @@ fn canvas_root_view(
     canvas: &mut CanvasViewState,
     shelf_state: &mut ShelfState,
 ) {
-    let shelves = canvas_shelves(accent);
+    let shelves = mara_core::responsive_shelves(canvas_shelves(accent));
     let shelf_theme = *mara_core::style::theme().shelf();
     let layout = mara_core::layout_shelves(ctx.content_rect(), &shelves, shelf_state, &shelf_theme);
 

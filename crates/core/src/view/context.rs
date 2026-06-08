@@ -25,4 +25,23 @@ impl ViewCtx<'_> {
     pub fn ribbon_avoiding_rect(&self, avoidance: RibbonAvoidance) -> egui::Rect {
         ribbon_avoiding_rect(self.egui_ctx, avoidance)
     }
+
+    /// Current responsive size class for this frame. Views consult
+    /// this to reflow on small screens (collapse chrome, stack panes).
+    #[must_use]
+    pub fn breakpoint(&self) -> crate::style::Breakpoint {
+        crate::style::screen_class()
+    }
+
+    /// Convenience: phone-class (the most aggressive reflow tier).
+    #[must_use]
+    pub fn is_compact(&self) -> bool {
+        self.breakpoint().is_compact()
+    }
+
+    /// Convenience: phone or tablet (not the full desktop shell).
+    #[must_use]
+    pub fn is_handheld(&self) -> bool {
+        self.breakpoint().is_handheld()
+    }
 }

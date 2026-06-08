@@ -270,6 +270,66 @@ impl ShelfPresence {
     }
 }
 
+/// Adapt a shelf set to the current responsive breakpoint.
+///
+/// On [`Breakpoint::Phone`](crate::style::Breakpoint::Phone) a bottom
+/// shelf has nowhere useful to live: it would steal scarce vertical
+/// space and sit under the relocated main bar. So this collapses the
+/// bottom edge into the right edge — every bottom container moves into
+/// the right shelf (or, if there is no right shelf, the bottom shelf is
+/// promoted to the right edge) — leaving only left and right side
+/// drawers. Combined with the overlay behaviour in [`layout_shelves`],
+/// the side shelves act as slide-in panels on phones.
+///
+/// Above phone-class this is the identity transform, so desktop/tablet
+/// keep their declared three-edge layout.
+///
+/// Call this once and pass the result to both [`layout_shelves`] and
+/// [`show_shelves`] so they agree on the shelf set.
+#[must_use]
+pub fn responsive_shelves<'a>(shelves: Vec<ShelfDef<'a>>) -> Vec<ShelfDef<'a>> {
+    if style::screen_class() == style::Breakpoint::Phone {
+        collapse_bottom_into_right(shelves)
+    } else {
+        shelves
+    }
+}
+
+/// Merge every bottom shelf's containers into the right shelf, dropping
+/// the now-empty bottom shelves. If no right shelf exists, the first
+/// bottom shelf is promoted to the right edge and the rest merge into
+/// it. Pure (no breakpoint check) so it is unit-testable directly.
+fn collapse_bottom_into_right<'a>(shelves: Vec<ShelfDef<'a>>) -> Vec<ShelfDef<'a>> {
+    let has_right = shelves.iter().any(|shelf| shelf.edge == ShelfEdge::Right);
+    let mut kept: Vec<ShelfDef<'a>> = Vec::with_capacity(shelves.len());
+    let mut overflow: Vec<ShelfContainer<'a>> = Vec::new();
+    let mut promoted_right = false;
+
+    for mut shelf in shelves {
+        if shelf.edge != ShelfEdge::Bottom {
+            kept.push(shelf);
+            continue;
+        }
+        if !has_right && !promoted_right {
+            // No right shelf to receive containers — promote this
+            // bottom shelf to the right edge so it hosts the merge.
+            shelf.edge = ShelfEdge::Right;
+            promoted_right = true;
+            kept.push(shelf);
+        } else {
+            overflow.append(&mut shelf.containers);
+        }
+    }
+
+    if !overflow.is_empty()
+        && let Some(right) = kept.iter_mut().find(|shelf| shelf.edge == ShelfEdge::Right)
+    {
+        right.containers.append(&mut overflow);
+    }
+
+    kept
+}
+
 /// Reserve structural Shelf space and return the remaining viewport.
 pub fn layout_shelves(
     available: Rect,
@@ -314,6 +374,15 @@ pub fn layout_shelves(
                 bottom = Some(rect);
             }
         }
+    }
+
+    // On phone-class the side shelves behave as slide-in overlays
+    // rather than space-reserving docks: the content keeps the full
+    // width and the drawer rects (still emitted below) paint on top.
+    // `show_shelves` renders them in `Order::Middle` areas, so they
+    // already float above the content — we just stop stealing space.
+    if style::screen_class() == style::Breakpoint::Phone {
+        viewport = available;
     }
 
     ShelfLayout {

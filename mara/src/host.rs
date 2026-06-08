@@ -67,7 +67,7 @@ impl<'a> MaraHostCtx<'a> {
             mara_core::WindowChromeHostCapabilities {
                 native_move: self.window.native_move(),
                 native_resize: self.window.native_resize(),
-                system_menu: self.window.system_menu(),
+                system_maximize: self.window.system_maximize(),
                 system_close: self.window.system_close(),
             },
         );
@@ -76,6 +76,16 @@ impl<'a> MaraHostCtx<'a> {
     /// Request the top-level host window to close.
     pub fn request_close(&self) {
         self.egui.send_viewport_cmd(egui::ViewportCommand::Close);
+    }
+
+    /// Toggle the top-level host window between maximized and restored.
+    /// Reads the current state from the viewport info and sends the
+    /// inverse. Hosts that own the window apply it; embedded hosts
+    /// ignore the command.
+    pub fn request_maximize_toggle(&self) {
+        let maximized = self.egui.input(|i| i.viewport().maximized).unwrap_or(false);
+        self.egui
+            .send_viewport_cmd(egui::ViewportCommand::Maximized(!maximized));
     }
 
     /// Build the node-view render backend for this frame, if the host
@@ -102,8 +112,10 @@ impl MaraWindowHost {
         matches!(self, Self::ExternalEgui | Self::MaraNative)
     }
 
-    pub fn system_menu(self) -> bool {
-        true
+    /// The maximize/restore control mirrors close: only a host that
+    /// owns the native window can honor a maximize command.
+    pub fn system_maximize(self) -> bool {
+        matches!(self, Self::MaraNative)
     }
 
     pub fn system_close(self) -> bool {

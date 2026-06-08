@@ -88,9 +88,13 @@ pub use ribbon::{
 };
 pub use shelf::{
     ShelfContainer, ShelfDef, ShelfEdge, ShelfEdgeError, ShelfLayout, ShelfState, layout_shelves,
-    publish_shelf_layout, shelf_insets, shelf_layout, show_shelves,
+    publish_shelf_layout, responsive_shelves, shelf_insets, shelf_layout, show_shelves,
 };
-pub use style::{AccentColor, GlassOpacity, apply_theme, set_glass_opacity};
+pub use style::{
+    AccentColor, Breakpoint, GlassOpacity, PHONE_MAX_WIDTH, ScreenMetrics, TABLET_MAX_WIDTH,
+    apply_theme, screen_class, screen_metrics, set_glass_opacity, set_screen_metrics,
+    set_touch_density_override, touch_density,
+};
 pub use view::{
     MaraView, SharedSurfaceId, ViewCtx, ViewEntry, ViewId, ViewRouter, ViewRouterError,
 };

@@ -165,6 +165,25 @@ impl<'a> WorkspaceCtx<'a> {
     ) -> egui::Rect {
         crate::ribbon_avoiding_rect(egui_ctx, avoidance)
     }
+
+    /// Current responsive size class for this frame. Module workspaces
+    /// consult this to reflow on small screens.
+    #[must_use]
+    pub fn breakpoint(&self) -> crate::style::Breakpoint {
+        crate::style::screen_class()
+    }
+
+    /// Convenience: phone-class (the most aggressive reflow tier).
+    #[must_use]
+    pub fn is_compact(&self) -> bool {
+        self.breakpoint().is_compact()
+    }
+
+    /// Convenience: phone or tablet (not the full desktop shell).
+    #[must_use]
+    pub fn is_handheld(&self) -> bool {
+        self.breakpoint().is_handheld()
+    }
 }
 
 #[cfg(test)]

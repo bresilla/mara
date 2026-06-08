@@ -326,12 +326,19 @@ impl<A: WindowApp> NativeWinitApp<A> {
 
         egui_state.handle_platform_output(window, platform_output);
 
-        if viewport_output
-            .get(&ViewportId::ROOT)
-            .is_some_and(|output| output.commands.contains(&ViewportCommand::Close))
-        {
-            event_loop.exit();
-            return;
+        if let Some(output) = viewport_output.get(&ViewportId::ROOT) {
+            if output.commands.contains(&ViewportCommand::Close) {
+                event_loop.exit();
+                return;
+            }
+            // Honor the maximize/restore window control: apply the last
+            // Maximized command of the frame to the winit window.
+            if let Some(maximized) = output.commands.iter().rev().find_map(|cmd| match cmd {
+                ViewportCommand::Maximized(value) => Some(*value),
+                _ => None,
+            }) {
+                window.set_maximized(maximized);
+            }
         }
 
         let clipped_primitives = self.egui_ctx.tessellate(shapes, pixels_per_point);
