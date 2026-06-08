@@ -2212,10 +2212,21 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
         }
         if click.action == RibbonAction::Command(mara_core::left_shelf_command_id()) {
             canvas_shelves.0.toggle_edge_visible(ShelfEdge::Left);
+            // Phone: a small screen shows only one side shelf at a time.
+            if mara_core::screen_class() == mara_core::Breakpoint::Phone
+                && canvas_shelves.0.edge_visible(ShelfEdge::Left)
+            {
+                canvas_shelves.0.set_edge_visible(ShelfEdge::Right, false);
+            }
             continue;
         }
         if click.action == RibbonAction::Command(mara_core::right_shelf_command_id()) {
             canvas_shelves.0.toggle_edge_visible(ShelfEdge::Right);
+            if mara_core::screen_class() == mara_core::Breakpoint::Phone
+                && canvas_shelves.0.edge_visible(ShelfEdge::Right)
+            {
+                canvas_shelves.0.set_edge_visible(ShelfEdge::Left, false);
+            }
             continue;
         }
         if click.action == RibbonAction::Command(mara_core::bottom_shelf_command_id()) {

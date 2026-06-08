@@ -367,6 +367,51 @@ fn edge_has_ribbon(ribbons: &[ResolvedSlotRibbon], edge: RibbonEdge) -> bool {
     ribbons.iter().any(|ribbon| ribbon.edge == edge)
 }
 
+/// Phone-only: a small screen can't show both a left and a right side
+/// pane at once. When a side pane is opened, close every open pane on
+/// the opposite side. `ribbons` carries the (already phone-remapped)
+/// edges; `open` is keyed by ribbon chrome id.
+fn enforce_single_open_side(
+    ribbons: &[ResolvedSlotRibbon],
+    open: &mut RibbonOpen,
+    opened_rid: &'static str,
+) {
+    if crate::style::screen_class() != crate::style::Breakpoint::Phone {
+        return;
+    }
+    close_opposite_side_panes(ribbons, open, opened_rid);
+}
+
+/// Pure side-exclusivity: close every open pane on the side opposite
+/// the just-opened pane. No breakpoint check — the caller gates.
+fn close_opposite_side_panes(
+    ribbons: &[ResolvedSlotRibbon],
+    open: &mut RibbonOpen,
+    opened_rid: &'static str,
+) {
+    let Some(opened_edge) = ribbons
+        .iter()
+        .find(|ribbon| ribbon_id(ribbon) == Some(opened_rid))
+        .map(|ribbon| ribbon.edge)
+    else {
+        return;
+    };
+    let opposite = match opened_edge {
+        RibbonEdge::Left => RibbonEdge::Right,
+        RibbonEdge::Right => RibbonEdge::Left,
+        // Only side panes participate in left/right exclusivity.
+        RibbonEdge::Top | RibbonEdge::Bottom => return,
+    };
+    let to_close: Vec<&'static str> = ribbons
+        .iter()
+        .filter(|ribbon| ribbon.edge == opposite)
+        .filter_map(ribbon_id)
+        .collect();
+    for rid in to_close {
+        open.per_ribbon.remove(rid);
+    }
+}
+
 fn insets_for_ribbon(
     ribbons: &[ResolvedSlotRibbon],
     ribbon: &ResolvedSlotRibbon,
@@ -1091,6 +1136,10 @@ pub fn draw_unified_ribbon_chrome(
         let role = item_role(item, &ribbons[base_r_idx]);
         if role == RibbonRole::Panel {
             open.toggle(rid, iid);
+            // Phone: opening a side pane closes the opposite side's.
+            if open.is_open(rid, iid) {
+                enforce_single_open_side(ribbons, open, rid);
+            }
         }
         clicks.push(item.id);
     }
@@ -1266,6 +1315,27 @@ mod tests {
             // Side rail stops above the bottom bar.
             assert!(left_strip.bottom() < bottom_strip.top());
         }
+    }
+
+    #[test]
+    fn opening_a_side_pane_closes_the_opposite_side() {
+        let left = ribbon_with_id("left", RibbonEdge::Left);
+        let right = ribbon_with_id("right", RibbonEdge::Right);
+        let ribbons = vec![left, right];
+        let mut open = RibbonOpen::default();
+        open.set("left", "left_pane");
+        open.set("right", "right_pane");
+
+        // Just opened the left pane → the right side must close.
+        close_opposite_side_panes(&ribbons, &mut open, "left");
+        assert!(open.is_open("left", "left_pane"));
+        assert!(open.get("right").is_none());
+
+        // Now open the right pane → the left side closes.
+        open.set("right", "right_pane");
+        close_opposite_side_panes(&ribbons, &mut open, "right");
+        assert!(open.is_open("right", "right_pane"));
+        assert!(open.get("left").is_none());
     }
 
     #[test]
