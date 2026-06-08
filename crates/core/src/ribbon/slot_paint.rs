@@ -51,7 +51,7 @@ pub fn draw_slot_ribbons(
 ) -> Vec<RibbonSlotClick> {
     let augmented = shelf_augmented_ribbons(ctx, ribbons, ShelfButtonOrder::Simple);
     let base = augmented.as_deref().unwrap_or(ribbons);
-    let responsive = responsive_phone_ribbons(base);
+    let responsive = responsive_phone_ribbons(ctx, base);
     let ribbons = responsive.as_deref().unwrap_or(base);
     draw_slot_ribbons_inner(ctx, accent, ribbons)
 }
@@ -87,12 +87,12 @@ pub fn draw_slot_ribbons_featureful(
 ) -> Vec<RibbonSlotClick> {
     let featureful_augmented = shelf_augmented_ribbons(ctx, ribbons, ShelfButtonOrder::Featureful);
     let featureful_base = featureful_augmented.as_deref().unwrap_or(ribbons);
-    let featureful_responsive = responsive_phone_ribbons(featureful_base);
+    let featureful_responsive = responsive_phone_ribbons(ctx, featureful_base);
     let featureful_ribbons = featureful_responsive.as_deref().unwrap_or(featureful_base);
     if !can_use_featureful_chrome(featureful_ribbons) {
         let simple_augmented = shelf_augmented_ribbons(ctx, ribbons, ShelfButtonOrder::Simple);
         let simple_base = simple_augmented.as_deref().unwrap_or(ribbons);
-        let simple_responsive = responsive_phone_ribbons(simple_base);
+        let simple_responsive = responsive_phone_ribbons(ctx, simple_base);
         return draw_slot_ribbons_inner(
             ctx,
             accent,
@@ -360,35 +360,90 @@ fn is_top_permanent_ribbon(ribbon: &ResolvedSlotRibbon) -> bool {
 ///   the right, everything else to the left;
 /// - existing `Left`/`Right` rails are untouched.
 ///
+/// On phone, side panels (shelves) are slide-in overlays that sit on
+/// top of the content rather than pushing it. A side rail painted at
+/// the screen edge would then float over the open drawer, so while a
+/// side's panel is open we drop that side's rails until it closes.
+///
 /// Returns `None` above phone-class, so desktop/tablet keep the
 /// borrowed slice with no copy.
-fn responsive_phone_ribbons(ribbons: &[ResolvedSlotRibbon]) -> Option<Vec<ResolvedSlotRibbon>> {
+fn responsive_phone_ribbons(
+    ctx: &Context,
+    ribbons: &[ResolvedSlotRibbon],
+) -> Option<Vec<ResolvedSlotRibbon>> {
     if crate::style::screen_class() != crate::style::Breakpoint::Phone {
         return None;
     }
-    Some(
-        ribbons
-            .iter()
-            .cloned()
-            .map(|mut ribbon| {
-                ribbon.edge = responsive_phone_edge(&ribbon);
-                ribbon
-            })
-            .collect(),
-    )
+    let layout = crate::shelf::shelf_layout(ctx);
+    let left_panel_open = layout.is_some_and(|layout| layout.left.is_some());
+    let right_panel_open = layout.is_some_and(|layout| layout.right.is_some());
+    let remapped = ribbons
+        .iter()
+        .cloned()
+        .map(|mut ribbon| {
+            ribbon.edge = responsive_phone_edge(&ribbon);
+            ribbon
+        })
+        .collect();
+    Some(hide_side_rails_under_open_panels(
+        remapped,
+        left_panel_open,
+        right_panel_open,
+    ))
+}
+
+fn hide_side_rails_under_open_panels(
+    ribbons: Vec<ResolvedSlotRibbon>,
+    left_panel_open: bool,
+    right_panel_open: bool,
+) -> Vec<ResolvedSlotRibbon> {
+    if !left_panel_open && !right_panel_open {
+        return ribbons;
+    }
+    ribbons
+        .into_iter()
+        .filter(|ribbon| {
+            !(left_panel_open && ribbon.edge == RibbonEdge::Left)
+                && !(right_panel_open && ribbon.edge == RibbonEdge::Right)
+        })
+        .collect()
 }
 
 fn responsive_phone_edge(ribbon: &ResolvedSlotRibbon) -> RibbonEdge {
-    let to_side = if ribbon.cluster == RibbonCluster::End {
+    remap_phone_edge(ribbon.edge, ribbon.cluster, ribbon.scope)
+}
+
+/// Pure phone edge remap (no breakpoint check — callers gate).
+fn remap_phone_edge(edge: RibbonEdge, cluster: RibbonCluster, scope: RibbonScope) -> RibbonEdge {
+    let to_side = if cluster == RibbonCluster::End {
         RibbonEdge::Right
     } else {
         RibbonEdge::Left
     };
-    match ribbon.edge {
-        RibbonEdge::Top if ribbon.scope == RibbonScope::Permanent => RibbonEdge::Bottom,
+    match edge {
+        RibbonEdge::Top if scope == RibbonScope::Permanent => RibbonEdge::Bottom,
         RibbonEdge::Top | RibbonEdge::Bottom => to_side,
         other => other,
     }
+}
+
+/// Remap a ribbon edge for the current breakpoint, matching the phone
+/// reflow the ribbon painter applies. Above phone-class returns `edge`
+/// unchanged.
+///
+/// Hosts that position panes anchored to a ribbon button must apply
+/// this to the button's declared edge, so the pane opens where the
+/// (possibly relocated) button now lives instead of its original edge.
+#[must_use]
+pub fn phone_remapped_ribbon_edge(
+    edge: RibbonEdge,
+    cluster: RibbonCluster,
+    scope: RibbonScope,
+) -> RibbonEdge {
+    if crate::style::screen_class() != crate::style::Breakpoint::Phone {
+        return edge;
+    }
+    remap_phone_edge(edge, cluster, scope)
 }
 
 fn system_button_ribbon(
@@ -725,6 +780,31 @@ mod tests {
             augmented.is_none(),
             "phone-class hides both maximize and close completely"
         );
+    }
+
+    #[test]
+    fn open_side_panel_hides_only_that_side_rail() {
+        let mut left = top_ribbon(RibbonCluster::Start, Vec::new());
+        left.edge = RibbonEdge::Left;
+        let mut right = top_ribbon(RibbonCluster::Start, Vec::new());
+        right.edge = RibbonEdge::Right;
+        let mut bottom = top_ribbon(RibbonCluster::Middle, Vec::new());
+        bottom.edge = RibbonEdge::Bottom;
+        let set = vec![left, right, bottom];
+
+        // Left panel open → only the left rail is dropped.
+        let kept = hide_side_rails_under_open_panels(set.clone(), true, false);
+        assert!(!kept.iter().any(|r| r.edge == RibbonEdge::Left));
+        assert!(kept.iter().any(|r| r.edge == RibbonEdge::Right));
+        assert!(kept.iter().any(|r| r.edge == RibbonEdge::Bottom));
+
+        // Both panels open → both side rails gone, bottom bar stays.
+        let kept = hide_side_rails_under_open_panels(set.clone(), true, true);
+        assert!(!kept.iter().any(|r| r.edge.is_vertical()));
+        assert!(kept.iter().any(|r| r.edge == RibbonEdge::Bottom));
+
+        // No panel open → nothing removed.
+        assert_eq!(hide_side_rails_under_open_panels(set.clone(), false, false).len(), 3);
     }
 
     #[test]

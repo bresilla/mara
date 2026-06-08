@@ -713,7 +713,16 @@ fn shelf_paint_rect(edge: ShelfEdge, shelf_rect: Rect) -> Rect {
 fn shelf_content_rect(edge: ShelfEdge, shelf_rect: Rect, theme: &ShelfTheme) -> Rect {
     let mut rect = shelf_rect.shrink(theme.padding);
     if edge.is_side() {
-        rect.min.y = (rect.min.y + top_ribbon_clearance()).min(rect.max.y);
+        // Side shelves reserve room for the horizontal main bar. On a
+        // phone the bar has moved to the bottom, so reserve there and
+        // let the shelf start flush with the top; otherwise reserve at
+        // the top where the bar lives.
+        let clearance = top_ribbon_clearance();
+        if crate::style::screen_class() == crate::style::Breakpoint::Phone {
+            rect.max.y = (rect.max.y - clearance).max(rect.min.y);
+        } else {
+            rect.min.y = (rect.min.y + clearance).min(rect.max.y);
+        }
     }
     rect
 }

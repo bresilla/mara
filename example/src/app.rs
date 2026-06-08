@@ -2015,7 +2015,12 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
             RibbonCluster::Middle => RailZone::Middle,
             RibbonCluster::End => RailZone::End,
         };
-        Some(match def.edge {
+        // The ribbon button may be relocated by the phone reflow (top →
+        // bottom, top/bottom → side). Anchor the pane to the button's
+        // CURRENT edge so it opens where the icon actually is.
+        let edge =
+            mara_core::phone_remapped_ribbon_edge(def.edge, cluster, demo_ribbon_scope(rid));
+        Some(match edge {
             RibbonEdge::Left => PaneAnchor::LeftRail(zone),
             RibbonEdge::Right => PaneAnchor::RightRail(zone),
             RibbonEdge::Top => PaneAnchor::TopRail(zone),

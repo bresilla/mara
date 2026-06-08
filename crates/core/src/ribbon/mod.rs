@@ -47,4 +47,5 @@ pub use slot::{
 };
 pub use slot_paint::{
     ResolvedSlotRibbon, RibbonSlotClick, draw_slot_ribbons, draw_slot_ribbons_featureful,
+    phone_remapped_ribbon_edge,
 };
