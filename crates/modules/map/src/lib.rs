@@ -572,7 +572,7 @@ impl MaraView for MapSurface {
 
     fn show(&mut self, ctx: &mut ViewCtx<'_>) {
         let mut interaction = MapInteraction::default();
-        let _ = MaraMap::new(self, &mut interaction).show(ctx.egui_ctx);
+        let _ = MaraMap::new(self, &mut interaction).show(ctx.__internal_egui_ctx());
     }
 }
 
@@ -589,7 +589,12 @@ impl MaraModule for MapSurface {
         "location"
     }
 
-    fn inline(&mut self, ui: &mut egui::Ui, ctx: ModuleInlineCtx<'_>) -> ModuleResponse {
+    fn inline(
+        &mut self,
+        mui: &mut mara_core::MaraUi<'_>,
+        ctx: ModuleInlineCtx<'_>,
+    ) -> ModuleResponse {
+        let ui = mui.__internal_raw_ui();
         let response = ui.group(|ui| {
             let annotation_count = self.document.annotations.len().to_string();
             mara_core::readout(ui, "Map", &self.document.title);

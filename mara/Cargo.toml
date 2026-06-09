@@ -37,6 +37,11 @@ image = ["dep:mara_image"]
 map = ["dep:mara_map"]
 three-d = ["dep:mara_3d", "mara_3d/gpu-preview"]
 bevy = ["dep:mara_bevy"]
+# Raw egui escape hatch: re-exports the `egui` crate from
+# `mara::ui` / the prelude and unlocks the raw accessors on
+# `MaraUi` / `ViewCtx` / `MaraHostCtx`. Off by default so app code
+# can only create GUI elements through Mara's typed surface.
+raw-egui = ["mara_core/raw-egui"]
 window = [
     "egui-wgpu/winit",
     "dep:egui-winit",

@@ -1,0 +1,16 @@
+[package]
+name = "mara_sealed_check"
+description = "Compile-time proof that an app can build full Mara UI against the sealed (default-feature) facade — no egui dependency, no raw-egui feature. If this crate compiles, the seal holds and the typed surface is sufficient."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+# Deliberately the ONLY dependency: no `egui`, no `raw-egui`
+# feature. Everything below must come through Mara's typed surface.
+mara = { path = "../../mara", default-features = false, features = [
+    "canvas",
+    "image",
+] }

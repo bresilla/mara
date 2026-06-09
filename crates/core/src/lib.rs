@@ -27,6 +27,13 @@
 //!   reserve viewport space.
 //! * [`icons`] — Fluent UI System Icon glyph painter.
 
+// Raw egui escape hatch. Everything in Mara's default surface is
+// typed and sealed; the only way to reach a raw `egui::Ui` /
+// `egui::Context` from consumer code is to enable the `raw-egui`
+// feature, which makes the opt-out explicit and greppable.
+#[cfg(feature = "raw-egui")]
+pub use egui;
+
 pub mod app_shell;
 pub mod command_palette;
 pub mod container;
@@ -36,6 +43,7 @@ pub mod extras;
 pub mod icons;
 pub mod layer;
 pub mod module;
+pub mod mui;
 pub mod pane;
 pub mod pod;
 pub mod ribbon;
@@ -44,9 +52,17 @@ pub mod shelf;
 pub mod style;
 pub mod themes;
 pub mod view;
+pub mod vocab;
 pub mod widget;
 pub mod window_chrome;
 pub mod workspace;
+
+pub use mui::{MaraInput, MaraPainter, MaraResponse, MaraUi};
+// `vocab` is deliberately NOT glob-re-exported at the root: hosts
+// like Bevy glob-import both their own prelude and `mara_core::*`,
+// and egui's `Vec2`/`Rect` would silently shadow the host's math
+// types. Consumers reach the data vocabulary via
+// `use mara_core::vocab::{Color32, Rect, ...}` (or `mara::ui::vocab`).
 
 // Foundational row-height unit — re-exported at crate root so the
 // canonical name is `mara_core::UNIT`. Every widget is sized in

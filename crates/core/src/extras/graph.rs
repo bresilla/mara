@@ -671,9 +671,10 @@ where
 
     fn inline(
         &mut self,
-        ui: &mut egui::Ui,
+        mui: &mut crate::mui::MaraUi<'_>,
         ctx: crate::ModuleInlineCtx<'_>,
     ) -> crate::ModuleResponse {
+        let ui = &mut *mui.ui;
         ui.group(|ui| {
             ui.horizontal(|ui| {
                 ui.label(format!("Graph: {}", self.title));

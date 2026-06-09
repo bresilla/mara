@@ -14,6 +14,22 @@
 //! rest — ribbons, panes, the widget gallery, theme picker, canvas
 //! whiteboard, node graph, map, and code editor — is host-agnostic
 //! `mara_core` UI.
+//!
+//! ## Host egui vs sealed Mara surface
+//!
+//! This crate plays two roles, and the line between them matters:
+//!
+//! * **Host glue** (frame drivers like `ui_system`, the ribbon
+//!   assembly, the Bevy/eframe/winit bridges, and the node-graph
+//!   `NodeViewer` impl whose vendored trait hands out `egui::Ui` by
+//!   design) legitimately uses host-owned egui from eframe. It does
+//!   **not** enable Mara's `raw-egui` feature.
+//! * **App content** (pane bodies, pods, trees, the canvas
+//!   whiteboard body) goes through the sealed Mara surface —
+//!   `PaneBody`, `Pod`, `TreeBody`, `MaraUi`, `MaraPainter`,
+//!   `vocab` data types — exactly like an external sealed app
+//!   would. See `example/sealed` for the enforced, egui-free proof
+//!   crate.
 
 #![allow(
     dead_code,
@@ -28,6 +44,7 @@ use std::io::Cursor;
 
 use eframe::egui;
 
+use mara::ui::{mara_core, modules::map as mara_map};
 use mara_core::container::SeparatorStyle;
 use mara_core::pane::{Pane, PaneAnchor, PaneBody, RailZone};
 use mara_core::pod::Pod;
@@ -1875,7 +1892,7 @@ impl mara::window::WindowApp for DemoApp {
 /// eframe/winit. `app` carries the state the Bevy build held as
 /// resources; `host` provides app-level actions and render helpers.
 pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
-    let ctx = host.egui();
+    let ctx = host.__internal_egui();
     let DemoApp {
         accent,
         glass,
@@ -1932,7 +1949,8 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
     // Bevy is represented as an embedded viewport surface, not the
     // top-level window owner.
     if bevy_view_active {
-        if let Some(color) = bevy_view.show(host.egui(), host.render_state(), accent_col) {
+        if let Some(color) = bevy_view.show(host.__internal_egui(), host.render_state(), accent_col)
+        {
             accent.0 = color;
             host.apply_theme(*accent, *glass);
             accent_col = mara_core::style::active_accent();
@@ -2656,13 +2674,13 @@ fn three_d_root_view(
     accent: egui::Color32,
     three_d: &mut ThreeDViewState,
 ) {
-    let ctx = host.egui().clone();
-    let mut view_ctx = ViewCtx {
-        egui_ctx: &ctx,
-        workspace: &mut three_d.workspace,
+    let ctx = host.__internal_egui().clone();
+    let mut view_ctx = ViewCtx::new(
+        &ctx,
+        &mut three_d.workspace,
         accent,
-        content_avoidance: RibbonAvoidance::none(),
-    };
+        RibbonAvoidance::none(),
+    );
     three_d.view.set_gpu_render_state(host.render_state());
     three_d.view.show(&mut view_ctx);
 }
@@ -2679,81 +2697,95 @@ fn canvas_root_view(
     let shelf_theme = *mara_core::style::theme().shelf();
     let layout = mara_core::layout_shelves(ctx.content_rect(), &shelves, shelf_state, &shelf_theme);
 
+    // Host glue: the CentralPanel belongs to the eframe frame loop.
+    // Everything inside is sealed — the body immediately wraps the
+    // host Ui in `MaraUi` and draws/interacts through it, the same
+    // way external app content would.
     egui::CentralPanel::default()
         .frame(egui::Frame::new().fill(egui::Color32::TRANSPARENT))
         .show(ctx, |ui| {
             let screen_rect = ui.max_rect();
-            let canvas_rect = layout.viewport;
-            let response = ui.allocate_rect(canvas_rect, egui::Sense::drag());
-            let painter = ui.painter_at(screen_rect);
-
-            painter.rect_filled(screen_rect, 0, mara_core::style::theme().palette.bg_panel);
-            painter.rect_filled(canvas_rect, 0, mara_core::style::theme().palette.bg_window);
-
-            let grid = 32.0;
-            let grid_col = egui::Color32::from_rgba_unmultiplied(
-                mara_core::style::on_panel_dim().r(),
-                mara_core::style::on_panel_dim().g(),
-                mara_core::style::on_panel_dim().b(),
-                34,
-            );
-            let mut x = canvas_rect.left() + grid;
-            while x < canvas_rect.right() {
-                painter.line_segment(
-                    [
-                        egui::pos2(x, canvas_rect.top()),
-                        egui::pos2(x, canvas_rect.bottom()),
-                    ],
-                    egui::Stroke::new(1.0, grid_col),
-                );
-                x += grid;
-            }
-            let mut y = canvas_rect.top() + grid;
-            while y < canvas_rect.bottom() {
-                painter.line_segment(
-                    [
-                        egui::pos2(canvas_rect.left(), y),
-                        egui::pos2(canvas_rect.right(), y),
-                    ],
-                    egui::Stroke::new(1.0, grid_col),
-                );
-                y += grid;
-            }
-
-            if response.drag_started() {
-                canvas.strokes.push(Vec::new());
-            }
-            if response.dragged() || response.drag_started() {
-                if let Some(pos) = response
-                    .interact_pointer_pos()
-                    .filter(|pos| canvas_rect.contains(*pos))
-                {
-                    if let Some(stroke) = canvas.strokes.last_mut() {
-                        if stroke.last().is_none_or(|last| last.distance(pos) > 1.5) {
-                            stroke.push(pos);
-                        }
-                    }
-                }
-            }
-
-            for stroke in &canvas.strokes {
-                for points in stroke.windows(2) {
-                    painter.line_segment([points[0], points[1]], egui::Stroke::new(3.0, accent));
-                }
-            }
-
-            if canvas.strokes.is_empty() {
-                painter.text(
-                    canvas_rect.center(),
-                    egui::Align2::CENTER_CENTER,
-                    "Canvas root view\ndrag to draw",
-                    egui::FontId::proportional(24.0),
-                    mara_core::style::on_panel_dim(),
-                );
-            }
+            let mut mui = mara_core::MaraUi::__internal_from_raw(ui, accent);
+            canvas_root_body(&mut mui, screen_rect, layout.viewport, canvas);
         });
 
     mara_core::show_shelves(ctx, layout, shelves, shelf_state);
+}
+
+/// Sealed whiteboard body: backdrop, grid, drag-to-draw strokes,
+/// empty-state hint — all through `MaraUi`/`MaraPainter`/vocab types.
+fn canvas_root_body(
+    mui: &mut mara_core::MaraUi<'_>,
+    screen_rect: egui::Rect,
+    canvas_rect: egui::Rect,
+    canvas: &mut CanvasViewState,
+) {
+    use mara::ui::vocab::{Align2, Color32, Stroke, pos2};
+
+    let accent = mui.accent();
+    let (painter, response) = mui.canvas_at(canvas_rect);
+    let backdrop = mui.painter();
+
+    backdrop.rect_filled(screen_rect, 0, mara_core::style::theme().palette.bg_panel);
+    painter.rect_filled(canvas_rect, 0, mara_core::style::theme().palette.bg_window);
+
+    let grid = 32.0;
+    let grid_col = Color32::from_rgba_unmultiplied(
+        mara_core::style::on_panel_dim().r(),
+        mara_core::style::on_panel_dim().g(),
+        mara_core::style::on_panel_dim().b(),
+        34,
+    );
+    let mut x = canvas_rect.left() + grid;
+    while x < canvas_rect.right() {
+        painter.line_segment(
+            pos2(x, canvas_rect.top()),
+            pos2(x, canvas_rect.bottom()),
+            Stroke::new(1.0, grid_col),
+        );
+        x += grid;
+    }
+    let mut y = canvas_rect.top() + grid;
+    while y < canvas_rect.bottom() {
+        painter.line_segment(
+            pos2(canvas_rect.left(), y),
+            pos2(canvas_rect.right(), y),
+            Stroke::new(1.0, grid_col),
+        );
+        y += grid;
+    }
+
+    if response.drag_started {
+        canvas.strokes.push(Vec::new());
+    }
+    if response.dragged || response.drag_started {
+        if let Some(pos) = response
+            .interact_pointer
+            .filter(|pos| canvas_rect.contains(*pos))
+        {
+            if let Some(stroke) = canvas.strokes.last_mut() {
+                if stroke.last().is_none_or(|last| last.distance(pos) > 1.5) {
+                    stroke.push(pos);
+                }
+            }
+        }
+    }
+
+    for stroke in &canvas.strokes {
+        for points in stroke.windows(2) {
+            painter.line_segment(points[0], points[1], Stroke::new(3.0, accent));
+        }
+    }
+
+    if canvas.strokes.is_empty() {
+        painter.text(
+            canvas_rect.center(),
+            Align2::CENTER_CENTER,
+            "Canvas root view\ndrag to draw",
+            24.0,
+            mara_core::style::on_panel_dim(),
+        );
+    }
 }
 
 fn canvas_shelves(accent: egui::Color32) -> Vec<ShelfDef<'static>> {
@@ -2911,10 +2943,8 @@ fn coreviz_zones_pane(body: &mut PaneBody) {
                 .with_separator(SeparatorStyle::None)
                 .with_tree(7, move |tree| {
                     let armed_key = egui::Id::new(("coreviz_demo", "armed_zone"));
-                    let mut armed = tree
-                        .ctx()
-                        .data_mut(|d| d.get_persisted::<Option<&'static str>>(armed_key))
-                        .unwrap_or(None);
+                    let mut armed = tree.persisted_string(armed_key).filter(|s| !s.is_empty());
+                    let armed_is = |armed: &Option<String>, v: &str| armed.as_deref() == Some(v);
                     let root = tree.action_row(
                         "root",
                         0,
@@ -2922,14 +2952,14 @@ fn coreviz_zones_pane(body: &mut PaneBody) {
                         Some("map"),
                         "Root Zone",
                         "root · 4 pts",
-                        armed == Some("root"),
+                        armed_is(&armed, "root"),
                         "add",
                         Some("Add child zone"),
-                        armed == Some("root"),
+                        armed_is(&armed, "root"),
                         accent,
                     );
-                    if root.action.clicked() {
-                        armed = Some("root");
+                    if root.action.clicked {
+                        armed = Some("root".to_string());
                     }
                     let floor = tree.action_row_guided(
                         "floor",
@@ -2938,15 +2968,15 @@ fn coreviz_zones_pane(body: &mut PaneBody) {
                         Some("shape-union"),
                         "Floor 1",
                         "zone · 7 pts",
-                        armed == Some("floor"),
+                        armed_is(&armed, "floor"),
                         "add",
                         Some("Add child zone"),
-                        armed == Some("floor"),
+                        armed_is(&armed, "floor"),
                         &TreeBranchGuide::tee([]),
                         accent,
                     );
-                    if floor.action.clicked() {
-                        armed = Some("floor");
+                    if floor.action.clicked {
+                        armed = Some("floor".to_string());
                     }
                     let dock = tree.action_row_guided(
                         "dock",
@@ -2955,15 +2985,15 @@ fn coreviz_zones_pane(body: &mut PaneBody) {
                         Some("location"),
                         "Dock A",
                         "zone · 5 pts",
-                        armed == Some("dock"),
+                        armed_is(&armed, "dock"),
                         "add",
                         Some("Add child zone"),
-                        armed == Some("dock"),
+                        armed_is(&armed, "dock"),
                         &TreeBranchGuide::last([true]),
                         accent,
                     );
-                    if dock.action.clicked() {
-                        armed = Some("dock");
+                    if dock.action.clicked {
+                        armed = Some("dock".to_string());
                     }
                     let yard = tree.action_row_guided(
                         "yard",
@@ -2972,18 +3002,17 @@ fn coreviz_zones_pane(body: &mut PaneBody) {
                         Some("shape-union"),
                         "Yard",
                         "zone · 6 pts",
-                        armed == Some("yard"),
+                        armed_is(&armed, "yard"),
                         "add",
                         Some("Add child zone"),
-                        armed == Some("yard"),
+                        armed_is(&armed, "yard"),
                         &TreeBranchGuide::last([]),
                         accent,
                     );
-                    if yard.action.clicked() {
-                        armed = Some("yard");
+                    if yard.action.clicked {
+                        armed = Some("yard".to_string());
                     }
-                    tree.ctx_mut()
-                        .data_mut(|d| d.insert_persisted(armed_key, armed));
+                    tree.set_persisted_string(armed_key, armed.unwrap_or_default());
                 }),
         ],
     );
@@ -3268,18 +3297,10 @@ fn widgets_pane(body: &mut PaneBody) {
                     let root_key = egui::Id::new(("demo_hierarchy", "root_open"));
                     let floor_key = egui::Id::new(("demo_hierarchy", "floor_open"));
                     let armed_key = egui::Id::new(("demo_hierarchy", "armed_child"));
-                    let mut root_open = tree
-                        .ctx()
-                        .data_mut(|d| d.get_persisted::<bool>(root_key))
-                        .unwrap_or(true);
-                    let mut floor_open = tree
-                        .ctx()
-                        .data_mut(|d| d.get_persisted::<bool>(floor_key))
-                        .unwrap_or(true);
-                    let mut armed = tree
-                        .ctx()
-                        .data_mut(|d| d.get_persisted::<Option<&'static str>>(armed_key))
-                        .unwrap_or(None);
+                    let mut root_open = tree.persisted_bool(root_key).unwrap_or(true);
+                    let mut floor_open = tree.persisted_bool(floor_key).unwrap_or(true);
+                    let mut armed = tree.persisted_string(armed_key).filter(|s| !s.is_empty());
+                    let armed_is = |armed: &Option<String>, v: &str| armed.as_deref() == Some(v);
 
                     let root = tree.action_row(
                         "root-zone",
@@ -3288,14 +3309,14 @@ fn widgets_pane(body: &mut PaneBody) {
                         Some("map"),
                         "Root Zone",
                         "root · 4 pts",
-                        armed == Some("root-zone"),
+                        armed_is(&armed, "root-zone"),
                         "add",
                         Some("Add child zone"),
-                        armed == Some("root-zone"),
+                        armed_is(&armed, "root-zone"),
                         accent,
                     );
-                    if root.action.clicked() {
-                        armed = Some("root-zone");
+                    if root.action.clicked {
+                        armed = Some("root-zone".to_string());
                     }
                     if root_open {
                         let floor = tree.action_row_guided(
@@ -3305,15 +3326,15 @@ fn widgets_pane(body: &mut PaneBody) {
                             Some("shape-union"),
                             "Floor 1",
                             "zone · 7 pts",
-                            armed == Some("floor-zone"),
+                            armed_is(&armed, "floor-zone"),
                             "add",
                             Some("Add child zone"),
-                            armed == Some("floor-zone"),
+                            armed_is(&armed, "floor-zone"),
                             &TreeBranchGuide::tee([]),
                             accent,
                         );
-                        if floor.action.clicked() {
-                            armed = Some("floor-zone");
+                        if floor.action.clicked {
+                            armed = Some("floor-zone".to_string());
                         }
                         if floor_open {
                             let dock = tree.action_row_guided(
@@ -3323,15 +3344,15 @@ fn widgets_pane(body: &mut PaneBody) {
                                 Some("location"),
                                 "Dock A",
                                 "zone · 5 pts",
-                                armed == Some("dock-zone"),
+                                armed_is(&armed, "dock-zone"),
                                 "add",
                                 Some("Add child zone"),
-                                armed == Some("dock-zone"),
+                                armed_is(&armed, "dock-zone"),
                                 &TreeBranchGuide::tee([true]),
                                 accent,
                             );
-                            if dock.action.clicked() {
-                                armed = Some("dock-zone");
+                            if dock.action.clicked {
+                                armed = Some("dock-zone".to_string());
                             }
                             let storage = tree.action_row_guided(
                                 "storage-zone",
@@ -3340,15 +3361,15 @@ fn widgets_pane(body: &mut PaneBody) {
                                 Some("shape-union"),
                                 "Storage",
                                 "zone · 6 pts",
-                                armed == Some("storage-zone"),
+                                armed_is(&armed, "storage-zone"),
                                 "add",
                                 Some("Add child zone"),
-                                armed == Some("storage-zone"),
+                                armed_is(&armed, "storage-zone"),
                                 &TreeBranchGuide::last([true]),
                                 accent,
                             );
-                            if storage.action.clicked() {
-                                armed = Some("storage-zone");
+                            if storage.action.clicked {
+                                armed = Some("storage-zone".to_string());
                             }
                         }
                         let yard = tree.action_row_guided(
@@ -3358,23 +3379,21 @@ fn widgets_pane(body: &mut PaneBody) {
                             Some("shape-union"),
                             "Yard",
                             "zone · 6 pts",
-                            armed == Some("yard-zone"),
+                            armed_is(&armed, "yard-zone"),
                             "add",
                             Some("Add child zone"),
-                            armed == Some("yard-zone"),
+                            armed_is(&armed, "yard-zone"),
                             &TreeBranchGuide::last([]),
                             accent,
                         );
-                        if yard.action.clicked() {
-                            armed = Some("yard-zone");
+                        if yard.action.clicked {
+                            armed = Some("yard-zone".to_string());
                         }
                     }
 
-                    tree.ctx_mut().data_mut(|d| {
-                        d.insert_persisted(root_key, root_open);
-                        d.insert_persisted(floor_key, floor_open);
-                        d.insert_persisted(armed_key, armed);
-                    });
+                    tree.set_persisted_bool(root_key, root_open);
+                    tree.set_persisted_bool(floor_key, floor_open);
+                    tree.set_persisted_string(armed_key, armed.unwrap_or_default());
                 }),
         ],
     );
@@ -3533,11 +3552,9 @@ fn scene_pane(body: &mut PaneBody) {
     let accent = body.accent();
     let tree_root = cid(PANE_SCENE, "tree_root");
     let search_pod_id = pid(PANE_SCENE, "scene", 0);
-    let tree_filter =
-        mara_core::pod::Pod::search_query(body.ctx(), search_pod_id, 0).to_lowercase();
+    let tree_filter = body.search_query(search_pod_id, 0).to_lowercase();
     let selected_path: String = body
-        .ctx()
-        .data(|d| d.get_temp::<String>(tree_root.with("mara_demo_tree_selected")))
+        .temp_string(tree_root.with("mara_demo_tree_selected"))
         .unwrap_or_default();
     let selected_display = if selected_path.is_empty() {
         "—".to_string()
@@ -6961,10 +6978,7 @@ fn demo_tree(
     filter: &str,
 ) {
     let sel_key = root_id.with("mara_demo_tree_selected");
-    let mut selected: String = tree
-        .ctx()
-        .data(|d| d.get_temp::<String>(sel_key))
-        .unwrap_or_default();
+    let mut selected: String = tree.temp_string(sel_key).unwrap_or_default();
     let initial_selected = selected.clone();
     let mut frame_clicked: Option<String> = None;
     walk_demo_tree(
@@ -6981,7 +6995,7 @@ fn demo_tree(
         selected = p;
     }
     if selected != initial_selected {
-        tree.ctx().data_mut(|d| d.insert_temp(sel_key, selected));
+        tree.set_temp_string(sel_key, selected);
     }
 }
 
@@ -7022,18 +7036,9 @@ fn walk_demo_tree(
     let exp_key = root_id.with(("mara_demo_tree_expanded", *p));
     let eye_key = root_id.with(("mara_demo_tree_eye", *p));
     let lock_key = root_id.with(("mara_demo_tree_lock", *p));
-    let mut expanded: bool = tree
-        .ctx()
-        .data_mut(|d| d.get_persisted::<bool>(exp_key))
-        .unwrap_or(true);
-    let mut eye_on: bool = tree
-        .ctx()
-        .data_mut(|d| d.get_persisted::<bool>(eye_key))
-        .unwrap_or(true);
-    let mut lock_on: bool = tree
-        .ctx()
-        .data_mut(|d| d.get_persisted::<bool>(lock_key))
-        .unwrap_or(false);
+    let mut expanded: bool = tree.persisted_bool(exp_key).unwrap_or(true);
+    let mut eye_on: bool = tree.persisted_bool(eye_key).unwrap_or(true);
+    let mut lock_on: bool = tree.persisted_bool(lock_key).unwrap_or(false);
     let mut swatch_dummy = false;
 
     let mut slots = [
@@ -7052,15 +7057,13 @@ fn walk_demo_tree(
         accent,
         &mut slots,
     );
-    if resp.body.clicked() {
+    if resp.body.clicked {
         *clicked = Some((*p).to_string());
     }
 
-    tree.ctx().data_mut(|d| {
-        d.insert_persisted(exp_key, expanded);
-        d.insert_persisted(eye_key, eye_on);
-        d.insert_persisted(lock_key, lock_on);
-    });
+    tree.set_persisted_bool(exp_key, expanded);
+    tree.set_persisted_bool(eye_key, eye_on);
+    tree.set_persisted_bool(lock_key, lock_on);
 
     if is_branch && expanded {
         for child in *children {

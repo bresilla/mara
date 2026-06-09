@@ -51,9 +51,26 @@ impl Default for NativeOptions {
 
 /// Creation data passed to a Mara-owned window app.
 pub struct CreationContext<'a> {
-    pub egui_ctx: &'a egui::Context,
+    pub(crate) egui_ctx: &'a egui::Context,
     pub render_state: Option<&'a egui_wgpu::RenderState>,
     pub host: MaraHostCtx<'a>,
+}
+
+impl CreationContext<'_> {
+    /// The raw `egui::Context`. Raw-egui escape hatch.
+    #[cfg(feature = "raw-egui")]
+    #[must_use]
+    pub fn egui_ctx(&self) -> &egui::Context {
+        self.egui_ctx
+    }
+
+    /// Internal first-party accessor — NOT part of the public API
+    /// and not semver-stable.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn __internal_egui_ctx(&self) -> &egui::Context {
+        self.egui_ctx
+    }
 }
 
 /// App trait for the window-owning mode.

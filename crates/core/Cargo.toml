@@ -37,6 +37,13 @@ bevy = { workspace = true, optional = true }
 default = ["graph", "code"]
 graph = ["dep:mara_graph"]
 code = ["dep:mara_code"]
+# Unlocks the raw egui escape hatch: the `egui` crate re-export,
+# `MaraUi::raw_ui_mut`, `ViewCtx::egui_ctx`, `TreeBody::ctx`,
+# `PaneBody::ctx`. OFF by default so consumer code can only build
+# UI through Mara's typed surface. First-party host plugins and
+# module crates enable it deliberately; enabling it in an app is a
+# visible, greppable opt-out of the sealed API.
+raw-egui = []
 # Enables `#[derive(bevy::Resource)]` + `bevy::SystemSet` on state
 # types so they slot into a Bevy app as resources without wrappers.
 bevy = ["dep:bevy"]

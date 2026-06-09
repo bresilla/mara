@@ -218,6 +218,14 @@ fn augment_shelf_buttons_with_chrome(
         insert_close_button(&mut out, order);
         changed = true;
     }
+    // Shelf toggle buttons attach to an existing permanent top bar
+    // (possibly the system-button bar created just above) — they never
+    // conjure one out of side rails alone. System window controls are
+    // different: a Mara-native window must always expose close/restore,
+    // so those may create their own ribbon.
+    if !out.iter().any(is_top_permanent_ribbon) {
+        return changed.then_some(out);
+    }
     if has_left && !contains_item(&out, left_shelf_item_id()) {
         insert_left_shelf_button(&mut out, left_visible);
         changed = true;

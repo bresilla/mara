@@ -12,6 +12,7 @@ members = [
     "crates/modules/three_d",
     "crates/modules/bevy",
     "example",
+    "example/sealed",
 ]
 
 

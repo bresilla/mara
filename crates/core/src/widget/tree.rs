@@ -103,13 +103,13 @@ impl<'a> TreeIconSlot<'a> {
 #[derive(Debug)]
 pub struct TreeRowResponse {
     /// Click target covering the label + type-icon area.
-    pub body: egui::Response,
+    pub body: crate::mui::MaraResponse,
     /// Click target for the chevron glyph only. `None` for leaves.
-    pub chevron: Option<egui::Response>,
-    /// One `Response` per entry in the `slots` slice. The widget has
+    pub chevron: Option<crate::mui::MaraResponse>,
+    /// One response per entry in the `slots` slice. The widget has
     /// already toggled each slot's `state` for you on click; this
     /// response is for additional hooks.
-    pub icons: Vec<egui::Response>,
+    pub icons: Vec<crate::mui::MaraResponse>,
     /// `true` when the chevron was clicked with the shift modifier
     /// held — caller's "recursively expand subtree" affordance.
     pub chevron_shift_clicked: bool,
@@ -120,9 +120,9 @@ pub struct TreeRowResponse {
 /// chevron, and an independent embedded tail action (usually `+`).
 #[derive(Debug)]
 pub struct TreeActionRowResponse {
-    pub body: egui::Response,
-    pub chevron: Option<egui::Response>,
-    pub action: egui::Response,
+    pub body: crate::mui::MaraResponse,
+    pub chevron: Option<crate::mui::MaraResponse>,
+    pub action: crate::mui::MaraResponse,
     pub chevron_shift_clicked: bool,
 }
 
@@ -362,9 +362,9 @@ pub fn tree_row(
     }
 
     TreeRowResponse {
-        body,
-        chevron,
-        icons: icon_responses,
+        body: body.into(),
+        chevron: chevron.map(Into::into),
+        icons: icon_responses.into_iter().map(Into::into).collect(),
         chevron_shift_clicked,
     }
 }
@@ -648,9 +648,9 @@ pub fn tree_action_row_with_guide(
     );
 
     TreeActionRowResponse {
-        body,
-        chevron,
-        action,
+        body: body.into(),
+        chevron: chevron.map(Into::into),
+        action: action.into(),
         chevron_shift_clicked,
     }
 }
@@ -1072,20 +1072,61 @@ impl<'a> TreeBody<'a> {
     }
 
     /// Read-only egui context, for persisted-state lookups
-    /// (`ctx().data(...)`).
+    /// (`ctx().data(...)`). Raw-egui escape hatch — sealed
+    /// consumers use the typed persisted-state helpers instead.
+    #[cfg(feature = "raw-egui")]
     #[must_use]
     pub fn ctx(&self) -> &egui::Context {
         self.ui.ctx()
     }
 
     /// Mutable egui context, for persisted-state writes
-    /// (`ctx_mut().data_mut(...)`).
+    /// (`ctx_mut().data_mut(...)`). Raw-egui escape hatch.
+    #[cfg(feature = "raw-egui")]
     #[must_use]
     pub fn ctx_mut(&mut self) -> &egui::Context {
         // egui's `data_mut` only needs `&Context` even though it
         // mutates internal state, so this returns `&Context` not
         // `&mut Context`. The name `ctx_mut` signals intent.
         self.ui.ctx()
+    }
+
+    /// Read a persisted `bool` (e.g. an expanded/collapsed flag)
+    /// keyed by `id`. Typed, sealed replacement for
+    /// `ctx().data(...)`.
+    #[must_use]
+    pub fn persisted_bool(&self, id: egui::Id) -> Option<bool> {
+        self.ui.ctx().data_mut(|d| d.get_persisted::<bool>(id))
+    }
+
+    /// Write a persisted `bool` keyed by `id`. Typed, sealed
+    /// replacement for `ctx_mut().data_mut(...)`.
+    pub fn set_persisted_bool(&mut self, id: egui::Id, value: bool) {
+        self.ui.ctx().data_mut(|d| d.insert_persisted(id, value));
+    }
+
+    /// Read a persisted `String` (e.g. an "armed item" marker)
+    /// keyed by `id`.
+    #[must_use]
+    pub fn persisted_string(&self, id: egui::Id) -> Option<String> {
+        self.ui.ctx().data_mut(|d| d.get_persisted::<String>(id))
+    }
+
+    /// Write a persisted `String` keyed by `id`.
+    pub fn set_persisted_string(&mut self, id: egui::Id, value: String) {
+        self.ui.ctx().data_mut(|d| d.insert_persisted(id, value));
+    }
+
+    /// Read a frame-temporary `String` (e.g. a selection path
+    /// shared with the hosting pane) keyed by `id`.
+    #[must_use]
+    pub fn temp_string(&self, id: egui::Id) -> Option<String> {
+        self.ui.ctx().data(|d| d.get_temp::<String>(id))
+    }
+
+    /// Write a frame-temporary `String` keyed by `id`.
+    pub fn set_temp_string(&mut self, id: egui::Id, value: String) {
+        self.ui.ctx().data_mut(|d| d.insert_temp(id, value));
     }
 
     /// Paint a single tree row. Mirrors [`tree_row`] verbatim.

@@ -4557,7 +4557,7 @@ impl MaraView for View3d {
                     .inner_margin(0.0)
                     .outer_margin(0.0),
             )
-            .show(ctx.egui_ctx, |ui| {
+            .show(ctx.__internal_egui_ctx(), |ui| {
                 let rect = ctx.content_rect().intersect(ui.max_rect());
                 let response = ui.allocate_rect(rect, egui::Sense::click_and_drag());
                 self.paint_preview(ui, response.rect, &response);
@@ -4578,7 +4578,12 @@ impl MaraModule for View3d {
         "cube"
     }
 
-    fn inline(&mut self, ui: &mut egui::Ui, ctx: ModuleInlineCtx<'_>) -> ModuleResponse {
+    fn inline(
+        &mut self,
+        mui: &mut mara_core::MaraUi<'_>,
+        ctx: ModuleInlineCtx<'_>,
+    ) -> ModuleResponse {
+        let ui = mui.__internal_raw_ui();
         ui.group(|ui| {
             ui.label(format!("3D scene: {}", self.scene.title));
             ui.label(format!("{} objects", self.scene.objects.len()));

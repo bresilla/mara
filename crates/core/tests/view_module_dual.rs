@@ -1,5 +1,5 @@
 use mara_core::{
-    MaraModule, MaraView, ModuleInlineCtx, ModuleResponse, ViewCtx, ViewId, WorkspaceCtx,
+    MaraModule, MaraUi, MaraView, ModuleInlineCtx, ModuleResponse, ViewCtx, ViewId, WorkspaceCtx,
 };
 
 struct DualSurface;
@@ -33,7 +33,7 @@ impl MaraModule for DualSurface {
         "dual"
     }
 
-    fn inline(&mut self, _ui: &mut egui::Ui, _ctx: ModuleInlineCtx<'_>) -> ModuleResponse {
+    fn inline(&mut self, _mui: &mut MaraUi<'_>, _ctx: ModuleInlineCtx<'_>) -> ModuleResponse {
         ModuleResponse::none()
     }
 

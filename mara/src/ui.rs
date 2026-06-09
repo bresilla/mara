@@ -3,7 +3,16 @@
 //! This module intentionally has no native-window ownership. Use it
 //! from Bevy, eframe, web, or any other host that already owns its
 //! window/render loop and only wants Mara UI elements.
+//!
+//! ## Sealed by default
+//!
+//! Mara does not re-export `egui` unless the `raw-egui` feature is
+//! enabled. App code builds UI exclusively through Mara's typed
+//! surface (`MaraUi`, `MaraPainter`, pods, panes, shelves, views,
+//! modules) plus the inert data types in [`mara_core::vocab`].
+//! Enabling `raw-egui` is the explicit, greppable escape hatch.
 
+#[cfg(feature = "raw-egui")]
 pub use egui;
 
 #[cfg(feature = "three-d")]
@@ -43,6 +52,7 @@ pub mod modules {
 
 pub mod prelude {
     pub use crate::host::{MaraHostCtx, MaraWindowHost};
+    #[cfg(feature = "raw-egui")]
     pub use egui;
     #[cfg(feature = "three-d")]
     pub use mara_3d;

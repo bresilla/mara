@@ -42,9 +42,9 @@ pub const HYBRID_SELECT_ROW_H: f32 = SELECT_ROW_H;
 #[derive(Debug)]
 pub struct HybridSelectResponse {
     /// Click target covering everything except the radio slot.
-    pub body: egui::Response,
+    pub body: crate::mui::MaraResponse,
     /// Click target for the right-edge radio circle only.
-    pub radio: egui::Response,
+    pub radio: crate::mui::MaraResponse,
 }
 
 /// Plain select row — one click target across the whole row.
@@ -209,7 +209,10 @@ pub fn hybrid_select_row_h(
         );
     }
 
-    HybridSelectResponse { body, radio }
+    HybridSelectResponse {
+        body: body.into(),
+        radio: radio.into(),
+    }
 }
 
 fn paint_row_bg(

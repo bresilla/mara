@@ -5,8 +5,6 @@
 //! (theme, close, render helpers) without knowing whether the window
 //! is owned by Mara, eframe, Bevy, web, or something else.
 
-use crate::ui::egui;
-
 /// Per-frame host context passed from the app shell to Mara views.
 #[derive(Clone, Copy)]
 pub struct MaraHostCtx<'a> {
@@ -42,7 +40,18 @@ impl<'a> MaraHostCtx<'a> {
         Self::new(egui, render_state, MaraWindowHost::MaraNative)
     }
 
+    /// The raw `egui::Context`. Raw-egui escape hatch — host glue
+    /// that drives the frame loop enables the `raw-egui` feature;
+    /// sealed app content never needs this.
+    #[cfg(feature = "raw-egui")]
     pub fn egui(&self) -> &'a egui::Context {
+        self.egui
+    }
+
+    /// Internal first-party accessor — NOT part of the public API
+    /// and not semver-stable.
+    #[doc(hidden)]
+    pub fn __internal_egui(&self) -> &'a egui::Context {
         self.egui
     }
 
