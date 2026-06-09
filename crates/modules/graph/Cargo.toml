@@ -21,8 +21,3 @@ serde = { version = "1", features = ["derive"], optional = true }
 [features]
 # Upstream cfg gates that survived vendoring.
 serde = ["dep:serde", "egui/serde"]
-# `egui-probe` stays as a no-op compatibility marker: the vendored
-# source keeps its annotations behind an impossible cfg predicate so
-# workspace `--all-features` remains a valid hardening gate without
-# pulling the optional upstream probe crate into Mara.
-egui-probe = []

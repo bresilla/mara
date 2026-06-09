@@ -2,17 +2,15 @@
 //! `egui::DragValue` on the right — drag horizontally to change the
 //! value, click to type. 1U row.
 //!
-//! Mirrors the legacy drag-value widget. Drops the
-//! row-layout opinion (70/30 dual-pane); pods compose drag-value
-//! widgets into rows themselves.
+//! Pods compose drag-value widgets into rows themselves; this file
+//! only owns the single input row.
 
 use std::ops::RangeInclusive;
 
 use crate::style::{BODY_FONT_SIZE, on_panel, theme};
 
-/// Fixed width of the value box. Retains the legacy drag-value
-/// input width so multiple drag-value
-/// rows stack with their boxes aligned.
+/// Fixed width of the value box, so multiple drag-value rows stack
+/// with their boxes aligned.
 pub const DRAG_VALUE_INPUT_WIDTH: f32 = 72.0;
 /// Default row height — same as toggle / progressbar / slider so
 /// mixed rows in a pod line up.

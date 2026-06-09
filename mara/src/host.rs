@@ -137,7 +137,7 @@ impl<'a> EframeNodeViewBackend<'a> {
 }
 
 #[cfg(feature = "graph")]
-impl<'a> mara_core::extras::node_view::NodeViewBackend for EframeNodeViewBackend<'a> {
+impl<'a> mara_graph::node_view::NodeViewBackend for EframeNodeViewBackend<'a> {
     fn wgpu(&self) -> (wgpu::Device, wgpu::Queue) {
         (
             self.render_state.device.clone(),

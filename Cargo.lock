@@ -1026,6 +1026,7 @@ dependencies = [
  "egui",
  "mara_bevy",
  "mara_core",
+ "mara_graph",
  "pollster",
  "wgpu",
 ]

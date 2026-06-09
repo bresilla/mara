@@ -1038,7 +1038,7 @@ const SCRAMBLE_CHARS: &[char] = &[
 /// (or while gated, so the random glyphs keep cycling).
 pub fn scramble_text(ctx: &egui::Context, id: egui::Id, current: &str, active: bool) -> String {
     /// Staggered delay between adjacent characters' lock times.
-    /// `0.07` was the legacy default, but with `Pane`'s
+    /// `0.07` was the earlier default, but with `Pane`'s
     /// per-section staggered fade-in landing the last container at
     /// ~0.81 s, the first container's cipher finished too early —
     /// most letters had already locked by the time the user could
@@ -1291,7 +1291,6 @@ pub mod radius {
     /// matches the wider widgets'.
     pub const COMPACT: u8 = 3;
     /// Progress bars, chips, bars-within-rows.
-    /// *(Legacy — prefer `WIDGET` for new code.)*
     pub const SM: u8 = 3;
     /// Foldable container cards. Larger than `WIDGET` so the
     /// container reads as a surface and the widgets inside read
@@ -1821,7 +1820,6 @@ pub struct TextTheme {
     pub title_color_mode: TextColorMode,
     pub title_softness: f32,
     pub body_accent_darken: f32,
-    pub subcaption_prefix: Option<&'static str>,
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -2081,10 +2079,6 @@ pub struct Theme {
     /// `section_caps`. PRO `0.0`, GAME `1.5` — wide tracking is the
     /// near-universal "this is a system / game UI heading" cue.
     pub section_title_letter_spacing: f32,
-    /// Optional glyph prefix prepended to `sub_caption` text. PRO
-    /// `None`, GAME `Some("// ")` — `fsociety` / Helldivers / VS
-    /// console comment marker; reads as code-style annotation.
-    pub subcaption_prefix: Option<&'static str>,
     /// `true` → paint a dashed accent rule along the section's
     /// bottom edge after the body finishes rendering. Gives every
     /// section a "closes here" boundary even when there are no
@@ -2159,7 +2153,7 @@ pub struct Theme {
     pub section_title_trailing_rule: bool,
     /// Length of the L-bracket arms painted at the four corners of
     /// the section / pane's outer rect — the iconic HUD anchor seen
-    /// in Destiny 2, Apex, Rainbow Six, Tron Legacy. `0.0` skips them
+    /// in Destiny 2, Apex, Rainbow Six, Tron-era HUDs. `0.0` skips them
     /// entirely (PRO); a positive value paints two perpendicular
     /// strokes of that length flush at each corner. GAME `7.0`.
     pub section_corner_ticks: f32,
@@ -2594,7 +2588,9 @@ fn publish_screen_metrics(metrics: ScreenMetrics) {
     let w = (metrics.width.round().clamp(0.0, 65535.0)) as u32;
     let h = (metrics.height.round().clamp(0.0, 65535.0)) as u32;
     SCREEN_WH.store((w << 16) | h, Ordering::Relaxed);
-    let ppp_centis = ((metrics.pixels_per_point * 100.0).round().clamp(0.0, 65535.0)) as u32;
+    let ppp_centis = ((metrics.pixels_per_point * 100.0)
+        .round()
+        .clamp(0.0, 65535.0)) as u32;
     let flags = (ppp_centis << 16)
         | ((touch as u32) << 8)
         | u32::from(breakpoint_to_u8(metrics.breakpoint));
@@ -3294,7 +3290,7 @@ pub fn on_track_dim() -> egui::Color32 {
 /// Derived "hover" variant of the runtime accent — used by the
 /// scrollbar's foreground colour for the handle's hover state, and
 /// by any widget that wants a lighter accent for hover affordance.
-/// Lerps the accent 25 % toward white. Replaces the legacy
+/// Lerps the accent 25 % toward white. Replaces direct
 /// hardcoded `ACCENT_HOVER` constant which never tracked the user's
 /// chosen accent.
 pub fn accent_hover() -> egui::Color32 {
@@ -3303,7 +3299,7 @@ pub fn accent_hover() -> egui::Color32 {
 
 /// Derived "pressed" variant of the runtime accent — used by the
 /// scrollbar's drag-state foreground and the code-editor selection
-/// fill. Lerps the accent 25 % toward black. Replaces the legacy
+/// fill. Lerps the accent 25 % toward black. Replaces direct
 /// `ACCENT_PRESSED`.
 pub fn accent_pressed() -> egui::Color32 {
     lerp_rgb(active_accent(), egui::Color32::BLACK, 0.25)

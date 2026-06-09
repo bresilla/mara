@@ -2,18 +2,16 @@
 //! Label on the left, pill track + sliding knob on the right —
 //! row total height = 1U ([`crate::style::UNIT`]) by default.
 //!
-//! Mirrors the legacy row-with-label toggle; the standalone track
-//! variant corresponds to [`toggle_track_only`] here.
+//! The standalone track variant is [`toggle_track_only`].
 
 use crate::style::{
     BODY_FONT_SIZE, FillRole, RadiusRole, StrokeRole, body_accent, fill_for, on_panel, on_track,
     radius_for, stroke_for, theme,
 };
 
-/// Default toggle row height. Retained from the legacy toggle
-/// metric so migrated UIs keep the same scale.
+/// Default toggle row height.
 pub const TOGGLE_ROW_H: f32 = 18.0;
-/// Track width — retained from the legacy toggle metric.
+/// Track width.
 pub const TOGGLE_TRACK_W: f32 = 38.0;
 
 /// Default labelled toggle row.

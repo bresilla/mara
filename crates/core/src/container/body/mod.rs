@@ -76,8 +76,8 @@ impl Body {
     /// for vertical-strip we `set_max_width(span_inner)` too, since
     /// `span_inner` IS the cross axis from the body's perspective
     /// regardless — the body's main axis is always Y because we
-    /// force `top_down`. (The legacy `max_flow` cap is kept for
-    /// callers that need to bound the body's perpendicular extent.)
+    /// force `top_down`. `max_flow` is still available for callers
+    /// that need to bound the body's perpendicular extent.
     pub fn paint<R>(&self, ui: &mut Ui, body: impl FnOnce(&mut Ui) -> R) -> (R, f32) {
         let slot_size = ui.available_rect_before_wrap().size();
         let span_inner = self.span_inner;

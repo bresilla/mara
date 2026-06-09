@@ -84,8 +84,7 @@ pub struct Normal {
     /// In PRO theme (`section_icon_at_end = false`) the icon is
     /// inlined into the title `LayoutJob` at the reading-start. In
     /// GAME theme (`section_icon_at_end = true`) it floats at the
-    /// strip's far end and grows when the body unfolds — matching
-    /// the legacy tracked-section visual.
+    /// strip's far end and grows when the body unfolds.
     icon: Option<Icon<'static>>,
     /// Optional override for the body slot's flow-axis size. Default
     /// derives from `CONTAINER_DEFAULT_HEIGHT/WIDTH` minus chrome,
@@ -782,7 +781,7 @@ impl Normal {
     /// Paint the container chrome (title strip, accent banner,
     /// frame, fold animation) with a caller-supplied body closure
     /// instead of the canonical pod list. Use only for
-    /// compatibility shims that need to host non-`'static` content
+    /// adapters that need to host non-`'static` content
     /// (e.g. closures borrowing Bevy `Res`/`ResMut` parameters);
     /// regular call sites should still go through
     /// [`Normal::show`] with [`crate::pod::Pod`] entries so the
@@ -986,8 +985,7 @@ impl Normal {
         let total_gap = container_theme.title_body_gap_half * 2.0 * openness;
         let visible_body_flow = openness * full_body_flow;
 
-        // ── Per-section staggered fade-in, carried forward from
-        //    the legacy pane section builder. ──
+        // ── Per-section staggered fade-in. ──
         //
         // Look up the parent Pane's id via the global "active
         // pane" pointer (Normal's own `pane_id` field is the
@@ -1025,8 +1023,7 @@ impl Normal {
         // bail out entirely — no layout slot, no paint. The other
         // containers below collapse upward to fill the gap, and
         // the floating preview painted by `Pane`'s finalize
-        // shows what's being held. Matches the legacy section
-        // early-return behavior.
+        // shows what's being held.
         let active = pane::active_drag(ui.ctx());
         let is_dragging_self = active
             .and_then(|(_, s)| s.item)
@@ -1359,8 +1356,7 @@ impl Normal {
         );
     }
 
-    /// Same recipe as the legacy tracked-section
-    /// outer frame: glass-card fill, accent-tinted border, theme
+    /// Outer frame recipe: glass-card fill, accent-tinted border, theme
     /// `radius_md` corners. When the active theme has
     /// `section_show_frame = false` (GAME) we drop the visuals and
     /// keep just the inner padding so body content sits flush.
@@ -2296,9 +2292,7 @@ fn paint_title(
     }
 
     // Floating icon (GAME mode) — paints AFTER the title text so it
-    // rides on top of the banner. Same recipe as the legacy
-    // tracked-section right-edge
-    // icon: small when folded so it tucks inside the collapsed
+    // rides on top of the banner. Small when folded so it tucks inside the collapsed
     // banner, big when open so it overflows the strip and reads as a
     // floating ornament. The growth is `smoothstep`-eased so it pops
     // through `cubic-bezier(0.42, 0, 0.58, 1)` rather than linear.
@@ -2308,8 +2302,7 @@ fn paint_title(
 }
 
 /// Paint a "floating" icon on the title strip — small when folded,
-/// big when open. Mirrors the legacy foldable-section
-/// right-edge icon: the icon overflows the strip's body-facing edge
+/// big when open. The icon overflows the strip's body-facing edge
 /// when fully open, framed by clipping +8 px around the painted
 /// rect. Vertical strips paint the icon centred (no rotation —
 /// Fluent glyphs read fine in either orientation, and rotating
@@ -2330,8 +2323,8 @@ fn paint_floating_icon(
     if base_size <= 0.0 {
         return;
     }
-    // Constants pulled from the legacy foldable-section tuned
-    // values — keep them in sync if either gets re-tuned.
+    // Tuned values — keep them in sync if the section icon animation
+    // gets re-tuned.
     let folded_size = base_size * 0.85;
     let unfolded_size = base_size * 2.9106;
     const UNFOLDED_OFFSET: f32 = 29.294;
@@ -2466,7 +2459,7 @@ fn paint_floating_icon(
 
 /// Polynomial smoothstep, `t * t * (3 - 2t)`. Approximates
 /// `cubic-bezier(0.42, 0, 0.58, 1)` for a gentle ease-in-ease-out —
-/// matches the same helper used by the legacy foldable-section animation.
+/// used by the foldable-section animation.
 #[inline]
 fn smoothstep(t: f32) -> f32 {
     let t = t.clamp(0.0, 1.0);

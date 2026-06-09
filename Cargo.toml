@@ -26,7 +26,7 @@ repository = "https://github.com/bresilla/bevy_mara"
 # crate pulls egui through `workspace = true` so the workspace
 # compiles against a single resolved egui.
 egui = { version = "0.33", default-features = false }
-# egui-wgpu — used by `mara_core::extras::node_view` to render a
+# egui-wgpu — used by `mara_graph::node_view` to render a
 # secondary egui::Context into an offscreen wgpu texture, so node
 # graph editors stay sharp at any zoom level (sub-context's
 # pixels_per_point compensates for zoom). Both `bevy_egui` and

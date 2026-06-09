@@ -15,6 +15,7 @@ readme = "README.md"
 # code editor) under `bevy_mara::extras::*`.
 mara_core = { workspace = true, features = ["bevy"] }
 mara_bevy = { workspace = true }
+mara_graph = { workspace = true, optional = true }
 # Direct egui dep — needed by the input-firewall plugin and the
 # `gizmo_material` shader. The vendored extras (`mara_graph` +
 # `mara_code`) ship as standalone crates so their transitive deps
@@ -73,5 +74,5 @@ bevy_glacial = { git = "https://github.com/bresilla/bevy_glacial.git", rev = "d7
 # pick which standalone extras (`mara_graph`, `mara_code`) and
 # their mara-tinted wrappers compile in.
 default = ["graph", "code"]
-graph = ["mara_core/graph"]
+graph = ["mara_core/graph", "dep:mara_graph"]
 code = ["mara_core/code"]

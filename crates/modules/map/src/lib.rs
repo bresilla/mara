@@ -592,8 +592,8 @@ impl MaraModule for MapSurface {
     fn inline(&mut self, ui: &mut egui::Ui, ctx: ModuleInlineCtx<'_>) -> ModuleResponse {
         let response = ui.group(|ui| {
             let annotation_count = self.document.annotations.len().to_string();
-            mara_core::readout_row(ui, "Map", &self.document.title);
-            mara_core::readout_row(ui, "annotations", &annotation_count);
+            mara_core::readout(ui, "Map", &self.document.title);
+            mara_core::readout(ui, "annotations", &annotation_count);
             if ctx.can_enter_workspace() && mara_core::button(ui, "Open map", ctx.accent).clicked()
             {
                 ModuleResponse::enter_workspace()

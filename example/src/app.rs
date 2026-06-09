@@ -1952,7 +1952,7 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
     // — graph and code get their own toolsets, picked via the
     // module-supplied `is_graph_fullscreen` / `is_code_fullscreen`
     // helpers.
-    let fs_active = mara_core::extras::maximize::is_any_fullscreen(ctx);
+    let fs_active = mara_core::embed::is_any_fullscreen(ctx);
     let graph_fs = mara_core::extras::graph::is_graph_fullscreen(ctx);
     let code_fs = mara_core::extras::code::is_code_fullscreen(ctx, cid(PANE_EDITOR, "code_state"));
     if fs_active {
@@ -2018,8 +2018,7 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
         // The ribbon button may be relocated by the phone reflow (top →
         // bottom, top/bottom → side). Anchor the pane to the button's
         // CURRENT edge so it opens where the icon actually is.
-        let edge =
-            mara_core::phone_remapped_ribbon_edge(def.edge, cluster, demo_ribbon_scope(rid));
+        let edge = mara_core::phone_remapped_ribbon_edge(def.edge, cluster, demo_ribbon_scope(rid));
         Some(match edge {
             RibbonEdge::Left => PaneAnchor::LeftRail(zone),
             RibbonEdge::Right => PaneAnchor::RightRail(zone),
@@ -4051,8 +4050,8 @@ fn three_d_inspector_pane(body: &mut PaneBody, three_d: &ThreeDViewState) {
 
 /// **Editor pane** — node graph (top) + code editor (bottom),
 /// each in its own container with a fill pod so they soak up the
-/// pane's available space. Mirrors the legacy demo's Editor pane,
-/// now driven by the vendored `mara_core::extras` wrappers.
+/// pane's available space. Driven by the vendored `mara_core::extras`
+/// wrappers.
 ///
 /// The graph container is rendered via `Normal::show_raw` rather
 /// than the standard `with_custom_units` pod path so we can pass

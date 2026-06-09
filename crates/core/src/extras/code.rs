@@ -3,7 +3,7 @@
 //! through the same maximise / restore affordance the graph
 //! widget uses.
 //!
-//! Minimal usage (inside a [`section`](crate::widgets::section)
+//! Minimal usage (inside a [`section`](crate::widget::section)
 //! body, since panes require containers):
 //!
 //! ```ignore

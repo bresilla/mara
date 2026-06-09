@@ -32,8 +32,8 @@ pub const CONTAINER_DEFAULT_FLOW: f32 = 200.0;
 pub const CONTAINER_MIN_FLOW: f32 = crate::style::UNIT;
 /// Upper bound on any container's persisted flow size.
 pub const CONTAINER_MAX_FLOW: f32 = 1200.0;
-/// Legacy auto-fit cap for vertically-stacked containers — kept
-/// public so callers that want a hard cap can pass it as an
+/// Auto-fit cap for vertically-stacked containers. Kept public so
+/// callers that want a hard cap can pass it as an
 /// explicit `Normal::initial_flow` override. The default
 /// auto-fit path (in [`container_flow`]) NO LONGER applies this
 /// cap; intrinsic content height is honoured up to

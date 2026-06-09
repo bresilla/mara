@@ -632,13 +632,8 @@ impl Primitive3d {
         // Slope-tilted normal at angle phi on a cone with apex up and
         // bottom radius r, height h. Derivation: normal = (cos*h, r,
         // sin*h) / sqrt(r²+h²).
-        let side_normal = |angle: f32| -> Vec3 {
-            [
-                angle.cos() * h / slant,
-                r / slant,
-                angle.sin() * h / slant,
-            ]
-        };
+        let side_normal =
+            |angle: f32| -> Vec3 { [angle.cos() * h / slant, r / slant, angle.sin() * h / slant] };
 
         let mut vertices = Vec::new();
         let mut normals = Vec::new();
@@ -698,9 +693,8 @@ impl Primitive3d {
         let slant = (dr * dr + height * height).sqrt().max(1.0e-5);
         let nx_scale = height / slant;
         let ny = dr / slant;
-        let side_normal = |angle: f32| -> Vec3 {
-            [angle.cos() * nx_scale, ny, angle.sin() * nx_scale]
-        };
+        let side_normal =
+            |angle: f32| -> Vec3 { [angle.cos() * nx_scale, ny, angle.sin() * nx_scale] };
 
         let mut vertices = Vec::new();
         let mut normals = Vec::new();

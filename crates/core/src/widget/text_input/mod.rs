@@ -20,9 +20,7 @@
 //! to each keystroke (the clear button also marks the response as
 //! changed when clicked).
 //!
-//! Ported from the legacy search-field widget, minus the
-//! `flush_pending_separator` glue (mara_core doesn't carry that
-//! side-channel).
+//! Separator chrome belongs to `Pod`, not to the text field.
 
 use egui;
 

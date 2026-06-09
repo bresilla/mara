@@ -6,7 +6,7 @@
 //!
 //! * [`mara_node_graph_style`] — builds a [`GraphStyle`] configured with
 //!   mara's `BG_*` / `widget_border` / accent colours, the same
-//!   corner radius as [`section`](crate::widgets::foldable::section),
+//!   corner radius as [`section`](crate::widget::foldable::section),
 //!   and a pin/wire width that matches the border stroke. Pass the
 //!   returned style straight into
 //!   [`GraphWidget::style`](egui_graph::ui::GraphWidget::style).
@@ -54,7 +54,7 @@ use crate::style::{
 ///
 /// * **Node frame** — `BG_2_RAISED` glass fill + `widget_border`
 ///   stroke + `crate::style::theme().radius_md` corner, matching
-///   [`section`](crate::widgets::foldable::section) so nodes look
+///   [`section`](crate::widget::foldable::section) so nodes look
 ///   like first-class mara surfaces.
 /// * **Background** — `BG_1_PANEL` glass fill behind everything,
 ///   the same colour a floating window uses, so the graph canvas

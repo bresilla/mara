@@ -15,6 +15,3 @@ serde = { version = "1", features = ["derive"], optional = true }
 # survived vendoring. The crate now compiles its egui/editor code
 # unconditionally.
 serde = ["dep:serde"]
-# No-op compatibility marker; the vendored code currently has no
-# probe annotations.
-egui-probe = []

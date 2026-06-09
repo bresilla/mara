@@ -12,8 +12,7 @@
 //! Returns a `Response` so callers can attach hover tooltips or
 //! detect double-clicks (e.g. "double-click to copy").
 //!
-//! Mirrors the legacy `readout_row` shape, minus the flush/widget
-//! separator glue (mara_core's Pod owns separators).
+//! Separator chrome is owned by `Pod`, not by the readout widget.
 
 use crate::style::{UNIT, on_section, on_section_dim, theme};
 

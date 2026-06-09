@@ -14,17 +14,16 @@
 pub use mara_core::*;
 
 pub use crate::{
-    EguiInputAbsorbPlugin, MaraPlugin, RibbonGhostSet, RibbonPlugin, ThemePlugin,
-    embedded_view::{
-        BevyEmbeddedView, BevyViewportAppConfigure, BevyViewportBridge, BevyViewportInput,
-        BevyViewportPickedColor, BevyViewportRenderTarget, BevyViewportSet, BevyViewportTexture,
-        BevyViewportWgpuResources, CapturedBevyFrame, EmbeddedBevyViewport, MaraBevyViewport,
-        make_viewport_render_target, spawn_viewport_camera,
-    },
+    BevyEmbeddedView, BevyViewportAppConfigure, BevyViewportBridge, BevyViewportInput,
+    BevyViewportPickedColor, BevyViewportRenderTarget, BevyViewportSet, BevyViewportTexture,
+    BevyViewportWgpuResources, CapturedBevyFrame, EguiInputAbsorbPlugin, EmbeddedBevyViewport,
+    MaraBevyViewport, MaraPlugin, RibbonGhostSet, RibbonPlugin, ThemePlugin,
     gizmo_material::GizmoMaterial,
+    make_viewport_render_target,
     node_view_backend::{
         BevyNodeViewBackend, NodeViewCopy, NodeViewPlugin, NodeViewSlots, PendingNodeViewCopies,
     },
+    spawn_viewport_camera,
     window_chrome::{
         MaraWindowChromeInputClaim, MaraWindowChromePlugin, MaraWindowChromeSet,
         MaraWindowChromeSettings,

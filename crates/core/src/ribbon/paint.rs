@@ -189,7 +189,7 @@ pub(crate) fn paint_ribbon_button(
 
     // PRO recipe — theme-aware: idle uses the active panel fill,
     // hover lifts to bg_raised, active blends 25 % accent into the
-    // raised tier. Replacing the legacy hard-coded `BG_*` constants
+    // raised tier. Replacing hard-coded `BG_*` constants
     // so light variants stop painting near-black ribbon buttons on
     // a white window.
     let bg_raised = theme.bg_raised;

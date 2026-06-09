@@ -15,25 +15,7 @@
 //! * `code` (default-on) — enables [`code`] and pulls in
 //!   [`mara_code`].
 //!
-//! Legacy paths `extras::maximize` (now [`crate::embed`]),
-//! `extras::node_view` (now [`mara_graph::node_view`]),
-//! `extras::vendored` / `extras::code_editor` (now the contents of
-//! the two standalone crates) are kept as re-exports under
-//! `#[doc(hidden)]` so existing imports keep compiling.
-
 #[cfg(feature = "code")]
 pub mod code;
 #[cfg(feature = "graph")]
 pub mod graph;
-
-/// Legacy alias — `extras::maximize` was promoted to the
-/// crate-root [`embed`](crate::embed) module.
-#[doc(hidden)]
-pub use crate::embed as maximize;
-
-/// Legacy alias — `extras::node_view` lives in
-/// [`mara_graph::node_view`] now that the graph is a standalone
-/// crate.
-#[cfg(feature = "graph")]
-#[doc(hidden)]
-pub use mara_graph::node_view;

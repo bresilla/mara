@@ -1,7 +1,6 @@
 //! Drag-reorder for [`super::Pane`] containers.
 //!
-//! Drag model carried forward from the legacy floating-section
-//! implementation. The pattern is:
+//! Drag-reorder pattern:
 //!
 //! * **The dragged container `return`s early** in `Normal::show` —
 //!   it doesn't allocate a layout slot, so the OTHER containers

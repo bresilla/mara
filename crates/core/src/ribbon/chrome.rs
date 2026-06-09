@@ -1303,8 +1303,11 @@ mod tests {
             let base = compute_side_insets(&order);
             let left_ribbon = order.iter().find(|r| r.edge == RibbonEdge::Left).unwrap();
             let bottom_ribbon = order.iter().find(|r| r.edge == RibbonEdge::Bottom).unwrap();
-            let left_strip =
-                strip_rect(left_ribbon, &ctx, insets_for_ribbon(&order, left_ribbon, base));
+            let left_strip = strip_rect(
+                left_ribbon,
+                &ctx,
+                insets_for_ribbon(&order, left_ribbon, base),
+            );
             let bottom_strip = strip_rect(
                 bottom_ribbon,
                 &ctx,

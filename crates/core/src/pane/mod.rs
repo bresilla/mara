@@ -563,8 +563,7 @@ impl Pane {
             PANE_OUTER_SPAN
         };
 
-        // ── Per-pane staggered fade-in clock, carried forward from
-        //    the legacy pane builder. ──
+        // ── Per-pane staggered fade-in clock. ──
         //
         // Tracks elapsed seconds since this pane became visible.
         // The `cumulative_pass_nr + 1 < frame_now` check detects
@@ -683,7 +682,7 @@ impl Pane {
         //
         // When `PaneResize::flow` is ON, the user drives this with
         // the inner-edge resize handle and the body slot is split
-        // evenly across containers (legacy behaviour).
+        // evenly across containers.
         //
         // When `PaneResize::flow` is OFF — the new "individually
         // resizable containers" model — the pane auto-sizes from

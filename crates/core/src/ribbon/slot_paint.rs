@@ -804,7 +804,10 @@ mod tests {
         assert!(kept.iter().any(|r| r.edge == RibbonEdge::Bottom));
 
         // No panel open → nothing removed.
-        assert_eq!(hide_side_rails_under_open_panels(set.clone(), false, false).len(), 3);
+        assert_eq!(
+            hide_side_rails_under_open_panels(set.clone(), false, false).len(),
+            3
+        );
     }
 
     #[test]
@@ -818,11 +821,7 @@ mod tests {
     fn shelf_buttons_are_absent_without_side_shelves() {
         let ribbons = vec![top_ribbon(
             RibbonCluster::Start,
-            vec![item(
-                "system.maximize.item",
-                "maximize",
-                RibbonAction::Noop,
-            )],
+            vec![item("system.maximize.item", "maximize", RibbonAction::Noop)],
         )];
 
         assert!(
@@ -872,11 +871,7 @@ mod tests {
         let ribbons = vec![top_ribbon(
             RibbonCluster::Start,
             vec![
-                item(
-                    "system.maximize.item",
-                    "maximize",
-                    RibbonAction::Noop,
-                ),
+                item("system.maximize.item", "maximize", RibbonAction::Noop),
                 item("view.switch.item", "cube", RibbonAction::Noop),
             ],
         )];
@@ -907,11 +902,7 @@ mod tests {
     fn hidden_declared_shelf_keeps_inactive_top_bar_button() {
         let ribbons = vec![top_ribbon(
             RibbonCluster::Start,
-            vec![item(
-                "system.maximize.item",
-                "maximize",
-                RibbonAction::Noop,
-            )],
+            vec![item("system.maximize.item", "maximize", RibbonAction::Noop)],
         )];
 
         let augmented = augment_shelf_buttons(
