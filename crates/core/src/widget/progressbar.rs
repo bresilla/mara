@@ -2,19 +2,17 @@
 //! caption on top, full-width filled bar below. Total height =
 //! 2 × [`crate::style::UNIT`] (= 2U) by default.
 //!
-//! Mirrors the legacy `pretty_progressbar` /
-//! `pretty_progressbar_text` shape. Drops the digit-tumble + smoothed-
-//! fraction animations for v1; can be added back as polish.
+//! Digit-tumble and smoothed-fraction animations are deliberately
+//! left out of the base widget; add them above this layer if needed.
 
 use crate::style::{
     BODY_FONT_SIZE, FillRole, RadiusRole, StrokeRole, contrast_text_for, fill_for, on_panel_dim,
     on_track, radius_for, stroke_for, theme,
 };
 
-/// Bar row height — retained from the legacy progressbar metric.
+/// Bar row height.
 pub const PROGRESSBAR_ROW_H: f32 = 18.0;
-/// Inline readout font size — retained from the legacy progressbar
-/// value metric (monospace).
+/// Inline readout font size (monospace).
 pub const PROGRESSBAR_VALUE_FONT: f32 = 11.0;
 
 /// Default progress bar (2 × [`PROGRESSBAR_ROW_H`] = 36 px total —

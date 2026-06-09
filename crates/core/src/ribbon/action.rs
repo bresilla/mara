@@ -10,5 +10,9 @@ pub enum RibbonAction {
     PushModuleWorkspace(Id),
     PopWorkspace,
     CloseApp,
+    /// Toggle the host window between maximized and restored. Emitted by
+    /// the left-edge window control; gated by the same window-controls
+    /// policy as [`RibbonAction::CloseApp`].
+    ToggleMaximize,
     Noop,
 }

@@ -258,10 +258,28 @@ impl<'ui, 'spec> PaneBody<'ui, 'spec> {
     /// Direct access to the underlying egui context — useful for
     /// reading persisted state or sending viewport commands. There
     /// is intentionally **no** `ui()` accessor; the typed wrapper
-    /// is the only way to paint into the pane.
+    /// is the only way to paint into the pane. Raw-egui escape
+    /// hatch: sealed consumers never see an `egui::Context`.
+    #[cfg(feature = "raw-egui")]
     #[must_use]
     pub fn ctx(&self) -> &egui::Context {
         self.ui.ctx()
+    }
+
+    /// Current text of the `search_idx`-th search widget inside the
+    /// pod `pod_id`. Sealed equivalent of
+    /// [`Pod::search_query`](crate::pod::Pod::search_query), for
+    /// pane bodies that filter their own content by a search pod.
+    #[must_use]
+    pub fn search_query(&self, pod_id: Id, search_idx: usize) -> String {
+        crate::pod::Pod::search_query(self.ui.ctx(), pod_id, search_idx)
+    }
+
+    /// Read a frame-temporary `String` (e.g. a selection path a
+    /// tree widget published) keyed by `id`.
+    #[must_use]
+    pub fn temp_string(&self, id: Id) -> Option<String> {
+        self.ui.ctx().data(|d| d.get_temp::<String>(id))
     }
 
     /// Append a normal container (single body, pod list).

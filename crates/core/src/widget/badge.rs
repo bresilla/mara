@@ -15,8 +15,8 @@ use egui::{Sense, vec2};
 use crate::style::{UNIT, on_section, theme};
 use crate::widget::chip::{chip, chip_colored};
 
-/// Width of the label column, in px. Retained from the legacy row
-/// layout — wide enough for typical labels at body font size.
+/// Width of the label column, in px — wide enough for typical labels
+/// at body font size.
 pub const BADGE_LABEL_COL_W: f32 = 96.0;
 
 /// Row height, in px. Matches the canonical 1U so a row of

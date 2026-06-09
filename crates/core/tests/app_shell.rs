@@ -100,67 +100,6 @@ fn permanent_ribbon_on_edge(id: &'static str, edge: RibbonEdge) -> RibbonSlotDef
 }
 
 #[test]
-fn app_shell_chrome_rejects_duplicate_permanent_slot_ids_when_merging() {
-    let slot_id = RibbonSlotId::new("shared.slot");
-    let first = RibbonSlotDef::new(
-        egui::Id::new("main.bar"),
-        RibbonScope::Permanent,
-        RibbonEdge::Top,
-        RibbonCluster::Middle,
-        vec![RibbonSlot::new(
-            slot_id,
-            Some(RibbonSlotItem::new(
-                egui::Id::new("first"),
-                "settings",
-                "First",
-                "First",
-                RibbonAction::Noop,
-            )),
-            RibbonOverridePolicy::Fixed,
-        )],
-    );
-    let second = RibbonSlotDef::new(
-        egui::Id::new("extra.bar"),
-        RibbonScope::Permanent,
-        RibbonEdge::Top,
-        RibbonCluster::Middle,
-        vec![RibbonSlot::new(
-            slot_id,
-            Some(RibbonSlotItem::new(
-                egui::Id::new("second"),
-                "info",
-                "Second",
-                "Second",
-                RibbonAction::Noop,
-            )),
-            RibbonOverridePolicy::Fixed,
-        )],
-    );
-
-    let result = std::panic::catch_unwind(|| {
-        let _ = mara_core::AppShellChrome::new(first).with_permanent_ribbon(second);
-    });
-
-    assert!(result.is_err());
-}
-
-#[test]
-fn app_shell_chrome_rejects_non_permanent_merged_ribbon() {
-    let result = std::panic::catch_unwind(|| {
-        let _ = mara_core::AppShellChrome::new(empty_permanent_ribbon("main.bar"))
-            .with_permanent_ribbon(RibbonSlotDef::new(
-                egui::Id::new("view.local.bar"),
-                RibbonScope::View(ViewId::new("canvas")),
-                RibbonEdge::Top,
-                RibbonCluster::Middle,
-                Vec::new(),
-            ));
-    });
-
-    assert!(result.is_err());
-}
-
-#[test]
 fn app_shell_resolves_permanent_and_active_view_ribbons() {
     let mut router = ViewRouter::new(ShellView::new("bevy", "Bevy"));
     let permanent = permanent_main_with_system_control();
@@ -691,23 +630,6 @@ fn app_shell_chrome_rejects_main_bar_that_accepts_icon_drops() {
     });
 
     assert!(result.is_err());
-}
-
-#[test]
-fn app_shell_chrome_rejects_non_top_merged_permanent_ribbons() {
-    for edge in [RibbonEdge::Left, RibbonEdge::Right, RibbonEdge::Bottom] {
-        let result = std::panic::catch_unwind(|| {
-            let _ = main_bar_with_slots(vec![]).with_permanent_ribbon(RibbonSlotDef::new(
-                egui::Id::new(("non.top.extra.bar", format!("{edge:?}"))),
-                RibbonScope::Permanent,
-                edge,
-                RibbonCluster::Middle,
-                Vec::new(),
-            ));
-        });
-
-        assert!(result.is_err());
-    }
 }
 
 #[test]

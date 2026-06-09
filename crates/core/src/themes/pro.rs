@@ -163,7 +163,6 @@ pub const fn theme_pro(mode: Mode) -> Theme {
             title_color_mode: TextColorMode::Accent,
             title_softness: 0.0,
             body_accent_darken: 0.0,
-            subcaption_prefix: None,
         },
         motion: MotionTheme {
             animations_enabled: true,
@@ -282,7 +281,6 @@ pub const fn theme_pro(mode: Mode) -> Theme {
         section_title_brackets: false,
         section_title_prefix: None,
         section_title_letter_spacing: 0.0,
-        subcaption_prefix: None,
         section_bottom_rule: false,
         pane_fill_visible: true,
         show_section_chevron: true,

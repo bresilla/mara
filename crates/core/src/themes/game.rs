@@ -168,7 +168,6 @@ pub const fn theme_game(mode: Mode) -> Theme {
             title_color_mode: TextColorMode::Accent,
             title_softness: 0.0,
             body_accent_darken: 0.18,
-            subcaption_prefix: Some("// "),
         },
         motion: MotionTheme {
             animations_enabled: true,
@@ -298,7 +297,6 @@ pub const fn theme_game(mode: Mode) -> Theme {
         section_title_brackets: true,
         section_title_prefix: None,
         section_title_letter_spacing: 1.5,
-        subcaption_prefix: Some("// "),
         section_bottom_rule: true,
         pane_fill_visible: false,
         show_section_chevron: false,

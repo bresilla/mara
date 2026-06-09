@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.3.0] - 2026-06-09
+
+### <!-- 0 -->⛰️  Features
+
+- Introduce sealed UI surface and raw egui escape hatch
+- Refactor UI widget modules and remove legacy aliases
+- Close opposite side panes on phone
+- Enhance phone ribbon handling and shelf layout
+- Add responsive layout and touch density
+- Improve flat shading for primitives and colored meshes
+- Optimize MVT screen point generation
+- Enhance map feature selection and styling
+- Add map object selection and info pane
+
 ## [0.2.1] - 2026-05-24
 
 ### <!-- 0 -->⛰️  Features

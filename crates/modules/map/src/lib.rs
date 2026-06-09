@@ -21,12 +21,24 @@ pub const DEFAULT_SVG_MARKER: &str = r#"<svg viewBox="0 0 24 24" xmlns="http://w
 static NEXT_UUID_COUNTER: AtomicU64 = AtomicU64::new(1);
 
 fn default_annotation_color() -> egui::Color32 {
-    mara_core::style::raw_accent()
+    if mara_core::style::theme().is_light {
+        egui::Color32::BLACK
+    } else {
+        egui::Color32::WHITE
+    }
 }
 
 fn default_annotation_fill() -> egui::Color32 {
     let accent = default_annotation_color();
     egui::Color32::from_rgba_unmultiplied(accent.r(), accent.g(), accent.b(), 58)
+}
+
+fn annotation_accent_color(stored: egui::Color32) -> egui::Color32 {
+    stored
+}
+
+fn annotation_accent_fill(stored: egui::Color32) -> egui::Color32 {
+    stored
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -351,7 +363,7 @@ impl MapIcon {
             position,
             glyph,
             label: None,
-            color: egui::Color32::WHITE,
+            color: default_annotation_color(),
             size: 22.0,
         }
     }
@@ -375,12 +387,42 @@ pub enum MapTool {
     Svg,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MapFeatureGeometry {
+    Point,
+    Line,
+    Polygon,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct MapFeatureInfo {
+    pub layer: String,
+    pub class: String,
+    pub geometry: MapFeatureGeometry,
+    pub name: Option<String>,
+    pub properties: Vec<(String, String)>,
+    pub paths: Vec<Vec<GeoPosition>>,
+}
+
+impl MapFeatureInfo {
+    #[must_use]
+    pub fn type_label(&self) -> String {
+        if self.class.is_empty() {
+            self.layer.clone()
+        } else {
+            format!("{} / {}", self.layer, self.class)
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct MapInteraction {
     pub tool: MapTool,
     pub selected: Option<MapAnnotationId>,
     pub selected_kind: Option<MapAnnotationKind>,
     pub selected_uuid: Option<u128>,
+    pub selected_feature: Option<MapFeatureInfo>,
+    pub basemap_selection_enabled: bool,
     draft: Vec<GeoPosition>,
 }
 
@@ -405,12 +447,21 @@ impl MapInteraction {
         self.selected = Some(id);
         self.selected_kind = Some(annotation.kind());
         self.selected_uuid = Some(id.uuid);
+        self.selected_feature = None;
+    }
+
+    pub fn select_feature(&mut self, feature: MapFeatureInfo) {
+        self.selected = None;
+        self.selected_kind = None;
+        self.selected_uuid = None;
+        self.selected_feature = Some(feature);
     }
 
     pub fn clear_selection(&mut self) {
         self.selected = None;
         self.selected_kind = None;
         self.selected_uuid = None;
+        self.selected_feature = None;
     }
 
     #[must_use]
@@ -423,13 +474,14 @@ impl MapInteraction {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct MaraMapResponse {
     pub hovered_position: Option<GeoPosition>,
     pub clicked_position: Option<GeoPosition>,
     pub selected: Option<MapAnnotationId>,
     pub selected_kind: Option<MapAnnotationKind>,
     pub selected_uuid: Option<u128>,
+    pub selected_feature: Option<MapFeatureInfo>,
     pub deleted: Option<MapAnnotationId>,
 }
 
@@ -439,6 +491,7 @@ pub struct MapSurface {
     pub viewport: MapViewport,
     vector_tiles: mvt::VectorTileCache,
     fast_frames_remaining: u8,
+    image_loaders_installed: bool,
 }
 
 impl MapSurface {
@@ -450,6 +503,7 @@ impl MapSurface {
             viewport,
             vector_tiles: mvt::VectorTileCache::default(),
             fast_frames_remaining: 10,
+            image_loaders_installed: false,
         }
     }
 
@@ -518,7 +572,7 @@ impl MaraView for MapSurface {
 
     fn show(&mut self, ctx: &mut ViewCtx<'_>) {
         let mut interaction = MapInteraction::default();
-        let _ = MaraMap::new(self, &mut interaction).show(ctx.egui_ctx);
+        let _ = MaraMap::new(self, &mut interaction).show(ctx.__internal_egui_ctx());
     }
 }
 
@@ -535,11 +589,16 @@ impl MaraModule for MapSurface {
         "location"
     }
 
-    fn inline(&mut self, ui: &mut egui::Ui, ctx: ModuleInlineCtx<'_>) -> ModuleResponse {
+    fn inline(
+        &mut self,
+        mui: &mut mara_core::MaraUi<'_>,
+        ctx: ModuleInlineCtx<'_>,
+    ) -> ModuleResponse {
+        let ui = mui.__internal_raw_ui();
         let response = ui.group(|ui| {
             let annotation_count = self.document.annotations.len().to_string();
-            mara_core::readout_row(ui, "Map", &self.document.title);
-            mara_core::readout_row(ui, "annotations", &annotation_count);
+            mara_core::readout(ui, "Map", &self.document.title);
+            mara_core::readout(ui, "annotations", &annotation_count);
             if ctx.can_enter_workspace() && mara_core::button(ui, "Open map", ctx.accent).clicked()
             {
                 ModuleResponse::enter_workspace()
@@ -558,7 +617,10 @@ fn paint_map(
     surface: &mut MapSurface,
     interaction: &mut MapInteraction,
 ) -> MaraMapResponse {
-    egui_extras::install_image_loaders(ui.ctx());
+    if !surface.image_loaders_installed {
+        egui_extras::install_image_loaders(ui.ctx());
+        surface.image_loaders_installed = true;
+    }
 
     let desired = ui.available_size_before_wrap();
     let (response, painter) = ui.allocate_painter(desired, egui::Sense::click_and_drag());
@@ -573,6 +635,7 @@ fn paint_map(
         let delta = ui.input(|input| input.pointer.delta());
         if delta != egui::Vec2::ZERO {
             pan_viewport(&mut surface.viewport, delta);
+            surface.fast_frames_remaining = surface.fast_frames_remaining.max(3);
         }
     }
 
@@ -586,6 +649,7 @@ fn paint_map(
                 f64::from(scroll) / 320.0,
             );
             fast_basemap = true;
+            surface.fast_frames_remaining = surface.fast_frames_remaining.max(3);
         }
     }
 
@@ -613,6 +677,11 @@ fn paint_map(
         &mut surface.vector_tiles,
         fast_basemap,
     );
+    if interaction.basemap_selection_enabled
+        && let Some(feature) = interaction.selected_feature.as_ref()
+    {
+        paint_selected_feature(&painter, rect, surface.viewport, feature);
+    }
 
     for annotation in &surface.document.annotations {
         paint_annotation(
@@ -645,11 +714,28 @@ fn paint_map(
         .interact_pointer_pos()
         .filter(|_| response.clicked_by(egui::PointerButton::Primary))
     {
-        if let Some(hit) = hit_test(&surface.document, rect, surface.viewport, pos) {
+        if !interaction.basemap_selection_enabled
+            && let Some(hit) = hit_test(&surface.document, rect, surface.viewport, pos)
+        {
             if let Some(annotation) = surface.document.get(hit) {
                 interaction.select(annotation);
             }
             selected = Some(hit);
+        } else if interaction.tool == MapTool::Select && interaction.basemap_selection_enabled {
+            if let Some(feature) =
+                mvt::hit_test_vector_feature(rect, surface.viewport, &surface.vector_tiles, pos)
+            {
+                interaction.select_feature(feature);
+                selected = None;
+            } else if let Some(geo) = clicked_position {
+                apply_tool(
+                    &mut surface.document,
+                    interaction,
+                    geo,
+                    response.double_clicked(),
+                );
+                selected = interaction.selected;
+            }
         } else if let Some(geo) = clicked_position {
             apply_tool(
                 &mut surface.document,
@@ -667,13 +753,14 @@ fn paint_map(
         selected,
         selected_kind: interaction.selected_kind,
         selected_uuid: interaction.selected_uuid,
+        selected_feature: interaction.selected_feature.clone(),
         deleted,
     }
 }
 
 fn paint_corner_darkening_overlay(painter: &egui::Painter, rect: egui::Rect) {
     let accent = mara_core::style::raw_accent();
-    let steps = 40;
+    let steps = 28;
     let mut mesh = egui::Mesh::default();
 
     for y in 0..=steps {
@@ -849,43 +936,47 @@ fn paint_annotation(
         MapAnnotation::Point(point) => {
             let pos = geo_to_screen(point.position, rect, viewport);
             let radius = if is_selected { 8.0 } else { 5.0 };
-            painter.circle_filled(pos, radius, point.color);
+            let color = annotation_accent_color(point.color);
+            painter.circle_filled(pos, radius, color);
             if is_selected {
                 painter.circle_stroke(
                     pos,
                     radius + 4.0,
-                    egui::Stroke::new(2.0, selection_color(point.color)),
+                    egui::Stroke::new(2.0, selection_color(color)),
                 );
             }
         }
         MapAnnotation::Line(line) => {
             let points = screen_points(&line.points, rect, viewport);
+            let color = annotation_accent_color(line.color);
             if is_selected {
                 painter.add(egui::Shape::line(
                     points.clone(),
-                    egui::Stroke::new(7.0, selection_color(line.color)),
+                    egui::Stroke::new(7.0, selection_color(color)),
                 ));
             }
             painter.add(egui::Shape::line(
                 points,
-                egui::Stroke::new(if is_selected { 3.5 } else { 2.5 }, line.color),
+                egui::Stroke::new(if is_selected { 3.5 } else { 2.5 }, color),
             ));
         }
         MapAnnotation::Polygon(poly) => {
             let points = screen_points(&poly.points, rect, viewport);
-            paint_polygon(painter, &points, poly.fill, poly.stroke);
+            let stroke_color = annotation_accent_color(poly.stroke.color);
+            let stroke = egui::Stroke::new(poly.stroke.width, stroke_color);
+            paint_polygon(painter, &points, annotation_accent_fill(poly.fill), stroke);
             if is_selected {
                 paint_polygon(
                     painter,
                     &points,
                     egui::Color32::TRANSPARENT,
-                    egui::Stroke::new(poly.stroke.width + 3.0, selection_color(poly.stroke.color)),
+                    egui::Stroke::new(poly.stroke.width + 3.0, selection_color(stroke_color)),
                 );
                 paint_polygon(
                     painter,
                     &points,
                     egui::Color32::TRANSPARENT,
-                    egui::Stroke::new(poly.stroke.width + 0.8, poly.stroke.color),
+                    egui::Stroke::new(poly.stroke.width + 0.8, stroke_color),
                 );
             }
         }
@@ -929,6 +1020,48 @@ fn paint_annotation(
     }
 }
 
+fn paint_selected_feature(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    viewport: MapViewport,
+    feature: &MapFeatureInfo,
+) {
+    let accent = mara_core::style::raw_accent();
+    let fill = egui::Color32::from_rgba_unmultiplied(accent.r(), accent.g(), accent.b(), 54);
+    let halo = egui::Color32::from_rgba_unmultiplied(accent.r(), accent.g(), accent.b(), 105);
+    let stroke = egui::Stroke::new(2.4, accent);
+    let halo_stroke = egui::Stroke::new(7.0, halo);
+
+    match feature.geometry {
+        MapFeatureGeometry::Polygon => {
+            for path in &feature.paths {
+                let points = screen_points(path, rect, viewport);
+                if points.len() >= 3 {
+                    paint_polygon(painter, &points, fill, egui::Stroke::NONE);
+                    paint_polygon(painter, &points, egui::Color32::TRANSPARENT, halo_stroke);
+                    paint_polygon(painter, &points, egui::Color32::TRANSPARENT, stroke);
+                }
+            }
+        }
+        MapFeatureGeometry::Line => {
+            for path in &feature.paths {
+                let points = screen_points(path, rect, viewport);
+                if points.len() >= 2 {
+                    painter.add(egui::Shape::line(points.clone(), halo_stroke));
+                    painter.add(egui::Shape::line(points, stroke));
+                }
+            }
+        }
+        MapFeatureGeometry::Point => {
+            for point in feature.paths.iter().filter_map(|path| path.first()) {
+                let pos = geo_to_screen(*point, rect, viewport);
+                painter.circle_filled(pos, 8.0, fill);
+                painter.circle_stroke(pos, 10.0, stroke);
+            }
+        }
+    }
+}
+
 fn selection_color(base: egui::Color32) -> egui::Color32 {
     let theme = mara_core::style::theme();
     let target = if theme.is_light {
@@ -960,7 +1093,7 @@ fn paint_draft(
     if interaction.draft.is_empty() {
         return;
     }
-    let color = egui::Color32::from_rgb(0xff, 0xd1, 0x66);
+    let color = mara_core::style::raw_accent();
     let points = screen_points(&interaction.draft, rect, viewport);
     for point in &points {
         painter.circle_filled(*point, 4.0, color);
@@ -1007,10 +1140,12 @@ pub(crate) fn paint_polygon(
             painter.add(egui::Shape::mesh(mesh));
         }
     }
-    let first = points[0];
-    let mut outline = points;
-    outline.push(first);
-    painter.add(egui::Shape::line(outline, stroke));
+    if stroke.width > 0.0 && stroke.color != egui::Color32::TRANSPARENT {
+        let first = points[0];
+        let mut outline = points;
+        outline.push(first);
+        painter.add(egui::Shape::line(outline, stroke));
+    }
 }
 
 fn normalized_polygon_points(points: &[egui::Pos2]) -> Vec<egui::Pos2> {
@@ -1045,6 +1180,14 @@ pub(crate) fn triangulate_polygon(points: &[egui::Pos2]) -> Vec<[egui::Pos2; 3]>
     }
 
     let mut triangles = Vec::with_capacity(points.len().saturating_sub(2));
+    if is_convex_polygon(points) {
+        let root = indices[0];
+        for edge in indices[1..].windows(2) {
+            triangles.push([points[root], points[edge[0]], points[edge[1]]]);
+        }
+        return triangles;
+    }
+
     let mut guard = 0;
     while indices.len() > 3 && guard < points.len() * points.len() {
         guard += 1;
@@ -1071,6 +1214,31 @@ pub(crate) fn triangulate_polygon(points: &[egui::Pos2]) -> Vec<[egui::Pos2; 3]>
         triangles.push([points[indices[0]], points[indices[1]], points[indices[2]]]);
     }
     triangles
+}
+
+fn is_convex_polygon(points: &[egui::Pos2]) -> bool {
+    if points.len() < 4 {
+        return true;
+    }
+
+    let mut sign = 0.0_f32;
+    for i in 0..points.len() {
+        let a = points[i];
+        let b = points[(i + 1) % points.len()];
+        let c = points[(i + 2) % points.len()];
+        let ab = b - a;
+        let bc = c - b;
+        let cross = ab.x * bc.y - ab.y * bc.x;
+        if cross.abs() <= 1.0e-4 {
+            continue;
+        }
+        if sign == 0.0 {
+            sign = cross.signum();
+        } else if sign * cross < 0.0 {
+            return false;
+        }
+    }
+    true
 }
 
 fn is_ear(prev: usize, curr: usize, next: usize, polygon: &[usize], points: &[egui::Pos2]) -> bool {

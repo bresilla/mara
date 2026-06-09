@@ -14,6 +14,22 @@
 //! rest — ribbons, panes, the widget gallery, theme picker, canvas
 //! whiteboard, node graph, map, and code editor — is host-agnostic
 //! `mara_core` UI.
+//!
+//! ## Host egui vs sealed Mara surface
+//!
+//! This crate plays two roles, and the line between them matters:
+//!
+//! * **Host glue** (frame drivers like `ui_system`, the ribbon
+//!   assembly, the Bevy/eframe/winit bridges, and the node-graph
+//!   `NodeViewer` impl whose vendored trait hands out `egui::Ui` by
+//!   design) legitimately uses host-owned egui from eframe. It does
+//!   **not** enable Mara's `raw-egui` feature.
+//! * **App content** (pane bodies, pods, trees, the canvas
+//!   whiteboard body) goes through the sealed Mara surface —
+//!   `PaneBody`, `Pod`, `TreeBody`, `MaraUi`, `MaraPainter`,
+//!   `vocab` data types — exactly like an external sealed app
+//!   would. See `example/sealed` for the enforced, egui-free proof
+//!   crate.
 
 #![allow(
     dead_code,
@@ -28,6 +44,7 @@ use std::io::Cursor;
 
 use eframe::egui;
 
+use mara::ui::{mara_core, modules::map as mara_map};
 use mara_core::container::SeparatorStyle;
 use mara_core::pane::{Pane, PaneAnchor, PaneBody, RailZone};
 use mara_core::pod::Pod;
@@ -40,8 +57,9 @@ use mara_core::shelf::{ShelfContainer, ShelfDef, ShelfEdge, ShelfState};
 use mara_core::style::{AccentColor, GlassOpacity, Mode, srgb_to_egui};
 use mara_core::widget::{FillStyle, TreeBranchGuide, TreeIconKind, TreeIconSlot};
 use mara_map::{
-    DEFAULT_SVG_MARKER, MapDocument, MapIcon, MapInteraction, MapLine, MapPoint, MapPolygon,
-    MapSurface, MapTool, MapViewport, MaraMap, lon_lat,
+    DEFAULT_SVG_MARKER, MapAnnotation, MapDocument, MapFeatureGeometry, MapFeatureInfo, MapIcon,
+    MapInteraction, MapLine, MapPoint, MapPolygon, MapSurface, MapTool, MapViewport, MaraMap,
+    lon_lat,
 };
 // Vendored extras — node graph + code editor. In the unified `mara`
 // facade they live under `mara_core::extras::*`; the node-graph
@@ -85,6 +103,8 @@ const PANE_CANVAS_HISTORY: &str = "demo_canvas_pane_history";
 const PANE_CANVAS_EXPORT: &str = "demo_canvas_pane_export";
 const PANE_3D_SCENE: &str = "demo_3d_pane_scene";
 const PANE_3D_INSPECTOR: &str = "demo_3d_pane_inspector";
+const PANE_MAP_INFO: &str = "demo_map_pane_info";
+const PANE_MAP_OBJECTS: &str = "demo_map_pane_objects";
 const PANE_COREVIZ_ZONES: &str = "demo_coreviz_pane_zones";
 const PANE_COREVIZ_REFERENCE: &str = "demo_coreviz_pane_reference";
 const PANE_COREVIZ_NODES: &str = "demo_coreviz_pane_nodes";
@@ -104,14 +124,11 @@ const ACTION_VIEW_BEVY: &str = "demo_action_view_bevy";
 const ACTION_VIEW_CANVAS: &str = "demo_action_view_canvas";
 const ACTION_VIEW_3D: &str = "demo_action_view_3d";
 const ACTION_COREVIZ_ZONES: &str = "demo_action_coreviz_zones";
-const ACTION_COREVIZ_GRAPH: &str = "demo_action_coreviz_graph";
 const ACTION_COREVIZ_MANAGEMENT: &str = "demo_action_coreviz_management";
 const ACTION_MAP_SELECT: &str = "demo_action_map_select";
 const ACTION_MAP_POINT: &str = "demo_action_map_point";
 const ACTION_MAP_LINE: &str = "demo_action_map_line";
 const ACTION_MAP_POLYGON: &str = "demo_action_map_polygon";
-const ACTION_MAP_ICON: &str = "demo_action_map_icon";
-const ACTION_MAP_SVG: &str = "demo_action_map_svg";
 const ACTION_MAP_CLEAR: &str = "demo_action_map_clear";
 const ACTION_CLOSE_APP: &str = "demo_action_close_app";
 const ACTION_RESTORE_FULLSCREEN: &str = "demo_action_restore_fullscreen";
@@ -272,6 +289,18 @@ const PANE_DEFS: &[(&str, &str, PaneAnchor, &str)] = &[
     ),
     (
         RIBBON_RIGHT,
+        PANE_MAP_OBJECTS,
+        PaneAnchor::RightRail(RailZone::Middle),
+        "Map Objects",
+    ),
+    (
+        RIBBON_RIGHT,
+        PANE_MAP_INFO,
+        PaneAnchor::RightRail(RailZone::Start),
+        "Map Selection",
+    ),
+    (
+        RIBBON_RIGHT,
         PANE_COREVIZ_JSON,
         PaneAnchor::RightRail(RailZone::Middle),
         "JSON",
@@ -374,19 +403,8 @@ const RIBBON_ITEMS_PERSISTENT_TOP: &[RibbonButtonSpec] = &[
         cluster: RibbonCluster::Middle,
         slot: 2,
         draggable: false,
-        glyph: RibbonGlyph::Icon("shape-union"),
-        tooltip: "Zones view",
-        child_ribbon: None,
-        role: Some(RibbonRole::Icon),
-    },
-    RibbonButtonSpec {
-        id: ACTION_COREVIZ_GRAPH,
-        ribbon: RIBBON_TOP,
-        cluster: RibbonCluster::Middle,
-        slot: 3,
-        draggable: false,
-        glyph: RibbonGlyph::Icon("flowchart"),
-        tooltip: "Graph view",
+        glyph: RibbonGlyph::Icon("draw-shape"),
+        tooltip: "Map annotation view",
         child_ribbon: None,
         role: Some(RibbonRole::Icon),
     },
@@ -394,10 +412,10 @@ const RIBBON_ITEMS_PERSISTENT_TOP: &[RibbonButtonSpec] = &[
         id: ACTION_COREVIZ_MANAGEMENT,
         ribbon: RIBBON_TOP,
         cluster: RibbonCluster::Middle,
-        slot: 4,
+        slot: 3,
         draggable: false,
         glyph: RibbonGlyph::Icon("location"),
-        tooltip: "Management view",
+        tooltip: "Map object selection view",
         child_ribbon: None,
         role: Some(RibbonRole::Icon),
     },
@@ -405,7 +423,7 @@ const RIBBON_ITEMS_PERSISTENT_TOP: &[RibbonButtonSpec] = &[
         id: ACTION_VIEW_3D,
         ribbon: RIBBON_TOP,
         cluster: RibbonCluster::Middle,
-        slot: 5,
+        slot: 4,
         draggable: false,
         glyph: RibbonGlyph::Icon("cube"),
         tooltip: "Three-d scene view",
@@ -502,19 +520,8 @@ const RIBBON_ITEMS: &[RibbonButtonSpec] = &[
         cluster: RibbonCluster::Middle,
         slot: 2,
         draggable: false,
-        glyph: RibbonGlyph::Icon("shape-union"),
-        tooltip: "Zones view",
-        child_ribbon: None,
-        role: Some(RibbonRole::Icon),
-    },
-    RibbonButtonSpec {
-        id: ACTION_COREVIZ_GRAPH,
-        ribbon: RIBBON_TOP,
-        cluster: RibbonCluster::Middle,
-        slot: 3,
-        draggable: false,
-        glyph: RibbonGlyph::Icon("flowchart"),
-        tooltip: "Graph view",
+        glyph: RibbonGlyph::Icon("draw-shape"),
+        tooltip: "Map annotation view",
         child_ribbon: None,
         role: Some(RibbonRole::Icon),
     },
@@ -522,10 +529,10 @@ const RIBBON_ITEMS: &[RibbonButtonSpec] = &[
         id: ACTION_COREVIZ_MANAGEMENT,
         ribbon: RIBBON_TOP,
         cluster: RibbonCluster::Middle,
-        slot: 4,
+        slot: 3,
         draggable: false,
         glyph: RibbonGlyph::Icon("location"),
-        tooltip: "Management view",
+        tooltip: "Map object selection view",
         child_ribbon: None,
         role: Some(RibbonRole::Icon),
     },
@@ -596,19 +603,8 @@ const RIBBON_ITEMS_ROOT_VIEW: &[RibbonButtonSpec] = &[
         cluster: RibbonCluster::Middle,
         slot: 2,
         draggable: false,
-        glyph: RibbonGlyph::Icon("shape-union"),
-        tooltip: "Zones view",
-        child_ribbon: None,
-        role: Some(RibbonRole::Icon),
-    },
-    RibbonButtonSpec {
-        id: ACTION_COREVIZ_GRAPH,
-        ribbon: RIBBON_TOP,
-        cluster: RibbonCluster::Middle,
-        slot: 3,
-        draggable: false,
-        glyph: RibbonGlyph::Icon("flowchart"),
-        tooltip: "Graph view",
+        glyph: RibbonGlyph::Icon("draw-shape"),
+        tooltip: "Map annotation view",
         child_ribbon: None,
         role: Some(RibbonRole::Icon),
     },
@@ -616,10 +612,10 @@ const RIBBON_ITEMS_ROOT_VIEW: &[RibbonButtonSpec] = &[
         id: ACTION_COREVIZ_MANAGEMENT,
         ribbon: RIBBON_TOP,
         cluster: RibbonCluster::Middle,
-        slot: 4,
+        slot: 3,
         draggable: false,
         glyph: RibbonGlyph::Icon("location"),
-        tooltip: "Management view",
+        tooltip: "Map object selection view",
         child_ribbon: None,
         role: Some(RibbonRole::Icon),
     },
@@ -759,19 +755,8 @@ const RIBBON_ITEMS_MAP_VIEW: &[RibbonButtonSpec] = &[
         cluster: RibbonCluster::Middle,
         slot: 2,
         draggable: false,
-        glyph: RibbonGlyph::Icon("shape-union"),
-        tooltip: "Zones view",
-        child_ribbon: None,
-        role: Some(RibbonRole::Icon),
-    },
-    RibbonButtonSpec {
-        id: ACTION_COREVIZ_GRAPH,
-        ribbon: RIBBON_TOP,
-        cluster: RibbonCluster::Middle,
-        slot: 3,
-        draggable: false,
-        glyph: RibbonGlyph::Icon("flowchart"),
-        tooltip: "Graph view",
+        glyph: RibbonGlyph::Icon("draw-shape"),
+        tooltip: "Map annotation view",
         child_ribbon: None,
         role: Some(RibbonRole::Icon),
     },
@@ -779,10 +764,10 @@ const RIBBON_ITEMS_MAP_VIEW: &[RibbonButtonSpec] = &[
         id: ACTION_COREVIZ_MANAGEMENT,
         ribbon: RIBBON_TOP,
         cluster: RibbonCluster::Middle,
-        slot: 4,
+        slot: 3,
         draggable: false,
         glyph: RibbonGlyph::Icon("location"),
-        tooltip: "Management view",
+        tooltip: "Map object selection view",
         child_ribbon: None,
         role: Some(RibbonRole::Icon),
     },
@@ -815,142 +800,7 @@ const RIBBON_ITEMS_MAP_VIEW: &[RibbonButtonSpec] = &[
         slot: 0,
         draggable: false,
         glyph: RibbonGlyph::Icon("cursor"),
-        tooltip: "Select map items",
-        child_ribbon: None,
-        role: Some(RibbonRole::Icon),
-    },
-    RibbonButtonSpec {
-        id: ACTION_MAP_POLYGON,
-        ribbon: RIBBON_LEFT,
-        cluster: RibbonCluster::Middle,
-        slot: 1,
-        draggable: false,
-        glyph: RibbonGlyph::Icon("shape-union"),
-        tooltip: "Draw zone polygon",
-        child_ribbon: None,
-        role: Some(RibbonRole::Icon),
-    },
-    RibbonButtonSpec {
-        id: ACTION_MAP_CLEAR,
-        ribbon: RIBBON_LEFT,
-        cluster: RibbonCluster::End,
-        slot: 0,
-        draggable: false,
-        glyph: RibbonGlyph::Icon("delete"),
-        tooltip: "Clear map",
-        child_ribbon: None,
-        role: Some(RibbonRole::Icon),
-    },
-    RibbonButtonSpec {
-        id: PANE_COREVIZ_DETAILS,
-        ribbon: RIBBON_RIGHT,
-        cluster: RibbonCluster::Start,
-        slot: 0,
-        draggable: true,
-        glyph: RibbonGlyph::Icon("options"),
-        tooltip: "Selection inspector",
-        child_ribbon: None,
-        role: None,
-    },
-    RibbonButtonSpec {
-        id: PANE_COREVIZ_JSON,
-        ribbon: RIBBON_RIGHT,
-        cluster: RibbonCluster::Start,
-        slot: 1,
-        draggable: true,
-        glyph: RibbonGlyph::Icon("document"),
-        tooltip: "Raw workspace JSON",
-        child_ribbon: None,
-        role: None,
-    },
-];
-
-const RIBBON_ITEMS_MAP_GRAPH_VIEW: &[RibbonButtonSpec] = &[
-    RibbonButtonSpec {
-        id: ACTION_VIEW_BEVY,
-        ribbon: RIBBON_TOP,
-        cluster: RibbonCluster::Middle,
-        slot: 0,
-        draggable: false,
-        glyph: RibbonGlyph::Icon("cube"),
-        tooltip: "Bevy scene view",
-        child_ribbon: None,
-        role: Some(RibbonRole::Icon),
-    },
-    RibbonButtonSpec {
-        id: ACTION_VIEW_CANVAS,
-        ribbon: RIBBON_TOP,
-        cluster: RibbonCluster::Middle,
-        slot: 1,
-        draggable: false,
-        glyph: RibbonGlyph::Icon("pen"),
-        tooltip: "Canvas / whiteboard view",
-        child_ribbon: None,
-        role: Some(RibbonRole::Icon),
-    },
-    RibbonButtonSpec {
-        id: ACTION_COREVIZ_ZONES,
-        ribbon: RIBBON_TOP,
-        cluster: RibbonCluster::Middle,
-        slot: 2,
-        draggable: false,
-        glyph: RibbonGlyph::Icon("shape-union"),
-        tooltip: "Zones view",
-        child_ribbon: None,
-        role: Some(RibbonRole::Icon),
-    },
-    RibbonButtonSpec {
-        id: ACTION_COREVIZ_GRAPH,
-        ribbon: RIBBON_TOP,
-        cluster: RibbonCluster::Middle,
-        slot: 3,
-        draggable: false,
-        glyph: RibbonGlyph::Icon("flowchart"),
-        tooltip: "Graph view",
-        child_ribbon: None,
-        role: Some(RibbonRole::Icon),
-    },
-    RibbonButtonSpec {
-        id: ACTION_COREVIZ_MANAGEMENT,
-        ribbon: RIBBON_TOP,
-        cluster: RibbonCluster::Middle,
-        slot: 4,
-        draggable: false,
-        glyph: RibbonGlyph::Icon("location"),
-        tooltip: "Management view",
-        child_ribbon: None,
-        role: Some(RibbonRole::Icon),
-    },
-    RibbonButtonSpec {
-        id: PANE_COREVIZ_NODES,
-        ribbon: RIBBON_LEFT,
-        cluster: RibbonCluster::Start,
-        slot: 0,
-        draggable: true,
-        glyph: RibbonGlyph::Icon("pin"),
-        tooltip: "Graph nodes",
-        child_ribbon: None,
-        role: None,
-    },
-    RibbonButtonSpec {
-        id: PANE_COREVIZ_EDGES,
-        ribbon: RIBBON_LEFT,
-        cluster: RibbonCluster::Start,
-        slot: 1,
-        draggable: true,
-        glyph: RibbonGlyph::Icon("line"),
-        tooltip: "Graph edges",
-        child_ribbon: None,
-        role: None,
-    },
-    RibbonButtonSpec {
-        id: ACTION_MAP_SELECT,
-        ribbon: RIBBON_LEFT,
-        cluster: RibbonCluster::Middle,
-        slot: 0,
-        draggable: false,
-        glyph: RibbonGlyph::Icon("cursor"),
-        tooltip: "Select graph item",
+        tooltip: "Select annotations",
         child_ribbon: None,
         role: Some(RibbonRole::Icon),
     },
@@ -961,7 +811,7 @@ const RIBBON_ITEMS_MAP_GRAPH_VIEW: &[RibbonButtonSpec] = &[
         slot: 1,
         draggable: false,
         glyph: RibbonGlyph::Icon("pin"),
-        tooltip: "Add node",
+        tooltip: "Add point",
         child_ribbon: None,
         role: Some(RibbonRole::Icon),
     },
@@ -972,7 +822,18 @@ const RIBBON_ITEMS_MAP_GRAPH_VIEW: &[RibbonButtonSpec] = &[
         slot: 2,
         draggable: false,
         glyph: RibbonGlyph::Icon("line"),
-        tooltip: "Connect edge",
+        tooltip: "Draw line",
+        child_ribbon: None,
+        role: Some(RibbonRole::Icon),
+    },
+    RibbonButtonSpec {
+        id: ACTION_MAP_POLYGON,
+        ribbon: RIBBON_LEFT,
+        cluster: RibbonCluster::Middle,
+        slot: 3,
+        draggable: false,
+        glyph: RibbonGlyph::Icon("shape-union"),
+        tooltip: "Draw polygon",
         child_ribbon: None,
         role: Some(RibbonRole::Icon),
     },
@@ -988,13 +849,35 @@ const RIBBON_ITEMS_MAP_GRAPH_VIEW: &[RibbonButtonSpec] = &[
         role: Some(RibbonRole::Icon),
     },
     RibbonButtonSpec {
-        id: PANE_COREVIZ_DETAILS,
+        id: PANE_MAP_OBJECTS,
         ribbon: RIBBON_RIGHT,
         cluster: RibbonCluster::Start,
         slot: 0,
         draggable: true,
+        glyph: RibbonGlyph::Icon("color"),
+        tooltip: "Map object colors",
+        child_ribbon: None,
+        role: None,
+    },
+    RibbonButtonSpec {
+        id: PANE_COREVIZ_DETAILS,
+        ribbon: RIBBON_RIGHT,
+        cluster: RibbonCluster::Start,
+        slot: 1,
+        draggable: true,
         glyph: RibbonGlyph::Icon("options"),
         tooltip: "Selection inspector",
+        child_ribbon: None,
+        role: None,
+    },
+    RibbonButtonSpec {
+        id: PANE_COREVIZ_JSON,
+        ribbon: RIBBON_RIGHT,
+        cluster: RibbonCluster::Start,
+        slot: 2,
+        draggable: true,
+        glyph: RibbonGlyph::Icon("document"),
+        tooltip: "Raw workspace JSON",
         child_ribbon: None,
         role: None,
     },
@@ -1029,19 +912,8 @@ const RIBBON_ITEMS_MAP_MANAGEMENT_VIEW: &[RibbonButtonSpec] = &[
         cluster: RibbonCluster::Middle,
         slot: 2,
         draggable: false,
-        glyph: RibbonGlyph::Icon("shape-union"),
-        tooltip: "Zones view",
-        child_ribbon: None,
-        role: Some(RibbonRole::Icon),
-    },
-    RibbonButtonSpec {
-        id: ACTION_COREVIZ_GRAPH,
-        ribbon: RIBBON_TOP,
-        cluster: RibbonCluster::Middle,
-        slot: 3,
-        draggable: false,
-        glyph: RibbonGlyph::Icon("flowchart"),
-        tooltip: "Graph view",
+        glyph: RibbonGlyph::Icon("draw-shape"),
+        tooltip: "Map annotation view",
         child_ribbon: None,
         role: Some(RibbonRole::Icon),
     },
@@ -1049,10 +921,10 @@ const RIBBON_ITEMS_MAP_MANAGEMENT_VIEW: &[RibbonButtonSpec] = &[
         id: ACTION_COREVIZ_MANAGEMENT,
         ribbon: RIBBON_TOP,
         cluster: RibbonCluster::Middle,
-        slot: 4,
+        slot: 3,
         draggable: false,
         glyph: RibbonGlyph::Icon("location"),
-        tooltip: "Management view",
+        tooltip: "Map object selection view",
         child_ribbon: None,
         role: Some(RibbonRole::Icon),
     },
@@ -1085,26 +957,37 @@ const RIBBON_ITEMS_MAP_MANAGEMENT_VIEW: &[RibbonButtonSpec] = &[
         slot: 0,
         draggable: false,
         glyph: RibbonGlyph::Icon("cursor"),
-        tooltip: "Select robot",
+        tooltip: "Select map objects",
         child_ribbon: None,
         role: Some(RibbonRole::Icon),
     },
     RibbonButtonSpec {
-        id: ACTION_MAP_ICON,
-        ribbon: RIBBON_LEFT,
-        cluster: RibbonCluster::Middle,
-        slot: 1,
-        draggable: false,
-        glyph: RibbonGlyph::Icon("location"),
-        tooltip: "Place robot marker",
+        id: PANE_MAP_INFO,
+        ribbon: RIBBON_RIGHT,
+        cluster: RibbonCluster::Start,
+        slot: 0,
+        draggable: true,
+        glyph: RibbonGlyph::Icon("map"),
+        tooltip: "Selected map object",
         child_ribbon: None,
-        role: Some(RibbonRole::Icon),
+        role: None,
+    },
+    RibbonButtonSpec {
+        id: PANE_MAP_OBJECTS,
+        ribbon: RIBBON_RIGHT,
+        cluster: RibbonCluster::Start,
+        slot: 1,
+        draggable: true,
+        glyph: RibbonGlyph::Icon("color"),
+        tooltip: "Map object colors",
+        child_ribbon: None,
+        role: None,
     },
     RibbonButtonSpec {
         id: PANE_COREVIZ_DETAILS,
         ribbon: RIBBON_RIGHT,
         cluster: RibbonCluster::Start,
-        slot: 0,
+        slot: 2,
         draggable: true,
         glyph: RibbonGlyph::Icon("options"),
         tooltip: "Robot details",
@@ -1115,7 +998,7 @@ const RIBBON_ITEMS_MAP_MANAGEMENT_VIEW: &[RibbonButtonSpec] = &[
         id: PANE_COREVIZ_SCHEDULER,
         ribbon: RIBBON_RIGHT,
         cluster: RibbonCluster::Start,
-        slot: 1,
+        slot: 3,
         draggable: true,
         glyph: RibbonGlyph::Icon("clock"),
         tooltip: "Scheduler",
@@ -1126,7 +1009,7 @@ const RIBBON_ITEMS_MAP_MANAGEMENT_VIEW: &[RibbonButtonSpec] = &[
         id: PANE_COREVIZ_TASKS,
         ribbon: RIBBON_RIGHT,
         cluster: RibbonCluster::Start,
-        slot: 2,
+        slot: 4,
         draggable: true,
         glyph: RibbonGlyph::Icon("list"),
         tooltip: "Robot tasks",
@@ -1429,7 +1312,6 @@ mod tests {
             .chain(RIBBON_ITEMS_ROOT_VIEW)
             .chain(RIBBON_ITEMS_3D_VIEW)
             .chain(RIBBON_ITEMS_MAP_VIEW)
-            .chain(RIBBON_ITEMS_MAP_GRAPH_VIEW)
             .chain(RIBBON_ITEMS_MAP_MANAGEMENT_VIEW)
             .chain(RIBBON_ITEMS_FS_GRAPH)
             .chain(RIBBON_ITEMS_FS_CODE)
@@ -1452,7 +1334,7 @@ mod tests {
             .expect("missing three-d view button");
         assert_eq!(item.ribbon, RIBBON_TOP);
         assert_eq!(item.cluster, RibbonCluster::Middle);
-        assert_eq!(item.slot, 5);
+        assert_eq!(item.slot, 4);
         assert!(!item.draggable);
         assert_eq!(item.role, Some(RibbonRole::Icon));
     }
@@ -1463,14 +1345,9 @@ mod tests {
             RIBBON_ITEMS,
             RIBBON_ITEMS_ROOT_VIEW,
             RIBBON_ITEMS_MAP_VIEW,
-            RIBBON_ITEMS_MAP_GRAPH_VIEW,
             RIBBON_ITEMS_MAP_MANAGEMENT_VIEW,
         ] {
-            for (slot, id) in [
-                (2, ACTION_COREVIZ_ZONES),
-                (3, ACTION_COREVIZ_GRAPH),
-                (4, ACTION_COREVIZ_MANAGEMENT),
-            ] {
+            for (slot, id) in [(2, ACTION_COREVIZ_ZONES), (3, ACTION_COREVIZ_MANAGEMENT)] {
                 let item = find_item(items, id).expect("missing Coreviz context button");
                 assert_eq!(item.ribbon, RIBBON_TOP);
                 assert_eq!(item.cluster, RibbonCluster::Middle);
@@ -1488,7 +1365,6 @@ mod tests {
             RIBBON_ITEMS_ROOT_VIEW,
             RIBBON_ITEMS_3D_VIEW,
             RIBBON_ITEMS_MAP_VIEW,
-            RIBBON_ITEMS_MAP_GRAPH_VIEW,
             RIBBON_ITEMS_MAP_MANAGEMENT_VIEW,
         ] {
             assert!(find_item(items, "demo_action_view_map").is_none());
@@ -1511,7 +1387,6 @@ fn is_persistent_top_item(id: &'static str) -> bool {
             | ACTION_VIEW_CANVAS
             | ACTION_VIEW_3D
             | ACTION_COREVIZ_ZONES
-            | ACTION_COREVIZ_GRAPH
             | ACTION_COREVIZ_MANAGEMENT
     )
 }
@@ -1586,6 +1461,25 @@ fn draw_unified_ribbons(
     draw_slot_ribbons_featureful(ctx, accent, &resolved, open, placement, drag)
 }
 
+fn publish_current_pane_ribbon_buttons(
+    ctx: &egui::Context,
+    items: &[RibbonButtonSpec],
+    fullscreen_active: bool,
+) {
+    let mut pane_ids = Vec::new();
+    for item in RIBBON_ITEMS_PERSISTENT_TOP.iter().chain(items).chain(
+        fullscreen_active
+            .then_some(RIBBON_ITEMS)
+            .into_iter()
+            .flatten(),
+    ) {
+        if item.role.is_none() {
+            pane_ids.push(egui::Id::new(item.id));
+        }
+    }
+    mara_core::pane::publish_ribbon_pane_ids(ctx, pane_ids);
+}
+
 fn demo_ribbon_scope(ribbon_id: &'static str) -> mara_core::RibbonScope {
     if ribbon_id == RIBBON_TOP {
         mara_core::RibbonScope::Permanent
@@ -1625,16 +1519,12 @@ enum DemoRootView {
     Canvas,
     ThreeD,
     CorevizZones,
-    CorevizGraph,
     CorevizManagement,
 }
 
 impl DemoRootView {
     fn is_coreviz(self) -> bool {
-        matches!(
-            self,
-            Self::CorevizZones | Self::CorevizGraph | Self::CorevizManagement
-        )
+        matches!(self, Self::CorevizZones | Self::CorevizManagement)
     }
 }
 
@@ -1862,7 +1752,6 @@ impl Default for MapViewState {
 
 fn map_ribbon_items(root_view: DemoRootView) -> &'static [RibbonButtonSpec] {
     match root_view {
-        DemoRootView::CorevizGraph => RIBBON_ITEMS_MAP_GRAPH_VIEW,
         DemoRootView::CorevizManagement => RIBBON_ITEMS_MAP_MANAGEMENT_VIEW,
         _ => RIBBON_ITEMS_MAP_VIEW,
     }
@@ -2003,7 +1892,7 @@ impl mara::window::WindowApp for DemoApp {
 /// eframe/winit. `app` carries the state the Bevy build held as
 /// resources; `host` provides app-level actions and render helpers.
 pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
-    let ctx = host.egui();
+    let ctx = host.__internal_egui();
     let DemoApp {
         accent,
         glass,
@@ -2060,7 +1949,8 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
     // Bevy is represented as an embedded viewport surface, not the
     // top-level window owner.
     if bevy_view_active {
-        if let Some(color) = bevy_view.show(host.egui(), host.render_state(), accent_col) {
+        if let Some(color) = bevy_view.show(host.__internal_egui(), host.render_state(), accent_col)
+        {
             accent.0 = color;
             host.apply_theme(*accent, *glass);
             accent_col = mara_core::style::active_accent();
@@ -2070,7 +1960,7 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
     } else if *root_view == DemoRootView::ThreeD {
         three_d_root_view(host, accent_col, three_d_view);
     } else if root_view.is_coreviz() {
-        map_root_view(ctx, map_view);
+        map_root_view(ctx, map_view, *root_view == DemoRootView::CorevizManagement);
     }
 
     // Fullscreen-view branch. The fullscreen overlay paints at
@@ -2080,7 +1970,7 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
     // — graph and code get their own toolsets, picked via the
     // module-supplied `is_graph_fullscreen` / `is_code_fullscreen`
     // helpers.
-    let fs_active = mara_core::extras::maximize::is_any_fullscreen(ctx);
+    let fs_active = mara_core::embed::is_any_fullscreen(ctx);
     let graph_fs = mara_core::extras::graph::is_graph_fullscreen(ctx);
     let code_fs = mara_core::extras::code::is_code_fullscreen(ctx, cid(PANE_EDITOR, "code_state"));
     if fs_active {
@@ -2123,6 +2013,7 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
         RIBBON_ITEMS
     };
     let current_ribbons: &[RibbonSpec] = if fs_active { RIBBONS_FS } else { RIBBONS };
+    publish_current_pane_ribbon_buttons(ctx, current_ribbon_items, fs_active);
 
     let is_open_in = |items: &[RibbonButtonSpec], id: &'static str| -> bool {
         let Some(item) = find_item(items, id) else {
@@ -2142,7 +2033,11 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
             RibbonCluster::Middle => RailZone::Middle,
             RibbonCluster::End => RailZone::End,
         };
-        Some(match def.edge {
+        // The ribbon button may be relocated by the phone reflow (top →
+        // bottom, top/bottom → side). Anchor the pane to the button's
+        // CURRENT edge so it opens where the icon actually is.
+        let edge = mara_core::phone_remapped_ribbon_edge(def.edge, cluster, demo_ribbon_scope(rid));
+        Some(match edge {
             RibbonEdge::Left => PaneAnchor::LeftRail(zone),
             RibbonEdge::Right => PaneAnchor::RightRail(zone),
             RibbonEdge::Top => PaneAnchor::TopRail(zone),
@@ -2249,6 +2144,8 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
                 PANE_COREVIZ_ZENOH => coreviz_zenoh_pane(body),
                 PANE_COREVIZ_ROBOTS => coreviz_robots_pane(body),
                 PANE_COREVIZ_DETAILS => coreviz_details_pane(body),
+                PANE_MAP_INFO => map_info_pane(body, map_view),
+                PANE_MAP_OBJECTS => map_objects_pane(body, map_view),
                 PANE_COREVIZ_JSON => coreviz_json_pane(body),
                 PANE_COREVIZ_SCHEDULER => coreviz_scheduler_pane(body),
                 PANE_COREVIZ_TASKS => coreviz_tasks_pane(body),
@@ -2298,23 +2195,16 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
                         || matches!(
                             (id, map_view.interaction.tool),
                             (ACTION_MAP_SELECT, MapTool::Select)
-                                | (ACTION_MAP_POLYGON, MapTool::Polygon)
-                        )
-                }
-                DemoRootView::CorevizGraph => {
-                    id == ACTION_COREVIZ_GRAPH
-                        || matches!(
-                            (id, map_view.interaction.tool),
-                            (ACTION_MAP_SELECT, MapTool::Select)
                                 | (ACTION_MAP_POINT, MapTool::Point)
                                 | (ACTION_MAP_LINE, MapTool::Line)
+                                | (ACTION_MAP_POLYGON, MapTool::Polygon)
                         )
                 }
                 DemoRootView::CorevizManagement => {
                     id == ACTION_COREVIZ_MANAGEMENT
                         || matches!(
                             (id, map_view.interaction.tool),
-                            (ACTION_MAP_SELECT, MapTool::Select) | (ACTION_MAP_ICON, MapTool::Icon)
+                            (ACTION_MAP_SELECT, MapTool::Select)
                         )
                 }
             },
@@ -2339,10 +2229,21 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
         }
         if click.action == RibbonAction::Command(mara_core::left_shelf_command_id()) {
             canvas_shelves.0.toggle_edge_visible(ShelfEdge::Left);
+            // Phone: a small screen shows only one side shelf at a time.
+            if mara_core::screen_class() == mara_core::Breakpoint::Phone
+                && canvas_shelves.0.edge_visible(ShelfEdge::Left)
+            {
+                canvas_shelves.0.set_edge_visible(ShelfEdge::Right, false);
+            }
             continue;
         }
         if click.action == RibbonAction::Command(mara_core::right_shelf_command_id()) {
             canvas_shelves.0.toggle_edge_visible(ShelfEdge::Right);
+            if mara_core::screen_class() == mara_core::Breakpoint::Phone
+                && canvas_shelves.0.edge_visible(ShelfEdge::Right)
+            {
+                canvas_shelves.0.set_edge_visible(ShelfEdge::Left, false);
+            }
             continue;
         }
         if click.action == RibbonAction::Command(mara_core::bottom_shelf_command_id()) {
@@ -2384,6 +2285,10 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
             host.request_close();
             continue;
         }
+        if matches!(click.action, RibbonAction::ToggleMaximize) {
+            host.request_maximize_toggle();
+            continue;
+        }
         if click.item == egui::Id::new(ACTION_CANVAS_CLEAR) {
             canvas_view.strokes.clear();
             continue;
@@ -2395,20 +2300,9 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
             *root_view = DemoRootView::CorevizZones;
             map_view.surface.defer_full_detail();
             map_view.interaction.set_tool(MapTool::Select);
+            map_view.interaction.clear_selection();
             open.set(RIBBON_LEFT, PANE_COREVIZ_ZONES);
-            open.set(RIBBON_RIGHT, PANE_COREVIZ_DETAILS);
-            ctx.request_repaint();
-            continue;
-        }
-        if click.item == egui::Id::new(ACTION_COREVIZ_GRAPH) {
-            if fs_active {
-                mara_core::embed::restore_fullscreen(ctx);
-            }
-            *root_view = DemoRootView::CorevizGraph;
-            map_view.surface.defer_full_detail();
-            map_view.interaction.set_tool(MapTool::Select);
-            open.set(RIBBON_LEFT, PANE_COREVIZ_NODES);
-            open.set(RIBBON_RIGHT, PANE_COREVIZ_DETAILS);
+            open.set(RIBBON_RIGHT, PANE_MAP_OBJECTS);
             ctx.request_repaint();
             continue;
         }
@@ -2419,8 +2313,9 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
             *root_view = DemoRootView::CorevizManagement;
             map_view.surface.defer_full_detail();
             map_view.interaction.set_tool(MapTool::Select);
+            map_view.interaction.clear_selection();
             open.set(RIBBON_LEFT, PANE_COREVIZ_ROBOTS);
-            open.set(RIBBON_RIGHT, PANE_COREVIZ_DETAILS);
+            open.set(RIBBON_RIGHT, PANE_MAP_INFO);
             ctx.request_repaint();
             continue;
         }
@@ -2438,14 +2333,6 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
         }
         if click.item == egui::Id::new(ACTION_MAP_POLYGON) {
             map_view.interaction.set_tool(MapTool::Polygon);
-            continue;
-        }
-        if click.item == egui::Id::new(ACTION_MAP_ICON) {
-            map_view.interaction.set_tool(MapTool::Icon);
-            continue;
-        }
-        if click.item == egui::Id::new(ACTION_MAP_SVG) {
-            map_view.interaction.set_tool(MapTool::Svg);
             continue;
         }
         if click.item == egui::Id::new(ACTION_MAP_CLEAR) {
@@ -2475,8 +2362,309 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
 
 // ─── Map root view ─────────────────────────────────────────────────
 
-fn map_root_view(ctx: &egui::Context, map: &mut MapViewState) {
+fn map_root_view(ctx: &egui::Context, map: &mut MapViewState, basemap_selection_enabled: bool) {
+    map.interaction.basemap_selection_enabled = basemap_selection_enabled;
     let _ = MaraMap::new(&mut map.surface, &mut map.interaction).show(ctx);
+}
+
+fn map_info_pane(body: &mut PaneBody, map: &MapViewState) {
+    if let Some(feature) = map.interaction.selected_feature.as_ref() {
+        show_map_feature_info(body, feature);
+    } else if let Some(id) = map.interaction.selected {
+        if let Some(annotation) = map.surface.document.get(id) {
+            show_map_annotation_info(body, annotation);
+        } else {
+            body.add_normal(
+                cid(PANE_MAP_INFO, "selection"),
+                "Selection",
+                "info",
+                vec![
+                    Pod::new(pid(PANE_MAP_INFO, "selection", 0))
+                        .with_separator(SeparatorStyle::Line)
+                        .with_readout("selection", "missing"),
+                    Pod::new(pid(PANE_MAP_INFO, "selection", 1))
+                        .with_separator(SeparatorStyle::None)
+                        .with_readout("hint", "click map object"),
+                ],
+            );
+        }
+    } else {
+        body.add_normal(
+            cid(PANE_MAP_INFO, "selection"),
+            "Selection",
+            "info",
+            vec![
+                Pod::new(pid(PANE_MAP_INFO, "selection", 0))
+                    .with_separator(SeparatorStyle::Line)
+                    .with_readout("selection", "none"),
+                Pod::new(pid(PANE_MAP_INFO, "selection", 1))
+                    .with_separator(SeparatorStyle::None)
+                    .with_readout("hint", "click map object"),
+            ],
+        );
+    }
+}
+
+fn map_objects_pane(body: &mut PaneBody, map: &mut MapViewState) {
+    let accent = body.accent();
+    let container_id = cid(PANE_MAP_OBJECTS, "objects");
+    let selected = map.interaction.selected;
+    let selected_annotation = selected.and_then(|id| map.surface.document.get(id));
+    let pods = if let Some(annotation) = selected_annotation {
+        vec![
+            Pod::new(pid(PANE_MAP_OBJECTS, "selected", 0))
+                .with_separator(SeparatorStyle::Line)
+                .with_readout(map_annotation_label(annotation), id_short(annotation.id())),
+            Pod::new(egui::Id::new((
+                PANE_MAP_OBJECTS,
+                "selected-color",
+                annotation.id().uuid,
+            )))
+            .with_separator(SeparatorStyle::None)
+            .with_color_rgb("color", map_annotation_rgb(annotation), accent),
+        ]
+    } else if map.interaction.selected_feature.is_some() {
+        vec![
+            Pod::new(pid(PANE_MAP_OBJECTS, "feature", 0))
+                .with_separator(SeparatorStyle::Line)
+                .with_readout("selection", "map feature"),
+            Pod::new(pid(PANE_MAP_OBJECTS, "feature", 1))
+                .with_separator(SeparatorStyle::None)
+                .with_readout("hint", "annotation color only"),
+        ]
+    } else {
+        vec![
+            Pod::new(pid(PANE_MAP_OBJECTS, "empty", 0))
+                .with_separator(SeparatorStyle::Line)
+                .with_readout("selection", "none"),
+            Pod::new(pid(PANE_MAP_OBJECTS, "empty", 1))
+                .with_separator(SeparatorStyle::None)
+                .with_readout("hint", "click point / line / polygon"),
+        ]
+    };
+
+    body.add_normal(container_id, "Selected Object", "color", pods);
+
+    let responses = body.render();
+    let Some(pod_responses) = responses.get(&container_id) else {
+        return;
+    };
+    let Some(color) = pod_responses
+        .iter()
+        .find_map(|pod_response| pod_response.colors.first())
+        .filter(|color| color.changed)
+    else {
+        return;
+    };
+    let Some(id) = selected else {
+        return;
+    };
+    let picked = srgb_to_egui([color.rgba[0], color.rgba[1], color.rgba[2]]);
+    if let Some(annotation) = map
+        .surface
+        .document
+        .annotations
+        .iter_mut()
+        .find(|annotation| annotation.id() == id)
+    {
+        set_map_annotation_color(annotation, picked);
+    }
+}
+
+fn show_map_feature_info(body: &mut PaneBody, feature: &MapFeatureInfo) {
+    let mut summary = vec![
+        Pod::new(pid(PANE_MAP_INFO, "feature", 0))
+            .with_separator(SeparatorStyle::Line)
+            .with_readout("type", feature.type_label()),
+        Pod::new(pid(PANE_MAP_INFO, "feature", 1))
+            .with_separator(if feature.name.is_some() {
+                SeparatorStyle::Line
+            } else {
+                SeparatorStyle::None
+            })
+            .with_readout("geometry", map_feature_geometry_label(feature.geometry)),
+    ];
+    if let Some(name) = feature.name.as_deref() {
+        summary.push(
+            Pod::new(pid(PANE_MAP_INFO, "feature", 2))
+                .with_separator(SeparatorStyle::None)
+                .with_readout("name", sanitize_readout(name)),
+        );
+    }
+    body.add_normal(cid(PANE_MAP_INFO, "feature"), "Feature", "map", summary);
+
+    let properties = feature
+        .properties
+        .iter()
+        .take(18)
+        .enumerate()
+        .map(|(idx, (key, value))| {
+            Pod::new(pid(PANE_MAP_INFO, "property", idx))
+                .with_separator(if idx >= feature.properties.len().min(18) - 1 {
+                    SeparatorStyle::None
+                } else {
+                    SeparatorStyle::Line
+                })
+                .with_readout(sanitize_readout(key), sanitize_readout(value))
+        })
+        .collect::<Vec<_>>();
+    if !properties.is_empty() {
+        body.add_normal(
+            cid(PANE_MAP_INFO, "properties"),
+            "Properties",
+            "document",
+            properties,
+        );
+    }
+}
+
+fn show_map_annotation_info(body: &mut PaneBody, annotation: &MapAnnotation) {
+    let mut pods = vec![
+        Pod::new(pid(PANE_MAP_INFO, "annotation", 0))
+            .with_separator(SeparatorStyle::Line)
+            .with_readout("type", map_annotation_label(annotation)),
+        Pod::new(pid(PANE_MAP_INFO, "annotation", 1))
+            .with_separator(SeparatorStyle::Line)
+            .with_readout("uuid", annotation.id().hyphenated()),
+    ];
+    match annotation {
+        MapAnnotation::Point(point) => {
+            push_geo_position_pods(&mut pods, "annotation", 2, point.position);
+            if let Some(label) = point.label.as_deref() {
+                pods.push(
+                    Pod::new(pid(PANE_MAP_INFO, "annotation", pods.len()))
+                        .with_separator(SeparatorStyle::Line)
+                        .with_readout("label", sanitize_readout(label)),
+                );
+            }
+        }
+        MapAnnotation::Line(line) => {
+            pods.push(
+                Pod::new(pid(PANE_MAP_INFO, "annotation", pods.len()))
+                    .with_separator(SeparatorStyle::Line)
+                    .with_readout("points", line.points.len().to_string()),
+            );
+            if let Some(label) = line.label.as_deref() {
+                pods.push(
+                    Pod::new(pid(PANE_MAP_INFO, "annotation", pods.len()))
+                        .with_separator(SeparatorStyle::Line)
+                        .with_readout("label", sanitize_readout(label)),
+                );
+            }
+        }
+        MapAnnotation::Polygon(poly) => {
+            pods.push(
+                Pod::new(pid(PANE_MAP_INFO, "annotation", pods.len()))
+                    .with_separator(SeparatorStyle::Line)
+                    .with_readout("points", poly.points.len().to_string()),
+            );
+            if let Some(label) = poly.label.as_deref() {
+                pods.push(
+                    Pod::new(pid(PANE_MAP_INFO, "annotation", pods.len()))
+                        .with_separator(SeparatorStyle::Line)
+                        .with_readout("label", sanitize_readout(label)),
+                );
+            }
+        }
+        MapAnnotation::Icon(icon) => {
+            push_geo_position_pods(&mut pods, "annotation", 2, icon.position);
+            if let Some(label) = icon.label.as_deref() {
+                pods.push(
+                    Pod::new(pid(PANE_MAP_INFO, "annotation", pods.len()))
+                        .with_separator(SeparatorStyle::Line)
+                        .with_readout("label", sanitize_readout(label)),
+                );
+            }
+        }
+    }
+    body.add_normal(
+        cid(PANE_MAP_INFO, "annotation"),
+        "Annotation",
+        "location",
+        pods,
+    );
+}
+
+fn push_geo_position_pods(
+    pods: &mut Vec<Pod>,
+    container: &'static str,
+    start: usize,
+    position: mara_map::GeoPosition,
+) {
+    pods.push(
+        Pod::new(pid(PANE_MAP_INFO, container, start))
+            .with_separator(SeparatorStyle::Line)
+            .with_readout("lon", format!("{:.9}", position.lon)),
+    );
+    pods.push(
+        Pod::new(pid(PANE_MAP_INFO, container, start + 1))
+            .with_separator(SeparatorStyle::Line)
+            .with_readout("lat", format!("{:.9}", position.lat)),
+    );
+}
+
+fn sanitize_readout(value: impl AsRef<str>) -> String {
+    let value = value.as_ref().trim();
+    if value.is_empty() {
+        "—".to_owned()
+    } else {
+        value.to_owned()
+    }
+}
+
+fn map_feature_geometry_label(geometry: MapFeatureGeometry) -> &'static str {
+    match geometry {
+        MapFeatureGeometry::Point => "point",
+        MapFeatureGeometry::Line => "line",
+        MapFeatureGeometry::Polygon => "polygon",
+    }
+}
+
+fn map_annotation_label(annotation: &MapAnnotation) -> &'static str {
+    match annotation {
+        MapAnnotation::Point(_) => "point",
+        MapAnnotation::Line(_) => "line",
+        MapAnnotation::Polygon(_) => "polygon",
+        MapAnnotation::Icon(_) => "icon",
+    }
+}
+
+fn id_short(id: mara_map::MapAnnotationId) -> String {
+    format!("{:08x}", (id.uuid & 0xffff_ffff) as u32)
+}
+
+fn map_annotation_rgb(annotation: &MapAnnotation) -> [f32; 3] {
+    color32_to_rgb(match annotation {
+        MapAnnotation::Point(point) => point.color,
+        MapAnnotation::Line(line) => line.color,
+        MapAnnotation::Polygon(poly) => poly.stroke.color,
+        MapAnnotation::Icon(icon) => icon.color,
+    })
+}
+
+fn set_map_annotation_color(annotation: &mut MapAnnotation, color: egui::Color32) {
+    match annotation {
+        MapAnnotation::Point(point) => point.color = color,
+        MapAnnotation::Line(line) => line.color = color,
+        MapAnnotation::Polygon(poly) => {
+            poly.stroke.color = color;
+            poly.fill = egui::Color32::from_rgba_unmultiplied(
+                color.r(),
+                color.g(),
+                color.b(),
+                poly.fill.a().max(36),
+            );
+        }
+        MapAnnotation::Icon(icon) => icon.color = color,
+    }
+}
+
+fn color32_to_rgb(color: egui::Color32) -> [f32; 3] {
+    [
+        color.r() as f32 / 255.0,
+        color.g() as f32 / 255.0,
+        color.b() as f32 / 255.0,
+    ]
 }
 
 // ─── 3D root view ──────────────────────────────────────────────────
@@ -2486,13 +2674,13 @@ fn three_d_root_view(
     accent: egui::Color32,
     three_d: &mut ThreeDViewState,
 ) {
-    let ctx = host.egui().clone();
-    let mut view_ctx = ViewCtx {
-        egui_ctx: &ctx,
-        workspace: &mut three_d.workspace,
+    let ctx = host.__internal_egui().clone();
+    let mut view_ctx = ViewCtx::new(
+        &ctx,
+        &mut three_d.workspace,
         accent,
-        content_avoidance: RibbonAvoidance::none(),
-    };
+        RibbonAvoidance::none(),
+    );
     three_d.view.set_gpu_render_state(host.render_state());
     three_d.view.show(&mut view_ctx);
 }
@@ -2505,85 +2693,99 @@ fn canvas_root_view(
     canvas: &mut CanvasViewState,
     shelf_state: &mut ShelfState,
 ) {
-    let shelves = canvas_shelves(accent);
+    let shelves = mara_core::responsive_shelves(canvas_shelves(accent));
     let shelf_theme = *mara_core::style::theme().shelf();
     let layout = mara_core::layout_shelves(ctx.content_rect(), &shelves, shelf_state, &shelf_theme);
 
+    // Host glue: the CentralPanel belongs to the eframe frame loop.
+    // Everything inside is sealed — the body immediately wraps the
+    // host Ui in `MaraUi` and draws/interacts through it, the same
+    // way external app content would.
     egui::CentralPanel::default()
         .frame(egui::Frame::new().fill(egui::Color32::TRANSPARENT))
         .show(ctx, |ui| {
             let screen_rect = ui.max_rect();
-            let canvas_rect = layout.viewport;
-            let response = ui.allocate_rect(canvas_rect, egui::Sense::drag());
-            let painter = ui.painter_at(screen_rect);
-
-            painter.rect_filled(screen_rect, 0, mara_core::style::theme().palette.bg_panel);
-            painter.rect_filled(canvas_rect, 0, mara_core::style::theme().palette.bg_window);
-
-            let grid = 32.0;
-            let grid_col = egui::Color32::from_rgba_unmultiplied(
-                mara_core::style::on_panel_dim().r(),
-                mara_core::style::on_panel_dim().g(),
-                mara_core::style::on_panel_dim().b(),
-                34,
-            );
-            let mut x = canvas_rect.left() + grid;
-            while x < canvas_rect.right() {
-                painter.line_segment(
-                    [
-                        egui::pos2(x, canvas_rect.top()),
-                        egui::pos2(x, canvas_rect.bottom()),
-                    ],
-                    egui::Stroke::new(1.0, grid_col),
-                );
-                x += grid;
-            }
-            let mut y = canvas_rect.top() + grid;
-            while y < canvas_rect.bottom() {
-                painter.line_segment(
-                    [
-                        egui::pos2(canvas_rect.left(), y),
-                        egui::pos2(canvas_rect.right(), y),
-                    ],
-                    egui::Stroke::new(1.0, grid_col),
-                );
-                y += grid;
-            }
-
-            if response.drag_started() {
-                canvas.strokes.push(Vec::new());
-            }
-            if response.dragged() || response.drag_started() {
-                if let Some(pos) = response
-                    .interact_pointer_pos()
-                    .filter(|pos| canvas_rect.contains(*pos))
-                {
-                    if let Some(stroke) = canvas.strokes.last_mut() {
-                        if stroke.last().is_none_or(|last| last.distance(pos) > 1.5) {
-                            stroke.push(pos);
-                        }
-                    }
-                }
-            }
-
-            for stroke in &canvas.strokes {
-                for points in stroke.windows(2) {
-                    painter.line_segment([points[0], points[1]], egui::Stroke::new(3.0, accent));
-                }
-            }
-
-            if canvas.strokes.is_empty() {
-                painter.text(
-                    canvas_rect.center(),
-                    egui::Align2::CENTER_CENTER,
-                    "Canvas root view\ndrag to draw",
-                    egui::FontId::proportional(24.0),
-                    mara_core::style::on_panel_dim(),
-                );
-            }
+            let mut mui = mara_core::MaraUi::__internal_from_raw(ui, accent);
+            canvas_root_body(&mut mui, screen_rect, layout.viewport, canvas);
         });
 
     mara_core::show_shelves(ctx, layout, shelves, shelf_state);
+}
+
+/// Sealed whiteboard body: backdrop, grid, drag-to-draw strokes,
+/// empty-state hint — all through `MaraUi`/`MaraPainter`/vocab types.
+fn canvas_root_body(
+    mui: &mut mara_core::MaraUi<'_>,
+    screen_rect: egui::Rect,
+    canvas_rect: egui::Rect,
+    canvas: &mut CanvasViewState,
+) {
+    use mara::ui::vocab::{Align2, Color32, Stroke, pos2};
+
+    let accent = mui.accent();
+    let (painter, response) = mui.canvas_at(canvas_rect);
+    let backdrop = mui.painter();
+
+    backdrop.rect_filled(screen_rect, 0, mara_core::style::theme().palette.bg_panel);
+    painter.rect_filled(canvas_rect, 0, mara_core::style::theme().palette.bg_window);
+
+    let grid = 32.0;
+    let grid_col = Color32::from_rgba_unmultiplied(
+        mara_core::style::on_panel_dim().r(),
+        mara_core::style::on_panel_dim().g(),
+        mara_core::style::on_panel_dim().b(),
+        34,
+    );
+    let mut x = canvas_rect.left() + grid;
+    while x < canvas_rect.right() {
+        painter.line_segment(
+            pos2(x, canvas_rect.top()),
+            pos2(x, canvas_rect.bottom()),
+            Stroke::new(1.0, grid_col),
+        );
+        x += grid;
+    }
+    let mut y = canvas_rect.top() + grid;
+    while y < canvas_rect.bottom() {
+        painter.line_segment(
+            pos2(canvas_rect.left(), y),
+            pos2(canvas_rect.right(), y),
+            Stroke::new(1.0, grid_col),
+        );
+        y += grid;
+    }
+
+    if response.drag_started {
+        canvas.strokes.push(Vec::new());
+    }
+    if response.dragged || response.drag_started {
+        if let Some(pos) = response
+            .interact_pointer
+            .filter(|pos| canvas_rect.contains(*pos))
+        {
+            if let Some(stroke) = canvas.strokes.last_mut() {
+                if stroke.last().is_none_or(|last| last.distance(pos) > 1.5) {
+                    stroke.push(pos);
+                }
+            }
+        }
+    }
+
+    for stroke in &canvas.strokes {
+        for points in stroke.windows(2) {
+            painter.line_segment(points[0], points[1], Stroke::new(3.0, accent));
+        }
+    }
+
+    if canvas.strokes.is_empty() {
+        painter.text(
+            canvas_rect.center(),
+            Align2::CENTER_CENTER,
+            "Canvas root view\ndrag to draw",
+            24.0,
+            mara_core::style::on_panel_dim(),
+        );
+    }
 }
 
 fn canvas_shelves(accent: egui::Color32) -> Vec<ShelfDef<'static>> {
@@ -2741,10 +2943,8 @@ fn coreviz_zones_pane(body: &mut PaneBody) {
                 .with_separator(SeparatorStyle::None)
                 .with_tree(7, move |tree| {
                     let armed_key = egui::Id::new(("coreviz_demo", "armed_zone"));
-                    let mut armed = tree
-                        .ctx()
-                        .data_mut(|d| d.get_persisted::<Option<&'static str>>(armed_key))
-                        .unwrap_or(None);
+                    let mut armed = tree.persisted_string(armed_key).filter(|s| !s.is_empty());
+                    let armed_is = |armed: &Option<String>, v: &str| armed.as_deref() == Some(v);
                     let root = tree.action_row(
                         "root",
                         0,
@@ -2752,14 +2952,14 @@ fn coreviz_zones_pane(body: &mut PaneBody) {
                         Some("map"),
                         "Root Zone",
                         "root · 4 pts",
-                        armed == Some("root"),
+                        armed_is(&armed, "root"),
                         "add",
                         Some("Add child zone"),
-                        armed == Some("root"),
+                        armed_is(&armed, "root"),
                         accent,
                     );
-                    if root.action.clicked() {
-                        armed = Some("root");
+                    if root.action.clicked {
+                        armed = Some("root".to_string());
                     }
                     let floor = tree.action_row_guided(
                         "floor",
@@ -2768,15 +2968,15 @@ fn coreviz_zones_pane(body: &mut PaneBody) {
                         Some("shape-union"),
                         "Floor 1",
                         "zone · 7 pts",
-                        armed == Some("floor"),
+                        armed_is(&armed, "floor"),
                         "add",
                         Some("Add child zone"),
-                        armed == Some("floor"),
+                        armed_is(&armed, "floor"),
                         &TreeBranchGuide::tee([]),
                         accent,
                     );
-                    if floor.action.clicked() {
-                        armed = Some("floor");
+                    if floor.action.clicked {
+                        armed = Some("floor".to_string());
                     }
                     let dock = tree.action_row_guided(
                         "dock",
@@ -2785,15 +2985,15 @@ fn coreviz_zones_pane(body: &mut PaneBody) {
                         Some("location"),
                         "Dock A",
                         "zone · 5 pts",
-                        armed == Some("dock"),
+                        armed_is(&armed, "dock"),
                         "add",
                         Some("Add child zone"),
-                        armed == Some("dock"),
+                        armed_is(&armed, "dock"),
                         &TreeBranchGuide::last([true]),
                         accent,
                     );
-                    if dock.action.clicked() {
-                        armed = Some("dock");
+                    if dock.action.clicked {
+                        armed = Some("dock".to_string());
                     }
                     let yard = tree.action_row_guided(
                         "yard",
@@ -2802,18 +3002,17 @@ fn coreviz_zones_pane(body: &mut PaneBody) {
                         Some("shape-union"),
                         "Yard",
                         "zone · 6 pts",
-                        armed == Some("yard"),
+                        armed_is(&armed, "yard"),
                         "add",
                         Some("Add child zone"),
-                        armed == Some("yard"),
+                        armed_is(&armed, "yard"),
                         &TreeBranchGuide::last([]),
                         accent,
                     );
-                    if yard.action.clicked() {
-                        armed = Some("yard");
+                    if yard.action.clicked {
+                        armed = Some("yard".to_string());
                     }
-                    tree.ctx_mut()
-                        .data_mut(|d| d.insert_persisted(armed_key, armed));
+                    tree.set_persisted_string(armed_key, armed.unwrap_or_default());
                 }),
         ],
     );
@@ -3098,18 +3297,10 @@ fn widgets_pane(body: &mut PaneBody) {
                     let root_key = egui::Id::new(("demo_hierarchy", "root_open"));
                     let floor_key = egui::Id::new(("demo_hierarchy", "floor_open"));
                     let armed_key = egui::Id::new(("demo_hierarchy", "armed_child"));
-                    let mut root_open = tree
-                        .ctx()
-                        .data_mut(|d| d.get_persisted::<bool>(root_key))
-                        .unwrap_or(true);
-                    let mut floor_open = tree
-                        .ctx()
-                        .data_mut(|d| d.get_persisted::<bool>(floor_key))
-                        .unwrap_or(true);
-                    let mut armed = tree
-                        .ctx()
-                        .data_mut(|d| d.get_persisted::<Option<&'static str>>(armed_key))
-                        .unwrap_or(None);
+                    let mut root_open = tree.persisted_bool(root_key).unwrap_or(true);
+                    let mut floor_open = tree.persisted_bool(floor_key).unwrap_or(true);
+                    let mut armed = tree.persisted_string(armed_key).filter(|s| !s.is_empty());
+                    let armed_is = |armed: &Option<String>, v: &str| armed.as_deref() == Some(v);
 
                     let root = tree.action_row(
                         "root-zone",
@@ -3118,14 +3309,14 @@ fn widgets_pane(body: &mut PaneBody) {
                         Some("map"),
                         "Root Zone",
                         "root · 4 pts",
-                        armed == Some("root-zone"),
+                        armed_is(&armed, "root-zone"),
                         "add",
                         Some("Add child zone"),
-                        armed == Some("root-zone"),
+                        armed_is(&armed, "root-zone"),
                         accent,
                     );
-                    if root.action.clicked() {
-                        armed = Some("root-zone");
+                    if root.action.clicked {
+                        armed = Some("root-zone".to_string());
                     }
                     if root_open {
                         let floor = tree.action_row_guided(
@@ -3135,15 +3326,15 @@ fn widgets_pane(body: &mut PaneBody) {
                             Some("shape-union"),
                             "Floor 1",
                             "zone · 7 pts",
-                            armed == Some("floor-zone"),
+                            armed_is(&armed, "floor-zone"),
                             "add",
                             Some("Add child zone"),
-                            armed == Some("floor-zone"),
+                            armed_is(&armed, "floor-zone"),
                             &TreeBranchGuide::tee([]),
                             accent,
                         );
-                        if floor.action.clicked() {
-                            armed = Some("floor-zone");
+                        if floor.action.clicked {
+                            armed = Some("floor-zone".to_string());
                         }
                         if floor_open {
                             let dock = tree.action_row_guided(
@@ -3153,15 +3344,15 @@ fn widgets_pane(body: &mut PaneBody) {
                                 Some("location"),
                                 "Dock A",
                                 "zone · 5 pts",
-                                armed == Some("dock-zone"),
+                                armed_is(&armed, "dock-zone"),
                                 "add",
                                 Some("Add child zone"),
-                                armed == Some("dock-zone"),
+                                armed_is(&armed, "dock-zone"),
                                 &TreeBranchGuide::tee([true]),
                                 accent,
                             );
-                            if dock.action.clicked() {
-                                armed = Some("dock-zone");
+                            if dock.action.clicked {
+                                armed = Some("dock-zone".to_string());
                             }
                             let storage = tree.action_row_guided(
                                 "storage-zone",
@@ -3170,15 +3361,15 @@ fn widgets_pane(body: &mut PaneBody) {
                                 Some("shape-union"),
                                 "Storage",
                                 "zone · 6 pts",
-                                armed == Some("storage-zone"),
+                                armed_is(&armed, "storage-zone"),
                                 "add",
                                 Some("Add child zone"),
-                                armed == Some("storage-zone"),
+                                armed_is(&armed, "storage-zone"),
                                 &TreeBranchGuide::last([true]),
                                 accent,
                             );
-                            if storage.action.clicked() {
-                                armed = Some("storage-zone");
+                            if storage.action.clicked {
+                                armed = Some("storage-zone".to_string());
                             }
                         }
                         let yard = tree.action_row_guided(
@@ -3188,23 +3379,21 @@ fn widgets_pane(body: &mut PaneBody) {
                             Some("shape-union"),
                             "Yard",
                             "zone · 6 pts",
-                            armed == Some("yard-zone"),
+                            armed_is(&armed, "yard-zone"),
                             "add",
                             Some("Add child zone"),
-                            armed == Some("yard-zone"),
+                            armed_is(&armed, "yard-zone"),
                             &TreeBranchGuide::last([]),
                             accent,
                         );
-                        if yard.action.clicked() {
-                            armed = Some("yard-zone");
+                        if yard.action.clicked {
+                            armed = Some("yard-zone".to_string());
                         }
                     }
 
-                    tree.ctx_mut().data_mut(|d| {
-                        d.insert_persisted(root_key, root_open);
-                        d.insert_persisted(floor_key, floor_open);
-                        d.insert_persisted(armed_key, armed);
-                    });
+                    tree.set_persisted_bool(root_key, root_open);
+                    tree.set_persisted_bool(floor_key, floor_open);
+                    tree.set_persisted_string(armed_key, armed.unwrap_or_default());
                 }),
         ],
     );
@@ -3363,11 +3552,9 @@ fn scene_pane(body: &mut PaneBody) {
     let accent = body.accent();
     let tree_root = cid(PANE_SCENE, "tree_root");
     let search_pod_id = pid(PANE_SCENE, "scene", 0);
-    let tree_filter =
-        mara_core::pod::Pod::search_query(body.ctx(), search_pod_id, 0).to_lowercase();
+    let tree_filter = body.search_query(search_pod_id, 0).to_lowercase();
     let selected_path: String = body
-        .ctx()
-        .data(|d| d.get_temp::<String>(tree_root.with("mara_demo_tree_selected")))
+        .temp_string(tree_root.with("mara_demo_tree_selected"))
         .unwrap_or_default();
     let selected_display = if selected_path.is_empty() {
         "—".to_string()
@@ -3880,8 +4067,8 @@ fn three_d_inspector_pane(body: &mut PaneBody, three_d: &ThreeDViewState) {
 
 /// **Editor pane** — node graph (top) + code editor (bottom),
 /// each in its own container with a fill pod so they soak up the
-/// pane's available space. Mirrors the legacy demo's Editor pane,
-/// now driven by the vendored `mara_core::extras` wrappers.
+/// pane's available space. Driven by the vendored `mara_core::extras`
+/// wrappers.
 ///
 /// The graph container is rendered via `Normal::show_raw` rather
 /// than the standard `with_custom_units` pod path so we can pass
@@ -6791,10 +6978,7 @@ fn demo_tree(
     filter: &str,
 ) {
     let sel_key = root_id.with("mara_demo_tree_selected");
-    let mut selected: String = tree
-        .ctx()
-        .data(|d| d.get_temp::<String>(sel_key))
-        .unwrap_or_default();
+    let mut selected: String = tree.temp_string(sel_key).unwrap_or_default();
     let initial_selected = selected.clone();
     let mut frame_clicked: Option<String> = None;
     walk_demo_tree(
@@ -6811,7 +6995,7 @@ fn demo_tree(
         selected = p;
     }
     if selected != initial_selected {
-        tree.ctx().data_mut(|d| d.insert_temp(sel_key, selected));
+        tree.set_temp_string(sel_key, selected);
     }
 }
 
@@ -6852,18 +7036,9 @@ fn walk_demo_tree(
     let exp_key = root_id.with(("mara_demo_tree_expanded", *p));
     let eye_key = root_id.with(("mara_demo_tree_eye", *p));
     let lock_key = root_id.with(("mara_demo_tree_lock", *p));
-    let mut expanded: bool = tree
-        .ctx()
-        .data_mut(|d| d.get_persisted::<bool>(exp_key))
-        .unwrap_or(true);
-    let mut eye_on: bool = tree
-        .ctx()
-        .data_mut(|d| d.get_persisted::<bool>(eye_key))
-        .unwrap_or(true);
-    let mut lock_on: bool = tree
-        .ctx()
-        .data_mut(|d| d.get_persisted::<bool>(lock_key))
-        .unwrap_or(false);
+    let mut expanded: bool = tree.persisted_bool(exp_key).unwrap_or(true);
+    let mut eye_on: bool = tree.persisted_bool(eye_key).unwrap_or(true);
+    let mut lock_on: bool = tree.persisted_bool(lock_key).unwrap_or(false);
     let mut swatch_dummy = false;
 
     let mut slots = [
@@ -6882,15 +7057,13 @@ fn walk_demo_tree(
         accent,
         &mut slots,
     );
-    if resp.body.clicked() {
+    if resp.body.clicked {
         *clicked = Some((*p).to_string());
     }
 
-    tree.ctx().data_mut(|d| {
-        d.insert_persisted(exp_key, expanded);
-        d.insert_persisted(eye_key, eye_on);
-        d.insert_persisted(lock_key, lock_on);
-    });
+    tree.set_persisted_bool(exp_key, expanded);
+    tree.set_persisted_bool(eye_key, eye_on);
+    tree.set_persisted_bool(lock_key, lock_on);
 
     if is_branch && expanded {
         for child in *children {

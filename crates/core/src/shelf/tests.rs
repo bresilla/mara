@@ -4,6 +4,80 @@ fn test_tabs() -> Vec<Tab> {
     vec![Tab::new("test.tab", "Tab", "box")]
 }
 
+fn shelf_with_container(id: &'static str, edge: ShelfEdge) -> ShelfDef<'static> {
+    ShelfDef::new(Id::new(id), edge, Color32::WHITE).container(ShelfContainer::tabbed(
+        Id::new(("container", id)),
+        id,
+        "box",
+        test_tabs(),
+    ))
+}
+
+#[test]
+fn collapse_bottom_merges_into_existing_right_shelf() {
+    let shelves = vec![
+        shelf_with_container("left", ShelfEdge::Left),
+        shelf_with_container("right", ShelfEdge::Right),
+        shelf_with_container("bottom", ShelfEdge::Bottom),
+    ];
+
+    let collapsed = collapse_bottom_into_right(shelves);
+
+    // Only left + right remain; no bottom edge.
+    assert_eq!(collapsed.len(), 2);
+    assert!(collapsed.iter().all(|s| s.edge != ShelfEdge::Bottom));
+    let right = collapsed
+        .iter()
+        .find(|s| s.edge == ShelfEdge::Right)
+        .expect("right shelf survives");
+    // Right shelf now owns its own container plus the bottom's.
+    assert_eq!(right.containers.len(), 2);
+}
+
+#[test]
+fn collapse_bottom_promotes_when_no_right_shelf() {
+    let shelves = vec![
+        shelf_with_container("left", ShelfEdge::Left),
+        shelf_with_container("bottom", ShelfEdge::Bottom),
+    ];
+
+    let collapsed = collapse_bottom_into_right(shelves);
+
+    assert_eq!(collapsed.len(), 2);
+    assert!(collapsed.iter().all(|s| s.edge != ShelfEdge::Bottom));
+    let right = collapsed
+        .iter()
+        .find(|s| s.edge == ShelfEdge::Right)
+        .expect("bottom shelf promoted to right");
+    assert_eq!(right.containers.len(), 1);
+}
+
+#[test]
+fn collapse_bottom_merges_multiple_bottoms() {
+    let shelves = vec![
+        shelf_with_container("bottom_a", ShelfEdge::Bottom),
+        shelf_with_container("bottom_b", ShelfEdge::Bottom),
+    ];
+
+    let collapsed = collapse_bottom_into_right(shelves);
+
+    // First bottom promoted to right, second merged in.
+    assert_eq!(collapsed.len(), 1);
+    assert_eq!(collapsed[0].edge, ShelfEdge::Right);
+    assert_eq!(collapsed[0].containers.len(), 2);
+}
+
+#[test]
+fn collapse_bottom_is_noop_without_bottom() {
+    let shelves = vec![
+        shelf_with_container("left", ShelfEdge::Left),
+        shelf_with_container("right", ShelfEdge::Right),
+    ];
+
+    let collapsed = collapse_bottom_into_right(shelves);
+    assert_eq!(collapsed.len(), 2);
+}
+
 #[test]
 fn container_move_preserves_existing_shelf_slot_while_drag_continues() {
     let mut state = ShelfState::default();

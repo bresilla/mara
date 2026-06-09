@@ -4,7 +4,10 @@ use std::sync::{Arc, OnceLock};
 use std::sync::{Mutex, mpsc};
 use std::time::Duration;
 
-use super::{MapViewport, TILE_SIZE, geo_to_world, paint_polygon, triangulate_polygon};
+use super::{
+    GeoPosition, MapFeatureGeometry, MapFeatureInfo, MapViewport, TILE_SIZE, geo_to_world,
+    paint_polygon, triangulate_polygon, world_to_geo,
+};
 
 const OPENFREEMAP_TILE_URL: &str = "https://tiles.openfreemap.org/planet/latest";
 const MAX_SOURCE_ZOOM: f64 = 14.0;
@@ -123,6 +126,49 @@ pub(crate) fn prewarm_vector_basemap(
     }
 }
 
+pub(crate) fn hit_test_vector_feature(
+    rect: egui::Rect,
+    viewport: MapViewport,
+    cache: &VectorTileCache,
+    pos: egui::Pos2,
+) -> Option<MapFeatureInfo> {
+    let visible_tiles = visible_tile_keys(viewport, rect.size());
+    let mut best: Option<FeatureHit> = None;
+    for &key in &visible_tiles {
+        let Some(TileEntry::Ready(tile)) = cache.tiles.get(&key) else {
+            continue;
+        };
+        for layer in &tile.layers {
+            if !is_interactive_layer(&layer.name) {
+                continue;
+            }
+            for feature in &layer.features {
+                let Some(score) = hit_score(rect, viewport, key, layer, feature, pos) else {
+                    continue;
+                };
+                let hit = FeatureHit {
+                    priority: interactive_priority(&layer.name, feature),
+                    score: score.score,
+                    info: feature_info(
+                        rect,
+                        viewport,
+                        cache,
+                        &visible_tiles,
+                        key,
+                        layer,
+                        feature,
+                        score.path_index,
+                    ),
+                };
+                if best.as_ref().is_none_or(|best| hit.is_better_than(best)) {
+                    best = Some(hit);
+                }
+            }
+        }
+    }
+    best.map(|hit| hit.info)
+}
+
 fn visible_tile_keys(viewport: MapViewport, size: egui::Vec2) -> Vec<TileKey> {
     let z = viewport.zoom.floor().clamp(0.0, MAX_SOURCE_ZOOM) as u8;
     let zf = f64::from(z);
@@ -167,6 +213,339 @@ fn visible_tile_keys(viewport: MapViewport, size: egui::Vec2) -> Vec<TileKey> {
         (ax * ax + ay * ay).total_cmp(&(bx * bx + by * by))
     });
     visible_tiles
+}
+
+struct FeatureHit {
+    priority: i32,
+    score: f32,
+    info: MapFeatureInfo,
+}
+
+impl FeatureHit {
+    fn is_better_than(&self, other: &Self) -> bool {
+        self.priority > other.priority
+            || (self.priority == other.priority && self.score < other.score)
+    }
+}
+
+fn is_interactive_layer(layer: &str) -> bool {
+    matches!(
+        layer,
+        "building"
+            | "transportation"
+            | "water"
+            | "waterway"
+            | "landuse"
+            | "landcover"
+            | "park"
+            | "aeroway"
+            | "boundary"
+    )
+}
+
+fn interactive_priority(layer: &str, feature: &DecodedFeature) -> i32 {
+    match layer {
+        "building" => 120,
+        "transportation" => 105,
+        "waterway" => 98,
+        "water" => 82,
+        "park" => 74,
+        "landuse" => match feature.class() {
+            "farmland" | "farm" | "orchard" | "vineyard" => 72,
+            _ => 66,
+        },
+        "landcover" => 64,
+        "aeroway" => 56,
+        "boundary" => 22,
+        _ => 0,
+    }
+}
+
+fn hit_score(
+    rect: egui::Rect,
+    viewport: MapViewport,
+    key: TileKey,
+    layer: &DecodedLayer,
+    feature: &DecodedFeature,
+    pos: egui::Pos2,
+) -> Option<PathHit> {
+    match feature.geometry_type {
+        GeometryType::Point | GeometryType::Unknown => None,
+        GeometryType::LineString => {
+            let tolerance = match layer.name.as_str() {
+                "transportation" => 9.0,
+                "waterway" => 10.0,
+                "boundary" => 7.0,
+                _ => 8.0,
+            };
+            feature
+                .paths
+                .iter()
+                .enumerate()
+                .filter_map(|(path_index, path)| {
+                    let points = screen_points(path, layer.extent, key, rect, viewport);
+                    let score = points
+                        .windows(2)
+                        .map(|w| distance_to_segment(pos, w[0], w[1]))
+                        .min_by(f32::total_cmp)?;
+                    (score <= tolerance).then_some(PathHit { path_index, score })
+                })
+                .min_by(|a, b| a.score.total_cmp(&b.score))
+        }
+        GeometryType::Polygon => feature
+            .paths
+            .iter()
+            .enumerate()
+            .filter_map(|(path_index, path)| {
+                let points = screen_points(path, layer.extent, key, rect, viewport);
+                if points.len() < 3 || !path_intersects_rect(&points, rect) {
+                    return None;
+                }
+                if point_in_polygon(pos, &points) {
+                    Some(PathHit {
+                        path_index,
+                        score: polygon_abs_area(&normalized_screen_ring(&points)),
+                    })
+                } else {
+                    None
+                }
+            })
+            .min_by(|a, b| a.score.total_cmp(&b.score)),
+    }
+}
+
+#[derive(Clone, Copy)]
+struct PathHit {
+    path_index: usize,
+    score: f32,
+}
+
+fn feature_info(
+    rect: egui::Rect,
+    viewport: MapViewport,
+    cache: &VectorTileCache,
+    visible_tiles: &[TileKey],
+    key: TileKey,
+    layer: &DecodedLayer,
+    feature: &DecodedFeature,
+    path_index: usize,
+) -> MapFeatureInfo {
+    let mut properties = feature
+        .properties
+        .iter()
+        .map(|(key, value)| (key.clone(), value.display_value()))
+        .collect::<Vec<_>>();
+    properties.sort_by(|a, b| a.0.cmp(&b.0));
+    MapFeatureInfo {
+        layer: layer.name.clone(),
+        class: feature.class().to_owned(),
+        geometry: match feature.geometry_type {
+            GeometryType::Point => MapFeatureGeometry::Point,
+            GeometryType::LineString => MapFeatureGeometry::Line,
+            GeometryType::Polygon => MapFeatureGeometry::Polygon,
+            GeometryType::Unknown => MapFeatureGeometry::Point,
+        },
+        name: feature.label_text().map(ToOwned::to_owned),
+        properties,
+        paths: connected_feature_geo_paths(
+            rect,
+            viewport,
+            cache,
+            visible_tiles,
+            key,
+            layer,
+            feature,
+            path_index,
+        ),
+    }
+}
+
+#[derive(Clone)]
+struct CandidatePath {
+    screen: Vec<egui::Pos2>,
+    geo: Vec<GeoPosition>,
+}
+
+fn connected_feature_geo_paths(
+    rect: egui::Rect,
+    viewport: MapViewport,
+    cache: &VectorTileCache,
+    visible_tiles: &[TileKey],
+    seed_key: TileKey,
+    seed_layer: &DecodedLayer,
+    seed_feature: &DecodedFeature,
+    seed_path_index: usize,
+) -> Vec<Vec<GeoPosition>> {
+    connected_feature_paths(
+        rect,
+        viewport,
+        cache,
+        visible_tiles,
+        seed_key,
+        seed_layer,
+        seed_feature,
+        seed_path_index,
+    )
+    .into_iter()
+    .map(|candidate| candidate.geo)
+    .filter(|path| !path.is_empty())
+    .collect()
+}
+
+fn connected_feature_paths(
+    rect: egui::Rect,
+    viewport: MapViewport,
+    cache: &VectorTileCache,
+    visible_tiles: &[TileKey],
+    seed_key: TileKey,
+    seed_layer: &DecodedLayer,
+    seed_feature: &DecodedFeature,
+    seed_path_index: usize,
+) -> Vec<CandidatePath> {
+    let Some(seed_path) = seed_feature.paths.get(seed_path_index) else {
+        return Vec::new();
+    };
+    let seed = CandidatePath {
+        screen: screen_points(seed_path, seed_layer.extent, seed_key, rect, viewport),
+        geo: path_geo_points(seed_path, seed_layer.extent, seed_key),
+    };
+    if seed.geo.is_empty() {
+        return Vec::new();
+    }
+
+    let mut selected = vec![seed.clone()];
+    let mut candidates = matching_candidate_paths(
+        rect,
+        viewport,
+        cache,
+        visible_tiles,
+        &seed_layer.name,
+        seed_feature,
+    );
+
+    candidates.retain(|candidate| !same_screen_path(&candidate.screen, &seed.screen));
+
+    let tolerance = if seed_feature.id.is_some() { 6.0 } else { 2.5 };
+    let mut changed = true;
+    while changed {
+        changed = false;
+        let mut index = 0;
+        while index < candidates.len() {
+            let connects = selected.iter().any(|existing| {
+                paths_touch(&existing.screen, &candidates[index].screen, tolerance)
+            });
+            if connects {
+                selected.push(candidates.remove(index));
+                changed = true;
+            } else {
+                index += 1;
+            }
+        }
+    }
+
+    selected
+}
+
+fn same_screen_path(a: &[egui::Pos2], b: &[egui::Pos2]) -> bool {
+    a.len() == b.len() && a.iter().zip(b).all(|(a, b)| a.distance(*b) <= f32::EPSILON)
+}
+
+fn matching_candidate_paths(
+    rect: egui::Rect,
+    viewport: MapViewport,
+    cache: &VectorTileCache,
+    visible_tiles: &[TileKey],
+    seed_layer_name: &str,
+    seed_feature: &DecodedFeature,
+) -> Vec<CandidatePath> {
+    let mut out = Vec::new();
+    for key in visible_tiles {
+        let Some(TileEntry::Ready(tile)) = cache.tiles.get(key) else {
+            continue;
+        };
+        for layer in &tile.layers {
+            if layer.name != seed_layer_name {
+                continue;
+            }
+            for feature in &layer.features {
+                if !same_selectable_feature(seed_feature, feature) {
+                    continue;
+                }
+                for path in &feature.paths {
+                    let screen = screen_points(path, layer.extent, *key, rect, viewport);
+                    if screen.is_empty() {
+                        continue;
+                    }
+                    out.push(CandidatePath {
+                        geo: path_geo_points(path, layer.extent, *key),
+                        screen,
+                    });
+                }
+            }
+        }
+    }
+    out
+}
+
+fn same_selectable_feature(a: &DecodedFeature, b: &DecodedFeature) -> bool {
+    if a.geometry_type != b.geometry_type {
+        return false;
+    }
+    match (a.id, b.id) {
+        (Some(a), Some(b)) => a == b,
+        _ => {
+            a.class() == b.class()
+                && a.label_text() == b.label_text()
+                && a.properties == b.properties
+        }
+    }
+}
+
+fn paths_touch(a: &[egui::Pos2], b: &[egui::Pos2], tolerance: f32) -> bool {
+    if a.len() < 2 || b.len() < 2 {
+        return false;
+    }
+    if !path_bounds(a).expand(tolerance).intersects(path_bounds(b)) {
+        return false;
+    }
+    a.iter()
+        .any(|point| distance_to_path(*point, b) <= tolerance)
+        || b.iter()
+            .any(|point| distance_to_path(*point, a) <= tolerance)
+}
+
+fn distance_to_path(point: egui::Pos2, path: &[egui::Pos2]) -> f32 {
+    path.windows(2)
+        .map(|w| distance_to_segment(point, w[0], w[1]))
+        .min_by(f32::total_cmp)
+        .unwrap_or(f32::INFINITY)
+}
+
+fn path_bounds(points: &[egui::Pos2]) -> egui::Rect {
+    let Some(first) = points.first().copied() else {
+        return egui::Rect::NOTHING;
+    };
+    let mut bounds = egui::Rect::from_min_max(first, first);
+    for point in &points[1..] {
+        bounds.min.x = bounds.min.x.min(point.x);
+        bounds.min.y = bounds.min.y.min(point.y);
+        bounds.max.x = bounds.max.x.max(point.x);
+        bounds.max.y = bounds.max.y.max(point.y);
+    }
+    bounds
+}
+
+fn path_geo_points(path: &[TilePoint], extent: u32, key: TileKey) -> Vec<GeoPosition> {
+    path.iter()
+        .map(|point| tile_point_to_geo(*point, extent, key))
+        .collect()
+}
+
+fn tile_point_to_geo(point: TilePoint, extent: u32, key: TileKey) -> GeoPosition {
+    let extent = f64::from(extent.max(1));
+    let world_x = f64::from(key.x) * TILE_SIZE + f64::from(point.x) / extent * TILE_SIZE;
+    let world_y = f64::from(key.y) * TILE_SIZE + f64::from(point.y) / extent * TILE_SIZE;
+    world_to_geo((world_x, world_y), f64::from(key.z))
 }
 
 fn request_visible_tiles(cache: &mut VectorTileCache, visible_tiles: &[TileKey]) -> bool {
@@ -364,6 +743,9 @@ fn paint_tile_pass(
     labels: &mut LabelState,
 ) {
     for layer in &tile.layers {
+        if !pass_accepts_layer(pass, &layer.name) {
+            continue;
+        }
         for feature in &layer.features {
             match pass {
                 PaintPass::LandFill => paint_area_fill(
@@ -441,6 +823,25 @@ fn paint_tile_pass(
                 }
             }
         }
+    }
+}
+
+fn pass_accepts_layer(pass: PaintPass, layer: &str) -> bool {
+    match pass {
+        PaintPass::LandFill => matches!(layer, "landcover" | "landuse" | "park" | "aeroway"),
+        PaintPass::WaterFill => layer == "water",
+        PaintPass::BuildingFill => layer == "building",
+        PaintPass::RoadCasing | PaintPass::RoadFill => layer == "transportation",
+        PaintPass::LineOverlay => matches!(layer, "waterway" | "boundary" | "aeroway"),
+        PaintPass::Label => matches!(
+            layer,
+            "place"
+                | "transportation_name"
+                | "water_name"
+                | "waterway_name"
+                | "poi"
+                | "mountain_peak"
+        ),
     }
 }
 
@@ -666,8 +1067,11 @@ fn paint_building_extrusion(
     let mut painted = false;
 
     for path in &feature.paths {
-        let points =
-            normalized_screen_ring(&screen_points(path, layer.extent, key, rect, viewport));
+        // Keep this path 1:1 with the tile path — the side-mesh loop
+        // below zips screen edges with tile edges to detect tile
+        // boundary edges.
+        let screen_path = screen_points_raw(path, layer.extent, key, rect, viewport);
+        let points = normalized_screen_ring(&screen_path);
         if points.len() < 3 || !path_intersects_rect(&points, rect.expand(height_px + 64.0)) {
             continue;
         }
@@ -695,20 +1099,21 @@ fn paint_building_extrusion(
         );
 
         let mut side_mesh = egui::Mesh::default();
-        for (a, b) in points
-            .iter()
-            .zip(points.iter().cycle().skip(1))
-            .take(points.len())
-        {
-            if a.distance(*b) <= 0.5 {
+        for (screen_edge, tile_edge) in screen_path.windows(2).zip(path.windows(2)) {
+            let a = screen_edge[0];
+            let b = screen_edge[1];
+            if a.distance(b) <= 0.5 {
+                continue;
+            }
+            if is_tile_boundary_edge(tile_edge[0], tile_edge[1], layer.extent) {
                 continue;
             }
             push_quad(
                 &mut side_mesh,
-                *a + base_offset,
-                *b + base_offset,
-                *b + top_offset,
-                *a + top_offset,
+                a + base_offset,
+                b + base_offset,
+                b + top_offset,
+                a + top_offset,
                 palette.building_side,
             );
         }
@@ -721,13 +1126,45 @@ fn paint_building_extrusion(
             .map(|point| *point + top_offset)
             .collect::<Vec<_>>();
         paint_mesh_polygon(painter, &roof, palette.building);
-        painter.add(egui::Shape::line(
-            closed_path(&roof),
+        paint_building_roof_outline(
+            painter,
+            &screen_path,
+            path,
+            layer.extent,
+            top_offset,
             egui::Stroke::new(0.65, palette.building_outline),
-        ));
+        );
         painted = true;
     }
     painted
+}
+
+fn paint_building_roof_outline(
+    painter: &egui::Painter,
+    screen_path: &[egui::Pos2],
+    tile_path: &[TilePoint],
+    extent: u32,
+    top_offset: egui::Vec2,
+    stroke: egui::Stroke,
+) {
+    for (screen_edge, tile_edge) in screen_path.windows(2).zip(tile_path.windows(2)) {
+        let a = screen_edge[0];
+        let b = screen_edge[1];
+        if a.distance(b) <= 0.5 || is_tile_boundary_edge(tile_edge[0], tile_edge[1], extent) {
+            continue;
+        }
+        painter.line_segment([a + top_offset, b + top_offset], stroke);
+    }
+}
+
+fn is_tile_boundary_edge(a: TilePoint, b: TilePoint, extent: u32) -> bool {
+    let extent = extent as i32;
+    const TOL: i32 = 1;
+    let near = |value: i32, target: i32| (value - target).abs() <= TOL;
+    (near(a.x, 0) && near(b.x, 0))
+        || (near(a.x, extent) && near(b.x, extent))
+        || (near(a.y, 0) && near(b.y, 0))
+        || (near(a.y, extent) && near(b.y, extent))
 }
 
 fn normalized_screen_ring(points: &[egui::Pos2]) -> Vec<egui::Pos2> {
@@ -811,14 +1248,6 @@ fn push_quad(
     }
     mesh.indices
         .extend_from_slice(&[start, start + 1, start + 2, start, start + 2, start + 3]);
-}
-
-fn closed_path(points: &[egui::Pos2]) -> Vec<egui::Pos2> {
-    let mut out = points.to_vec();
-    if let Some(first) = points.first().copied() {
-        out.push(first);
-    }
-    out
 }
 
 fn paint_feature_lines(
@@ -1268,6 +1697,42 @@ fn screen_points(
     rect: egui::Rect,
     viewport: MapViewport,
 ) -> Vec<egui::Pos2> {
+    // Drop consecutive points that project to within < ~0.5 pixels of
+    // the previous kept point. MVT geometry is encoded at extent 4096
+    // and contains many runs of densely packed points (curves, road
+    // segments). Forwarding all of them to egui's tessellator can blow
+    // past wgpu's per-buffer limit at typical viewport zooms.
+    const MIN_STEP_SQ: f32 = 0.25;
+    let scale = 2.0_f64.powf(viewport.zoom - f64::from(key.z));
+    let center_world = geo_to_world(viewport.center, f64::from(key.z));
+    let extent = f64::from(extent.max(1));
+    let mut out: Vec<egui::Pos2> = Vec::with_capacity(path.len());
+    for point in path {
+        let world_x = f64::from(key.x) * TILE_SIZE + f64::from(point.x) / extent * TILE_SIZE;
+        let world_y = f64::from(key.y) * TILE_SIZE + f64::from(point.y) / extent * TILE_SIZE;
+        let p = egui::pos2(
+            rect.center().x + ((world_x - center_world.0) * scale) as f32,
+            rect.center().y + ((world_y - center_world.1) * scale) as f32,
+        );
+        if let Some(last) = out.last() {
+            let dx = p.x - last.x;
+            let dy = p.y - last.y;
+            if dx * dx + dy * dy < MIN_STEP_SQ {
+                continue;
+            }
+        }
+        out.push(p);
+    }
+    out
+}
+
+fn screen_points_raw(
+    path: &[TilePoint],
+    extent: u32,
+    key: TileKey,
+    rect: egui::Rect,
+    viewport: MapViewport,
+) -> Vec<egui::Pos2> {
     let scale = 2.0_f64.powf(viewport.zoom - f64::from(key.z));
     let center_world = geo_to_world(viewport.center, f64::from(key.z));
     let extent = f64::from(extent.max(1));
@@ -1299,6 +1764,41 @@ fn path_intersects_rect(points: &[egui::Pos2], rect: egui::Rect) -> bool {
     bounds.intersects(rect)
 }
 
+fn point_in_polygon(pos: egui::Pos2, points: &[egui::Pos2]) -> bool {
+    if points.len() < 3 {
+        return false;
+    }
+    let mut inside = false;
+    for (a, b) in points
+        .iter()
+        .zip(points.iter().cycle().skip(1))
+        .take(points.len())
+    {
+        let crosses = (a.y > pos.y) != (b.y > pos.y);
+        if crosses {
+            let denom = b.y - a.y;
+            if denom.abs() <= f32::EPSILON {
+                continue;
+            }
+            let x = (b.x - a.x) * (pos.y - a.y) / denom + a.x;
+            if pos.x < x {
+                inside = !inside;
+            }
+        }
+    }
+    inside
+}
+
+fn distance_to_segment(p: egui::Pos2, a: egui::Pos2, b: egui::Pos2) -> f32 {
+    let ab = b - a;
+    let denom = ab.dot(ab);
+    if denom <= f32::EPSILON {
+        return p.distance(a);
+    }
+    let t = ((p - a).dot(ab) / denom).clamp(0.0, 1.0);
+    p.distance(a + ab * t)
+}
+
 #[derive(Debug)]
 struct DecodedVectorTile {
     layers: Vec<DecodedLayer>,
@@ -1313,6 +1813,7 @@ struct DecodedLayer {
 
 #[derive(Debug)]
 struct DecodedFeature {
+    id: Option<u64>,
     geometry_type: GeometryType,
     paths: Vec<Vec<TilePoint>>,
     properties: HashMap<String, FeatureValue>,
@@ -1364,6 +1865,27 @@ enum FeatureValue {
     I64(i64),
     U64(u64),
     Bool(bool),
+}
+
+impl FeatureValue {
+    fn display_value(&self) -> String {
+        match self {
+            Self::String(value) => value.clone(),
+            Self::F64(value) => {
+                let mut formatted = format!("{value:.3}");
+                while formatted.contains('.') && formatted.ends_with('0') {
+                    formatted.pop();
+                }
+                if formatted.ends_with('.') {
+                    formatted.pop();
+                }
+                formatted
+            }
+            Self::I64(value) => value.to_string(),
+            Self::U64(value) => value.to_string(),
+            Self::Bool(value) => value.to_string(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1436,6 +1958,7 @@ fn decode_layer(bytes: &[u8]) -> Result<DecodedLayer, String> {
 
 #[derive(Debug)]
 struct RawFeature {
+    id: Option<u64>,
     geometry_type: GeometryType,
     geometry: Vec<u32>,
     tags: Vec<u32>,
@@ -1461,6 +1984,7 @@ impl RawFeature {
             properties.insert(key.clone(), value.clone());
         }
         Ok(DecodedFeature {
+            id: self.id,
             geometry_type: self.geometry_type,
             paths: decode_geometry(&self.geometry)?,
             properties,
@@ -1470,12 +1994,14 @@ impl RawFeature {
 
 fn decode_feature(bytes: &[u8]) -> Result<RawFeature, String> {
     let mut reader = ProtoReader::new(bytes);
+    let mut id = None;
     let mut geometry_type = GeometryType::Unknown;
     let mut geometry = Vec::new();
     let mut tags = Vec::new();
 
     while let Some(field) = reader.next_field()? {
         match (field.number, field.value) {
+            (1, FieldValue::Varint(value)) => id = Some(value),
             (2, FieldValue::Bytes(value)) => tags.extend(read_packed_u32(value)?),
             (2, FieldValue::Varint(value)) => tags.push(value as u32),
             (3, FieldValue::Varint(value)) => {
@@ -1493,6 +2019,7 @@ fn decode_feature(bytes: &[u8]) -> Result<RawFeature, String> {
     }
 
     Ok(RawFeature {
+        id,
         geometry_type,
         geometry,
         tags,

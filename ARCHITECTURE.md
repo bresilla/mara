@@ -38,6 +38,58 @@ Package names:
 | `mara_image` | Image View + Module proof crate |
 | `mara_canvas` | Retained canvas View + Module proof crate |
 
+## Sealed API: no raw egui in app code
+
+Mara's public surface is sealed by default: an app consuming `mara` (or
+`mara_core`) with default features cannot reach `egui::Ui`, `egui::Context`,
+`egui::Painter`, or `egui::Response`, so GUI elements can only be created
+through Mara's typed surface. The mechanism:
+
+- `mara`/`mara_core` only re-export egui's inert *data* vocabulary
+  (`mara_core::vocab`: `Color32`, `Pos2`, `Rect`, `Stroke`, `Id`, texture
+  data types, …). Holding these grants no ability to paint raw widgets.
+- Consumer drawing code receives sealed wrappers instead of egui
+  capabilities:
+  - `MaraUi` — the widget surface (module inline bodies, view bodies,
+    foldable sections). Exposes Mara widgets, layout, `Pod` hosting, a
+    `canvas()` primitive, and nothing else.
+  - `MaraPainter` — typed custom drawing (lines, rects, circles, polygons,
+    text in theme fonts, images).
+  - `MaraInput` — per-frame input snapshot.
+  - `MaraResponse` — plain-data interaction flags (egui's `Response` leaks
+    the whole `Context` via its public `ctx` field, so it is never returned).
+  - `ViewCtx` — sealed: `body(|mui| …)`, `painter()`, `show_pane`,
+    `show_shelves`, `load_texture`; the inner `egui::Context` is private.
+- Functions that merely *take* `&egui::Context`/`&mut egui::Ui` as inputs
+  (the host-boundary `show_app_shell`/`apply_theme`/… family) stay public:
+  they are uncallable by code that can never obtain those values.
+
+Escape hatches, in increasing order of "you really meant it":
+
+1. The `raw-egui` cargo feature on `mara`/`mara_core` re-exports `egui` and
+   unlocks `MaraUi::raw_ui_mut`, `ViewCtx::egui_ctx`, `MaraHostCtx::egui`,
+   `TreeBody::ctx`, `PaneBody::ctx`. Host glue (frame-loop drivers) and the
+   root example enable it; a sealed app enabling it is a visible, greppable
+   line in its `Cargo.toml`.
+2. `#[doc(hidden)] __internal_*` accessors — used by first-party module
+   crates (`mara_canvas`, `mara_image`, …) so they do not have to enable
+   `raw-egui`. This matters because cargo features are additive across the
+   dependency graph: if a first-party dependency enabled `raw-egui`, it
+   would silently unseal `mara_core::egui` for every consumer. These
+   accessors are not semver-stable and not part of the public API.
+
+Rust has no "friend crates", so the seal is a misuse-resistance boundary,
+not a security boundary: a determined consumer can always add their own
+`egui` dependency or call hidden internals — but both are deliberate,
+auditable acts, and neither can inject raw widgets into Mara surfaces
+without them.
+
+`example/sealed` (`mara_sealed_check`) is the compile-time proof: it
+depends only on `mara` (no egui, no `raw-egui`) and exercises views,
+modules, pods, widgets, canvas drawing, and input through the sealed
+surface. If a change makes raw egui reachable or the sealed surface
+insufficient, that crate is where it should break.
+
 ## Core ownership boundaries
 
 ### `mara_core`

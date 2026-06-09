@@ -6,8 +6,6 @@
 //! contents and dispatches actions, while host crates decide how to
 //! paint the resolved items.
 
-use std::collections::HashSet;
-
 use egui::{Color32, Id};
 
 use crate::{
@@ -94,43 +92,6 @@ impl AppShellChrome {
             app_menu: AppMenuPolicy::Enabled,
             window_controls: WindowControlsPolicy::Enabled,
         }
-    }
-
-    #[must_use]
-    pub fn with_permanent_ribbon(mut self, ribbon: RibbonSlotDef) -> Self {
-        self.push_permanent_ribbon(ribbon);
-        self
-    }
-
-    /// Merge another permanent declaration into the one persistent
-    /// main bar.
-    ///
-    /// This exists for compatibility with older callers that built
-    /// "view switcher" and "system controls" separately. It does NOT
-    /// create a second permanent ribbon.
-    pub fn push_permanent_ribbon(&mut self, ribbon: RibbonSlotDef) {
-        assert!(
-            matches!(ribbon.scope, RibbonScope::Permanent),
-            "only permanent declarations can be merged into AppShellChrome"
-        );
-        assert!(
-            matches!(ribbon.edge, crate::ribbon::RibbonEdge::Top),
-            "permanent declarations can only be merged into the top main bar"
-        );
-        assert!(
-            ribbon.accepts.is_empty(),
-            "permanent declarations merge into the fixed top main bar"
-        );
-        let mut seen = HashSet::with_capacity(self.main_bar.slots.len() + ribbon.slots.len());
-        assert!(
-            self.main_bar
-                .slots
-                .iter()
-                .chain(ribbon.slots.iter())
-                .all(|slot| seen.insert(slot.id)),
-            "app shell chrome requires unique permanent slot ids"
-        );
-        self.main_bar.slots.extend(ribbon.slots);
     }
 
     #[must_use]

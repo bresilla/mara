@@ -4,18 +4,17 @@
 //! [`crate::widget::progressbar`] so paired sliders + progress bars
 //! line up.
 //!
-//! Mirrors the legacy `pretty_slider` shape —
-//! this version drops the trailing-separator side-effect
-//! (separators are container/pod chrome here, not row-level).
+//! This version keeps separators in container/pod chrome rather than
+//! attaching them to the slider row.
 
 use crate::style::{
     BODY_FONT_SIZE, FillRole, RadiusRole, StrokeRole, contrast_text_for, fill_for, on_panel_dim,
     on_track, radius_for, stroke_for, theme,
 };
 
-/// Bar row height — retained from the legacy slider metric.
+/// Bar row height.
 pub const SLIDER_ROW_H: f32 = 18.0;
-/// Inline value-readout font size — retained from the legacy value metric.
+/// Inline value-readout font size.
 pub const SLIDER_VALUE_FONT: f32 = 11.0;
 
 /// Default labelled slider (2 × [`SLIDER_ROW_H`] = 36 px total).

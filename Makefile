@@ -68,6 +68,8 @@ test-all:
 
 check:
 	@$(CARGO) check --workspace --all-targets
+	@$(CARGO) check --manifest-path example/sealed/Cargo.toml
+	@! grep -n 'raw-egui' example/Cargo.toml
 
 harden:
 	@git diff --check

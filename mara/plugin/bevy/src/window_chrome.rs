@@ -250,7 +250,7 @@ fn release_window_chrome_claim_system(
         mara_core::WindowChromeHostCapabilities {
             native_move: settings.enabled && settings.move_from_drag_regions,
             native_resize: settings.enabled && settings.resize,
-            system_menu: true,
+            system_maximize: false,
             system_close: false,
         },
     );

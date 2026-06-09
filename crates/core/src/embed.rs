@@ -53,7 +53,7 @@ use crate::style::{
 ///   "title-side" corner, `Middle` = centred, `End` = far corner.
 ///
 /// Default: `(RibbonEdge::Right, RibbonCluster::Start)` —
-/// upper-right corner, mirroring the legacy maximise chip placement.
+/// upper-right corner.
 #[derive(Copy, Clone, Debug)]
 pub struct OverlayOpts {
     pub minimize_edge: RibbonEdge,

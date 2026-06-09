@@ -55,12 +55,14 @@ pub struct WindowChromeRegions {
 pub struct WindowChromeHostCapabilities {
     pub native_move: bool,
     pub native_resize: bool,
-    /// Whether Mara should draw the built-in application menu button
-    /// in the persistent top bar.
-    pub system_menu: bool,
+    /// Whether Mara should draw the built-in maximize/restore window
+    /// control on the left of the persistent top bar — the mirror of
+    /// the close button. Only hosts that own the window (and can honor
+    /// a maximize viewport command) should set this.
+    pub system_maximize: bool,
     /// Whether Mara should draw the built-in close button in the
     /// persistent top bar. Hosts such as browsers or Bevy-owned
-    /// windows can opt out while still keeping the menu.
+    /// windows can opt out.
     pub system_close: bool,
 }
 
@@ -69,7 +71,7 @@ impl Default for WindowChromeHostCapabilities {
         Self {
             native_move: false,
             native_resize: false,
-            system_menu: true,
+            system_maximize: false,
             system_close: false,
         }
     }
@@ -597,7 +599,7 @@ mod tests {
         let native_caps = WindowChromeHostCapabilities {
             native_move: true,
             native_resize: true,
-            system_menu: true,
+            system_maximize: true,
             system_close: true,
         };
         publish_window_chrome_host_capabilities(&ctx, native_caps);

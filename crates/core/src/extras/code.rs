@@ -3,7 +3,7 @@
 //! through the same maximise / restore affordance the graph
 //! widget uses.
 //!
-//! Minimal usage (inside a [`section`](crate::widgets::section)
+//! Minimal usage (inside a [`section`](crate::widget::section)
 //! body, since panes require containers):
 //!
 //! ```ignore
@@ -365,9 +365,10 @@ impl crate::MaraModule for CodeEditorSurface {
 
     fn inline(
         &mut self,
-        ui: &mut egui::Ui,
+        mui: &mut crate::mui::MaraUi<'_>,
         ctx: crate::ModuleInlineCtx<'_>,
     ) -> crate::ModuleResponse {
+        let ui = &mut *mui.ui;
         ui.group(|ui| {
             ui.horizontal(|ui| {
                 ui.label(format!("Code: {}", self.title));

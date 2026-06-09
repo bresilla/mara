@@ -367,12 +367,49 @@ fn edge_has_ribbon(ribbons: &[ResolvedSlotRibbon], edge: RibbonEdge) -> bool {
     ribbons.iter().any(|ribbon| ribbon.edge == edge)
 }
 
-fn is_main_ribbon(ribbons: &[ResolvedSlotRibbon], ribbon: &ResolvedSlotRibbon) -> bool {
-    ribbons
-        .first()
-        .and_then(ribbon_id)
-        .zip(ribbon_id(ribbon))
-        .is_some_and(|(first, current)| first == current)
+/// Phone-only: a small screen can't show both a left and a right side
+/// pane at once. When a side pane is opened, close every open pane on
+/// the opposite side. `ribbons` carries the (already phone-remapped)
+/// edges; `open` is keyed by ribbon chrome id.
+fn enforce_single_open_side(
+    ribbons: &[ResolvedSlotRibbon],
+    open: &mut RibbonOpen,
+    opened_rid: &'static str,
+) {
+    if crate::style::screen_class() != crate::style::Breakpoint::Phone {
+        return;
+    }
+    close_opposite_side_panes(ribbons, open, opened_rid);
+}
+
+/// Pure side-exclusivity: close every open pane on the side opposite
+/// the just-opened pane. No breakpoint check — the caller gates.
+fn close_opposite_side_panes(
+    ribbons: &[ResolvedSlotRibbon],
+    open: &mut RibbonOpen,
+    opened_rid: &'static str,
+) {
+    let Some(opened_edge) = ribbons
+        .iter()
+        .find(|ribbon| ribbon_id(ribbon) == Some(opened_rid))
+        .map(|ribbon| ribbon.edge)
+    else {
+        return;
+    };
+    let opposite = match opened_edge {
+        RibbonEdge::Left => RibbonEdge::Right,
+        RibbonEdge::Right => RibbonEdge::Left,
+        // Only side panes participate in left/right exclusivity.
+        RibbonEdge::Top | RibbonEdge::Bottom => return,
+    };
+    let to_close: Vec<&'static str> = ribbons
+        .iter()
+        .filter(|ribbon| ribbon.edge == opposite)
+        .filter_map(ribbon_id)
+        .collect();
+    for rid in to_close {
+        open.per_ribbon.remove(rid);
+    }
 }
 
 fn insets_for_ribbon(
@@ -381,46 +418,23 @@ fn insets_for_ribbon(
     base: SideInsets,
 ) -> SideInsets {
     let mut out = base;
-    if is_main_ribbon(ribbons, ribbon) && ribbon.edge == RibbonEdge::Top {
-        out.left = EDGE_GAP;
-        out.right = EDGE_GAP;
-        return out;
-    }
 
+    // Horizontal bars (top AND bottom) span the full width and own
+    // their corners. Side rails sit *between* them, insetting their
+    // top/bottom ends for whichever horizontal bars are present. So a
+    // bottom bar runs corner-to-corner and the side rails stop short
+    // above it — mirroring how the top bar has always behaved.
     let with_rail = EDGE_GAP + SIDE_BTN_SIZE + SIDE_BTN_GAP;
-    let claimed_by = |edge: RibbonEdge| {
-        let Some(current_id) = ribbon_id(ribbon) else {
-            return false;
-        };
-        let current_idx = ribbons
-            .iter()
-            .position(|candidate| ribbon_id(candidate) == Some(current_id))
-            .unwrap_or(usize::MAX);
-        ribbons
-            .iter()
-            .position(|candidate| candidate.edge == edge)
-            .is_some_and(|edge_idx| edge_idx < current_idx)
-    };
-    let corner_inset = |edge: RibbonEdge| {
-        if claimed_by(edge) {
-            with_rail
-        } else {
-            EDGE_GAP
-        }
-    };
+    let corner = |present: bool| if present { with_rail } else { EDGE_GAP };
 
     match ribbon.edge {
-        RibbonEdge::Left | RibbonEdge::Right => {
-            out.top = corner_inset(RibbonEdge::Top);
-            out.bottom = corner_inset(RibbonEdge::Bottom);
-        }
-        RibbonEdge::Bottom => {
-            out.left = corner_inset(RibbonEdge::Left);
-            out.right = corner_inset(RibbonEdge::Right);
-        }
-        RibbonEdge::Top => {
+        RibbonEdge::Top | RibbonEdge::Bottom => {
             out.left = EDGE_GAP;
             out.right = EDGE_GAP;
+        }
+        RibbonEdge::Left | RibbonEdge::Right => {
+            out.top = corner(edge_has_ribbon(ribbons, RibbonEdge::Top));
+            out.bottom = corner(edge_has_ribbon(ribbons, RibbonEdge::Bottom));
         }
     }
     out
@@ -1122,6 +1136,10 @@ pub fn draw_unified_ribbon_chrome(
         let role = item_role(item, &ribbons[base_r_idx]);
         if role == RibbonRole::Panel {
             open.toggle(rid, iid);
+            // Phone: opening a side pane closes the opposite side's.
+            if open.is_open(rid, iid) {
+                enforce_single_open_side(ribbons, open, rid);
+            }
         }
         clicks.push(item.id);
     }
@@ -1269,41 +1287,58 @@ mod tests {
     }
 
     #[test]
-    fn bottom_corner_claims_follow_ribbon_initialization_order() {
+    fn bottom_bar_spans_full_width_side_rails_inset() {
+        // The bottom bar runs corner-to-corner; the side rails stop
+        // short above it. Holds in BOTH declaration orders, so a
+        // relocated main bar dropped to the bottom still spans fully.
         let chrome = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(800.0, 480.0));
         let ctx = test_ctx_with_chrome(chrome);
         let left = ribbon_with_id("left", RibbonEdge::Left);
         let bottom = ribbon_with_id("bottom", RibbonEdge::Bottom);
 
-        let side_first = vec![left.clone(), bottom.clone()];
-        let side_first_base = compute_side_insets(&side_first);
-        let side_first_left = strip_rect(
-            &side_first[0],
-            &ctx,
-            insets_for_ribbon(&side_first, &side_first[0], side_first_base),
-        );
-        let side_first_bottom = strip_rect(
-            &side_first[1],
-            &ctx,
-            insets_for_ribbon(&side_first, &side_first[1], side_first_base),
-        );
-        assert_eq!(side_first_left.bottom(), chrome.bottom() - EDGE_GAP);
-        assert!(side_first_bottom.left() > side_first_left.right());
+        for order in [
+            vec![left.clone(), bottom.clone()],
+            vec![bottom.clone(), left.clone()],
+        ] {
+            let base = compute_side_insets(&order);
+            let left_ribbon = order.iter().find(|r| r.edge == RibbonEdge::Left).unwrap();
+            let bottom_ribbon = order.iter().find(|r| r.edge == RibbonEdge::Bottom).unwrap();
+            let left_strip = strip_rect(
+                left_ribbon,
+                &ctx,
+                insets_for_ribbon(&order, left_ribbon, base),
+            );
+            let bottom_strip = strip_rect(
+                bottom_ribbon,
+                &ctx,
+                insets_for_ribbon(&order, bottom_ribbon, base),
+            );
+            // Bottom bar reaches the left edge (owns the corner).
+            assert_eq!(bottom_strip.left(), chrome.left() + EDGE_GAP);
+            // Side rail stops above the bottom bar.
+            assert!(left_strip.bottom() < bottom_strip.top());
+        }
+    }
 
-        let bottom_first = vec![bottom, left];
-        let bottom_first_base = compute_side_insets(&bottom_first);
-        let bottom_first_bottom = strip_rect(
-            &bottom_first[0],
-            &ctx,
-            insets_for_ribbon(&bottom_first, &bottom_first[0], bottom_first_base),
-        );
-        let bottom_first_left = strip_rect(
-            &bottom_first[1],
-            &ctx,
-            insets_for_ribbon(&bottom_first, &bottom_first[1], bottom_first_base),
-        );
-        assert_eq!(bottom_first_bottom.left(), chrome.left() + EDGE_GAP);
-        assert!(bottom_first_left.bottom() < bottom_first_bottom.top());
+    #[test]
+    fn opening_a_side_pane_closes_the_opposite_side() {
+        let left = ribbon_with_id("left", RibbonEdge::Left);
+        let right = ribbon_with_id("right", RibbonEdge::Right);
+        let ribbons = vec![left, right];
+        let mut open = RibbonOpen::default();
+        open.set("left", "left_pane");
+        open.set("right", "right_pane");
+
+        // Just opened the left pane → the right side must close.
+        close_opposite_side_panes(&ribbons, &mut open, "left");
+        assert!(open.is_open("left", "left_pane"));
+        assert!(open.get("right").is_none());
+
+        // Now open the right pane → the left side closes.
+        open.set("right", "right_pane");
+        close_opposite_side_panes(&ribbons, &mut open, "right");
+        assert!(open.is_open("right", "right_pane"));
+        assert!(open.get("left").is_none());
     }
 
     #[test]

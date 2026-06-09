@@ -29,16 +29,12 @@
 //! }
 //! ```
 
-pub mod embedded_view;
 pub mod gizmo_material;
 pub mod node_view_backend;
 pub mod prelude;
 pub mod window_chrome;
 
-// `extras` (vendored graph + code_editor + maximize) lives in
-// `mara_core`. Re-exported here so Bevy plugin users can keep using
-// `bevy_mara::extras::*`.
-pub use embedded_view::{
+pub use mara_bevy::{
     BevyEmbeddedView, BevyViewportAppConfigure, BevyViewportBridge, BevyViewportInput,
     BevyViewportPickedColor, BevyViewportRenderTarget, BevyViewportSet, BevyViewportTexture,
     BevyViewportWgpuResources, CapturedBevyFrame, EmbeddedBevyViewport, MaraBevyViewport,

@@ -27,6 +27,13 @@
 //!   reserve viewport space.
 //! * [`icons`] — Fluent UI System Icon glyph painter.
 
+// Raw egui escape hatch. Everything in Mara's default surface is
+// typed and sealed; the only way to reach a raw `egui::Ui` /
+// `egui::Context` from consumer code is to enable the `raw-egui`
+// feature, which makes the opt-out explicit and greppable.
+#[cfg(feature = "raw-egui")]
+pub use egui;
+
 pub mod app_shell;
 pub mod command_palette;
 pub mod container;
@@ -36,6 +43,7 @@ pub mod extras;
 pub mod icons;
 pub mod layer;
 pub mod module;
+pub mod mui;
 pub mod pane;
 pub mod pod;
 pub mod ribbon;
@@ -44,9 +52,17 @@ pub mod shelf;
 pub mod style;
 pub mod themes;
 pub mod view;
+pub mod vocab;
 pub mod widget;
 pub mod window_chrome;
 pub mod workspace;
+
+pub use mui::{MaraInput, MaraPainter, MaraResponse, MaraUi};
+// `vocab` is deliberately NOT glob-re-exported at the root: hosts
+// like Bevy glob-import both their own prelude and `mara_core::*`,
+// and egui's `Vec2`/`Rect` would silently shadow the host's math
+// types. Consumers reach the data vocabulary via
+// `use mara_core::vocab::{Color32, Rect, ...}` (or `mara::ui::vocab`).
 
 // Foundational row-height unit — re-exported at crate root so the
 // canonical name is `mara_core::UNIT`. Every widget is sized in
@@ -83,14 +99,19 @@ pub use ribbon::{
     left_shelf_command_id, left_shelf_slot_id, main_bar_empty_drag_started,
     permanent_app_menu_slot, permanent_bottom_shelf_slot, permanent_left_shelf_slot,
     permanent_right_shelf_slot, permanent_system_control_slot, permanent_view_switcher_ribbon,
-    resolve_slot_item, resolve_slot_items, restore_workspace_slot_override, ribbon_avoiding_rect,
-    ribbon_clearance, right_shelf_command_id, right_shelf_slot_id, system_close_or_restore_slot_id,
+    phone_remapped_ribbon_edge, resolve_slot_item, resolve_slot_items,
+    restore_workspace_slot_override, ribbon_avoiding_rect, ribbon_clearance,
+    right_shelf_command_id, right_shelf_slot_id, system_close_or_restore_slot_id,
 };
 pub use shelf::{
     ShelfContainer, ShelfDef, ShelfEdge, ShelfEdgeError, ShelfLayout, ShelfState, layout_shelves,
-    publish_shelf_layout, shelf_insets, shelf_layout, show_shelves,
+    publish_shelf_layout, responsive_shelves, shelf_insets, shelf_layout, show_shelves,
 };
-pub use style::{AccentColor, GlassOpacity, apply_theme, set_glass_opacity};
+pub use style::{
+    AccentColor, Breakpoint, GlassOpacity, PHONE_MAX_WIDTH, ScreenMetrics, TABLET_MAX_WIDTH,
+    apply_theme, screen_class, screen_metrics, set_glass_opacity, set_screen_metrics,
+    set_touch_density_override, touch_density,
+};
 pub use view::{
     MaraView, SharedSurfaceId, ViewCtx, ViewEntry, ViewId, ViewRouter, ViewRouterError,
 };
@@ -107,30 +128,23 @@ pub use workspace::{
     WorkspaceLevelState, WorkspaceOwner, WorkspacePolicy, WorkspaceStack, WorkspaceStackError,
 };
 
-// Surface the free widget functions at the crate root so
-// `use bevy_mara::prelude::*;` brings every standalone widget
-// (`wide_button`, `readout_row`, `chip`, `toggle`, `tree_row`,
+// Surface the canonical widget functions at the crate root so
+// `use bevy_mara::prelude::*;` brings standalone widgets
+// (`button`, `readout`, `chip`, `toggle`, `tree_row`,
 // `keybinding_row`, `badge_row`, `context_menu_mara`, …) into
 // scope. The TYPE-style names (`Button`, `TreeIconSlot`, …) sit
 // here too so trait-shaped widgets compose without a longer path.
 pub use widget::{
     BADGE_LABEL_COL_W, BADGE_ROW_H, BUTTON_LABEL_FONT, BUTTON_ROW_H, BUTTON_ROW_H_SUBTITLE, Button,
     CARD_BUTTON_ROW_H, CHIP_H, COLOR_SWATCH_H, DROPDOWN_ROW_H, FillStyle, HYBRID_SELECT_ROW_H,
-    HybridSelectResponse, KEYBINDING_ROW_H, LABEL_COL_WIDTH, READOUT_ROW_H, SELECT_ROW_H,
-    TREE_INDENT, TREE_ROW_H, TreeBranchGuide, TreeIconKind, TreeIconSlot, TreeRowResponse,
-    badge_row, badge_row_colored, button, button_h, card_button, chip, chip_colored, color_rgb,
-    color_rgba, context_menu_mara, drag_value, drag_value_h, dropdown, dropdown_control,
-    dropdown_h, hybrid_select_row, hybrid_select_row_h, key_chip, keybinding_row, keybinding_row_h,
-    labelled_row, labelled_row_custom_left, pretty_slider, progressbar, progressbar_h, readout,
-    readout_h, readout_row, row_separator, search_field, select_row, select_row_h, slider,
-    slider_h, sub_caption, text_input, text_input_h, toggle, toggle_h, toggle_track_only, tree_row,
-    wide_button,
+    HybridSelectResponse, KEYBINDING_ROW_H, READOUT_ROW_H, SELECT_ROW_H, TREE_INDENT, TREE_ROW_H,
+    TreeBranchGuide, TreeIconKind, TreeIconSlot, TreeRowResponse, badge_row, badge_row_colored,
+    button, button_h, card_button, chip, chip_colored, color_rgb, color_rgba, context_menu_mara,
+    drag_value, drag_value_h, dropdown, dropdown_h, hybrid_select_row, hybrid_select_row_h,
+    keybinding_row, keybinding_row_h, progressbar, progressbar_h, readout, readout_h, select_row,
+    select_row_h, slider, slider_h, text_input, text_input_h, toggle, toggle_h, toggle_track_only,
+    tree_row,
 };
-
-// `widgets` is the legacy module name for `widget`. Several apps
-// still import `bevy_mara::widgets::*` — keep an alias so they
-// compile.
-pub use widget as widgets;
 
 // Re-export of the bundled `iconflow` crate so consumers can reach
 // `iconflow::list(Pack::Fluentui)`, `Pack`, etc. without their own

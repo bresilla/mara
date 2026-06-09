@@ -1,6 +1,6 @@
 [package]
 name = "mara_example"
-description = "Root Mara example app consuming mara, mara_core, and Mara modules like an external application."
+description = "Root Mara example app consuming the unified Mara facade like an external application."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -9,8 +9,6 @@ publish = false
 
 [dependencies]
 mara = { path = "../mara", features = ["window", "bevy", "canvas", "code", "graph", "image", "map", "three-d"] }
-mara_core = { workspace = true }
-mara_map = { workspace = true }
 egui_plot = "0.34"
 bevy = { workspace = true, features = ["webgl2"] }
 bevy_egui = { workspace = true, features = ["default_fonts", "render"] }

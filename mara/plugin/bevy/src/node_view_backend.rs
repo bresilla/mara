@@ -1,4 +1,4 @@
-//! Bevy host backend for `mara_core::extras::node_view`.
+//! Bevy host backend for `mara_graph::node_view`.
 //!
 //! Bridges the mara_core-side sharp-zoom node graph (secondary
 //! `egui::Context` rendered to its own wgpu texture) into Bevy's
@@ -43,7 +43,7 @@ use bevy::render::{
     texture::GpuImage,
 };
 use bevy_egui::{EguiTextureHandle, EguiUserTextures};
-use mara_core::extras::node_view::NodeViewBackend;
+use mara_graph::node_view::NodeViewBackend;
 
 /// Bevy plugin that wires the cross-world copy of mara_core's
 /// node-view render into a Bevy `Image` asset for `bevy_egui` to

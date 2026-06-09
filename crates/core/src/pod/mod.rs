@@ -1602,9 +1602,9 @@ fn paint_widgets(
                     format!("widget[action_button #{}]", action_button_idx),
                 );
                 response.action_buttons.push(ActionButtonPodResponse {
-                    body_clicked: resp.body.clicked(),
-                    body_double_clicked: resp.body.double_clicked(),
-                    action_clicked: resp.action.clicked(),
+                    body_clicked: resp.body.clicked,
+                    body_double_clicked: resp.body.double_clicked,
+                    action_clicked: resp.action.clicked,
                 });
                 action_button_idx += 1;
             }
@@ -1777,11 +1777,11 @@ fn paint_widgets(
                     radio_on,
                     cfg.accent,
                 );
-                if resp.body.clicked() {
+                if resp.body.clicked {
                     selected = !selected;
                     ui.ctx().data_mut(|d| d.insert_persisted(sel_key, selected));
                 }
-                if resp.radio.clicked() {
+                if resp.radio.clicked {
                     radio_on = !radio_on;
                     ui.ctx()
                         .data_mut(|d| d.insert_persisted(radio_key, radio_on));
@@ -1792,9 +1792,9 @@ fn paint_widgets(
                     format!("widget[hybrid_select #{}]", hybrid_select_idx),
                 );
                 response.hybrid_selects.push(HybridSelectPodResponse {
-                    body_clicked: resp.body.clicked(),
-                    body_double_clicked: resp.body.double_clicked(),
-                    radio_clicked: resp.radio.clicked(),
+                    body_clicked: resp.body.clicked,
+                    body_double_clicked: resp.body.double_clicked,
+                    radio_clicked: resp.radio.clicked,
                     selected,
                     radio_on,
                 });
@@ -1895,14 +1895,14 @@ fn paint_widgets(
                         pinned == Some(i),
                         cfg.accent,
                     );
-                    if resp.body.clicked() {
+                    if resp.body.clicked {
                         body_clicked = Some(i);
                         selected = Some(i);
                     }
-                    if resp.body.double_clicked() {
+                    if resp.body.double_clicked {
                         body_double_clicked = Some(i);
                     }
-                    if resp.radio.clicked() {
+                    if resp.radio.clicked {
                         radio_clicked = Some(i);
                         // Single-select radio: clicking an
                         // unpinned row pins it; clicking the
@@ -1973,7 +1973,10 @@ fn paint_widgets(
                     options: cfg.options,
                     workspace: None,
                 };
-                let module_response = cfg.module.inline(ui, ctx);
+                let accent = ctx.accent;
+                let module_response = cfg
+                    .module
+                    .inline(&mut crate::mui::MaraUi::new(ui, accent), ctx);
                 crate::debug::tag(ui, ui.min_rect(), format!("widget[module #{}]", module_idx));
                 response.modules.push(ModulePodResponse {
                     id: module_id,
@@ -2019,7 +2022,11 @@ mod tests {
             self.icon
         }
 
-        fn inline(&mut self, _ui: &mut egui::Ui, _ctx: ModuleInlineCtx<'_>) -> ModuleResponse {
+        fn inline(
+            &mut self,
+            _mui: &mut crate::mui::MaraUi<'_>,
+            _ctx: ModuleInlineCtx<'_>,
+        ) -> ModuleResponse {
             ModuleResponse::none()
         }
 

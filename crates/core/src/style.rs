@@ -551,6 +551,17 @@ pub fn apply_theme(ctx: &egui::Context, accent: AccentColor, opacity: GlassOpaci
     // comparing these against the live atomics.
     static LAST_BODY_WEIGHT: AtomicU8 = AtomicU8::new(u8::MAX);
     static LAST_TITLE_WEIGHT: AtomicU8 = AtomicU8::new(u8::MAX);
+    // Touch density gates the spacing bump in `apply_theme_to`. Track
+    // it in the dedup set so crossing the handheld/desktop threshold
+    // re-pushes the egui style even when accent/theme are unchanged.
+    // `u8::MAX` is the never-applied sentinel.
+    static LAST_TOUCH_DENSITY: AtomicU8 = AtomicU8::new(u8::MAX);
+
+    // Publish the per-frame responsive metrics BEFORE the dedup gate,
+    // so `screen_class()` / `touch_density()` stay current every frame
+    // even when the theme itself hasn't changed.
+    set_screen_metrics(ctx);
+    let touch_u8 = touch_density() as u8;
 
     let th = theme();
     // Two accent streams:
@@ -609,6 +620,7 @@ pub fn apply_theme(ctx: &egui::Context, accent: AccentColor, opacity: GlassOpaci
         && LAST_OPACITY.load(Ordering::Relaxed) == opacity.0
         && LAST_THEME_NAME_PTR.load(Ordering::Relaxed) == theme_ptr
         && LAST_PASTEL.load(Ordering::Relaxed) == pastel_u8
+        && LAST_TOUCH_DENSITY.load(Ordering::Relaxed) == touch_u8
     {
         return;
     }
@@ -616,6 +628,7 @@ pub fn apply_theme(ctx: &egui::Context, accent: AccentColor, opacity: GlassOpaci
     LAST_OPACITY.store(opacity.0, Ordering::Relaxed);
     LAST_THEME_NAME_PTR.store(theme_ptr, Ordering::Relaxed);
     LAST_PASTEL.store(pastel_u8, Ordering::Relaxed);
+    LAST_TOUCH_DENSITY.store(touch_u8, Ordering::Relaxed);
     // Publish the accent / opacity globals BEFORE applying the
     // visuals — every paint site downstream (titles, borders,
     // glass-alpha helpers) reads from these atomics rather than
@@ -760,6 +773,23 @@ pub fn apply_theme_to(
     style.spacing.slider_width = 90.0;
     style.spacing.icon_width = 14.0;
     style.spacing.icon_spacing = 6.0;
+
+    // Touch density: on handheld/touch surfaces, grow hit targets and
+    // breathing room so controls clear the ~44 px finger-target
+    // guideline without the desktop layout having to know about it.
+    // Reads the per-frame `touch_density()` global published by
+    // `set_screen_metrics`; `apply_theme` folds it into its dedup key
+    // so the bump is re-pushed when the threshold is crossed.
+    if touch_density() {
+        style.spacing.item_spacing = egui::vec2(8.0, 8.0);
+        style.spacing.button_padding = egui::vec2(12.0, 10.0);
+        style.spacing.interact_size.y = 30.0;
+        style.spacing.icon_width = 18.0;
+        style.spacing.icon_spacing = 8.0;
+        style.spacing.scroll.bar_width = 6.0;
+        style.spacing.scroll.floating_width = 4.0;
+        style.spacing.scroll.floating_allocated_width = 6.0;
+    }
 
     // Scrollbar — always a thin line. The bar barely thickens on
     // hover (2 → 3 px); the visible cue is the handle's opacity
@@ -1008,7 +1038,7 @@ const SCRAMBLE_CHARS: &[char] = &[
 /// (or while gated, so the random glyphs keep cycling).
 pub fn scramble_text(ctx: &egui::Context, id: egui::Id, current: &str, active: bool) -> String {
     /// Staggered delay between adjacent characters' lock times.
-    /// `0.07` was the legacy default, but with `Pane`'s
+    /// `0.07` was the earlier default, but with `Pane`'s
     /// per-section staggered fade-in landing the last container at
     /// ~0.81 s, the first container's cipher finished too early —
     /// most letters had already locked by the time the user could
@@ -1261,7 +1291,6 @@ pub mod radius {
     /// matches the wider widgets'.
     pub const COMPACT: u8 = 3;
     /// Progress bars, chips, bars-within-rows.
-    /// *(Legacy — prefer `WIDGET` for new code.)*
     pub const SM: u8 = 3;
     /// Foldable container cards. Larger than `WIDGET` so the
     /// container reads as a surface and the widgets inside read
@@ -1791,7 +1820,6 @@ pub struct TextTheme {
     pub title_color_mode: TextColorMode,
     pub title_softness: f32,
     pub body_accent_darken: f32,
-    pub subcaption_prefix: Option<&'static str>,
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -2051,10 +2079,6 @@ pub struct Theme {
     /// `section_caps`. PRO `0.0`, GAME `1.5` — wide tracking is the
     /// near-universal "this is a system / game UI heading" cue.
     pub section_title_letter_spacing: f32,
-    /// Optional glyph prefix prepended to `sub_caption` text. PRO
-    /// `None`, GAME `Some("// ")` — `fsociety` / Helldivers / VS
-    /// console comment marker; reads as code-style annotation.
-    pub subcaption_prefix: Option<&'static str>,
     /// `true` → paint a dashed accent rule along the section's
     /// bottom edge after the body finishes rendering. Gives every
     /// section a "closes here" boundary even when there are no
@@ -2129,7 +2153,7 @@ pub struct Theme {
     pub section_title_trailing_rule: bool,
     /// Length of the L-bracket arms painted at the four corners of
     /// the section / pane's outer rect — the iconic HUD anchor seen
-    /// in Destiny 2, Apex, Rainbow Six, Tron Legacy. `0.0` skips them
+    /// in Destiny 2, Apex, Rainbow Six, Tron-era HUDs. `0.0` skips them
     /// entirely (PRO); a positive value paints two perpendicular
     /// strokes of that length flush at each corner. GAME `7.0`.
     pub section_corner_ticks: f32,
@@ -2406,6 +2430,202 @@ pub use crate::themes::{
     PRO_LIGHT_BG_INPUT, PRO_LIGHT_BG_PANEL, PRO_LIGHT_BG_RAISED, PRO_LIGHT_BG_WINDOW,
     PRO_LIGHT_BORDER_INNER, PRO_LIGHT_BORDER_SUBTLE, theme_flat, theme_game, theme_pro,
 };
+
+/// Responsive screen-size class, computed once per frame from the
+/// host's logical content width (egui points, DPI-independent).
+///
+/// The shell and widgets consult [`screen_class`] to reflow on small
+/// screens: ribbons can collapse, shelves can become overlay drawers,
+/// side panes can stack. Thresholds are deliberately conventional so
+/// behaviour matches user expectations from the web.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum Breakpoint {
+    /// Phone-class: very narrow. Single-column, chrome collapses to
+    /// drawers/menus, touch density on.
+    Phone,
+    /// Tablet-class: medium. Some chrome stays, panes may stack,
+    /// touch density on.
+    Tablet,
+    /// Desktop-class: full multi-pane shell, mouse density.
+    Desktop,
+}
+
+/// Upper bound (exclusive) of the [`Breakpoint::Phone`] band, in
+/// logical points. Below this width the shell is phone-class.
+pub const PHONE_MAX_WIDTH: f32 = 600.0;
+/// Upper bound (exclusive) of the [`Breakpoint::Tablet`] band, in
+/// logical points. At or above this the shell is desktop-class.
+pub const TABLET_MAX_WIDTH: f32 = 1024.0;
+
+impl Breakpoint {
+    /// Classify a logical content width (egui points) into a band.
+    #[must_use]
+    pub fn from_width(width: f32) -> Self {
+        if width < PHONE_MAX_WIDTH {
+            Self::Phone
+        } else if width < TABLET_MAX_WIDTH {
+            Self::Tablet
+        } else {
+            Self::Desktop
+        }
+    }
+
+    /// Phone-class only — the most aggressive reflow tier.
+    #[must_use]
+    pub fn is_compact(self) -> bool {
+        matches!(self, Self::Phone)
+    }
+
+    /// Phone or tablet — anything that is not the full desktop shell.
+    #[must_use]
+    pub fn is_handheld(self) -> bool {
+        matches!(self, Self::Phone | Self::Tablet)
+    }
+}
+
+/// Per-frame snapshot of the host surface geometry that drives
+/// responsive layout. Published by [`set_screen_metrics`] and read via
+/// [`screen_metrics`].
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ScreenMetrics {
+    /// Logical content width in egui points (DPI-independent).
+    pub width: f32,
+    /// Logical content height in egui points.
+    pub height: f32,
+    /// Device pixels per logical point.
+    pub pixels_per_point: f32,
+    /// Width-derived size class.
+    pub breakpoint: Breakpoint,
+    /// Whether touch-friendly density (larger hit targets) is active.
+    pub touch_density: bool,
+}
+
+impl Default for ScreenMetrics {
+    fn default() -> Self {
+        Self {
+            width: TABLET_MAX_WIDTH,
+            height: 768.0,
+            pixels_per_point: 1.0,
+            breakpoint: Breakpoint::Desktop,
+            touch_density: false,
+        }
+    }
+}
+
+// Packed screen metrics. Width/height are stored as rounded u16 point
+// counts; that's plenty of precision for breakpoint logic and keeps
+// the whole snapshot in two relaxed atomics.
+static SCREEN_WH: core::sync::atomic::AtomicU32 =
+    core::sync::atomic::AtomicU32::new(((1024u32) << 16) | 768u32);
+// byte 0: breakpoint discriminant, byte 1: touch_density bool,
+// bytes 2..4: pixels_per_point * 100 (u16). Default to Desktop
+// (discriminant 2) so the pre-first-frame state is the full shell,
+// not a phone reflow — `set_screen_metrics` corrects it each frame.
+static SCREEN_FLAGS: core::sync::atomic::AtomicU32 =
+    core::sync::atomic::AtomicU32::new(((100u32) << 16) | 2);
+
+// Touch-density override. 0 = follow breakpoint, 1 = force on,
+// 2 = force off.
+static TOUCH_DENSITY_OVERRIDE: AtomicU8 = AtomicU8::new(0);
+
+fn breakpoint_to_u8(bp: Breakpoint) -> u8 {
+    match bp {
+        Breakpoint::Phone => 0,
+        Breakpoint::Tablet => 1,
+        Breakpoint::Desktop => 2,
+    }
+}
+
+fn breakpoint_from_u8(value: u8) -> Breakpoint {
+    match value {
+        0 => Breakpoint::Phone,
+        1 => Breakpoint::Tablet,
+        _ => Breakpoint::Desktop,
+    }
+}
+
+/// Force touch density on/off regardless of breakpoint, or pass `None`
+/// to follow the breakpoint (handheld → on, desktop → off). Useful for
+/// a manual "touch mode" toggle, or to force mouse density on a small
+/// kiosk window.
+pub fn set_touch_density_override(force: Option<bool>) {
+    let v = match force {
+        None => 0,
+        Some(true) => 1,
+        Some(false) => 2,
+    };
+    TOUCH_DENSITY_OVERRIDE.store(v, Ordering::Relaxed);
+}
+
+/// Compute and publish the per-frame [`ScreenMetrics`] from an egui
+/// context. Hosts (or the shell entry) call this once per frame before
+/// laying out, so [`screen_class`] / [`screen_metrics`] are current.
+/// [`apply_theme`] also calls it, so theme-driven hosts get it for
+/// free.
+pub fn set_screen_metrics(ctx: &egui::Context) {
+    let rect = ctx.content_rect();
+    let ppp = ctx.pixels_per_point().max(0.1);
+    let metrics = ScreenMetrics {
+        width: rect.width(),
+        height: rect.height(),
+        pixels_per_point: ppp,
+        breakpoint: Breakpoint::from_width(rect.width()),
+        touch_density: false, // resolved below against the override
+    };
+    publish_screen_metrics(metrics);
+}
+
+fn resolve_touch_density(breakpoint: Breakpoint) -> bool {
+    match TOUCH_DENSITY_OVERRIDE.load(Ordering::Relaxed) {
+        1 => true,
+        2 => false,
+        _ => breakpoint.is_handheld(),
+    }
+}
+
+fn publish_screen_metrics(metrics: ScreenMetrics) {
+    let touch = resolve_touch_density(metrics.breakpoint);
+    let w = (metrics.width.round().clamp(0.0, 65535.0)) as u32;
+    let h = (metrics.height.round().clamp(0.0, 65535.0)) as u32;
+    SCREEN_WH.store((w << 16) | h, Ordering::Relaxed);
+    let ppp_centis = ((metrics.pixels_per_point * 100.0)
+        .round()
+        .clamp(0.0, 65535.0)) as u32;
+    let flags = (ppp_centis << 16)
+        | ((touch as u32) << 8)
+        | u32::from(breakpoint_to_u8(metrics.breakpoint));
+    SCREEN_FLAGS.store(flags, Ordering::Relaxed);
+}
+
+/// Read the current responsive size class. Cheap (one relaxed atomic);
+/// call freely from any paint site.
+#[must_use]
+pub fn screen_class() -> Breakpoint {
+    let flags = SCREEN_FLAGS.load(Ordering::Relaxed);
+    breakpoint_from_u8((flags & 0xff) as u8)
+}
+
+/// Whether touch-friendly density is currently active.
+#[must_use]
+pub fn touch_density() -> bool {
+    let flags = SCREEN_FLAGS.load(Ordering::Relaxed);
+    ((flags >> 8) & 0x1) != 0
+}
+
+/// Read the full per-frame screen metrics snapshot.
+#[must_use]
+pub fn screen_metrics() -> ScreenMetrics {
+    let wh = SCREEN_WH.load(Ordering::Relaxed);
+    let flags = SCREEN_FLAGS.load(Ordering::Relaxed);
+    let breakpoint = breakpoint_from_u8((flags & 0xff) as u8);
+    ScreenMetrics {
+        width: (wh >> 16) as f32,
+        height: (wh & 0xffff) as f32,
+        pixels_per_point: ((flags >> 16) & 0xffff) as f32 / 100.0,
+        breakpoint,
+        touch_density: ((flags >> 8) & 0x1) != 0,
+    }
+}
 
 /// Packed `(r, g, b, a)` snapshot of the active accent colour.
 /// `apply_theme` writes this so widget paints can call
@@ -3070,7 +3290,7 @@ pub fn on_track_dim() -> egui::Color32 {
 /// Derived "hover" variant of the runtime accent — used by the
 /// scrollbar's foreground colour for the handle's hover state, and
 /// by any widget that wants a lighter accent for hover affordance.
-/// Lerps the accent 25 % toward white. Replaces the legacy
+/// Lerps the accent 25 % toward white. Replaces direct
 /// hardcoded `ACCENT_HOVER` constant which never tracked the user's
 /// chosen accent.
 pub fn accent_hover() -> egui::Color32 {
@@ -3079,7 +3299,7 @@ pub fn accent_hover() -> egui::Color32 {
 
 /// Derived "pressed" variant of the runtime accent — used by the
 /// scrollbar's drag-state foreground and the code-editor selection
-/// fill. Lerps the accent 25 % toward black. Replaces the legacy
+/// fill. Lerps the accent 25 % toward black. Replaces direct
 /// `ACCENT_PRESSED`.
 pub fn accent_pressed() -> egui::Color32 {
     lerp_rgb(active_accent(), egui::Color32::BLACK, 0.25)

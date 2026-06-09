@@ -20,8 +20,7 @@
 //! - `pane`, `ribbon`, `container`, `tabs`, `pod`, `widgets`
 //! - `graph`, `code`, `overlay`
 //!
-//! Older flat fields still exist as compatibility shims while
-//! call-sites migrate, but new code should prefer the nested groups.
+//! New code should prefer the nested groups.
 //!
 //! # Adding a new theme
 //!

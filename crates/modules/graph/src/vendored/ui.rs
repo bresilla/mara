@@ -42,7 +42,6 @@ pub use self::{
 /// Controls how header, pins, body and footer are placed in the node.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(all(feature = "egui-probe", any()), derive(egui_probe::EguiProbe))]
 pub enum NodeLayoutKind {
     /// Input pins, body and output pins are placed horizontally.
     /// With header on top and footer on bottom.
@@ -110,7 +109,6 @@ pub enum NodeLayoutKind {
 ///
 #[derive(Clone, Copy, Debug, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(all(feature = "egui-probe", any()), derive(egui_probe::EguiProbe))]
 pub struct NodeLayout {
     /// Controls method of laying out node elements.
     pub kind: NodeLayoutKind,
@@ -292,7 +290,6 @@ impl NodeLayout {
 /// Controls style of node selection rect.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(all(feature = "egui-probe", any()), derive(egui_probe::EguiProbe))]
 pub struct SelectionStyle {
     /// Margin between selection rect and node frame.
     pub margin: Margin,
@@ -315,7 +312,6 @@ pub struct SelectionStyle {
 /// of the halo where they intersect.
 #[derive(Clone, Copy, Debug, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(all(feature = "egui-probe", any()), derive(egui_probe::EguiProbe))]
 pub struct NodeHalo {
     /// Stroke colour. Typically the host's accent.
     pub color: Color32,
@@ -344,7 +340,6 @@ impl Default for NodeHalo {
 /// Controls how pins are placed in the node.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(all(feature = "egui-probe", any()), derive(egui_probe::EguiProbe))]
 pub enum PinPlacement {
     /// Pins are placed inside the node frame.
     #[default]
@@ -363,7 +358,6 @@ pub enum PinPlacement {
 /// Style for rendering Graph.
 #[derive(Clone, Copy, Debug, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(all(feature = "egui-probe", any()), derive(egui_probe::EguiProbe))]
 pub struct GraphStyle {
     /// Controls how nodes are laid out.
     /// Defaults to [`NodeLayoutKind::Coil`].
@@ -418,7 +412,6 @@ pub struct GraphStyle {
     pub collapsible: Option<bool>,
 
     /// Size of pins.
-    #[cfg_attr(all(feature = "egui-probe", any()), egui_probe(range = 0.0..))]
     #[cfg_attr(
         feature = "serde",
         serde(skip_serializing_if = "Option::is_none", default)
@@ -454,7 +447,6 @@ pub struct GraphStyle {
     pub pin_placement: Option<PinPlacement>,
 
     /// Width of wires.
-    #[cfg_attr(all(feature = "egui-probe", any()), egui_probe(range = 0.0..))]
     #[cfg_attr(
         feature = "serde",
         serde(skip_serializing_if = "Option::is_none", default)
@@ -462,7 +454,6 @@ pub struct GraphStyle {
     pub wire_width: Option<f32>,
 
     /// Size of wire frame which controls curvature of wires.
-    #[cfg_attr(all(feature = "egui-probe", any()), egui_probe(range = 0.0..))]
     #[cfg_attr(
         feature = "serde",
         serde(skip_serializing_if = "Option::is_none", default)
@@ -581,7 +572,6 @@ pub struct GraphStyle {
     pub bg_pattern_stroke: Option<Stroke>,
 
     /// Minimum viewport scale that can be set.
-    #[cfg_attr(all(feature = "egui-probe", any()), egui_probe(range = 0.0..=1.0))]
     #[cfg_attr(
         feature = "serde",
         serde(skip_serializing_if = "Option::is_none", default)
@@ -589,7 +579,6 @@ pub struct GraphStyle {
     pub min_scale: Option<f32>,
 
     /// Maximum viewport scale that can be set.
-    #[cfg_attr(all(feature = "egui-probe", any()), egui_probe(range = 1.0..))]
     #[cfg_attr(
         feature = "serde",
         serde(skip_serializing_if = "Option::is_none", default)
@@ -642,11 +631,9 @@ pub struct GraphStyle {
         feature = "serde",
         serde(skip_serializing_if = "Option::is_none", default)
     )]
-    #[cfg_attr(all(feature = "egui-probe", any()), egui_probe(range = 0.0f32..=10.0f32 by 0.05f32))]
     pub wire_smoothness: Option<f32>,
 
     #[doc(hidden)]
-    #[cfg_attr(all(feature = "egui-probe", any()), egui_probe(skip))]
     #[cfg_attr(feature = "serde", serde(skip_serializing, default))]
     /// Do not access other than with .., here to emulate `#[non_exhaustive(pub)]`
     pub _non_exhaustive: (),

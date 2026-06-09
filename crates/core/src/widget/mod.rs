@@ -14,7 +14,6 @@ pub mod drag_value;
 pub mod dropdown;
 pub mod foldable;
 pub mod keybinding;
-pub mod legacy;
 pub mod progressbar;
 pub mod readout;
 pub mod select;
@@ -36,10 +35,6 @@ pub use drag_value::{axis_drag, axis_drag_h, drag_value, drag_value_h};
 pub use dropdown::{DROPDOWN_ROW_H, dropdown, dropdown_h};
 pub use foldable::section;
 pub use keybinding::{KEYBINDING_ROW_H, keybinding_row, keybinding_row_h};
-pub use legacy::{
-    LABEL_COL_WIDTH, dropdown_control, key_chip, labelled_row, labelled_row_custom_left,
-    pretty_slider, readout_row, row_separator, search_field, sub_caption, wide_button,
-};
 pub use progressbar::{progressbar, progressbar_h};
 pub use readout::{READOUT_ROW_H, readout, readout_h};
 pub use select::{

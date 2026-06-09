@@ -99,9 +99,9 @@ pub struct Button<'a> {
 #[derive(Debug)]
 pub struct ActionButtonResponse {
     /// Click target for the main button body.
-    pub body: egui::Response,
+    pub body: crate::mui::MaraResponse,
     /// Independent click target for the embedded tail action.
-    pub action: egui::Response,
+    pub action: crate::mui::MaraResponse,
 }
 
 /// Mara card/button with a nested end action, for rows like:
@@ -213,7 +213,10 @@ impl<'a> ActionButton<'a> {
             action = action.on_hover_text(tip);
         }
         if !ui.is_rect_visible(rect) {
-            return ActionButtonResponse { body, action };
+            return ActionButtonResponse {
+                body: body.into(),
+                action: action.into(),
+            };
         }
 
         let radius = egui::CornerRadius::same(th.radius_widget);
@@ -332,7 +335,10 @@ impl<'a> ActionButton<'a> {
             accent,
         );
 
-        ActionButtonResponse { body, action }
+        ActionButtonResponse {
+            body: body.into(),
+            action: action.into(),
+        }
     }
 }
 

@@ -134,7 +134,7 @@ impl MaraView for ImageSurface {
     }
 
     fn show(&mut self, ctx: &mut ViewCtx<'_>) {
-        egui::CentralPanel::default().show(ctx.egui_ctx, |ui| {
+        egui::CentralPanel::default().show(ctx.__internal_egui_ctx(), |ui| {
             Self::paint_placeholder(ui, &self.doc);
         });
     }
@@ -153,7 +153,12 @@ impl MaraModule for ImageSurface {
         "image"
     }
 
-    fn inline(&mut self, ui: &mut egui::Ui, ctx: ModuleInlineCtx<'_>) -> ModuleResponse {
+    fn inline(
+        &mut self,
+        mui: &mut mara_core::MaraUi<'_>,
+        ctx: ModuleInlineCtx<'_>,
+    ) -> ModuleResponse {
+        let ui = mui.__internal_raw_ui();
         ui.group(|ui| {
             ui.label(format!("Image: {}", self.doc.title));
             match &self.doc.source {

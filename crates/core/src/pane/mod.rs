@@ -217,6 +217,32 @@ pub fn active_pane_key() -> Id {
     Id::new("mara_active_pane_id")
 }
 
+fn ribbon_pane_ids_key() -> Id {
+    Id::new("mara_registered_ribbon_pane_ids")
+}
+
+/// Publish the pane ids that are reachable from the current ribbon set.
+///
+/// When this registry is present, [`Pane::show`] refuses to paint panes whose
+/// id was not registered by a ribbon/panel button. This keeps app chrome
+/// honest: a pane must have a corresponding ribbon affordance instead of being
+/// slapped onto the canvas directly.
+pub fn publish_ribbon_pane_ids(ctx: &egui::Context, ids: impl IntoIterator<Item = impl Into<Id>>) {
+    let ids = ids.into_iter().map(Into::into).collect::<Vec<_>>();
+    ctx.data_mut(|d| d.insert_temp(ribbon_pane_ids_key(), ids));
+}
+
+fn assert_pane_has_ribbon_button(ctx: &egui::Context, pane_id: Id) {
+    let ids = ctx
+        .data(|d| d.get_temp::<Vec<Id>>(ribbon_pane_ids_key()))
+        .expect("Pane::show requires published ribbon pane ids; call publish_ribbon_pane_ids with the current ribbon pane buttons before rendering panes");
+    assert!(
+        ids.contains(&pane_id),
+        "pane {:?} was rendered without a registered ribbon button; add a ribbon item for it or do not render the pane",
+        pane_id
+    );
+}
+
 pub(crate) fn active_tabbed_container_rect_key() -> Id {
     Id::new("mara_active_tabbed_container_rect")
 }
@@ -523,6 +549,7 @@ impl Pane {
     /// vertical title strip grows right). The span axis (the one
     /// the title spans) is fixed per anchor.
     pub fn show<'spec>(self, ctx: &egui::Context, body: impl FnOnce(&mut PaneBody<'_, 'spec>)) {
+        assert_pane_has_ribbon_button(ctx, self.id);
         let (align, offset) = layout::anchor_align(self.anchor);
         let area_id = self.id.with("pane2_area");
 
@@ -536,8 +563,7 @@ impl Pane {
             PANE_OUTER_SPAN
         };
 
-        // ── Per-pane staggered fade-in clock, carried forward from
-        //    the legacy pane builder. ──
+        // ── Per-pane staggered fade-in clock. ──
         //
         // Tracks elapsed seconds since this pane became visible.
         // The `cumulative_pass_nr + 1 < frame_now` check detects
@@ -656,7 +682,7 @@ impl Pane {
         //
         // When `PaneResize::flow` is ON, the user drives this with
         // the inner-edge resize handle and the body slot is split
-        // evenly across containers (legacy behaviour).
+        // evenly across containers.
         //
         // When `PaneResize::flow` is OFF — the new "individually
         // resizable containers" model — the pane auto-sizes from
