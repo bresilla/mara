@@ -375,61 +375,9 @@ const RIBBONS: &[RibbonSpec] = &[
 ];
 
 const RIBBON_ITEMS_PERSISTENT_TOP: &[RibbonButtonSpec] = &[
-    RibbonButtonSpec {
-        id: ACTION_VIEW_BEVY,
-        ribbon: RIBBON_TOP,
-        cluster: RibbonCluster::Middle,
-        slot: 0,
-        draggable: false,
-        glyph: RibbonGlyph::Icon("cube"),
-        tooltip: "Bevy scene view",
-        child_ribbon: None,
-        role: Some(RibbonRole::Icon),
-    },
-    RibbonButtonSpec {
-        id: ACTION_VIEW_CANVAS,
-        ribbon: RIBBON_TOP,
-        cluster: RibbonCluster::Middle,
-        slot: 1,
-        draggable: false,
-        glyph: RibbonGlyph::Icon("pen"),
-        tooltip: "Canvas / whiteboard view",
-        child_ribbon: None,
-        role: Some(RibbonRole::Icon),
-    },
-    RibbonButtonSpec {
-        id: ACTION_COREVIZ_ZONES,
-        ribbon: RIBBON_TOP,
-        cluster: RibbonCluster::Middle,
-        slot: 2,
-        draggable: false,
-        glyph: RibbonGlyph::Icon("draw-shape"),
-        tooltip: "Map annotation view",
-        child_ribbon: None,
-        role: Some(RibbonRole::Icon),
-    },
-    RibbonButtonSpec {
-        id: ACTION_COREVIZ_MANAGEMENT,
-        ribbon: RIBBON_TOP,
-        cluster: RibbonCluster::Middle,
-        slot: 3,
-        draggable: false,
-        glyph: RibbonGlyph::Icon("location"),
-        tooltip: "Map object selection view",
-        child_ribbon: None,
-        role: Some(RibbonRole::Icon),
-    },
-    RibbonButtonSpec {
-        id: ACTION_VIEW_3D,
-        ribbon: RIBBON_TOP,
-        cluster: RibbonCluster::Middle,
-        slot: 4,
-        draggable: false,
-        glyph: RibbonGlyph::Icon("cube"),
-        tooltip: "Three-d scene view",
-        child_ribbon: None,
-        role: Some(RibbonRole::Icon),
-    },
+    // The root/L0 view switcher now lives in the enforced shell bar
+    // (`mara_core::ShellBar`, rendered by the host adapter), so the
+    // demo no longer hand-rolls it here. See `demo_shell_views`.
 ];
 
 const RIBBON_ITEMS: &[RibbonButtonSpec] = &[
@@ -1329,14 +1277,27 @@ mod tests {
     }
 
     #[test]
-    fn three_d_view_stays_on_persistent_bar() {
-        let item = find_item(RIBBON_ITEMS_PERSISTENT_TOP, ACTION_VIEW_3D)
-            .expect("missing three-d view button");
-        assert_eq!(item.ribbon, RIBBON_TOP);
-        assert_eq!(item.cluster, RibbonCluster::Middle);
-        assert_eq!(item.slot, 4);
-        assert!(!item.draggable);
-        assert_eq!(item.role, Some(RibbonRole::Icon));
+    fn view_switcher_lives_in_the_enforced_shell_bar() {
+        // The permanent top bar is now the enforced `mara_core::ShellBar`,
+        // not a hand-rolled persistent-top ribbon — the demo dogfoods it.
+        // So the persistent-top item list is empty and the views come
+        // from `demo_shell_views()` instead.
+        assert!(
+            RIBBON_ITEMS_PERSISTENT_TOP.is_empty(),
+            "the demo must not hand-roll a persistent-top view switcher anymore"
+        );
+        let views = demo_shell_views();
+        let ids: Vec<&'static str> = views.iter().map(|v| v.id).collect();
+        for id in [
+            ACTION_VIEW_BEVY,
+            ACTION_VIEW_CANVAS,
+            ACTION_COREVIZ_ZONES,
+            ACTION_COREVIZ_MANAGEMENT,
+            ACTION_VIEW_3D,
+        ] {
+            assert!(ids.contains(&id), "shell view switcher missing {id}");
+        }
+        assert_eq!(shell_active_view_id(DemoRootView::ThreeD), ACTION_VIEW_3D);
     }
 
     #[test]
@@ -1805,6 +1766,105 @@ pub struct DemoApp {
     bevy_hosted_scene: bool,
     editor_node_view: EditorNodeView,
     editor_graph: EditorGraph,
+    // Enforced shell bar plumbing. The permanent top bar (view
+    // switcher + window controls) is now owned by the host adapter's
+    // shell, not hand-rolled here — this demo dogfoods it. Top-bar
+    // interactions arrive as `ShellEvent`s and are replayed into the
+    // existing ribbon click-dispatch as synthetic clicks, so the
+    // intricate per-view side effects stay in one place.
+    pending_shell_events: Vec<mara_core::ShellEvent>,
+    last_fs_active: bool,
+    // App-side shell state, used only on hosts with no mara adapter to
+    // enforce the bar for us (the eframe/web `eframe::App` path). On
+    // the native `mara::window` runner and the Bevy plugin the host
+    // owns this and renders the bar itself.
+    shell: mara_core::ShellBar,
+    shell_open: RibbonOpen,
+    shell_placement: RibbonPlacement,
+    shell_drag: RibbonDrag,
+}
+
+impl DemoApp {
+    /// Fill a shell bar from current demo state — shared by all hosts.
+    pub fn configure_shell_bar(&self, bar: &mut mara_core::ShellBar) {
+        configure_demo_shell(bar, self.root_view, self.last_fs_active);
+    }
+
+    /// Queue a top-bar event for `ui_system` to replay into the ribbon
+    /// dispatch (used by host adapters that deliver events out-of-band).
+    pub fn queue_shell_event(&mut self, event: mara_core::ShellEvent) {
+        self.pending_shell_events.push(event);
+    }
+}
+
+/// The 5 root views, as the enforced shell bar's switcher entries.
+/// Order mirrors the old hand-rolled persistent-top bar.
+fn demo_shell_views() -> Vec<mara_core::ShellView> {
+    vec![
+        mara_core::ShellView::new(ACTION_VIEW_BEVY, "cube", "Bevy scene view"),
+        mara_core::ShellView::new(ACTION_VIEW_CANVAS, "pen", "Canvas / whiteboard view"),
+        mara_core::ShellView::new(ACTION_COREVIZ_ZONES, "draw-shape", "Map annotation view"),
+        mara_core::ShellView::new(
+            ACTION_COREVIZ_MANAGEMENT,
+            "location",
+            "Map object selection view",
+        ),
+        mara_core::ShellView::new(ACTION_VIEW_3D, "cube", "Three-d scene view"),
+    ]
+}
+
+/// The shell view id for the active root view (drives the highlight).
+fn shell_active_view_id(root_view: DemoRootView) -> &'static str {
+    match root_view {
+        DemoRootView::BevyScene => ACTION_VIEW_BEVY,
+        DemoRootView::Canvas => ACTION_VIEW_CANVAS,
+        DemoRootView::ThreeD => ACTION_VIEW_3D,
+        DemoRootView::CorevizZones => ACTION_COREVIZ_ZONES,
+        DemoRootView::CorevizManagement => ACTION_COREVIZ_MANAGEMENT,
+    }
+}
+
+/// Populate a [`ShellBar`](mara_core::ShellBar) from demo state. Shared
+/// by both hosts so the bar is identical everywhere. The bar hides
+/// while a widget is fullscreen (the demo shows its own restore rail
+/// then).
+fn configure_demo_shell(bar: &mut mara_core::ShellBar, root_view: DemoRootView, fs_active: bool) {
+    bar.enabled = !fs_active;
+    bar.app_menu = true;
+    bar.views = demo_shell_views();
+    bar.active = Some(shell_active_view_id(root_view));
+}
+
+/// Translate a top-bar [`ShellEvent`](mara_core::ShellEvent) into the
+/// synthetic ribbon click the existing dispatch already understands, so
+/// view switches / shelf toggles reuse the same side-effect code.
+fn shell_event_to_click(event: mara_core::ShellEvent) -> Option<RibbonSlotClick> {
+    let (item, action) = match event {
+        mara_core::ShellEvent::ViewSelected(id) => (egui::Id::new(id), ribbon_action(id)),
+        mara_core::ShellEvent::LeftShelfToggled => (
+            egui::Id::new("shell.left_shelf"),
+            RibbonAction::Command(mara_core::left_shelf_command_id()),
+        ),
+        mara_core::ShellEvent::RightShelfToggled => (
+            egui::Id::new("shell.right_shelf"),
+            RibbonAction::Command(mara_core::right_shelf_command_id()),
+        ),
+        mara_core::ShellEvent::BottomShelfToggled => (
+            egui::Id::new("shell.bottom_shelf"),
+            RibbonAction::Command(mara_core::bottom_shelf_command_id()),
+        ),
+        // Menu has no demo behavior yet; close/maximize are handled by
+        // the host adapter and never reach the app.
+        mara_core::ShellEvent::MenuOpened
+        | mara_core::ShellEvent::CloseRequested
+        | mara_core::ShellEvent::MaximizeToggleRequested => return None,
+    };
+    Some(RibbonSlotClick {
+        ribbon: egui::Id::new(RIBBON_TOP),
+        item,
+        action,
+        response: None,
+    })
 }
 
 impl DemoApp {
@@ -1855,6 +1915,31 @@ impl DemoApp {
     ) {
         let mut host = MaraHostCtx::ui_only(ctx, Some(render_state));
         ui_system(self, &mut host);
+
+        // Web/eframe has no mara host adapter to enforce the shell bar,
+        // so the demo renders it app-side here. (On native/bevy the
+        // runner/plugin does this for us.) The same `mara_core::ShellBar`
+        // is used everywhere — this is dogfooding, not a fork. `mem::take`
+        // lets the bar render against the sibling `shell_*` fields
+        // without a borrow conflict.
+        let mut bar = std::mem::take(&mut self.shell);
+        configure_demo_shell(&mut bar, self.root_view, self.last_fs_active);
+        let events = bar.show(
+            ctx,
+            &mut self.shell_open,
+            &mut self.shell_placement,
+            &mut self.shell_drag,
+        );
+        self.shell = bar;
+        for event in events {
+            if !matches!(
+                event,
+                mara_core::ShellEvent::CloseRequested
+                    | mara_core::ShellEvent::MaximizeToggleRequested
+            ) {
+                self.pending_shell_events.push(event);
+            }
+        }
     }
 }
 
@@ -1884,6 +1969,15 @@ impl mara::window::WindowApp for DemoApp {
     fn update(&mut self, host: &mut MaraHostCtx<'_>) {
         ui_system(self, host);
     }
+
+    fn configure_shell(&mut self, bar: &mut mara::ui::ShellBar) {
+        configure_demo_shell(bar, self.root_view, self.last_fs_active);
+    }
+
+    fn on_shell_event(&mut self, event: mara::ui::ShellEvent, _host: &mut MaraHostCtx<'_>) {
+        // Queue for ui_system to replay into the ribbon dispatch.
+        self.pending_shell_events.push(event);
+    }
 }
 
 // ─── UI ─────────────────────────────────────────────────────────────
@@ -1912,6 +2006,11 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
         bevy_hosted_scene,
         editor_node_view,
         editor_graph,
+        pending_shell_events,
+        last_fs_active,
+        // App-side shell state (`shell`, `shell_open`, …) is only used
+        // by the eframe/web path in `update_with_render_state`.
+        ..
     } = app;
     let mut active_theme = match (family.0, mode.0) {
         (0, 0) => mara_core::style::theme_pro(Mode::Dark),
@@ -1971,6 +2070,9 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
     // module-supplied `is_graph_fullscreen` / `is_code_fullscreen`
     // helpers.
     let fs_active = mara_core::embed::is_any_fullscreen(ctx);
+    // Stash for the host adapter's shell config (hide the enforced bar
+    // while a widget is fullscreen — the demo shows its own restore rail).
+    *last_fs_active = fs_active;
     let graph_fs = mara_core::extras::graph::is_graph_fullscreen(ctx);
     let code_fs = mara_core::extras::code::is_code_fullscreen(ctx, cid(PANE_EDITOR, "code_state"));
     if fs_active {
@@ -2157,7 +2259,7 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
     // `Order::Foreground` lands the ribbon `Area`s on top of the
     // `embed` fullscreen overlay, so the host's fullscreen rails
     // remain visible.
-    let clicks: Vec<RibbonSlotClick> = if fs_active {
+    let mut clicks: Vec<RibbonSlotClick> = if fs_active {
         let fs_items: &[RibbonButtonSpec] = if graph_fs {
             RIBBON_ITEMS_FS_GRAPH
         } else if code_fs {
@@ -2210,6 +2312,15 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
             },
         )
     };
+    // Replay the enforced shell bar's interactions (view switch / shelf
+    // toggles, collected from the host adapter) as synthetic clicks, so
+    // the existing dispatch below handles them with the same per-view
+    // side effects as before.
+    clicks.extend(
+        pending_shell_events
+            .drain(..)
+            .filter_map(shell_event_to_click),
+    );
     // PREV / NEXT cube — one-shot icon buttons in the BOTTOM rail's
     // End cluster. Each click rotates the AccentColor through the
     // hardcoded swatch row.

@@ -18,6 +18,21 @@ pub struct MaraWindowChromeSettings {
     /// Allow dragging the published main-bar empty regions to move
     /// the native window.
     pub move_from_drag_regions: bool,
+    /// Force `Window.decorations = false` on the primary window at
+    /// startup. Adding this plugin means "Mara owns the native window
+    /// frame", so the OS title bar is removed by default. Set `false`
+    /// to keep OS decorations and use Mara chrome only for extra
+    /// hit-testing.
+    pub force_decorations_off: bool,
+    /// Advertise a maximize/restore system control so the permanent
+    /// top bar injects the button. The shell
+    /// ([`MaraTopBar`](crate::MaraTopBar)) handles the emitted
+    /// [`mara_core::RibbonAction::ToggleMaximize`].
+    pub system_maximize: bool,
+    /// Advertise a close system control so the permanent top bar
+    /// injects the button. The shell handles the emitted
+    /// [`mara_core::RibbonAction::CloseApp`].
+    pub system_close: bool,
 }
 
 /// Mara window-chrome regions copied out of egui during the egui
@@ -62,17 +77,34 @@ impl Default for MaraWindowChromeSettings {
             enabled: true,
             resize: true,
             move_from_drag_regions: true,
+            // On by default: adding `MaraWindowChromePlugin` means
+            // "Mara owns the native window frame", so remove the OS
+            // title bar and surface the maximize/close controls. The
+            // shell (always present via `MaraPlugin`) handles their
+            // actions. Hosts that genuinely want OS decorations flip
+            // `force_decorations_off`; hosts that never add this plugin
+            // (web/android) advertise no capabilities, so the bar drops
+            // those buttons and reflows.
+            force_decorations_off: true,
+            system_maximize: true,
+            system_close: true,
         }
     }
 }
 
-/// Installs Bevy-native move/resize behavior for Mara borderless
-/// window chrome.
+/// Installs Bevy-native borderless window chrome for hosts where Mara
+/// owns the native window frame (desktop-native today).
 ///
-/// Apps still decide whether the OS window uses native decorations.
-/// This plugin is intended for windows with `Window::decorations =
-/// false`; it reads the Mara chrome regions published by the ribbon
-/// renderer and theme-owned resize metrics from `mara_core::style`.
+/// Adding this plugin means "Mara owns the frame": by default it
+/// forces `Window.decorations = false` and advertises the
+/// maximize/close system controls (the always-present shell renders
+/// them into the top bar and handles their actions). It reads the Mara
+/// chrome regions published by the ribbon renderer and theme-owned
+/// resize metrics from `mara_core::style`. All of this is gated by
+/// [`MaraWindowChromeSettings`], so a host that wants OS decorations
+/// flips `force_decorations_off`, and hosts that never add this plugin
+/// (web/android) advertise nothing — the bar simply drops the window
+/// controls and reflows.
 pub struct MaraWindowChromePlugin;
 
 impl Plugin for MaraWindowChromePlugin {
@@ -80,6 +112,7 @@ impl Plugin for MaraWindowChromePlugin {
         app.init_resource::<MaraWindowChromeSettings>()
             .init_resource::<MaraWindowChromeRegions>()
             .init_resource::<MaraWindowChromeInputClaim>()
+            .add_systems(Startup, force_borderless_window_system)
             .add_systems(
                 PreUpdate,
                 mara_window_chrome_system
@@ -101,6 +134,24 @@ impl Plugin for MaraWindowChromePlugin {
                     sync_window_chrome_regions_system.in_set(MaraWindowChromeSet::SyncRegions),
                 ),
             );
+    }
+}
+
+/// Forces the primary window borderless at startup when
+/// `force_decorations_off` is set (the default). Mara then owns the
+/// frame — the top bar's drag region and resize corners replace the OS
+/// chrome.
+fn force_borderless_window_system(
+    settings: Res<MaraWindowChromeSettings>,
+    mut windows: Query<&mut Window, With<PrimaryWindow>>,
+) {
+    if !settings.force_decorations_off {
+        return;
+    }
+    if let Ok(mut window) = windows.single_mut()
+        && window.decorations
+    {
+        window.decorations = false;
     }
 }
 
@@ -250,8 +301,8 @@ fn release_window_chrome_claim_system(
         mara_core::WindowChromeHostCapabilities {
             native_move: settings.enabled && settings.move_from_drag_regions,
             native_resize: settings.enabled && settings.resize,
-            system_maximize: false,
-            system_close: false,
+            system_maximize: settings.system_maximize,
+            system_close: settings.system_close,
         },
     );
 

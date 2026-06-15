@@ -231,6 +231,21 @@ pub struct ShelfLayout {
 }
 
 impl ShelfLayout {
+    /// A no-shelf layout: the whole `viewport` is available and no
+    /// edge reserves space. This is the correct value to publish
+    /// when an app draws ribbons/panes but reserves no shelves —
+    /// pass `ctx.content_rect()` so floating chrome tracks the live
+    /// window size.
+    #[must_use]
+    pub fn full(viewport: Rect) -> Self {
+        Self {
+            viewport,
+            left: None,
+            right: None,
+            bottom: None,
+        }
+    }
+
     #[must_use]
     pub fn rect_for(self, edge: ShelfEdge) -> Option<Rect> {
         match edge {
@@ -1317,8 +1332,10 @@ fn resolve_visible_active_container(
 /// ribbons/panes. Call this before drawing ribbons when Shelves are
 /// present; [`show_shelves`] does it automatically.
 pub fn publish_shelf_layout(ctx: &egui::Context, layout: ShelfLayout) {
+    let pass = ctx.cumulative_pass_nr();
     ctx.data_mut(|d| {
         d.insert_temp(shelf_layout_key(), layout);
+        d.insert_temp(shelf_layout_pass_key(), pass);
         d.insert_temp(shelf_presence_key(), ShelfPresence::from_layout(layout));
         d.insert_temp(crate::ribbon::chrome::chrome_bounds_key(), layout.viewport);
     });
@@ -1329,8 +1346,23 @@ pub fn shelf_layout(ctx: &egui::Context) -> Option<ShelfLayout> {
     ctx.data(|d| d.get_temp::<ShelfLayout>(shelf_layout_key()))
 }
 
+/// Whether a shelf layout was already published during the current
+/// egui pass. A host's "auto-publish a baseline layout" system uses
+/// this to avoid clobbering an explicit [`publish_shelf_layout`] /
+/// [`show_shelves`] call made by app code earlier or later in the
+/// same pass — whoever publishes "for real" wins, order-independent.
+#[must_use]
+pub fn shelf_layout_published_this_pass(ctx: &egui::Context) -> bool {
+    let pass = ctx.cumulative_pass_nr();
+    ctx.data(|d| d.get_temp::<u64>(shelf_layout_pass_key()) == Some(pass))
+}
+
 fn shelf_layout_key() -> egui::Id {
     egui::Id::new("mara.shelf.layout")
+}
+
+fn shelf_layout_pass_key() -> egui::Id {
+    egui::Id::new("mara.shelf.layout.pass")
 }
 
 pub(crate) fn published_shelf_presence(ctx: &egui::Context) -> ShelfPresence {

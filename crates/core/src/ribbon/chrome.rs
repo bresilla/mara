@@ -285,6 +285,24 @@ fn chrome_rect(ctx: &egui::Context) -> egui::Rect {
         .unwrap_or_else(|| ctx.content_rect())
 }
 
+/// The chrome bounds (= viewport that floating side ribbons / panes
+/// lay out against) derived **fresh** from the authoritative source
+/// every pass: the published shelf layout's viewport, or the live
+/// window `content_rect()` when no shelves are reserved.
+///
+/// The unified renderer must use this instead of reading back
+/// [`chrome_bounds_key`] — it *writes* that key, so reading it would
+/// re-consume the previous pass's value and freeze the bounds at the
+/// first frame's window size. That self-perpetuation was the root of
+/// the "side rail / panes stop tracking window resize" bug, and it
+/// bit hosts that never did anything wrong (a single stale write
+/// stuck forever). See [`crate::shelf::publish_shelf_layout`].
+fn fresh_chrome_bounds(ctx: &egui::Context) -> egui::Rect {
+    crate::shelf::shelf_layout(ctx)
+        .map(|layout| layout.viewport)
+        .unwrap_or_else(|| ctx.content_rect())
+}
+
 fn ribbon_rect(ctx: &egui::Context, ribbon: &ResolvedSlotRibbon) -> egui::Rect {
     if ribbon.edge == RibbonEdge::Top {
         ctx.content_rect()
@@ -733,7 +751,7 @@ pub fn draw_unified_ribbon_chrome(
     active: impl Fn(&'static str) -> bool,
 ) -> Vec<egui::Id> {
     let insets = compute_side_insets(ribbons);
-    let chrome = chrome_rect(ctx);
+    let chrome = fresh_chrome_bounds(ctx);
     ctx.data_mut(|d| {
         d.insert_temp(chrome_bounds_key(), chrome);
         d.insert_temp::<[bool; 4]>(
@@ -1339,6 +1357,61 @@ mod tests {
         close_opposite_side_panes(&ribbons, &mut open, "right");
         assert!(open.is_open("right", "right_pane"));
         assert!(open.get("left").is_none());
+    }
+
+    #[test]
+    fn fresh_chrome_bounds_track_window_resize_without_explicit_publish() {
+        // No shelf layout published. The bounds must follow the live
+        // window each pass — regression for the self-perpetuating
+        // chrome_bounds_key that froze side ribbons at frame 1.
+        let ctx = egui::Context::default();
+
+        ctx.begin_pass(egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::pos2(0.0, 0.0),
+                egui::vec2(800.0, 480.0),
+            )),
+            ..Default::default()
+        });
+        assert_eq!(fresh_chrome_bounds(&ctx), ctx.content_rect());
+        // Simulate the renderer writing the key (what froze it before).
+        let first = fresh_chrome_bounds(&ctx);
+        ctx.data_mut(|d| d.insert_temp(chrome_bounds_key(), first));
+        let _ = ctx.end_pass();
+
+        // Window grows on the next pass.
+        ctx.begin_pass(egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::pos2(0.0, 0.0),
+                egui::vec2(1200.0, 700.0),
+            )),
+            ..Default::default()
+        });
+        let second = fresh_chrome_bounds(&ctx);
+        let _ = ctx.end_pass();
+
+        assert_eq!(
+            second,
+            egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(1200.0, 700.0)),
+            "chrome bounds must follow the resized window, not the stale write"
+        );
+        assert_ne!(second, first, "bounds must not freeze at the first pass");
+    }
+
+    #[test]
+    fn fresh_chrome_bounds_prefer_published_shelf_viewport() {
+        let ctx = egui::Context::default();
+        ctx.begin_pass(egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::pos2(0.0, 0.0),
+                egui::vec2(800.0, 480.0),
+            )),
+            ..Default::default()
+        });
+        let reserved = egui::Rect::from_min_max(egui::pos2(60.0, 40.0), egui::pos2(740.0, 480.0));
+        crate::shelf::publish_shelf_layout(&ctx, crate::shelf::ShelfLayout::full(reserved));
+        assert_eq!(fresh_chrome_bounds(&ctx), reserved);
+        let _ = ctx.end_pass();
     }
 
     #[test]

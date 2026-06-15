@@ -32,7 +32,13 @@
 pub mod gizmo_material;
 pub mod node_view_backend;
 pub mod prelude;
+pub mod shell;
 pub mod window_chrome;
+
+pub use shell::MaraShellPlugin;
+// The shell bar config/event types (`ShellBar`, `ShellView`,
+// `ShellEvent`) are host-neutral and already re-exported via the
+// `pub use mara_core::*` below.
 
 pub use mara_bevy::{
     BevyEmbeddedView, BevyViewportAppConfigure, BevyViewportBridge, BevyViewportInput,
@@ -106,8 +112,37 @@ impl Plugin for RibbonPlugin {
                 EguiPrimaryContextPass,
                 RibbonGhostSet.after(apply_theme_system),
             )
+            .add_systems(
+                EguiPrimaryContextPass,
+                // Runs before ribbon/pane paint so the layout is live
+                // when chrome reads it, but only fills in a baseline —
+                // app shelf code that publishes its own reserved layout
+                // this pass still wins (see `auto_publish_shelf_layout`).
+                auto_publish_shelf_layout_system
+                    .after(apply_theme_system)
+                    .before(RibbonGhostSet),
+            )
             .add_systems(EguiPrimaryContextPass, debug_toggle_system);
     }
+}
+
+/// Publishes a full-window [`ShelfLayout`](mara_core::ShelfLayout) as
+/// the per-frame baseline so floating ribbons/panes track the live
+/// window size **without the host having to call
+/// `publish_shelf_layout` itself**.
+///
+/// This is the "correct-by-default" half of the resize-tracking fix.
+/// It is order-independent: it only writes when no shelf layout was
+/// already published during this egui pass, so an app that reserves
+/// real shelves (via `show_shelves` / `publish_shelf_layout`, in any
+/// system order) keeps its reservation — whoever publishes "for real"
+/// this pass wins. Apps that draw no shelves get live resize for free.
+fn auto_publish_shelf_layout_system(mut contexts: EguiContexts) {
+    let Ok(ctx) = contexts.ctx_mut() else { return };
+    if mara_core::shelf_layout_published_this_pass(ctx) {
+        return;
+    }
+    mara_core::publish_shelf_layout(ctx, mara_core::ShelfLayout::full(ctx.content_rect()));
 }
 
 /// **F12** — toggle egui's "show interactive widget bounds" overlay.
@@ -312,8 +347,18 @@ impl Plugin for EguiInputAbsorbPlugin {
 // ─── Combined install ──────────────────────────────────────────────
 
 /// Full mara install — `ThemePlugin` + `RibbonPlugin` +
-/// [`EguiInputAbsorbPlugin`]. Idempotent; safe to add alongside any
-/// other Bevy plugins.
+/// [`EguiInputAbsorbPlugin`] + [`MaraShellPlugin`](shell::MaraShellPlugin).
+/// Idempotent; safe to add alongside any other Bevy plugins.
+///
+/// The shell renders the **enforced permanent top bar** on every
+/// platform (desktop, web, android). It is UI, not window chrome — the
+/// native borderless frame (decorations-off, move/resize,
+/// maximize/close) is the separate, opt-in
+/// [`MaraWindowChromePlugin`](window_chrome::MaraWindowChromePlugin),
+/// which you add on hosts that own a native window. The bar adapts: it
+/// only paints window controls where a host advertises them, so a
+/// browser/android build drops them automatically. Opt out of the bar
+/// with `MaraTopBar { enabled: false, .. }`.
 pub struct MaraPlugin;
 
 impl Plugin for MaraPlugin {
@@ -329,6 +374,9 @@ impl Plugin for MaraPlugin {
         }
         if !app.is_plugin_added::<node_view_backend::NodeViewPlugin>() {
             app.add_plugins(node_view_backend::NodeViewPlugin);
+        }
+        if !app.is_plugin_added::<shell::MaraShellPlugin>() {
+            app.add_plugins(shell::MaraShellPlugin);
         }
     }
 }

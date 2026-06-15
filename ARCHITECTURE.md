@@ -301,11 +301,71 @@ The host owns:
 - cursor mapping if the platform needs host cursor APIs
 
 For Bevy, `bevy_mara::window_chrome::MaraWindowChromePlugin` maps core hits to
-`Window::start_drag_move` and `Window::start_drag_resize`.
+`Window::start_drag_move` and `Window::start_drag_resize`. `MaraWindowChromeSettings`
+gates move/resize and now also advertises the optional maximize/close *system
+controls* (`system_maximize` / `system_close`) that the permanent top bar injects.
 
 For web, native window chrome capabilities default to disabled. The browser owns
 the real window, so Mara does not draw native resize corners or turn the top
 ribbon into a native window drag strip.
+
+### Shell bar vs window chrome — two separate concerns
+
+The permanent top bar and the native window frame are deliberately split,
+because they have different lifetimes across platforms:
+
+- **The shell bar is UI, lives in `mara_core`, and is enforced by every host
+  adapter.** `mara_core::shell::ShellBar` owns the config (`app_menu`, the
+  `views` switcher, `active`) and the rendering — `ShellBar::show(ctx, …)`
+  draws the bar and returns `ShellEvent`s. There is one implementation; each
+  host adapter invokes it once per frame, so the bar is identical and present
+  everywhere:
+  - **Bevy** — `MaraShellPlugin` (always installed by `MaraPlugin`) stores the
+    `ShellBar` as a `Resource`, renders it, handles the window events, and
+    forwards the app-level `ShellEvent`s as a `Message`. Covers desktop, web,
+    and android Bevy builds.
+  - **eframe / `mara::window`** — the native runner renders the bar each frame
+    and routes events through `WindowApp::configure_shell` /
+    `on_shell_event`, so an app never has to draw or even ask for it.
+  - **A host with no adapter** (e.g. raw `eframe::App` on the web) calls
+    `ShellBar::show` itself — same core type, no fork.
+
+  The bar is responsive (the slot renderer reflows it per `Breakpoint`) and the
+  window-control buttons only appear where a host advertises native-frame
+  capabilities. Opt out with `ShellBar { enabled: false, .. }`. Host-owned
+  clicks (view switch / menu / shelf toggles) surface as `ShellEvent`;
+  `CloseRequested` / `MaximizeToggleRequested` are handled by the host adapter
+  (it owns the window). The reference demo dogfoods this on all three of its
+  hosts — its view switcher is `demo_shell_views()`, not a hand-rolled bar.
+
+- **Native window chrome is capability-driven, and opt-in per host.** It is
+  *not* "desktop" — it is "this host draws its own OS window frame." Adding
+  `MaraWindowChromePlugin` means Mara owns the frame: by default it forces
+  `Window.decorations = false`, wires `start_drag_move` / `start_drag_resize`,
+  and advertises the maximize/close system controls (which is what makes them
+  appear in the always-present shell bar). It is all gated by
+  `MaraWindowChromeSettings` (`force_decorations_off`, `resize`,
+  `move_from_drag_regions`, `system_maximize`, `system_close`).
+
+The adaptivity falls out of the capability model with no per-platform branching
+in app code: a desktop build adds `MaraWindowChromePlugin` → borderless frame +
+window buttons in the bar; a web or android build simply doesn't add it →
+nothing is advertised → the same bar drops the window buttons and reflows. The
+bar itself is identical everywhere.
+
+### Floating-chrome layout tracks the live window automatically
+
+Floating ribbons and panes lay out against the post-shelf viewport
+("chrome bounds"). The unified renderer derives this **fresh every egui pass**
+from the published `ShelfLayout::viewport`, falling back to the live
+`ctx.content_rect()` when no shelves are reserved — it never reads back the
+value it itself publishes, so the bounds can't freeze at the first frame's
+window size (the old "forgot `publish_shelf_layout`" footgun). On Bevy,
+`RibbonPlugin` additionally auto-publishes a full-window `ShelfLayout` baseline
+each frame (`shelf_layout_published_this_pass` makes this order-independent:
+app code that reserves real shelves still wins). Net effect: resize tracking is
+correct with zero host wiring, and apps that do reserve shelves keep their
+reservation.
 
 ## Input handling
 

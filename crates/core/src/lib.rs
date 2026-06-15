@@ -49,6 +49,7 @@ pub mod pod;
 pub mod ribbon;
 pub(crate) mod scroll;
 pub mod shelf;
+pub mod shell;
 pub mod style;
 pub mod themes;
 pub mod view;
@@ -105,8 +106,10 @@ pub use ribbon::{
 };
 pub use shelf::{
     ShelfContainer, ShelfDef, ShelfEdge, ShelfEdgeError, ShelfLayout, ShelfState, layout_shelves,
-    publish_shelf_layout, responsive_shelves, shelf_insets, shelf_layout, show_shelves,
+    publish_shelf_layout, responsive_shelves, shelf_insets, shelf_layout,
+    shelf_layout_published_this_pass, show_shelves,
 };
+pub use shell::{ShellBar, ShellEvent, ShellView};
 pub use style::{
     AccentColor, Breakpoint, GlassOpacity, PHONE_MAX_WIDTH, ScreenMetrics, TABLET_MAX_WIDTH,
     apply_theme, screen_class, screen_metrics, set_glass_opacity, set_screen_metrics,
