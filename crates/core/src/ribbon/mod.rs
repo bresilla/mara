@@ -47,5 +47,6 @@ pub use slot::{
 };
 pub use slot_paint::{
     __internal_draw_slot_ribbons_egui, __internal_draw_slot_ribbons_featureful_egui,
-    ResolvedSlotRibbon, RibbonSlotClick, phone_remapped_ribbon_edge,
+    __internal_draw_slot_ribbons_featureful_no_system_egui, ResolvedSlotRibbon, RibbonSlotClick,
+    phone_remapped_ribbon_edge,
 };

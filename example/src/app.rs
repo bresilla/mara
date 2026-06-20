@@ -1889,6 +1889,17 @@ impl DemoApp {
                 crate::bevy_content::configure_app,
             ),
             bevy_workspace: WorkspaceStack::new("demo-bevy-workspace"),
+            // TEMP probe: start on a shelf-bearing view to inspect window-control persistence.
+            root_view: std::env::var("MARA_START_VIEW")
+                .ok()
+                .and_then(|v| match v.as_str() {
+                    "canvas" => Some(DemoRootView::Canvas),
+                    "threed" => Some(DemoRootView::ThreeD),
+                    "zones" => Some(DemoRootView::CorevizZones),
+                    "mgmt" => Some(DemoRootView::CorevizManagement),
+                    _ => None,
+                })
+                .unwrap_or_default(),
             ..Self::default()
         }
     }

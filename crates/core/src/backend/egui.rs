@@ -161,7 +161,9 @@ impl UiBackend for EguiUiBackend<'_> {
 
     fn allocate(&mut self, size: vocab::Vec2, sense: Sense) -> MaraResponse {
         let (_rect, response) = self.ui.allocate_exact_size(size.into(), egui_sense(sense));
-        response.into()
+        let mara: MaraResponse = response.into();
+        probe_record_response(self.ui.ctx(), "alloc", None, &mara);
+        mara
     }
 
     fn reserve_space(&mut self, size: vocab::Vec2) -> vocab::Rect {
@@ -169,13 +171,18 @@ impl UiBackend for EguiUiBackend<'_> {
     }
 
     fn reserve_rect(&mut self, rect: vocab::Rect, sense: Sense) -> MaraResponse {
-        self.ui.allocate_rect(rect.into(), egui_sense(sense)).into()
+        let mara: MaraResponse = self.ui.allocate_rect(rect.into(), egui_sense(sense)).into();
+        probe_record_response(self.ui.ctx(), "reserve", None, &mara);
+        mara
     }
 
     fn interact(&mut self, rect: vocab::Rect, id: vocab::Id, sense: Sense) -> MaraResponse {
-        self.ui
+        let mara: MaraResponse = self
+            .ui
             .interact(rect.into(), id.into(), egui_sense(sense))
-            .into()
+            .into();
+        probe_record_response(self.ui.ctx(), "interact", Some(id), &mara);
+        mara
     }
 
     fn available_rect(&self) -> vocab::Rect {
@@ -265,6 +272,78 @@ pub(crate) fn consume_keys<const N: usize>(
 
 pub(crate) fn key_pressed(ctx: &egui::Context, key: MaraKey) -> bool {
     ctx.input(|input| input.key_pressed(egui_key(key)))
+}
+
+// ─── Layout pose probe ──────────────────────────────────────────────
+//
+// Backend-side storage + recording for `crate::probe`. A shared log is
+// stashed in ctx temp data while enabled; the `UiBackend` allocation /
+// interaction seams and area hosts record into it so a host can dump the
+// whole frame's layout (see `crate::probe::format`).
+
+type PoseLog = std::sync::Arc<std::sync::Mutex<Vec<crate::probe::ElementPose>>>;
+
+/// Lock-free fast path: when the probe is disabled (the normal case),
+/// `probe_record_response` is called from every allocate/interact, so it
+/// must not touch the egui data lock. This atomic gates that.
+static PROBE_ENABLED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+fn pose_log_key() -> egui::Id {
+    egui::Id::new("mara.probe.pose_log")
+}
+
+/// Install a fresh empty pose log (enable) or remove it (disable).
+/// Call once per frame before running the UI to capture that frame.
+pub(crate) fn probe_set_enabled(ctx: &egui::Context, on: bool) {
+    PROBE_ENABLED.store(on, std::sync::atomic::Ordering::Relaxed);
+    ctx.data_mut(|d| {
+        if on {
+            d.insert_temp::<PoseLog>(pose_log_key(), PoseLog::default());
+        } else {
+            d.remove::<PoseLog>(pose_log_key());
+        }
+    });
+}
+
+pub(crate) fn probe_enabled(ctx: &egui::Context) -> bool {
+    PROBE_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+        && ctx.data(|d| d.get_temp::<PoseLog>(pose_log_key()).is_some())
+}
+
+pub(crate) fn probe_record(ctx: &egui::Context, pose: crate::probe::ElementPose) {
+    if let Some(log) = ctx.data(|d| d.get_temp::<PoseLog>(pose_log_key()))
+        && let Ok(mut v) = log.lock()
+    {
+        v.push(pose);
+    }
+}
+
+pub(crate) fn probe_drain(ctx: &egui::Context) -> Vec<crate::probe::ElementPose> {
+    ctx.data(|d| d.get_temp::<PoseLog>(pose_log_key()))
+        .map(|log| {
+            log.lock()
+                .map(|mut v| std::mem::take(&mut *v))
+                .unwrap_or_default()
+        })
+        .unwrap_or_default()
+}
+
+/// Record a response-producing element (allocation / interaction).
+fn probe_record_response(
+    ctx: &egui::Context,
+    kind: &'static str,
+    id: Option<vocab::Id>,
+    resp: &MaraResponse,
+) {
+    if !probe_enabled(ctx) {
+        return;
+    }
+    let mut pose =
+        crate::probe::ElementPose::new(kind, resp.rect).interactive(resp.hovered, resp.clicked);
+    if let Some(id) = id {
+        pose = pose.with_id(id);
+    }
+    probe_record(ctx, pose);
 }
 
 pub(crate) fn context_content_rect(ctx: &egui::Context) -> vocab::Rect {
@@ -419,7 +498,18 @@ pub(crate) fn show_area_for_host<R>(
     host: AreaHost,
     body: impl FnOnce(&mut egui::Ui) -> R,
 ) -> egui::InnerResponse<R> {
-    area_for_host(host).show(ctx, body)
+    let host_id = host.id;
+    let host_layer = host.layer;
+    let inner = area_for_host(host).show(ctx, body);
+    if probe_enabled(ctx) {
+        probe_record(
+            ctx,
+            crate::probe::ElementPose::new("area", inner.response.rect.into())
+                .with_id(host_id)
+                .with_label(format!("{host_layer:?}")),
+        );
+    }
+    inner
 }
 
 pub(crate) fn show_area_slot<R>(

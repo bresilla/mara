@@ -916,6 +916,21 @@ impl Pane {
         // pinned with ZERO lag.
         let placement = layout::PanePlacement::new(align, offset, screen, outer_size);
         let pane_pos = placement.pos;
+        if crate::probe::__internal_enabled(ctx) {
+            crate::probe::__internal_record(
+                ctx,
+                crate::probe::ElementPose::new("pane", placement.rect)
+                    .with_id(self.id.into())
+                    .with_label(format!(
+                        "{:?} screen=({:.0},{:.0} {:.0}x{:.0})",
+                        self.anchor,
+                        screen.min.x,
+                        screen.min.y,
+                        screen.width(),
+                        screen.height()
+                    )),
+            );
+        }
         // Outer pane rect — used as the initial / fallback rect for
         // the resize handles. The Frame inside the Area shrinks
         // when containers fold; we capture its real rendered rect

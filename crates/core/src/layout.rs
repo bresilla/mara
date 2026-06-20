@@ -586,6 +586,10 @@ impl SlotRibbonLayoutSpec {
         }
     }
 
+    /// Item rect in **local** coordinates (relative to the ribbon's
+    /// own origin, i.e. item 0 starts at `(0, 0)`). Use this only for
+    /// layout math; for egui interaction/paint inside the area opened at
+    /// [`Self::pos`] use [`Self::item_screen_rect`].
     #[must_use]
     pub fn item_rect(&self, idx: usize) -> Option<Rect> {
         if idx >= self.count {
@@ -601,6 +605,20 @@ impl SlotRibbonLayoutSpec {
             min,
             Vec2::new(self.button_size, self.button_size),
         ))
+    }
+
+    /// Item rect in **screen** coordinates — [`Self::item_rect`] offset
+    /// by this ribbon's screen position [`Self::pos`].
+    ///
+    /// The ribbon's buttons live inside an `Area` positioned at `pos`,
+    /// and egui interaction/paint operate in screen space, so this is
+    /// the rect to feed `UiBackend::interact` and paint commands. Using
+    /// the local [`Self::item_rect`] there places every button at the
+    /// window origin (top-left).
+    #[must_use]
+    pub fn item_screen_rect(&self, idx: usize) -> Option<Rect> {
+        self.item_rect(idx)
+            .map(|r| r.translate(Vec2::new(self.pos.x, self.pos.y)))
     }
 }
 
@@ -922,6 +940,24 @@ mod tests {
             horizontal.item_rect(1),
             Some(Rect::from_min_size(
                 Pos2::new(38.0, 0.0),
+                Vec2::new(34.0, 34.0)
+            ))
+        );
+
+        // `item_screen_rect` offsets the local rect by the ribbon's
+        // screen position — this is what interaction/paint must use, and
+        // skipping it is what pinned every button to the window origin.
+        assert_eq!(
+            horizontal.item_screen_rect(0),
+            Some(Rect::from_min_size(
+                Pos2::new(4.0, 8.0),
+                Vec2::new(34.0, 34.0)
+            ))
+        );
+        assert_eq!(
+            horizontal.item_screen_rect(1),
+            Some(Rect::from_min_size(
+                Pos2::new(42.0, 8.0),
                 Vec2::new(34.0, 34.0)
             ))
         );

@@ -94,13 +94,47 @@ pub fn __internal_draw_slot_ribbons_featureful_egui(
     placement: &mut RibbonPlacement,
     drag: &mut RibbonDrag,
 ) -> Vec<RibbonSlotClick> {
-    let accent: MaraColor32 = accent.into();
-    let featureful_augmented = shelf_augmented_ribbons(ctx, ribbons, ShelfButtonOrder::Featureful);
+    draw_slot_ribbons_featureful_inner(ctx, accent.into(), ribbons, open, placement, drag, true)
+}
+
+/// Like [`__internal_draw_slot_ribbons_featureful_egui`] but without
+/// injecting system chrome (window controls + shelf toggles). App-level
+/// ribbon renders use this so only the enforced shell bar owns those
+/// buttons — otherwise every featureful render re-injects them and they
+/// appear once per render call (doubled maximize/close + shelf toggles).
+pub fn __internal_draw_slot_ribbons_featureful_no_system_egui(
+    ctx: &Context,
+    accent: impl Into<MaraColor32>,
+    ribbons: &[ResolvedSlotRibbon],
+    open: &mut RibbonOpen,
+    placement: &mut RibbonPlacement,
+    drag: &mut RibbonDrag,
+) -> Vec<RibbonSlotClick> {
+    draw_slot_ribbons_featureful_inner(ctx, accent.into(), ribbons, open, placement, drag, false)
+}
+
+fn draw_slot_ribbons_featureful_inner(
+    ctx: &Context,
+    accent: MaraColor32,
+    ribbons: &[ResolvedSlotRibbon],
+    open: &mut RibbonOpen,
+    placement: &mut RibbonPlacement,
+    drag: &mut RibbonDrag,
+    inject_system_chrome: bool,
+) -> Vec<RibbonSlotClick> {
+    let augment = |order| {
+        if inject_system_chrome {
+            shelf_augmented_ribbons(ctx, ribbons, order)
+        } else {
+            None
+        }
+    };
+    let featureful_augmented = augment(ShelfButtonOrder::Featureful);
     let featureful_base = featureful_augmented.as_deref().unwrap_or(ribbons);
     let featureful_responsive = responsive_phone_ribbons(ctx, featureful_base);
     let featureful_ribbons = featureful_responsive.as_deref().unwrap_or(featureful_base);
     if !can_use_featureful_chrome(featureful_ribbons) {
-        let simple_augmented = shelf_augmented_ribbons(ctx, ribbons, ShelfButtonOrder::Simple);
+        let simple_augmented = augment(ShelfButtonOrder::Simple);
         let simple_base = simple_augmented.as_deref().unwrap_or(ribbons);
         let simple_responsive = responsive_phone_ribbons(ctx, simple_base);
         return draw_slot_ribbons_inner(
@@ -258,6 +292,8 @@ fn contains_item(ribbons: &[ResolvedSlotRibbon], item_id: MaraId) -> bool {
 
 fn insert_maximize_button(ribbons: &mut Vec<ResolvedSlotRibbon>, maximized: bool) {
     let item = maximize_item(maximized);
+    // Maximize mirrors Close on the opposite corner: Close sits at the
+    // trailing (End) edge, so Maximize sits at the leading (Start) edge.
     if let Some(ribbon) = find_top_permanent_cluster_mut(ribbons, RibbonCluster::Start) {
         ribbon.items.insert(0, item);
     } else {
@@ -641,7 +677,7 @@ fn draw_one_slot_ribbon(
 
     crate::backend::egui::show_slot_ribbon_area(ctx, spec, Layer::Foreground, |ui| {
         for (idx, item) in ribbon.items.iter().enumerate() {
-            let Some(rect) = spec.item_rect(idx) else {
+            let Some(rect) = spec.item_screen_rect(idx) else {
                 continue;
             };
             let mut backend = crate::backend::egui::EguiUiBackend::new(ui);

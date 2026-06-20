@@ -218,9 +218,19 @@ impl<A: WindowApp> NativeWinitApp<A> {
             let _ = repaint_proxy.send_event(MaraUserEvent::RequestRepaint(when));
         });
 
+        // `paint_and_update_textures` acquires + presents the surface on
+        // the UI thread; with the default `AutoVsync` (Fifo) present mode
+        // that call BLOCKS until the next vsync, stalling the whole UI
+        // (input handling, pane open/animation) behind the GPU. Use a
+        // non-blocking present mode so the UI thread never waits on the
+        // swapchain.
+        let wgpu_config = egui_wgpu::WgpuConfiguration {
+            present_mode: wgpu::PresentMode::AutoNoVsync,
+            ..egui_wgpu::WgpuConfiguration::default()
+        };
         let mut painter = pollster::block_on(Painter::new(
             self.egui_ctx.clone(),
-            egui_wgpu::WgpuConfiguration::default(),
+            wgpu_config,
             false,
             egui_wgpu::RendererOptions::default(),
         ));
@@ -357,6 +367,21 @@ impl<A: WindowApp> NativeWinitApp<A> {
             return;
         };
 
+        // Layout pose probe: when `MARA_SHOW_POSE` is set, capture this
+        // frame's element rects/state and dump them to the terminal
+        // after the pass. Throttled so it doesn't flood the console.
+        let probe_this_frame = std::env::var_os("MARA_SHOW_POSE").is_some()
+            && self.egui_ctx.cumulative_pass_nr().is_multiple_of(120);
+        if probe_this_frame {
+            mara_core::probe::__internal_set_enabled(&self.egui_ctx, true);
+        }
+
+        // Frame timing is opt-in (MARA_FRAME_TIME). Only SLOW frames are
+        // printed (see threshold below) so interaction-triggered spikes
+        // stand out instead of being buried in steady-state noise.
+        let frame_timing = std::env::var_os("MARA_FRAME_TIME").is_some();
+        let frame_t0 = std::time::Instant::now();
+
         let full_output = self.egui_ctx.run(raw_input, |ctx| {
             let mut host = MaraHostCtx::mara_window(ctx, Some(&render_state));
             app.update(&mut host);
@@ -380,6 +405,12 @@ impl<A: WindowApp> NativeWinitApp<A> {
                 }
             }
         });
+
+        if probe_this_frame {
+            let poses = mara_core::probe::__internal_drain(&self.egui_ctx);
+            eprintln!("{}", mara_core::probe::format(&poses));
+            mara_core::probe::__internal_set_enabled(&self.egui_ctx, false);
+        }
 
         self.last_chrome_regions =
             mara_core::window_chrome::__internal_window_chrome_regions(&self.egui_ctx);
@@ -409,7 +440,13 @@ impl<A: WindowApp> NativeWinitApp<A> {
             }
         }
 
+        let run_ms = frame_t0.elapsed().as_secs_f32() * 1000.0;
+        let tess_t0 = std::time::Instant::now();
         let clipped_primitives = self.egui_ctx.tessellate(shapes, pixels_per_point);
+        let tess_ms = tess_t0.elapsed().as_secs_f32() * 1000.0;
+        let tex_set = textures_delta.set.len();
+        let tex_free = textures_delta.free.len();
+        let paint_t0 = std::time::Instant::now();
         painter.paint_and_update_textures(
             ViewportId::ROOT,
             pixels_per_point,
@@ -418,6 +455,17 @@ impl<A: WindowApp> NativeWinitApp<A> {
             &textures_delta,
             Vec::new(),
         );
+        if frame_timing {
+            let paint_ms = paint_t0.elapsed().as_secs_f32() * 1000.0;
+            let total = run_ms + tess_ms + paint_ms;
+            // Only report laggy frames so interaction spikes are obvious.
+            if total > 10.0 {
+                eprintln!(
+                    "MARA_FRAME[SLOW]: total={total:.1}ms | ui_run={run_ms:.1} tessellate={tess_ms:.1} gpu_paint={paint_ms:.1} | shapes={} tex_uploads={tex_set} tex_frees={tex_free}",
+                    clipped_primitives.len()
+                );
+            }
+        }
     }
 }
 

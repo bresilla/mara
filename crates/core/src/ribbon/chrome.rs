@@ -998,11 +998,20 @@ pub fn draw_unified_ribbon_chrome(
                     MaraSense::Click
                 };
                 let rect = button_spec
-                    .item_rect(0)
-                    .expect("single ribbon button spec must have a local item rect");
+                    .item_screen_rect(0)
+                    .expect("single ribbon button spec must have an item rect");
                 let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
                 let response =
                     backend.interact(rect, MaraId::new(("mara_ribbon_btn_hit", iid)), sense);
+                if crate::probe::__internal_enabled(ui.ctx()) {
+                    crate::probe::__internal_record(
+                        ui.ctx(),
+                        crate::probe::ElementPose::new("ribbon-btn", rect).with_label(format!(
+                            "{:?}/{:?} '{}'",
+                            ribbon.edge, cluster_eff, item.tooltip
+                        )),
+                    );
+                }
                 for cmd in ribbon_button_paint_cmds(
                     rect,
                     accent,
@@ -1076,8 +1085,8 @@ pub fn draw_unified_ribbon_chrome(
             false,
             |ui| {
                 let rect = outline_spec
-                    .item_rect(0)
-                    .expect("single ribbon drop-outline spec must have a local item rect");
+                    .item_screen_rect(0)
+                    .expect("single ribbon drop-outline spec must have an item rect");
                 let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
                 let _response = backend.interact(
                     rect,

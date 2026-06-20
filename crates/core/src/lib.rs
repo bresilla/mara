@@ -45,6 +45,7 @@ pub mod paint;
 pub mod pane;
 pub mod pod;
 pub mod popup;
+pub mod probe;
 pub mod ribbon;
 pub(crate) mod scroll;
 pub mod scroll_state;
