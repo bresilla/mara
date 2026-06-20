@@ -9,9 +9,8 @@
 //! * host-neutral hit-test results that a facade can map onto the
 //!   native window operations it supports.
 
-use egui::{Color32, Pos2, Rect, Vec2};
-
 use crate::style::WindowChromeTheme;
+use crate::vocab::{Color32, Pos2, Rect, Vec2};
 
 /// Host-neutral native-window resize direction.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -51,7 +50,7 @@ pub struct WindowChromeRegions {
 /// the browser already owns window movement and resizing. Native
 /// facades such as Bevy or eframe can publish `true` values before
 /// rendering Mara chrome for a frame.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub struct WindowChromeHostCapabilities {
     pub native_move: bool,
     pub native_resize: bool,
@@ -64,17 +63,6 @@ pub struct WindowChromeHostCapabilities {
     /// persistent top bar. Hosts such as browsers or Bevy-owned
     /// windows can opt out.
     pub system_close: bool,
-}
-
-impl Default for WindowChromeHostCapabilities {
-    fn default() -> Self {
-        Self {
-            native_move: false,
-            native_resize: false,
-            system_maximize: false,
-            system_close: false,
-        }
-    }
 }
 
 /// Host-neutral switches for Mara-owned native-window chrome.
@@ -193,11 +181,11 @@ impl WindowChromeState {
         }
 
         let mut start = None;
-        if input.primary_pressed {
-            if let Some(hit) = hit {
-                self.active_claim = true;
-                start = Some(hit);
-            }
+        if input.primary_pressed
+            && let Some(hit) = hit
+        {
+            self.active_claim = true;
+            start = Some(hit);
         }
 
         WindowChromeUpdate {
@@ -216,34 +204,13 @@ fn host_capabilities_key() -> egui::Id {
     egui::Id::new("mara_window_chrome_host_capabilities")
 }
 
-fn input_claimed_key() -> egui::Id {
-    egui::Id::new("mara_window_chrome_input_claimed")
-}
-
-/// Mark the current input press as owned by native-window chrome.
-///
-/// Host facades call this when a press starts native move/resize so
-/// egui-side app content can ignore the same press for this frame.
-pub fn claim_window_chrome_input(ctx: &egui::Context) {
-    ctx.data_mut(|data| data.insert_temp(input_claimed_key(), ctx.cumulative_frame_nr()));
-}
-
-/// Whether this frame's pointer press was claimed by native-window
-/// chrome.
-#[must_use]
-pub fn window_chrome_input_claimed(ctx: &egui::Context) -> bool {
-    ctx.data(|data| {
-        data.get_temp::<u64>(input_claimed_key())
-            .is_some_and(|frame| frame == ctx.cumulative_frame_nr())
-    })
-}
-
 /// Replace the current pass' native-window chrome regions.
 ///
-/// Callers should pass screen-space egui rects. The featureful ribbon
-/// renderer publishes the top main-bar strip as a drag region and all
-/// ribbon buttons as exclusion rects.
-pub fn publish_window_chrome_regions(
+/// Internal first-party host hook. App code should configure window
+/// behavior through the Mara facade instead of writing raw backend
+/// context data.
+#[doc(hidden)]
+pub fn __internal_publish_window_chrome_regions(
     ctx: &egui::Context,
     drag_regions: impl IntoIterator<Item = Rect>,
     exclusion_rects: impl IntoIterator<Item = Rect>,
@@ -256,8 +223,12 @@ pub fn publish_window_chrome_regions(
 }
 
 /// Read the latest published native-window chrome regions.
+///
+/// Internal first-party host hook. Host integrations use this to mirror
+/// Mara chrome regions into native-window drag/resize APIs.
 #[must_use]
-pub fn window_chrome_regions(ctx: &egui::Context) -> WindowChromeRegions {
+#[doc(hidden)]
+pub fn __internal_window_chrome_regions(ctx: &egui::Context) -> WindowChromeRegions {
     ctx.data(|data| {
         data.get_temp::<WindowChromeRegions>(regions_key())
             .unwrap_or_default()
@@ -266,10 +237,11 @@ pub fn window_chrome_regions(ctx: &egui::Context) -> WindowChromeRegions {
 
 /// Publish the native-window capabilities for this frame.
 ///
-/// This is intentionally host-controlled: web/browser hosts should not
-/// show native resize corners or turn the main bar into a window-drag
-/// region.
-pub fn publish_window_chrome_host_capabilities(
+/// Internal first-party host hook. This is intentionally host-controlled:
+/// web/browser hosts should not show native resize corners or turn the
+/// main bar into a window-drag region.
+#[doc(hidden)]
+pub fn __internal_publish_window_chrome_host_capabilities(
     ctx: &egui::Context,
     capabilities: WindowChromeHostCapabilities,
 ) {
@@ -277,8 +249,13 @@ pub fn publish_window_chrome_host_capabilities(
 }
 
 /// Read the current frame's host native-window capabilities.
+///
+/// Internal first-party host hook.
 #[must_use]
-pub fn window_chrome_host_capabilities(ctx: &egui::Context) -> WindowChromeHostCapabilities {
+#[doc(hidden)]
+pub fn __internal_window_chrome_host_capabilities(
+    ctx: &egui::Context,
+) -> WindowChromeHostCapabilities {
     ctx.data(|data| {
         data.get_temp::<WindowChromeHostCapabilities>(host_capabilities_key())
             .unwrap_or_default()
@@ -286,7 +263,7 @@ pub fn window_chrome_host_capabilities(ctx: &egui::Context) -> WindowChromeHostC
 }
 
 /// Clear published native-window chrome regions.
-pub fn clear_window_chrome_regions(ctx: &egui::Context) {
+pub(crate) fn clear_window_chrome_regions(ctx: &egui::Context) {
     ctx.data_mut(|data| {
         data.remove::<WindowChromeRegions>(regions_key());
     });
@@ -339,16 +316,18 @@ pub fn resize_direction(
 
 /// Hit-test the complete Mara window-chrome contract.
 ///
-/// Resize corners win over move regions, except where an interactive
-/// exclusion rect says the pointer belongs to Mara UI controls.
+/// Internal first-party host hook. Resize corners win over move
+/// regions, except where an interactive exclusion rect says the pointer
+/// belongs to Mara UI controls.
 #[must_use]
-pub fn hit_test_window_chrome(
+#[doc(hidden)]
+pub fn __internal_hit_test_window_chrome(
     ctx: &egui::Context,
     pos: Pos2,
     window_size: Vec2,
     metrics: WindowChromeTheme,
 ) -> Option<WindowChromeHit> {
-    let regions = window_chrome_regions(ctx);
+    let regions = __internal_window_chrome_regions(ctx);
     hit_test_window_chrome_regions(&regions, pos, window_size, metrics)
 }
 
@@ -381,13 +360,14 @@ pub fn hit_test_window_chrome_regions(
 
 /// Hit-test the current pointer against resize corners only.
 #[must_use]
-pub fn hovered_resize_corner(
+#[doc(hidden)]
+pub fn __internal_hovered_resize_corner(
     ctx: &egui::Context,
     window_rect: Rect,
     metrics: WindowChromeTheme,
 ) -> Option<WindowResizeDirection> {
-    let pos = ctx.input(|input| input.pointer.hover_pos())?;
-    let regions = window_chrome_regions(ctx);
+    let pos = ctx.input(|input| input.pointer.hover_pos())?.into();
+    let regions = __internal_window_chrome_regions(ctx);
     if regions
         .exclusion_rects
         .iter()
@@ -405,22 +385,23 @@ pub fn hovered_resize_corner(
 /// The painted strips match the same few-pixel edge bands used by
 /// [`resize_direction`], so the visible affordance is exactly the
 /// clickable native-resize area.
-pub fn paint_resize_corner_hover(
+#[doc(hidden)]
+pub fn __internal_paint_resize_corner_hover(
     ctx: &egui::Context,
     accent: Color32,
     metrics: WindowChromeTheme,
 ) -> Option<WindowResizeDirection> {
-    let window_rect = ctx.viewport_rect();
-    let direction = hovered_resize_corner(ctx, window_rect, metrics)?;
+    let window_rect = Rect::from(ctx.viewport_rect());
+    let direction = __internal_hovered_resize_corner(ctx, window_rect, metrics)?;
     let (horizontal, vertical) = resize_corner_paint_rects(window_rect, direction, metrics)?;
 
     let painter = ctx.layer_painter(crate::layer::layer_id(
         "mara_window_resize_corner_hover",
         crate::layer::z::WINDOW_CHROME,
     ));
-    let fill = accent;
-    painter.rect_filled(horizontal, 0.0, fill);
-    painter.rect_filled(vertical, 0.0, fill);
+    let fill = egui::Color32::from(accent);
+    painter.rect_filled(egui::Rect::from(horizontal), 0.0, fill);
+    painter.rect_filled(egui::Rect::from(vertical), 0.0, fill);
     Some(direction)
 }
 
@@ -562,7 +543,7 @@ mod tests {
     #[test]
     fn interactive_exclusions_win_over_resize_and_move() {
         let ctx = egui::Context::default();
-        publish_window_chrome_regions(
+        __internal_publish_window_chrome_regions(
             &ctx,
             [Rect::from_min_max(
                 Pos2::new(0.0, 0.0),
@@ -574,11 +555,16 @@ mod tests {
             )],
         );
         assert_eq!(
-            hit_test_window_chrome(&ctx, Pos2::new(5.0, 5.0), Vec2::new(800.0, 600.0), METRICS),
+            __internal_hit_test_window_chrome(
+                &ctx,
+                Pos2::new(5.0, 5.0),
+                Vec2::new(800.0, 600.0),
+                METRICS
+            ),
             None
         );
         assert_eq!(
-            hit_test_window_chrome(
+            __internal_hit_test_window_chrome(
                 &ctx,
                 Pos2::new(300.0, 20.0),
                 Vec2::new(800.0, 600.0),
@@ -592,7 +578,7 @@ mod tests {
     fn host_chrome_capabilities_default_to_web_safe_disabled() {
         let ctx = egui::Context::default();
         assert_eq!(
-            window_chrome_host_capabilities(&ctx),
+            __internal_window_chrome_host_capabilities(&ctx),
             WindowChromeHostCapabilities::default()
         );
 
@@ -602,8 +588,11 @@ mod tests {
             system_maximize: true,
             system_close: true,
         };
-        publish_window_chrome_host_capabilities(&ctx, native_caps);
-        assert_eq!(window_chrome_host_capabilities(&ctx), native_caps);
+        __internal_publish_window_chrome_host_capabilities(&ctx, native_caps);
+        assert_eq!(
+            __internal_window_chrome_host_capabilities(&ctx),
+            native_caps
+        );
     }
 
     #[test]

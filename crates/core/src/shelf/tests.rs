@@ -1,4 +1,5 @@
 use super::*;
+use crate::layout::ScrollAxis;
 
 fn test_tabs() -> Vec<Tab> {
     vec![Tab::new("test.tab", "Tab", "box")]
@@ -11,6 +12,65 @@ fn shelf_with_container(id: &'static str, edge: ShelfEdge) -> ShelfDef<'static> 
         "box",
         test_tabs(),
     ))
+}
+
+fn test_shelf_layout(
+    viewport: Rect,
+    left: Option<Rect>,
+    right: Option<Rect>,
+    bottom: Option<Rect>,
+) -> ShelfLayout {
+    ShelfLayout {
+        viewport: viewport.into(),
+        left: left.map(Into::into),
+        right: right.map(Into::into),
+        bottom: bottom.map(Into::into),
+    }
+}
+
+#[test]
+fn shelf_body_child_region_uses_mara_stack_policy() {
+    let rect = Rect::from_min_size(pos2(10.0, 20.0), vec2(300.0, 140.0));
+
+    let bottom_row = shelf_body_child_region(rect, true, ShelfEdge::Bottom);
+    assert_eq!(bottom_row.rect, rect.into());
+    assert_eq!(
+        bottom_row.direction,
+        crate::layout::StackDirection::LeftToRight
+    );
+    assert_eq!(bottom_row.align, StackAlign::Min);
+
+    let side_column = shelf_body_child_region(rect, false, ShelfEdge::Left);
+    assert_eq!(
+        side_column.direction,
+        crate::layout::StackDirection::TopDown
+    );
+    assert_eq!(side_column.align, StackAlign::Center);
+
+    let bottom_column = shelf_body_child_region(rect, false, ShelfEdge::Bottom);
+    assert_eq!(
+        bottom_column.direction,
+        crate::layout::StackDirection::TopDown
+    );
+    assert_eq!(bottom_column.align, StackAlign::Min);
+}
+
+#[test]
+fn shelf_body_scroll_region_uses_axis_and_extent_from_layout() {
+    let pane_id = Id::new("shelf-pane");
+    let rect = Rect::from_min_size(pos2(10.0, 20.0), vec2(300.0, 140.0));
+
+    let horizontal = shelf_body_scroll_region(pane_id, rect, true);
+    assert_eq!(horizontal.axis, ScrollAxis::Horizontal);
+    assert_eq!(horizontal.auto_shrink, [false, false]);
+    assert_eq!(horizontal.max_extent, 300.0);
+    assert_eq!(horizontal.item_spacing, MaraVec2::ZERO);
+
+    let vertical = shelf_body_scroll_region(pane_id, rect, false);
+    assert_eq!(vertical.axis, ScrollAxis::Vertical);
+    assert_eq!(vertical.auto_shrink, [false, false]);
+    assert_eq!(vertical.max_extent, 140.0);
+    assert_eq!(vertical.item_spacing, MaraVec2::ZERO);
 }
 
 #[test]
@@ -178,20 +238,20 @@ fn published_shelf_pane_info_is_cleared_before_shelf_render() {
 fn publish_shelf_layout_sets_chrome_bounds_to_reserved_viewport() {
     let ctx = egui::Context::default();
     let viewport = Rect::from_min_max(pos2(200.0, 0.0), pos2(900.0, 640.0));
-    let layout = ShelfLayout {
+    let layout = test_shelf_layout(
         viewport,
-        left: Some(Rect::from_min_max(pos2(0.0, 0.0), pos2(200.0, 640.0))),
-        right: None,
-        bottom: Some(Rect::from_min_max(pos2(200.0, 640.0), pos2(900.0, 800.0))),
-    };
+        Some(Rect::from_min_max(pos2(0.0, 0.0), pos2(200.0, 640.0))),
+        None,
+        Some(Rect::from_min_max(pos2(200.0, 640.0), pos2(900.0, 800.0))),
+    );
 
-    publish_shelf_layout(&ctx, layout);
+    __internal_publish_shelf_layout(&ctx, layout);
 
     let chrome = ctx
-        .data(|d| d.get_temp::<Rect>(crate::ribbon::chrome::chrome_bounds_key()))
+        .data(|d| d.get_temp::<MaraRect>(crate::ribbon::chrome::chrome_bounds_key()))
         .expect("shelf layout should publish ribbon chrome bounds");
-    assert_eq!(chrome, viewport);
-    assert_eq!(shelf_layout(&ctx), Some(layout));
+    assert_eq!(chrome, viewport.into());
+    assert_eq!(__internal_shelf_layout(&ctx), Some(layout));
     assert_eq!(
         published_shelf_presence(&ctx),
         ShelfPresence {
@@ -222,7 +282,7 @@ fn show_shelves_publishes_hidden_shelf_presence_for_top_bar_buttons() {
     );
     assert!(layout.left.is_none());
 
-    show_shelves(&ctx, layout, shelves, &mut state);
+    __internal_show_shelves_egui(&ctx, layout, shelves, &mut state);
 
     assert_eq!(
         published_shelf_presence(&ctx),
@@ -321,7 +381,7 @@ fn show_shelves_sets_public_active_container_for_default_visible_container() {
         screen_rect: Some(available),
         ..Default::default()
     });
-    show_shelves(&ctx, layout, shelves, &mut state);
+    __internal_show_shelves_egui(&ctx, layout, shelves, &mut state);
     let _ = ctx.end_pass();
 
     assert_eq!(
@@ -362,7 +422,7 @@ fn show_shelves_repairs_stale_public_active_container_from_rendered_group() {
         screen_rect: Some(available),
         ..Default::default()
     });
-    show_shelves(&ctx, layout, shelves, &mut state);
+    __internal_show_shelves_egui(&ctx, layout, shelves, &mut state);
     let _ = ctx.end_pass();
 
     assert_eq!(
@@ -393,7 +453,7 @@ fn show_shelves_clears_active_container_when_no_container_is_visible() {
         screen_rect: Some(available),
         ..Default::default()
     });
-    show_shelves(&ctx, layout, shelves, &mut state);
+    __internal_show_shelves_egui(&ctx, layout, shelves, &mut state);
     let _ = ctx.end_pass();
 
     assert_eq!(
@@ -1172,12 +1232,7 @@ fn existing_shelf_slot_ghost_translates_local_shelf_rects_to_screen_space() {
 #[test]
 fn container_move_target_stays_in_source_shelf_when_cursor_is_inside_screen_shelf_rect() {
     let available = Rect::from_min_size(pos2(0.0, 0.0), vec2(800.0, 600.0));
-    let layout = ShelfLayout {
-        viewport: available,
-        left: None,
-        right: None,
-        bottom: None,
-    };
+    let layout = test_shelf_layout(available, None, None, None);
     let local_shelf = Rect::from_min_size(pos2(0.0, 0.0), vec2(200.0, 600.0));
     let screen_shelf = local_shelf.translate(vec2(500.0, 0.0));
     let cursor = pos2(690.0, 120.0);
@@ -1196,17 +1251,17 @@ fn container_move_target_stays_in_source_shelf_when_cursor_is_inside_screen_shel
 
 #[test]
 fn container_move_target_does_not_snap_to_existing_left_shelf_from_canvas_band() {
-    let layout = ShelfLayout {
-        viewport: Rect::from_min_max(pos2(120.0, 0.0), pos2(800.0, 600.0)),
-        left: Some(Rect::from_min_max(pos2(0.0, 0.0), pos2(120.0, 600.0))),
-        right: None,
-        bottom: None,
-    };
+    let layout = test_shelf_layout(
+        Rect::from_min_max(pos2(120.0, 0.0), pos2(800.0, 600.0)),
+        Some(Rect::from_min_max(pos2(0.0, 0.0), pos2(120.0, 600.0))),
+        None,
+        None,
+    );
     let source_shelf = Rect::from_min_max(pos2(680.0, 0.0), pos2(800.0, 600.0));
     let cursor = pos2(165.0, 300.0);
 
     assert_eq!(
-        container_move_target(cursor, layout.available(), ShelfEdge::Right),
+        container_move_target(cursor, layout.available().into(), ShelfEdge::Right),
         Some(ShelfEdge::Left),
         "the old broad edge-band logic snapped to the existing left shelf even from the canvas"
     );
@@ -1479,12 +1534,12 @@ fn external_container_gap_uses_current_pointer_not_stale_drag_cursor() {
 fn source_container_gap_is_suppressed_during_cross_shelf_drag() {
     let dragged = Id::new("dragged");
     let source_pane = Id::new("right-pane");
-    let layout = ShelfLayout {
-        viewport: Rect::from_min_max(pos2(140.0, 0.0), pos2(680.0, 520.0)),
-        left: Some(Rect::from_min_max(pos2(0.0, 0.0), pos2(140.0, 520.0))),
-        right: Some(Rect::from_min_max(pos2(680.0, 0.0), pos2(800.0, 520.0))),
-        bottom: None,
-    };
+    let layout = test_shelf_layout(
+        Rect::from_min_max(pos2(140.0, 0.0), pos2(680.0, 520.0)),
+        Some(Rect::from_min_max(pos2(0.0, 0.0), pos2(140.0, 520.0))),
+        Some(Rect::from_min_max(pos2(680.0, 0.0), pos2(800.0, 520.0))),
+        None,
+    );
     let right_shelf_rect = layout.right.expect("right shelf");
 
     assert!(should_suppress_source_container_gap(
@@ -1495,7 +1550,7 @@ fn source_container_gap_is_suppressed_during_cross_shelf_drag() {
         None,
         source_pane,
         ShelfEdge::Right,
-        right_shelf_rect,
+        right_shelf_rect.into(),
         layout,
         Some(pos2(60.0, 200.0)),
     ));
@@ -1508,7 +1563,7 @@ fn source_container_gap_is_suppressed_during_cross_shelf_drag() {
             None,
             source_pane,
             ShelfEdge::Right,
-            right_shelf_rect,
+            right_shelf_rect.into(),
             layout,
             Some(pos2(720.0, 200.0)),
         ),
@@ -1976,12 +2031,12 @@ fn new_side_shelf_container_ghost_uses_target_shelf_width() {
 fn container_move_preview_layout_reserves_new_side_shelf_for_ribbons() {
     let ctx = egui::Context::default();
     let theme = *style::theme().shelf();
-    let layout = ShelfLayout {
-        viewport: Rect::from_min_max(pos2(220.0, 0.0), pos2(1000.0, 800.0)),
-        left: Some(Rect::from_min_max(pos2(0.0, 0.0), pos2(220.0, 800.0))),
-        right: None,
-        bottom: None,
-    };
+    let layout = test_shelf_layout(
+        Rect::from_min_max(pos2(220.0, 0.0), pos2(1000.0, 800.0)),
+        Some(Rect::from_min_max(pos2(0.0, 0.0), pos2(220.0, 800.0))),
+        None,
+        None,
+    );
     let drag = ShelfContainerMoveState {
         container_id: Id::new("dragged"),
         source_shelf: Id::new("source-shelf"),
@@ -2009,31 +2064,107 @@ fn container_move_preview_layout_reserves_new_side_shelf_for_ribbons() {
 
 #[test]
 fn shelf_reservation_ghost_border_only_faces_viewport_center() {
-    let rect = Rect::from_min_max(pos2(10.0, 20.0), pos2(110.0, 220.0));
+    let rect = crate::vocab::Rect::from_min_max(
+        crate::vocab::Pos2::new(10.0, 20.0),
+        crate::vocab::Pos2::new(110.0, 220.0),
+    );
 
     assert_eq!(
-        shelf_center_border_segment(ShelfEdge::Left, rect),
-        [pos2(110.0, 20.0), pos2(110.0, 220.0)]
+        shelf_center_border_segment_mara(ShelfEdge::Left, rect),
+        [
+            crate::vocab::Pos2::new(110.0, 20.0),
+            crate::vocab::Pos2::new(110.0, 220.0)
+        ]
     );
     assert_eq!(
-        shelf_center_border_segment(ShelfEdge::Right, rect),
-        [pos2(10.0, 20.0), pos2(10.0, 220.0)]
+        shelf_center_border_segment_mara(ShelfEdge::Right, rect),
+        [
+            crate::vocab::Pos2::new(10.0, 20.0),
+            crate::vocab::Pos2::new(10.0, 220.0)
+        ]
     );
     assert_eq!(
-        shelf_center_border_segment(ShelfEdge::Bottom, rect),
-        [pos2(10.0, 20.0), pos2(110.0, 20.0)]
+        shelf_center_border_segment_mara(ShelfEdge::Bottom, rect),
+        [
+            crate::vocab::Pos2::new(10.0, 20.0),
+            crate::vocab::Pos2::new(110.0, 20.0)
+        ]
     );
+}
+
+#[test]
+fn shelf_reservation_ghost_lowers_to_mara_fill_and_border_commands() {
+    let rect = crate::vocab::Rect::from_min_size(
+        crate::vocab::Pos2::new(10.0, 20.0),
+        crate::vocab::Vec2::new(100.0, 40.0),
+    );
+    let fill = crate::vocab::Color32::from_black_alpha(80);
+    let stroke = crate::vocab::Stroke::new(1.5, crate::vocab::Color32::WHITE);
+
+    let cmds = shelf_reservation_ghost_paint_cmds(ShelfEdge::Bottom, rect, fill, stroke);
+
+    assert!(matches!(
+        cmds[0],
+        crate::paint::PaintCmd::RectFilled {
+            rect: got_rect,
+            fill: got_fill,
+            ..
+        } if got_rect == rect && got_fill == fill
+    ));
+    assert!(matches!(
+        cmds[1],
+        crate::paint::PaintCmd::Line {
+            a,
+            b,
+            stroke: got_stroke,
+        } if a == crate::vocab::Pos2::new(10.0, 20.0)
+            && b == crate::vocab::Pos2::new(110.0, 20.0)
+            && got_stroke == stroke
+    ));
+}
+
+#[test]
+fn container_slot_ghost_lowers_to_mara_fill_and_stroke_commands() {
+    let rect = crate::vocab::Rect::from_min_size(
+        crate::vocab::Pos2::new(10.0, 20.0),
+        crate::vocab::Vec2::new(100.0, 40.0),
+    );
+    let accent = crate::vocab::Color32::from_rgb(30, 40, 50);
+    let corner = crate::vocab::CornerRadius::same(4);
+
+    let cmds = container_slot_ghost_paint_cmds(rect, accent, corner);
+
+    assert!(matches!(
+        cmds[0],
+        crate::paint::PaintCmd::RectFilled {
+            rect: got_rect,
+            corner: got_corner,
+            fill,
+        } if got_rect == rect
+            && got_corner == corner
+            && fill == crate::vocab::Color32::from_rgba_unmultiplied(30, 40, 50, 72)
+    ));
+    assert!(matches!(
+        cmds[1],
+        crate::paint::PaintCmd::RectStroke {
+            rect: got_rect,
+            corner: got_corner,
+            stroke,
+        } if got_rect == rect
+            && got_corner == corner
+            && stroke == crate::vocab::Stroke::new(1.5, accent)
+    ));
 }
 
 #[test]
 fn shelf_move_ghost_to_bottom_respects_occupied_side_shelf() {
     let theme = *style::theme().shelf();
-    let layout = ShelfLayout {
-        viewport: Rect::from_min_max(pos2(240.0, 0.0), pos2(780.0, 800.0)),
-        left: Some(Rect::from_min_max(pos2(0.0, 0.0), pos2(240.0, 800.0))),
-        right: Some(Rect::from_min_max(pos2(780.0, 0.0), pos2(1000.0, 800.0))),
-        bottom: None,
-    };
+    let layout = test_shelf_layout(
+        Rect::from_min_max(pos2(240.0, 0.0), pos2(780.0, 800.0)),
+        Some(Rect::from_min_max(pos2(0.0, 0.0), pos2(240.0, 800.0))),
+        Some(Rect::from_min_max(pos2(780.0, 0.0), pos2(1000.0, 800.0))),
+        None,
+    );
 
     let ghost = shelf_drop_rect(layout, ShelfEdge::Left, ShelfEdge::Bottom, &theme)
         .expect("bottom is the only free target edge");
@@ -2051,12 +2182,12 @@ fn shelf_move_ghost_to_bottom_respects_occupied_side_shelf() {
 #[test]
 fn shelf_move_ghost_to_side_keeps_full_height_when_bottom_is_occupied() {
     let theme = *style::theme().shelf();
-    let layout = ShelfLayout {
-        viewport: Rect::from_min_max(pos2(0.0, 0.0), pos2(1000.0, 620.0)),
-        left: None,
-        right: None,
-        bottom: Some(Rect::from_min_max(pos2(0.0, 620.0), pos2(1000.0, 800.0))),
-    };
+    let layout = test_shelf_layout(
+        Rect::from_min_max(pos2(0.0, 0.0), pos2(1000.0, 620.0)),
+        None,
+        None,
+        Some(Rect::from_min_max(pos2(0.0, 620.0), pos2(1000.0, 800.0))),
+    );
 
     let ghost = shelf_drop_rect(layout, ShelfEdge::Left, ShelfEdge::Right, &theme)
         .expect("right edge is free");
@@ -2071,12 +2202,12 @@ fn shelf_move_ghost_to_side_keeps_full_height_when_bottom_is_occupied() {
 #[test]
 fn shelf_move_preview_layout_moves_chrome_bounds_before_drop() {
     let theme = *style::theme().shelf();
-    let layout = ShelfLayout {
-        viewport: Rect::from_min_max(pos2(240.0, 0.0), pos2(1000.0, 800.0)),
-        left: Some(Rect::from_min_max(pos2(0.0, 0.0), pos2(240.0, 800.0))),
-        right: None,
-        bottom: None,
-    };
+    let layout = test_shelf_layout(
+        Rect::from_min_max(pos2(240.0, 0.0), pos2(1000.0, 800.0)),
+        Some(Rect::from_min_max(pos2(0.0, 0.0), pos2(240.0, 800.0))),
+        None,
+        None,
+    );
     let drag = state::ShelfDragState {
         shelf_id: Id::new("source-shelf"),
         source_edge: ShelfEdge::Left,
@@ -2104,12 +2235,12 @@ fn shelf_move_preview_layout_moves_chrome_bounds_before_drop() {
 #[test]
 fn shelf_move_preview_layout_uses_target_axis_default_for_cross_axis_move() {
     let theme = *style::theme().shelf();
-    let layout = ShelfLayout {
-        viewport: Rect::from_min_max(pos2(240.0, 0.0), pos2(1000.0, 800.0)),
-        left: Some(Rect::from_min_max(pos2(0.0, 0.0), pos2(240.0, 800.0))),
-        right: None,
-        bottom: None,
-    };
+    let layout = test_shelf_layout(
+        Rect::from_min_max(pos2(240.0, 0.0), pos2(1000.0, 800.0)),
+        Some(Rect::from_min_max(pos2(0.0, 0.0), pos2(240.0, 800.0))),
+        None,
+        None,
+    );
     let drag = state::ShelfDragState {
         shelf_id: Id::new("source-shelf"),
         source_edge: ShelfEdge::Left,
@@ -2135,12 +2266,12 @@ fn shelf_move_preview_layout_remembers_bottom_size_for_side_to_bottom() {
     let theme = *style::theme().shelf();
     let shelf_id = Id::new("source-shelf");
     state.set_edge_size(shelf_id, ShelfEdge::Bottom, 188.0);
-    let layout = ShelfLayout {
-        viewport: Rect::from_min_max(pos2(240.0, 0.0), pos2(1000.0, 800.0)),
-        left: Some(Rect::from_min_max(pos2(0.0, 0.0), pos2(240.0, 800.0))),
-        right: None,
-        bottom: None,
-    };
+    let layout = test_shelf_layout(
+        Rect::from_min_max(pos2(240.0, 0.0), pos2(1000.0, 800.0)),
+        Some(Rect::from_min_max(pos2(0.0, 0.0), pos2(240.0, 800.0))),
+        None,
+        None,
+    );
     let drag = state::ShelfDragState {
         shelf_id,
         source_edge: ShelfEdge::Left,
@@ -2163,12 +2294,12 @@ fn shelf_move_preview_layout_remembers_side_size_for_bottom_to_side() {
     let shelf_id = Id::new("source-shelf");
     state.set_edge_size(shelf_id, ShelfEdge::Left, 260.0);
     state.set_edge_size(shelf_id, ShelfEdge::Bottom, 188.0);
-    let layout = ShelfLayout {
-        viewport: Rect::from_min_max(pos2(0.0, 0.0), pos2(1000.0, 612.0)),
-        left: None,
-        right: None,
-        bottom: Some(Rect::from_min_max(pos2(0.0, 612.0), pos2(1000.0, 800.0))),
-    };
+    let layout = test_shelf_layout(
+        Rect::from_min_max(pos2(0.0, 0.0), pos2(1000.0, 612.0)),
+        None,
+        None,
+        Some(Rect::from_min_max(pos2(0.0, 612.0), pos2(1000.0, 800.0))),
+    );
     let drag = state::ShelfDragState {
         shelf_id,
         source_edge: ShelfEdge::Bottom,
@@ -2187,12 +2318,12 @@ fn shelf_move_preview_layout_remembers_side_size_for_bottom_to_side() {
 #[test]
 fn container_new_bottom_shelf_ghost_respects_source_side_shelf() {
     let theme = *style::theme().shelf();
-    let layout = ShelfLayout {
-        viewport: Rect::from_min_max(pos2(240.0, 0.0), pos2(1000.0, 800.0)),
-        left: Some(Rect::from_min_max(pos2(0.0, 0.0), pos2(240.0, 800.0))),
-        right: None,
-        bottom: None,
-    };
+    let layout = test_shelf_layout(
+        Rect::from_min_max(pos2(240.0, 0.0), pos2(1000.0, 800.0)),
+        Some(Rect::from_min_max(pos2(0.0, 0.0), pos2(240.0, 800.0))),
+        None,
+        None,
+    );
 
     let ghost = container_drop_rect(layout, ShelfEdge::Left, ShelfEdge::Bottom, &theme)
         .expect("bottom edge is free");
@@ -2213,12 +2344,12 @@ fn container_drag_bottom_shelf_ghost_releases_empty_source_shelf() {
     let theme = *style::theme().shelf();
     let source_pane = Id::new("source-pane");
     let dragged = Id::new("dragged");
-    let layout = ShelfLayout {
-        viewport: Rect::from_min_max(pos2(240.0, 0.0), pos2(1000.0, 800.0)),
-        left: Some(Rect::from_min_max(pos2(0.0, 0.0), pos2(240.0, 800.0))),
-        right: None,
-        bottom: None,
-    };
+    let layout = test_shelf_layout(
+        Rect::from_min_max(pos2(240.0, 0.0), pos2(1000.0, 800.0)),
+        Some(Rect::from_min_max(pos2(0.0, 0.0), pos2(240.0, 800.0))),
+        None,
+        None,
+    );
     pane::set_snapshot(
         &ctx,
         source_pane,
@@ -2259,12 +2390,12 @@ fn container_drag_bottom_shelf_ghost_releases_source_when_cache_not_ready() {
     let ctx = egui::Context::default();
     let theme = *style::theme().shelf();
     let dragged = Id::new("dragged");
-    let layout = ShelfLayout {
-        viewport: Rect::from_min_max(pos2(240.0, 0.0), pos2(1000.0, 800.0)),
-        left: Some(Rect::from_min_max(pos2(0.0, 0.0), pos2(240.0, 800.0))),
-        right: None,
-        bottom: None,
-    };
+    let layout = test_shelf_layout(
+        Rect::from_min_max(pos2(240.0, 0.0), pos2(1000.0, 800.0)),
+        Some(Rect::from_min_max(pos2(0.0, 0.0), pos2(240.0, 800.0))),
+        None,
+        None,
+    );
     let drag = ShelfContainerMoveState {
         container_id: dragged,
         source_shelf: Id::new("source-shelf"),
@@ -2298,12 +2429,12 @@ fn container_drag_bottom_shelf_ghost_keeps_non_empty_source_shelf_reserved() {
     let source_pane = Id::new("source-pane");
     let dragged = Id::new("dragged");
     let sibling = Id::new("sibling");
-    let layout = ShelfLayout {
-        viewport: Rect::from_min_max(pos2(240.0, 0.0), pos2(1000.0, 800.0)),
-        left: Some(Rect::from_min_max(pos2(0.0, 0.0), pos2(240.0, 800.0))),
-        right: None,
-        bottom: None,
-    };
+    let layout = test_shelf_layout(
+        Rect::from_min_max(pos2(240.0, 0.0), pos2(1000.0, 800.0)),
+        Some(Rect::from_min_max(pos2(0.0, 0.0), pos2(240.0, 800.0))),
+        None,
+        None,
+    );
     pane::set_snapshot(
         &ctx,
         source_pane,
@@ -2352,12 +2483,12 @@ fn container_drag_existing_shelf_does_not_use_full_shelf_drop_rect() {
     let theme = *style::theme().shelf();
     let source_pane = Id::new("source-pane");
     let dragged = Id::new("dragged");
-    let layout = ShelfLayout {
-        viewport: Rect::from_min_max(pos2(0.0, 0.0), pos2(760.0, 800.0)),
-        left: None,
-        right: Some(Rect::from_min_max(pos2(760.0, 0.0), pos2(1000.0, 800.0))),
-        bottom: None,
-    };
+    let layout = test_shelf_layout(
+        Rect::from_min_max(pos2(0.0, 0.0), pos2(760.0, 800.0)),
+        None,
+        Some(Rect::from_min_max(pos2(760.0, 0.0), pos2(1000.0, 800.0))),
+        None,
+    );
     pane::set_snapshot(
         &ctx,
         source_pane,
@@ -2627,16 +2758,36 @@ fn shelf_resize_direction_matches_edge_handles() {
 fn shelf_resize_cursor_matches_handle_axis() {
     assert_eq!(
         shelf_resize_cursor(ShelfEdge::Left),
-        egui::CursorIcon::ResizeHorizontal
+        crate::layout::CursorIcon::ResizeHorizontal
     );
     assert_eq!(
         shelf_resize_cursor(ShelfEdge::Right),
-        egui::CursorIcon::ResizeHorizontal
+        crate::layout::CursorIcon::ResizeHorizontal
     );
     assert_eq!(
         shelf_resize_cursor(ShelfEdge::Bottom),
-        egui::CursorIcon::ResizeVertical
+        crate::layout::CursorIcon::ResizeVertical
     );
+}
+
+#[test]
+fn shelf_background_lowers_to_mara_rect_command() {
+    let rect = crate::vocab::Rect::from_min_size(
+        crate::vocab::Pos2::new(10.0, 20.0),
+        crate::vocab::Vec2::new(100.0, 40.0),
+    );
+    let fill = crate::vocab::Color32::from_black_alpha(120);
+
+    let cmd = shelf_background_paint_cmd(rect, fill);
+
+    assert!(matches!(
+        cmd,
+        crate::paint::PaintCmd::RectFilled {
+            rect: got_rect,
+            fill: got_fill,
+            ..
+        } if got_rect == rect && got_fill == fill
+    ));
 }
 
 #[test]
@@ -2750,7 +2901,10 @@ fn edge_only_moved_container_renders_inside_existing_edge_shelf_group() {
         .find(|group| group.id == target_shelf && group.edge == ShelfEdge::Right)
         .expect("existing target edge shelf should own the right group");
     assert_eq!(target_group.containers.len(), 2);
-    assert_eq!(target_group.accent, Color32::LIGHT_BLUE);
+    assert_eq!(
+        egui::Color32::from(target_group.accent),
+        Color32::LIGHT_BLUE
+    );
     assert_eq!(target_group.default_size, Some(260.0));
     assert!(target_group.movable);
     assert!(
@@ -2802,7 +2956,10 @@ fn edge_only_moved_container_renders_inside_overridden_edge_shelf_group() {
         .find(|group| group.id == target_shelf && group.edge == ShelfEdge::Right)
         .expect("state-moved target shelf should own the right group");
     assert_eq!(target_group.containers.len(), 2);
-    assert_eq!(target_group.accent, Color32::LIGHT_BLUE);
+    assert_eq!(
+        egui::Color32::from(target_group.accent),
+        Color32::LIGHT_BLUE
+    );
     assert_eq!(target_group.default_size, Some(260.0));
     assert!(target_group.movable);
     assert!(
@@ -3294,7 +3451,7 @@ fn moved_container_with_missing_owner_renders_in_existing_edge_shelf() {
         .iter()
         .find(|group| group.id == replacement_shelf && group.edge == ShelfEdge::Right)
         .expect("stale owner ids should fall back to the current shelf on the target edge");
-    assert_eq!(right_group.accent, Color32::LIGHT_BLUE);
+    assert_eq!(egui::Color32::from(right_group.accent), Color32::LIGHT_BLUE);
     assert_eq!(right_group.default_size, Some(260.0));
     assert!(
         right_group

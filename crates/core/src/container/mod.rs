@@ -17,10 +17,13 @@ pub mod tabbed;
 
 pub use body::Body;
 pub use normal::Normal;
-pub use separator::{SeparatorOrient, SeparatorStyle, paint_separator, paint_separator_resize};
+pub use separator::{SeparatorOrient, SeparatorStyle};
+pub(crate) use separator::{paint_separator, paint_separator_resize};
 pub use tabbed::Tab;
 
 use egui::Id;
+
+use crate::vocab::Id as MaraId;
 
 /// First-frame default flow-axis size, used before any content has
 /// been measured AND before any drag has set an explicit value.
@@ -85,7 +88,8 @@ fn container_initial_flow_key(cid: Id) -> Id {
 /// flow set by [`crate::container::Normal::initial_flow`]. Returns
 /// `None` when the container has no override (use the global
 /// default in that case).
-pub fn container_initial_flow(ctx: &egui::Context, cid: Id) -> Option<f32> {
+pub(crate) fn container_initial_flow(ctx: &egui::Context, cid: impl Into<MaraId>) -> Option<f32> {
+    let cid: Id = cid.into().into();
     ctx.data_mut(|d| d.get_persisted::<f32>(container_initial_flow_key(cid)))
         .filter(|value| value.is_finite())
         .map(|value| value.clamp(CONTAINER_MIN_FLOW, CONTAINER_MAX_FLOW))
@@ -95,7 +99,8 @@ pub fn container_initial_flow(ctx: &egui::Context, cid: Id) -> Option<f32> {
 /// [`crate::container::Normal::show`] when the builder set
 /// `initial_flow`. Subsequent calls overwrite — the most recent
 /// value wins.
-pub fn set_container_initial_flow(ctx: &egui::Context, cid: Id, value: f32) {
+pub(crate) fn set_container_initial_flow(ctx: &egui::Context, cid: impl Into<MaraId>, value: f32) {
+    let cid: Id = cid.into().into();
     let v = if value.is_finite() {
         value.clamp(CONTAINER_MIN_FLOW, CONTAINER_MAX_FLOW)
     } else {
@@ -130,7 +135,12 @@ pub fn set_container_initial_flow(ctx: &egui::Context, cid: Id, value: f32) {
 ///    `[CONTAINER_HORIZONTAL_MIN_FLOW, CONTAINER_MAX_FLOW]`.
 /// 2. Default [`CONTAINER_HORIZONTAL_DEFAULT_FLOW`] (= 12U).
 ///    The user cannot drag below 12U.
-pub fn container_flow(ctx: &egui::Context, cid: Id, is_horizontal_strip: bool) -> f32 {
+pub(crate) fn container_flow(
+    ctx: &egui::Context,
+    cid: impl Into<MaraId>,
+    is_horizontal_strip: bool,
+) -> f32 {
+    let cid: Id = cid.into().into();
     let (min_v, max_v) = container_flow_bounds(is_horizontal_strip);
     if let Some(user) = ctx.data_mut(|d| d.get_persisted::<f32>(container_flow_key(cid))) {
         let fallback = if is_horizontal_strip {
@@ -182,7 +192,13 @@ pub fn container_flow(ctx: &egui::Context, cid: Id, is_horizontal_strip: bool) -
 /// size — called from the inter-container drag handler. Clamped to
 /// the orientation-specific bounds before writing, so the user can't
 /// drag below 12U on horizontally-stacked containers.
-pub fn set_container_flow(ctx: &egui::Context, cid: Id, value: f32, is_horizontal_strip: bool) {
+pub(crate) fn set_container_flow(
+    ctx: &egui::Context,
+    cid: impl Into<MaraId>,
+    value: f32,
+    is_horizontal_strip: bool,
+) {
+    let cid: Id = cid.into().into();
     let (min_v, max_v) = container_flow_bounds(is_horizontal_strip);
     let fallback = if is_horizontal_strip {
         CONTAINER_DEFAULT_FLOW
@@ -197,7 +213,7 @@ pub fn set_container_flow(ctx: &egui::Context, cid: Id, value: f32, is_horizonta
 /// parent pane's orientation. Vertically-stacked containers can
 /// shrink to `UNIT`; horizontally-stacked containers have a hard
 /// `12U` floor.
-pub fn container_flow_bounds(is_horizontal_strip: bool) -> (f32, f32) {
+pub(crate) fn container_flow_bounds(is_horizontal_strip: bool) -> (f32, f32) {
     if is_horizontal_strip {
         (CONTAINER_MIN_FLOW, CONTAINER_MAX_FLOW)
     } else {
@@ -208,7 +224,8 @@ pub fn container_flow_bounds(is_horizontal_strip: bool) -> (f32, f32) {
 /// Persist the measured intrinsic body content size for `cid`.
 /// Called by [`Normal::show`] every frame after the body renders.
 /// Read by [`container_flow`]'s auto-fit path on subsequent frames.
-pub fn record_container_intrinsic(ctx: &egui::Context, cid: Id, height: f32) {
+pub(crate) fn record_container_intrinsic(ctx: &egui::Context, cid: impl Into<MaraId>, height: f32) {
+    let cid: Id = cid.into().into();
     let v = if height.is_finite() {
         height.max(0.0)
     } else {

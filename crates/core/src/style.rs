@@ -1,9 +1,7 @@
-//! One-shot egui theme setup — palette, typography, and a single
-//! `apply_theme` function. **Framework-agnostic** — no bevy or
-//! bevy_egui imports here. The `bevy_mara` crate wraps these in
-//! Bevy `Resource`s + a `Plugin` that runs `apply_theme` every
-//! frame; plain-egui callers call `apply_theme(ctx, accent,
-//! opacity)` directly from their UI body.
+//! Theme setup — palette, typography, and backend styling hooks.
+//! **Framework-agnostic** — no bevy or bevy_egui imports here. Raw
+//! `egui::Context` styling remains first-party backend plumbing; app
+//! code applies themes through Mara host/facade APIs.
 //!
 //! Palette + typography follow the 2024-2026 editor convergence
 //! (Blender 4, UE5.4, Godot 4, Unity 6, Fleet). All values are
@@ -45,11 +43,11 @@ pub const UNIT: f32 = BODY_FONT_SIZE * 1.5;
 // ~50 above, input ~16 below. With borders / separators dialed
 // down on Dark, hierarchy now comes from the surface tier alone,
 // which needs the colour delta to do the work.
-pub const BG_0_WINDOW: egui::Color32 = egui::Color32::from_rgb(0x06, 0x08, 0x0E);
-pub const BG_1_PANEL: egui::Color32 = egui::Color32::from_rgb(0x14, 0x16, 0x1D);
-pub const BG_2_RAISED: egui::Color32 = egui::Color32::from_rgb(0x2C, 0x30, 0x3D);
-pub const BG_3_HOVER: egui::Color32 = egui::Color32::from_rgb(0x40, 0x46, 0x55);
-pub const BG_4_INPUT: egui::Color32 = egui::Color32::from_rgb(0x06, 0x08, 0x0C);
+pub const BG_0_WINDOW: MaraColor32 = MaraColor32::from_rgb(0x06, 0x08, 0x0E);
+pub const BG_1_PANEL: MaraColor32 = MaraColor32::from_rgb(0x14, 0x16, 0x1D);
+pub const BG_2_RAISED: MaraColor32 = MaraColor32::from_rgb(0x2C, 0x30, 0x3D);
+pub const BG_3_HOVER: MaraColor32 = MaraColor32::from_rgb(0x40, 0x46, 0x55);
+pub const BG_4_INPUT: MaraColor32 = MaraColor32::from_rgb(0x06, 0x08, 0x0C);
 
 // ─── Glass opacity (slider-driven) ──────────────────────────────────
 //
@@ -59,6 +57,12 @@ pub const BG_4_INPUT: egui::Color32 = egui::Color32::from_rgb(0x06, 0x08, 0x0C);
 // via `CARD_FACTOR` / `GROUP_FACTOR` below.
 
 use core::sync::atomic::{AtomicU8, Ordering};
+
+use crate::paint::{PaintCmd, TextFamily};
+use crate::vocab::{
+    Color32 as MaraColor32, CornerRadius as MaraCornerRadius, Id as MaraId, Pos2 as MaraPos2,
+    Rect as MaraRect, Stroke as MaraStroke,
+};
 
 /// Shadow copy of the current opacity value. Plain helper functions
 /// (`section`, `floating_window`, etc.) read this to derive glass
@@ -155,7 +159,13 @@ pub const GLASS_ACCENT_TINT: f32 = 0.03;
 /// `alpha/255` opacity over the scene. The accent-tint fraction is
 /// read from the active [`Theme`] — GAME-style themes can set it to
 /// `0.0` to flatten the fill into a pure neutral tone.
-pub fn glass_fill(base: egui::Color32, accent: egui::Color32, alpha: u8) -> egui::Color32 {
+pub fn glass_fill(
+    base: impl Into<MaraColor32>,
+    accent: impl Into<MaraColor32>,
+    alpha: u8,
+) -> MaraColor32 {
+    let base: egui::Color32 = base.into().into();
+    let accent: egui::Color32 = accent.into().into();
     let f = theme().glass.accent_tint;
     let blend = |a: u8, b: u8| ((a as f32) * (1.0 - f) + (b as f32) * f).round() as u8;
     egui::Color32::from_rgba_unmultiplied(
@@ -164,10 +174,11 @@ pub fn glass_fill(base: egui::Color32, accent: egui::Color32, alpha: u8) -> egui
         blend(base.b(), accent.b()),
         alpha,
     )
+    .into()
 }
 
-pub const BORDER_SUBTLE: egui::Color32 = egui::Color32::from_rgb(0x0E, 0x0E, 0x10);
-pub const BORDER_INNER: egui::Color32 = egui::Color32::from_rgb(0x3A, 0x3A, 0x42);
+pub const BORDER_SUBTLE: MaraColor32 = MaraColor32::from_rgb(0x0E, 0x0E, 0x10);
+pub const BORDER_INNER: MaraColor32 = MaraColor32::from_rgb(0x3A, 0x3A, 0x42);
 
 /// Single shared base colour for **every** outline + separator in the
 /// kit (widget borders, row hairlines, dividers, palette rules). The
@@ -179,10 +190,9 @@ pub const BORDER_INNER: egui::Color32 = egui::Color32::from_rgb(0x3A, 0x3A, 0x42
 /// Without this lerp, PRO Dark paints a near-black `BORDER_SUBTLE` on
 /// a dark panel (low contrast → invisible), and PRO Light paints a
 /// pale-grey on a white panel (also invisible). Centralising the
-/// "luma flip" here means every consumer (`widget_border`,
-/// `paint_hairline`, `divider`, `thin_divider`) gets a contrasting
-/// base for free; each consumer just chooses its own alpha.
-pub fn outline_base() -> egui::Color32 {
+/// "luma flip" here means every consumer gets a contrasting base for
+/// free; each consumer just chooses its own alpha.
+pub fn outline_base() -> MaraColor32 {
     let th = theme();
     let target = if th.is_light {
         egui::Color32::BLACK
@@ -195,6 +205,7 @@ pub fn outline_base() -> egui::Color32 {
         blend(th.palette.border_subtle.g(), target.g()),
         blend(th.palette.border_subtle.b(), target.b()),
     )
+    .into()
 }
 
 /// The canonical border colour used by **every** mara surface —
@@ -203,9 +214,10 @@ pub fn outline_base() -> egui::Color32 {
 /// blends in `border_accent_tint` of accent (PRO 6 %, GAME 0 %),
 /// applies `border_alpha`. GAME themes pin `border_alpha = 0` so no
 /// border paints; PRO themes use a high alpha so the line reads.
-pub fn widget_border(accent: egui::Color32) -> egui::Color32 {
+pub fn widget_border(accent: impl Into<MaraColor32>) -> MaraColor32 {
+    let accent: egui::Color32 = accent.into().into();
     let th = theme();
-    let base = outline_base();
+    let base: egui::Color32 = outline_base().into();
     let t = th.stroke.border_accent_tint;
     let blend = |b: u8, a: u8| ((b as f32) * (1.0 - t) + (a as f32) * t).round() as u8;
     egui::Color32::from_rgba_unmultiplied(
@@ -214,6 +226,7 @@ pub fn widget_border(accent: egui::Color32) -> egui::Color32 {
         blend(base.b(), accent.b()),
         th.stroke.border_alpha,
     )
+    .into()
 }
 
 // ─── Text — shared tones used by every theme variant ───────────────
@@ -230,22 +243,22 @@ pub fn widget_border(accent: egui::Color32) -> egui::Color32 {
 // `#4A4D54` at luma 0.31 lifts the contrast without shouting.
 
 /// Primary body text for **Dark variants** (paint on dark panels).
-pub const TEXT_PRIMARY: egui::Color32 = egui::Color32::from_rgb(0xE6, 0xE6, 0xE8);
+pub const TEXT_PRIMARY: MaraColor32 = MaraColor32::from_rgb(0xE6, 0xE6, 0xE8);
 /// Secondary / dim body text for Dark variants.
-pub const TEXT_SECONDARY: egui::Color32 = egui::Color32::from_rgb(0x9A, 0x9A, 0xA2);
+pub const TEXT_SECONDARY: MaraColor32 = MaraColor32::from_rgb(0x9A, 0x9A, 0xA2);
 /// Disabled-state text for Dark variants.
-pub const TEXT_DISABLED: egui::Color32 = egui::Color32::from_rgb(0x5A, 0x5A, 0x62);
+pub const TEXT_DISABLED: MaraColor32 = MaraColor32::from_rgb(0x5A, 0x5A, 0x62);
 
 /// Primary body text for **Light variants** (paint on light panels).
 /// Slightly darker than Primer's `#1F2328` so it still reads as
 /// "ink-on-paper" rather than a soft grey.
-pub const TEXT_PRIMARY_LIGHT: egui::Color32 = egui::Color32::from_rgb(0x18, 0x18, 0x1C);
+pub const TEXT_PRIMARY_LIGHT: MaraColor32 = MaraColor32::from_rgb(0x18, 0x18, 0x1C);
 /// Secondary / dim body text for Light variants. Bumped from the
 /// originally-shipping `#6B7078` to give body labels and captions
 /// real contrast on white panels.
-pub const TEXT_SECONDARY_LIGHT: egui::Color32 = egui::Color32::from_rgb(0x4A, 0x4D, 0x54);
+pub const TEXT_SECONDARY_LIGHT: MaraColor32 = MaraColor32::from_rgb(0x4A, 0x4D, 0x54);
 /// Disabled-state text for Light variants.
-pub const TEXT_DISABLED_LIGHT: egui::Color32 = egui::Color32::from_rgb(0x8A, 0x8E, 0x96);
+pub const TEXT_DISABLED_LIGHT: MaraColor32 = MaraColor32::from_rgb(0x8A, 0x8E, 0x96);
 
 // ─── Accent (selection / focus) — violet / purple ──────────────────
 //
@@ -254,33 +267,34 @@ pub const TEXT_DISABLED_LIGHT: egui::Color32 = egui::Color32::from_rgb(0x8A, 0x8
 // panels (Δ ≈ 0.55 vs `#FFFFFF`) and bright enough to pop on dark
 // panels (Δ ≈ 0.30 vs `#0E0E10`). The previous default `#A78BFA`
 // (luma 0.60) was a pastel that disappeared on white panels.
-pub const ACCENT: egui::Color32 = egui::Color32::from_rgb(0x7C, 0x5C, 0xFF);
-pub const ACCENT_HOVER: egui::Color32 = egui::Color32::from_rgb(0x9D, 0x84, 0xFF);
-pub const ACCENT_PRESSED: egui::Color32 = egui::Color32::from_rgb(0x62, 0x42, 0xE6);
+pub const ACCENT: MaraColor32 = MaraColor32::from_rgb(0x7C, 0x5C, 0xFF);
+pub const ACCENT_HOVER: MaraColor32 = MaraColor32::from_rgb(0x9D, 0x84, 0xFF);
+pub const ACCENT_PRESSED: MaraColor32 = MaraColor32::from_rgb(0x62, 0x42, 0xE6);
 /// Subtle purple-tinted surface for the active side button and the
 /// selected outliner row. 18 % of `ACCENT` over `BG_2_RAISED`.
-pub const ACCENT_TINT: egui::Color32 = egui::Color32::from_rgb(0x42, 0x3A, 0x5A);
-pub const SELECTION_ROW: egui::Color32 = egui::Color32::from_rgb(0x4A, 0x3C, 0x72);
+pub const ACCENT_TINT: MaraColor32 = MaraColor32::from_rgb(0x42, 0x3A, 0x5A);
+pub const SELECTION_ROW: MaraColor32 = MaraColor32::from_rgb(0x4A, 0x3C, 0x72);
 
 // ─── Axes (vivid: gizmos + inspector labels) ────────────────────────
-pub const AXIS_X: egui::Color32 = egui::Color32::from_rgb(0xE0, 0x43, 0x3B);
-pub const AXIS_Y: egui::Color32 = egui::Color32::from_rgb(0x7F, 0xB4, 0x35);
-pub const AXIS_Z: egui::Color32 = egui::Color32::from_rgb(0x2E, 0x83, 0xE6);
+pub const AXIS_X: MaraColor32 = MaraColor32::from_rgb(0xE0, 0x43, 0x3B);
+pub const AXIS_Y: MaraColor32 = MaraColor32::from_rgb(0x7F, 0xB4, 0x35);
+pub const AXIS_Z: MaraColor32 = MaraColor32::from_rgb(0x2E, 0x83, 0xE6);
 
 // ─── Status ─────────────────────────────────────────────────────────
-pub const SUCCESS: egui::Color32 = egui::Color32::from_rgb(0x34, 0xC7, 0x59);
-pub const WARNING: egui::Color32 = egui::Color32::from_rgb(0xF5, 0xA5, 0x24);
-pub const DANGER: egui::Color32 = egui::Color32::from_rgb(0xEF, 0x44, 0x44);
+pub const SUCCESS: MaraColor32 = MaraColor32::from_rgb(0x34, 0xC7, 0x59);
+pub const WARNING: MaraColor32 = MaraColor32::from_rgb(0xF5, 0xA5, 0x24);
+pub const DANGER: MaraColor32 = MaraColor32::from_rgb(0xEF, 0x44, 0x44);
 
 /// Plain-data accent colour. With the `bevy` crate feature
 /// enabled, this derives `Resource` so it can be used directly as
-/// a Bevy state type.
+/// a Bevy state type. The public field uses Mara vocabulary; the
+/// egui backend converts it only at the theme-application boundary.
 #[cfg_attr(feature = "bevy", derive(bevy::prelude::Resource))]
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub struct AccentColor(pub egui::Color32);
+pub struct AccentColor(pub MaraColor32);
 
 /// Neutral accent used when no vehicle is selected.
-pub const ACCENT_NEUTRAL: egui::Color32 = egui::Color32::from_rgb(0xE6, 0xE6, 0xE8);
+pub const ACCENT_NEUTRAL: MaraColor32 = MaraColor32::from_rgb(0xE6, 0xE6, 0xE8);
 
 impl Default for AccentColor {
     fn default() -> Self {
@@ -294,8 +308,9 @@ impl Default for AccentColor {
 // Thin, Light, Medium. Each is face 0 of the matching upstream
 // `SGr-IosevkaTerm-{Thin,Light,Medium}.ttc`, extracted via fontTools
 // and subset to Latin + common symbol blocks (~310 KB each). The host
-// picks one with [`set_font_weight`]; the choice is read by
-// `apply_theme` and re-applied to egui via `ctx.set_fonts`.
+// picks one with [`set_font_weight`]; the choice is read by the
+// internal theme application hook and re-applied to egui via
+// `ctx.set_fonts`.
 //
 // We deliberately stick with the stock egui font families
 // (`Proportional` + `Monospace`) and do NOT register `FontFamily::Name`
@@ -395,8 +410,8 @@ impl FontWeight {
 }
 
 /// Active body-font weight. Sentinel value `u8::MAX` means
-/// "never installed", so the very first `apply_theme` call always
-/// pushes the font onto the egui context.
+/// "never installed", so the very first internal theme-application
+/// pass always pushes the font onto the egui context.
 static ACTIVE_FONT_WEIGHT: AtomicU8 = AtomicU8::new(u8::MAX);
 
 /// Active title-font weight (pane title + section header). Defaults
@@ -406,15 +421,14 @@ static ACTIVE_FONT_WEIGHT: AtomicU8 = AtomicU8::new(u8::MAX);
 static ACTIVE_TITLE_WEIGHT: AtomicU8 = AtomicU8::new(u8::MAX);
 
 /// Replace the active body-font weight. Takes effect on the next
-/// `apply_theme` call — `apply_theme` notices the change and
-/// re-issues `ctx.set_fonts` once.
+/// internal theme-application pass.
 pub fn set_font_weight(w: FontWeight) {
     ACTIVE_FONT_WEIGHT.store(w.as_u8(), Ordering::Relaxed);
 }
 
 /// Read the currently-selected body-font weight. Returns
 /// [`FontWeight::default`] before the first `set_font_weight` /
-/// `apply_theme` call.
+/// internal theme-application pass.
 pub fn font_weight() -> FontWeight {
     let v = ACTIVE_FONT_WEIGHT.load(Ordering::Relaxed);
     if v == u8::MAX {
@@ -425,7 +439,7 @@ pub fn font_weight() -> FontWeight {
 }
 
 /// Replace the active title-font weight (pane title + section
-/// header). Takes effect on the next `apply_theme` call.
+/// header). Takes effect on the next internal theme-application pass.
 pub fn set_title_weight(w: FontWeight) {
     ACTIVE_TITLE_WEIGHT.store(w.as_u8(), Ordering::Relaxed);
 }
@@ -447,7 +461,7 @@ pub fn title_weight() -> FontWeight {
 /// the body weight without changes.
 pub const TITLE_FAMILY_NAME: &str = "mara-title";
 
-/// `true` once `install_fonts` has pushed a `FontDefinitions` that
+/// `true` once the internal font installer has pushed a `FontDefinitions` that
 /// binds [`TITLE_FAMILY_NAME`] AND egui has begun the next pass
 /// (i.e. `set_fonts` actually took effect). Title paint sites read
 /// this to decide whether to ask for the named family or fall back
@@ -456,14 +470,14 @@ pub const TITLE_FAMILY_NAME: &str = "mara-title";
 pub static TITLE_FONT_READY: core::sync::atomic::AtomicBool =
     core::sync::atomic::AtomicBool::new(false);
 
-/// Resolve the [`egui::FontFamily`] the title sites should use this
+/// Resolve the Mara [`TextFamily`] the title sites should use this
 /// frame. Returns the named family once the title font is bound;
 /// falls back to `Proportional` until then so frame 0 doesn't panic.
-pub fn title_font_family() -> egui::FontFamily {
+pub fn title_font_family() -> TextFamily {
     if TITLE_FONT_READY.load(Ordering::Acquire) {
-        egui::FontFamily::Name(TITLE_FAMILY_NAME.into())
+        TextFamily::Named(TITLE_FAMILY_NAME.to_owned())
     } else {
-        egui::FontFamily::Proportional
+        TextFamily::Proportional
     }
 }
 
@@ -478,10 +492,10 @@ pub fn title_font_family() -> egui::FontFamily {
 /// * Every iconflow Fluent UI variant under its own named family
 ///   (`crate::icons::install_iconflow_fonts`).
 ///
-/// Called from `apply_theme` whenever either weight changes; the
-/// dedup atomic in `apply_theme` keeps the cost to a single
-/// `ctx.set_fonts` per change.
-pub fn install_fonts(ctx: &egui::Context, body: FontWeight, title: FontWeight) {
+/// Called from the internal theme hook whenever either weight changes;
+/// the dedup atomics keep the cost to a single `ctx.set_fonts` per change.
+#[doc(hidden)]
+pub fn __internal_install_fonts(ctx: &egui::Context, body: FontWeight, title: FontWeight) {
     let mut fonts = egui::FontDefinitions::default();
     fonts.font_data.insert(
         body.name().into(),
@@ -519,19 +533,21 @@ pub fn install_fonts(ctx: &egui::Context, body: FontWeight, title: FontWeight) {
     // happens in the rest of THIS pass would still find the
     // FontFamily::Name unbound and panic ("FontFamily::Name(...) is
     // not bound to any fonts"). The flags are flipped one frame
-    // later by `apply_theme` on its `else` branch (no install
+    // later by `__internal_apply_theme` on its `else` branch (no install
     // needed → fonts have been alive on the ctx for at least one
     // pass), and by then egui has actually accepted the binding.
     ctx.request_repaint();
 }
 
-/// Apply the mara theme to the given egui context. Pure egui —
-/// no framework deps. Hosts call this once per frame (`bevy_mara`
-/// does it from a system; `mara::window` does it through
-/// `MaraHostCtx`). The function de-dupes internally via a
-/// static cache so re-calling with the same `(accent, opacity)`
-/// skips the `ctx.set_style` / `ctx.set_fonts` work.
-pub fn apply_theme(ctx: &egui::Context, accent: AccentColor, opacity: GlassOpacity) {
+/// Apply the mara theme to the given egui context.
+///
+/// Internal first-party backend hook. Hosts expose this through Mara
+/// facade APIs instead of handing app code raw backend contexts. The
+/// function de-dupes internally via a static cache so re-calling with
+/// the same `(accent, opacity)` skips the `ctx.set_style` /
+/// `ctx.set_fonts` work.
+#[doc(hidden)]
+pub fn __internal_apply_theme(ctx: &egui::Context, accent: AccentColor, opacity: GlassOpacity) {
     use core::sync::atomic::{AtomicU32, AtomicUsize};
 
     // Packed (r, g, b, a) cache. `u32::MAX` is used as the
@@ -546,12 +562,12 @@ pub fn apply_theme(ctx: &egui::Context, accent: AccentColor, opacity: GlassOpaci
     static LAST_PASTEL: AtomicU8 = AtomicU8::new(u8::MAX);
     // Body + title weights currently bound on the egui context.
     // `u8::MAX` is the "never-installed" sentinel; the first
-    // `apply_theme` call always installs fonts, and any later
+    // internal theme-application call always installs fonts, and any later
     // `set_font_weight` / `set_title_weight` change is detected by
     // comparing these against the live atomics.
     static LAST_BODY_WEIGHT: AtomicU8 = AtomicU8::new(u8::MAX);
     static LAST_TITLE_WEIGHT: AtomicU8 = AtomicU8::new(u8::MAX);
-    // Touch density gates the spacing bump in `apply_theme_to`. Track
+    // Touch density gates the spacing bump in `__internal_apply_theme_to`. Track
     // it in the dedup set so crossing the handheld/desktop threshold
     // re-pushes the egui style even when accent/theme are unchanged.
     // `u8::MAX` is the never-applied sentinel.
@@ -574,9 +590,9 @@ pub fn apply_theme(ctx: &egui::Context, accent: AccentColor, opacity: GlassOpaci
     //   • `accent_raw` — the user's pick verbatim. Stored under
     //     `set_raw_accent`; `section_title_color` reads it for the
     //     `TextColorMode::Accent` branch so titles never pastelize.
-    let accent_raw = accent.0;
-    let accent_col = if th.pastel_accent {
-        adapt_accent_to_mode(accent_raw, th.is_light)
+    let accent_raw: egui::Color32 = accent.0.into();
+    let accent_col: egui::Color32 = if th.pastel_accent {
+        adapt_accent_to_mode(accent_raw, th.is_light).into()
     } else {
         accent_raw
     };
@@ -588,7 +604,7 @@ pub fn apply_theme(ctx: &egui::Context, accent: AccentColor, opacity: GlassOpaci
     if LAST_BODY_WEIGHT.load(Ordering::Relaxed) != body_u8
         || LAST_TITLE_WEIGHT.load(Ordering::Relaxed) != title_u8
     {
-        install_fonts(ctx, body_w, title_w);
+        __internal_install_fonts(ctx, body_w, title_w);
         LAST_BODY_WEIGHT.store(body_u8, Ordering::Relaxed);
         LAST_TITLE_WEIGHT.store(title_u8, Ordering::Relaxed);
     } else {
@@ -636,12 +652,12 @@ pub fn apply_theme(ctx: &egui::Context, accent: AccentColor, opacity: GlassOpaci
     set_raw_accent(accent_raw);
     set_glass_opacity(opacity.0);
     set_active_accent(accent_col);
-    apply_theme_to(ctx, accent, opacity);
+    __internal_apply_theme_to(ctx, accent, opacity);
 }
 
 /// Apply the mara theme's *visuals* to `ctx` unconditionally,
-/// bypassing `apply_theme`'s global de-dup cache. Useful for
-/// *secondary* `egui::Context`s — `apply_theme`'s cache is keyed
+/// bypassing [`__internal_apply_theme`]'s global de-dup cache. Useful for
+/// *secondary* `egui::Context`s — the primary theme cache is keyed
 /// on the theme state, not on the context, so once the parent
 /// ctx has been styled the cache early-returns and any sibling
 /// sub-context (e.g. the one `node_view::show` runs graph in)
@@ -650,25 +666,26 @@ pub fn apply_theme(ctx: &egui::Context, accent: AccentColor, opacity: GlassOpaci
 ///
 /// **Does NOT publish globals** (`set_raw_accent` /
 /// `set_glass_opacity` / `set_active_accent`). The caller is
-/// expected to have already written those — `apply_theme` does
+/// expected to have already written those — `__internal_apply_theme` does
 /// it for the primary ctx, and a sub-ctx caller should be
 /// passing values *already published* (typically via
 /// `active_accent()` / `glass_opacity()`), so re-writing here
 /// would just double-apply pastel adaptation and corrupt the
 /// downstream paint sites that read the same globals.
-pub fn apply_theme_to(
+#[doc(hidden)]
+pub fn __internal_apply_theme_to(
     ctx: &egui::Context,
     accent: AccentColor,
-    // Argument retained for API symmetry with [`apply_theme`]; the
+    // Argument retained for API symmetry with `__internal_apply_theme`; the
     // alpha levels in the visuals below read directly from the
     // `glass_opacity()` global, so the caller's value is informational
     // only. Renamed `_opacity` to silence the unused-arg lint.
     _opacity: GlassOpacity,
 ) {
     let th = theme();
-    let accent_raw = accent.0;
-    let accent_col = if th.pastel_accent {
-        adapt_accent_to_mode(accent_raw, th.is_light)
+    let accent_raw: egui::Color32 = accent.0.into();
+    let accent_col: egui::Color32 = if th.pastel_accent {
+        adapt_accent_to_mode(accent_raw, th.is_light).into()
     } else {
         accent_raw
     };
@@ -684,7 +701,7 @@ pub fn apply_theme_to(
     let glass_card = glass_fill(section_fill(accent_col), accent_col, glass_alpha_card());
     let glass_hover = glass_fill(th.bg_hover, accent_col, glass_alpha_card());
 
-    let unified_border = widget_border(accent_col);
+    let unified_border: egui::Color32 = widget_border(accent_col).into();
     let stroke_w = th.stroke.border_width;
 
     // Pick the egui visual base matching the active theme's
@@ -696,16 +713,16 @@ pub fn apply_theme_to(
     } else {
         egui::Visuals::dark()
     };
-    visuals.panel_fill = glass_panel;
-    visuals.window_fill = glass_panel;
+    visuals.panel_fill = glass_panel.into();
+    visuals.window_fill = glass_panel.into();
     visuals.window_stroke = egui::Stroke::new(stroke_w, unified_border);
     // `extreme_bg_color` is the egui visual every native input
     // (DragValue, TextEdit, ScrollArea track, …) pulls from. Route
     // it through `track_fill` so PRO keeps the dark sunken look and
     // GAME blends into the accent panel.
-    visuals.extreme_bg_color = track_fill(accent_col);
-    visuals.faint_bg_color = glass_card;
-    visuals.code_bg_color = glass_card;
+    visuals.extreme_bg_color = track_fill(accent_col).into();
+    visuals.faint_bg_color = glass_card.into();
+    visuals.code_bg_color = glass_card.into();
     visuals.override_text_color = Some(th.palette.text_primary);
     // Force the gamma-correct (linear) coverage→alpha curve for text in
     // both modes. egui's dark-mode default is `TwoCoverageMinusCoverageSq`,
@@ -741,16 +758,20 @@ pub fn apply_theme_to(
     // `bg_input`); GAME now lifts inputs to `panel + 10 % white`.
     let input_bg = track_fill(accent_col);
     let glass_input = glass_fill(input_bg, accent_col, glass_alpha_card());
-    visuals.widgets.noninteractive = widget(glass_panel, th.palette.text_secondary, unified_border);
-    visuals.widgets.inactive = widget(glass_input, th.palette.text_primary, unified_border);
+    visuals.widgets.noninteractive = widget(
+        glass_panel.into(),
+        th.palette.text_secondary,
+        unified_border,
+    );
+    visuals.widgets.inactive = widget(glass_input.into(), th.palette.text_primary, unified_border);
     visuals.widgets.hovered = widget(
-        glass_hover,
+        glass_hover.into(),
         th.palette.text_primary,
         th.palette.border_inner,
     );
     visuals.widgets.active = widget(accent_col, th.palette.text_primary, accent_col);
     visuals.widgets.open = widget(
-        glass_hover,
+        glass_hover.into(),
         th.palette.text_primary,
         th.palette.border_inner,
     );
@@ -778,7 +799,7 @@ pub fn apply_theme_to(
     // breathing room so controls clear the ~44 px finger-target
     // guideline without the desktop layout having to know about it.
     // Reads the per-frame `touch_density()` global published by
-    // `set_screen_metrics`; `apply_theme` folds it into its dedup key
+    // `set_screen_metrics`; the internal theme hook folds it into its dedup key
     // so the bump is re-pushed when the threshold is crossed.
     if touch_density() {
         style.spacing.item_spacing = egui::vec2(8.0, 8.0);
@@ -829,8 +850,10 @@ pub fn apply_theme_to(
     let accent_dim =
         egui::Color32::from_rgba_unmultiplied(accent_col.r(), accent_col.g(), accent_col.b(), 160);
     style.visuals.widgets.inactive.fg_stroke = egui::Stroke::new(1.0, accent_dim);
-    style.visuals.widgets.hovered.fg_stroke = egui::Stroke::new(1.0, accent_hover());
-    style.visuals.widgets.active.fg_stroke = egui::Stroke::new(1.0, accent_pressed());
+    let accent_hover: egui::Color32 = accent_hover().into();
+    let accent_pressed: egui::Color32 = accent_pressed().into();
+    style.visuals.widgets.hovered.fg_stroke = egui::Stroke::new(1.0, accent_hover);
+    style.visuals.widgets.active.fg_stroke = egui::Stroke::new(1.0, accent_pressed);
     style.text_styles = [
         (
             egui::TextStyle::Heading,
@@ -887,12 +910,12 @@ fn tinted_surface(c: egui::Color32) -> egui::Color32 {
     )
 }
 
-/// Convert a linear-sRGB `[f32;3]` to an egui [`egui::Color32`].
+/// Convert a linear-sRGB `[f32;3]` to a Mara [`MaraColor32`].
 /// Matches the visual tone a wgpu 3D view renders — handy when you
-/// want the egui UI accent to match a material colour from the scene.
-pub fn srgb_to_egui(rgb: [f32; 3]) -> egui::Color32 {
+/// want the Mara UI accent to match a material colour from the scene.
+pub fn srgb_to_color(rgb: [f32; 3]) -> MaraColor32 {
     let to_u8 = |v: f32| (v.clamp(0.0, 1.0) * 255.0).round() as u8;
-    egui::Color32::from_rgb(to_u8(rgb[0]), to_u8(rgb[1]), to_u8(rgb[2]))
+    MaraColor32::from_rgb(to_u8(rgb[0]), to_u8(rgb[1]), to_u8(rgb[2]))
 }
 
 /// Uppercase accent section header. Used both by left panels
@@ -905,9 +928,9 @@ pub fn srgb_to_egui(rgb: [f32; 3]) -> egui::Color32 {
 ///
 /// Size: 12 pt body baseline + 15 % bump so section titles read
 /// clearly larger than body copy inside the same card.
-pub fn section_caps(label: &str, accent: egui::Color32) -> egui::RichText {
+pub fn section_caps(label: &str, accent: impl Into<MaraColor32>) -> TextSpec {
     let th = theme();
-    let mut t = egui::RichText::new(label.to_uppercase())
+    let mut t = TextSpec::new(label.to_uppercase())
         .strong()
         .size(th.container.title_size)
         .color(accent);
@@ -924,13 +947,15 @@ pub fn section_caps(label: &str, accent: egui::Color32) -> egui::RichText {
 /// accent so they remain the brightest surface in each card; body
 /// widgets get a darkened variant (lerp toward black by
 /// [`Theme.body_accent_darken`]) so they don't match the banner.
-pub fn body_accent(accent: egui::Color32) -> egui::Color32 {
+pub fn body_accent(accent: impl Into<MaraColor32>) -> MaraColor32 {
+    let accent: egui::Color32 = accent.into().into();
     let t = theme().text.body_accent_darken;
-    if t <= 0.0 {
+    let out = if t <= 0.0 {
         accent
     } else {
         lerp_rgb(accent, egui::Color32::BLACK, t.clamp(0.0, 1.0))
-    }
+    };
+    out.into()
 }
 
 /// Hi-contrast accent for *visual anchors* — corner ticks, focus
@@ -944,7 +969,8 @@ pub fn body_accent(accent: egui::Color32) -> egui::Color32 {
 /// Implementation goes through HSL via `pastel`: only lightness +
 /// saturation are touched, so the user's hue is preserved exactly
 /// (yellow stays yellow, red stays red, etc.).
-pub fn high_contrast_accent(accent: egui::Color32) -> egui::Color32 {
+pub fn high_contrast_accent(accent: impl Into<MaraColor32>) -> MaraColor32 {
+    let accent: egui::Color32 = accent.into().into();
     type HighContrastAccentCache =
         std::sync::OnceLock<std::sync::RwLock<Option<((u32, bool), u32)>>>;
 
@@ -971,7 +997,7 @@ pub fn high_contrast_accent(accent: egui::Color32) -> egui::Color32 {
     if let Some((k, v)) = *read_unpoisoned(lock)
         && k == key
     {
-        return unpack(v);
+        return unpack(v).into();
     }
 
     use pastel::Color as PastelColor;
@@ -984,10 +1010,10 @@ pub fn high_contrast_accent(accent: egui::Color32) -> egui::Color32 {
     let rgba = adjusted.to_rgba();
     let out = egui::Color32::from_rgb(rgba.r, rgba.g, rgba.b);
     *write_unpoisoned(lock) = Some((key, pack(out)));
-    out
+    out.into()
 }
 
-pub fn fg_dim() -> egui::Color32 {
+pub fn fg_dim() -> MaraColor32 {
     TEXT_SECONDARY
 }
 
@@ -997,7 +1023,8 @@ pub fn fg_dim() -> egui::Color32 {
 /// counter as a salt on per-id animation ids so each fresh
 /// appearance gets a clean animation cycle instead of replaying
 /// the previous session's locked-in state.
-pub fn appearance_session(ctx: &egui::Context, id: egui::Id) -> u64 {
+pub(crate) fn appearance_session(ctx: &egui::Context, id: impl Into<MaraId>) -> u64 {
+    let id: egui::Id = id.into().into();
     let key_seen = id.with("mara_last_seen_pass");
     let key_sess = id.with("mara_session_count");
     let now = ctx.cumulative_pass_nr();
@@ -1036,7 +1063,13 @@ const SCRAMBLE_CHARS: &[char] = &[
 ///
 /// Calls `request_repaint` while any character is still scrambling
 /// (or while gated, so the random glyphs keep cycling).
-pub fn scramble_text(ctx: &egui::Context, id: egui::Id, current: &str, active: bool) -> String {
+pub(crate) fn scramble_text(
+    ctx: &egui::Context,
+    id: impl Into<MaraId>,
+    current: &str,
+    active: bool,
+) -> String {
+    let id: egui::Id = id.into().into();
     /// Staggered delay between adjacent characters' lock times.
     /// `0.07` was the earlier default, but with `Pane`'s
     /// per-section staggered fade-in landing the last container at
@@ -1127,7 +1160,12 @@ pub fn scramble_text(ctx: &egui::Context, id: egui::Id, current: &str, active: b
 /// Returns `true` when the stored prev text differs from `current`
 /// (the scramble is about to start) or when elapsed is below the
 /// last-character lock time.
-pub fn scramble_active(ctx: &egui::Context, scramble_id: egui::Id, current: &str) -> bool {
+pub(crate) fn scramble_active(
+    ctx: &egui::Context,
+    scramble_id: impl Into<MaraId>,
+    current: &str,
+) -> bool {
+    let scramble_id: egui::Id = scramble_id.into().into();
     // Keep these in sync with `scramble_text`.
     const STAGGER: f64 = 0.10;
     const MIN_DUR: f64 = 0.65;
@@ -1153,7 +1191,8 @@ pub fn scramble_active(ctx: &egui::Context, scramble_id: egui::Id, current: &str
 /// Intended to follow `scramble_text` so the title plays its decode
 /// cycle on appear, then the occasional glitch flickers a single
 /// letter every few seconds against the locked text.
-pub fn glitch_text(ctx: &egui::Context, id: egui::Id, base: &str) -> String {
+pub(crate) fn glitch_text(ctx: &egui::Context, id: impl Into<MaraId>, base: &str) -> String {
+    let id: egui::Id = id.into().into();
     const GLITCH_DUR: f64 = 0.18;
 
     // Collect non-whitespace character indices — those are the only
@@ -1228,7 +1267,8 @@ pub fn glitch_text(ctx: &egui::Context, id: egui::Id, base: &str) -> String {
 ///
 /// Same hash-driven timing pattern as [`glitch_text`] so different titles
 /// fire on staggered, deterministic schedules.
-pub fn chromatic_aberration_offset(ctx: &egui::Context, id: egui::Id) -> f32 {
+pub(crate) fn chromatic_aberration_offset(ctx: &egui::Context, id: impl Into<MaraId>) -> f32 {
+    let id: egui::Id = id.into().into();
     /// Total split duration, peak in the middle.
     const DUR: f64 = 0.28;
     /// Maximum pixel offset of each ghost from the centre, ALONG the
@@ -1894,12 +1934,12 @@ pub struct Theme {
     /// this to special-case rendering; add a typed theme field for the
     /// visual decision instead.
     pub id: ThemeId,
-    /// Identifier used by the de-dup cache in [`apply_theme`] — pick
+    /// Identifier used by the internal theme de-dup cache — pick
     /// distinct names for distinct themes or the egui style won't
     /// re-apply on switch.
     pub name: &'static str,
     /// `true` for light-mode variants of the built-in themes —
-    /// drives `apply_theme` to start from `egui::Visuals::light()`
+    /// drives internal theme application to start from `egui::Visuals::light()`
     /// rather than `Visuals::dark()`, and lets widgets that need
     /// to know "am I in a light or dark context" branch cheaply
     /// without reading luma.
@@ -2417,19 +2457,12 @@ impl Theme {
 // ── Built-in themes ──
 //
 // `Theme` (the struct), the global `set_theme` / `theme()` state, and
-// `apply_theme` (the de-dup cache + egui style transfer) live in this
+// internal theme application (the de-dup cache + egui style transfer) lives in this
 // file — they're the *engine*. Theme PRESETS (PRO, GAME, …) live in
 // `crate::themes`, one file per theme. To add a new theme, drop a file
 // under `crates/core/src/themes/` and register it in
 // `themes/mod.rs`; see that module's docs for the full template.
-pub use crate::themes::{
-    FLAT_DARK_BG_HOVER, FLAT_DARK_BG_INPUT, FLAT_DARK_BG_PANEL, FLAT_DARK_BG_RAISED,
-    FLAT_DARK_BG_WINDOW, FLAT_LIGHT_BG_HOVER, FLAT_LIGHT_BG_INPUT, FLAT_LIGHT_BG_PANEL,
-    FLAT_LIGHT_BG_RAISED, FLAT_LIGHT_BG_WINDOW, GAME_LIGHT_BG_HOVER, GAME_LIGHT_BG_INPUT,
-    GAME_LIGHT_BG_PANEL, GAME_LIGHT_BG_RAISED, GAME_LIGHT_BG_WINDOW, PRO_LIGHT_BG_HOVER,
-    PRO_LIGHT_BG_INPUT, PRO_LIGHT_BG_PANEL, PRO_LIGHT_BG_RAISED, PRO_LIGHT_BG_WINDOW,
-    PRO_LIGHT_BORDER_INNER, PRO_LIGHT_BORDER_SUBTLE, theme_flat, theme_game, theme_pro,
-};
+pub use crate::themes::{theme_flat, theme_game, theme_pro};
 
 /// Responsive screen-size class, computed once per frame from the
 /// host's logical content width (egui points, DPI-independent).
@@ -2560,9 +2593,9 @@ pub fn set_touch_density_override(force: Option<bool>) {
 /// Compute and publish the per-frame [`ScreenMetrics`] from an egui
 /// context. Hosts (or the shell entry) call this once per frame before
 /// laying out, so [`screen_class`] / [`screen_metrics`] are current.
-/// [`apply_theme`] also calls it, so theme-driven hosts get it for
-/// free.
-pub fn set_screen_metrics(ctx: &egui::Context) {
+/// Internal theme application also calls it, so theme-driven hosts get
+/// it for free.
+pub(crate) fn set_screen_metrics(ctx: &egui::Context) {
     let rect = ctx.content_rect();
     let ppp = ctx.pixels_per_point().max(0.1);
     let metrics = ScreenMetrics {
@@ -2628,13 +2661,13 @@ pub fn screen_metrics() -> ScreenMetrics {
 }
 
 /// Packed `(r, g, b, a)` snapshot of the active accent colour.
-/// `apply_theme` writes this so widget paints can call
+/// The internal theme hook writes this so widget paints can call
 /// [`active_accent`] without threading the colour through every API.
 static ACTIVE_ACCENT: core::sync::atomic::AtomicU32 =
     core::sync::atomic::AtomicU32::new(0xE6E6E8FF);
 
 /// The user's raw, untransformed accent — what was passed to
-/// `apply_theme` before any pastel pull. Read by text helpers
+/// internal theme application before any pastel pull. Read by text helpers
 /// (e.g. `section_title_color`) so titles always paint the colour
 /// the user actually picked, regardless of `Theme::pastel_accent`.
 static RAW_ACCENT: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0xE6E6E8FF);
@@ -2651,12 +2684,12 @@ fn set_raw_accent(c: egui::Color32) {
     RAW_ACCENT.store(p, Ordering::Relaxed);
 }
 
-/// Read the current accent colour. Hosts call [`apply_theme`] each
-/// frame, which keeps this in sync. Widget code that already has
+/// Read the current accent colour. Hosts apply the Mara theme each
+/// frame through facade/internal hooks, which keeps this in sync. Widget code that already has
 /// `accent` in scope should keep using it; this exists for helpers
 /// (text-contrast pickers, theme-aware fills) called from sites
 /// that don't thread accent through their signatures.
-pub fn active_accent() -> egui::Color32 {
+pub fn active_accent() -> MaraColor32 {
     let p = ACTIVE_ACCENT.load(Ordering::Relaxed);
     egui::Color32::from_rgba_premultiplied(
         ((p >> 24) & 0xff) as u8,
@@ -2664,12 +2697,13 @@ pub fn active_accent() -> egui::Color32 {
         ((p >> 8) & 0xff) as u8,
         (p & 0xff) as u8,
     )
+    .into()
 }
 
 /// Read the user's raw, untransformed accent. Use this in text-paint
 /// paths (titles, glyphs that should match the user's pick) instead
 /// of [`active_accent`] when you don't want the pastel pull.
-pub fn raw_accent() -> egui::Color32 {
+pub fn raw_accent() -> MaraColor32 {
     let p = RAW_ACCENT.load(Ordering::Relaxed);
     egui::Color32::from_rgba_premultiplied(
         ((p >> 24) & 0xff) as u8,
@@ -2677,6 +2711,7 @@ pub fn raw_accent() -> egui::Color32 {
         ((p >> 8) & 0xff) as u8,
         (p & 0xff) as u8,
     )
+    .into()
 }
 
 /// Lazily-initialised storage for the active theme. Single-process
@@ -2697,8 +2732,8 @@ fn write_unpoisoned<T>(lock: &std::sync::RwLock<T>) -> std::sync::RwLockWriteGua
 }
 
 /// Replace the active theme. Takes effect on the next paint —
-/// The de-dup cache in [`apply_theme`] uses `theme.name` to
-/// detect the switch and re-push the egui style. Call this when the
+/// The internal theme de-dup cache uses `theme.name` to detect the
+/// switch and re-push the egui style. Call this when the
 /// user picks a profile from a settings UI.
 pub fn set_theme(t: Theme) {
     *write_unpoisoned(theme_lock()) = t;
@@ -2712,18 +2747,24 @@ pub fn theme() -> Theme {
     *read_unpoisoned(theme_lock())
 }
 
-/// Paint a "do-not-cross" diagonal stripe pattern over `rect` —
+/// Build a "do-not-cross" diagonal stripe pattern over `rect` —
 /// alternating slabs of `accent` and the active theme's neutral
 /// `bg_panel` colour. Used by the GAME pane title strip
 /// ([`Theme::pane_title_stripes`]); enabled themes opt in by
 /// setting that flag.
 ///
-/// The painter's clip-rect is set to `rect` so the slanted
+/// The command clips to `rect` so the slanted
 /// parallelograms can extend past the rect edges without overflowing
-/// the strip — the GPU clips them to the strip's exact bounds.
-pub fn paint_caution_stripes(painter: &egui::Painter, rect: egui::Rect, accent: egui::Color32) {
+/// the strip — the backend clips them to the strip's exact bounds.
+pub fn caution_stripes_paint_cmd(
+    rect: impl Into<MaraRect>,
+    accent: impl Into<MaraColor32>,
+    time_s: f32,
+) -> Option<PaintCmd> {
+    let rect = rect.into();
+    let accent = accent.into();
     if rect.width() <= 0.0 || rect.height() <= 0.0 {
-        return;
+        return None;
     }
     // Stripes paint as accent @ α 51 (≈ 80 % transparent). No base
     // fill is laid down — the underlying pane / panel surface shows
@@ -2732,7 +2773,7 @@ pub fn paint_caution_stripes(painter: &egui::Painter, rect: egui::Rect, accent: 
     // "accent-tinted band / pane band", same colour family on both
     // sides, no harsh second colour.
     let solid = accent;
-    let translucent = egui::Color32::from_rgba_unmultiplied(accent.r(), accent.g(), accent.b(), 51);
+    let translucent = MaraColor32::from_rgba_unmultiplied(accent.r(), accent.g(), accent.b(), 51);
 
     // Width of a single diagonal slab. Pattern period = STRIPE_W*2
     // (one solid + one translucent).
@@ -2742,18 +2783,11 @@ pub fn paint_caution_stripes(painter: &egui::Painter, rect: egui::Rect, accent: 
     // a frantic scroll.
     const SCROLL_SPEED: f32 = 18.0;
 
-    let ctx = painter.ctx();
-    let t = ctx.input(|i| i.time) as f32;
     let period = STRIPE_W * 2.0;
     // Modulo with manual rem_euclid so a hot reload that drops time
     // backwards doesn't produce a negative offset.
-    let raw = (t * SCROLL_SPEED) % period;
+    let raw = (time_s * SCROLL_SPEED) % period;
     let x_offset = if raw < 0.0 { raw + period } else { raw };
-    // Stripes are visible — keep animating. Without this egui only
-    // repaints on input events and the strip would appear frozen.
-    ctx.request_repaint();
-
-    let clipped = painter.clone().with_clip_rect(rect);
 
     let h = rect.height();
     // Walk `x` from `-h - period` (one extra period to the left so
@@ -2761,22 +2795,24 @@ pub fn paint_caution_stripes(painter: &egui::Painter, rect: egui::Rect, accent: 
     // the rect's width.
     let mut x = -h - period - x_offset;
     let mut idx = 0;
+    let mut children = Vec::new();
     while x < rect.width() {
         let x0 = rect.min.x + x;
         let x1 = x0 + STRIPE_W;
-        let p0 = egui::pos2(x0, rect.min.y);
-        let p1 = egui::pos2(x1, rect.min.y);
-        let p2 = egui::pos2(x1 + h, rect.max.y);
-        let p3 = egui::pos2(x0 + h, rect.max.y);
+        let p0 = MaraPos2::new(x0, rect.min.y);
+        let p1 = MaraPos2::new(x1, rect.min.y);
+        let p2 = MaraPos2::new(x1 + h, rect.max.y);
+        let p3 = MaraPos2::new(x0 + h, rect.max.y);
         let fill = if idx % 2 == 0 { solid } else { translucent };
-        clipped.add(egui::Shape::convex_polygon(
-            vec![p0, p1, p2, p3],
+        children.push(PaintCmd::Polygon {
+            points: vec![p0, p1, p2, p3],
             fill,
-            egui::Stroke::NONE,
-        ));
+            stroke: MaraStroke::NONE,
+        });
         x += STRIPE_W;
         idx += 1;
     }
+    Some(PaintCmd::Clip { rect, children })
 }
 
 /// Resolve the active theme's [`ColorMode`] for a fill against the
@@ -2803,18 +2839,20 @@ fn resolve_color(mode: ColorMode, fallback: egui::Color32, accent: egui::Color32
 /// `egui::Frame::fill` ultimately gets, modulo the glass alpha.
 /// PRO returns `theme().bg_panel`; GAME returns an accent-derived
 /// dark colour so the entire pane reads as "the user's accent".
-pub fn pane_fill(accent: egui::Color32) -> egui::Color32 {
+pub fn pane_fill(accent: impl Into<MaraColor32>) -> MaraColor32 {
+    let accent: egui::Color32 = accent.into().into();
     let th = theme();
-    resolve_color(th.panel_fill_mode, th.bg_panel, accent)
+    resolve_color(th.panel_fill_mode, th.bg_panel, accent).into()
 }
 
 /// The opaque base fill colour for a section card. Only consulted
 /// when `theme().section_show_frame` is `true`. PRO returns
 /// `theme().bg_raised`; GAME falls through to its `bg_raised` when
 /// frame paint is enabled at all.
-pub fn section_fill(accent: egui::Color32) -> egui::Color32 {
+pub fn section_fill(accent: impl Into<MaraColor32>) -> MaraColor32 {
+    let accent: egui::Color32 = accent.into().into();
     let th = theme();
-    resolve_color(th.container.fill_mode, th.bg_raised, accent)
+    resolve_color(th.container.fill_mode, th.bg_raised, accent).into()
 }
 
 /// Resolve the active theme's title colour against the runtime
@@ -2822,40 +2860,42 @@ pub fn section_fill(accent: egui::Color32) -> egui::Color32 {
 /// user's chosen accent); GAME maps via [`contrast_text_for`] over
 /// the resolved panel fill, so a bright accent panel shows
 /// near-black titles and a dark panel shows near-white.
-pub fn section_title_color(accent: egui::Color32) -> egui::Color32 {
+pub fn section_title_color(accent: impl Into<MaraColor32>) -> MaraColor32 {
+    let accent: egui::Color32 = accent.into().into();
     let th = theme();
     // Title text never pastelizes — it always paints the user's
     // raw pick. The pastel toggle is for chrome (fills, borders,
     // ribbon paint), not for what the user reads.
-    let title_accent = raw_accent();
+    let title_accent: egui::Color32 = raw_accent().into();
     let (resolved, surface) = match th.text.title_color_mode {
         // No luma guard, no contrast check: title literally tints
         // with the user's raw accent. Trust the user; if they pick
         // a low-contrast accent they accept the visual.
-        TextColorMode::Accent => (title_accent, pane_fill(accent)),
-        TextColorMode::Primary => (th.palette.text_primary, pane_fill(accent)),
-        TextColorMode::Secondary => (th.palette.text_secondary, pane_fill(accent)),
+        TextColorMode::Accent => (title_accent, pane_fill(accent).into()),
+        TextColorMode::Primary => (th.palette.text_primary, pane_fill(accent).into()),
+        TextColorMode::Secondary => (th.palette.text_secondary, pane_fill(accent).into()),
         TextColorMode::ContrastWithPanel => {
-            let surface = pane_fill(accent);
-            (contrast_text_for(surface), surface)
+            let surface: egui::Color32 = pane_fill(accent).into();
+            (contrast_text_for(surface).into(), surface)
         }
         TextColorMode::ContrastWithSection => {
-            let surface = section_fill(accent);
-            (contrast_text_for(surface), surface)
+            let surface: egui::Color32 = section_fill(accent).into();
+            (contrast_text_for(surface).into(), surface)
         }
     };
-    if th.text.title_softness > 0.0 {
+    let out = if th.text.title_softness > 0.0 {
         lerp_rgb(resolved, surface, th.text.title_softness.clamp(0.0, 1.0))
     } else {
         resolved
-    }
+    };
+    out.into()
 }
 
-/// `egui::Margin` used by section / subsection / group inner frames,
-/// driven by the theme's `section_pad_x/y`. GAME → `Margin::ZERO`.
-pub fn section_padding() -> egui::Margin {
+/// Margin used by section / subsection / group inner frames,
+/// driven by the theme's `section_pad_x/y`. GAME → zero margin.
+pub fn section_padding() -> MarginSpec {
     let th = theme();
-    egui::Margin::symmetric(th.container.pad_x, th.container.pad_y)
+    MarginSpec::symmetric(th.container.pad_x, th.container.pad_y)
 }
 
 /// Whether the section header should paint a 1 px hairline divider
@@ -2913,7 +2953,173 @@ pub enum FrameRole {
     KeyChip,
 }
 
-pub fn fill_for(role: FillRole, accent: egui::Color32) -> egui::Color32 {
+#[derive(Clone, Debug, PartialEq)]
+pub struct TextSpec {
+    pub text: String,
+    pub size: Option<f32>,
+    pub color: Option<MaraColor32>,
+    pub strong: bool,
+    pub small: bool,
+    pub italics: bool,
+    pub extra_letter_spacing: f32,
+}
+
+impl TextSpec {
+    #[must_use]
+    pub fn new(text: impl Into<String>) -> Self {
+        Self {
+            text: text.into(),
+            size: None,
+            color: None,
+            strong: false,
+            small: false,
+            italics: false,
+            extra_letter_spacing: 0.0,
+        }
+    }
+
+    #[must_use]
+    pub fn size(mut self, size: f32) -> Self {
+        self.size = Some(size);
+        self
+    }
+
+    #[must_use]
+    pub fn color(mut self, color: impl Into<MaraColor32>) -> Self {
+        self.color = Some(color.into());
+        self
+    }
+
+    #[must_use]
+    pub fn strong(mut self) -> Self {
+        self.strong = true;
+        self
+    }
+
+    #[must_use]
+    pub fn small(mut self) -> Self {
+        self.small = true;
+        self
+    }
+
+    #[must_use]
+    pub fn italics(mut self) -> Self {
+        self.italics = true;
+        self
+    }
+
+    #[must_use]
+    pub fn extra_letter_spacing(mut self, spacing: f32) -> Self {
+        self.extra_letter_spacing = spacing;
+        self
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MarginSpec {
+    pub left: i8,
+    pub right: i8,
+    pub top: i8,
+    pub bottom: i8,
+}
+
+impl MarginSpec {
+    pub const ZERO: Self = Self {
+        left: 0,
+        right: 0,
+        top: 0,
+        bottom: 0,
+    };
+
+    #[must_use]
+    pub const fn symmetric(x: i8, y: i8) -> Self {
+        Self {
+            left: x,
+            right: x,
+            top: y,
+            bottom: y,
+        }
+    }
+}
+
+impl From<MarginSpec> for egui::Margin {
+    fn from(margin: MarginSpec) -> Self {
+        egui::Margin {
+            left: margin.left,
+            right: margin.right,
+            top: margin.top,
+            bottom: margin.bottom,
+        }
+    }
+}
+
+impl From<[i8; 2]> for MarginSpec {
+    fn from(margin: [i8; 2]) -> Self {
+        Self::symmetric(margin[0], margin[1])
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct FrameShadowSpec {
+    pub offset: [i8; 2],
+    pub blur: u8,
+    pub spread: u8,
+    pub color: MaraColor32,
+}
+
+impl FrameShadowSpec {
+    #[must_use]
+    pub const fn new(offset: [i8; 2], blur: u8, spread: u8, color: MaraColor32) -> Self {
+        Self {
+            offset,
+            blur,
+            spread,
+            color,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct FrameSpec {
+    pub fill: MaraColor32,
+    pub stroke: MaraStroke,
+    pub corner: MaraCornerRadius,
+    pub inner_margin: MarginSpec,
+    pub shadow: Option<FrameShadowSpec>,
+}
+
+impl FrameSpec {
+    #[must_use]
+    pub const fn new(
+        fill: MaraColor32,
+        stroke: MaraStroke,
+        corner: MaraCornerRadius,
+        inner_margin: MarginSpec,
+    ) -> Self {
+        Self {
+            fill,
+            stroke,
+            corner,
+            inner_margin,
+            shadow: None,
+        }
+    }
+
+    #[must_use]
+    pub fn with_inner_margin(mut self, inner_margin: impl Into<MarginSpec>) -> Self {
+        self.inner_margin = inner_margin.into();
+        self
+    }
+
+    #[must_use]
+    pub const fn with_shadow(mut self, shadow: FrameShadowSpec) -> Self {
+        self.shadow = Some(shadow);
+        self
+    }
+}
+
+pub fn fill_for(role: FillRole, accent: impl Into<MaraColor32>) -> MaraColor32 {
+    let accent: egui::Color32 = accent.into().into();
     match role {
         FillRole::Pane => glass_fill(pane_fill(accent), accent, glass_alpha_window()),
         FillRole::Section => glass_fill(section_fill(accent), accent, glass_alpha_card()),
@@ -2928,64 +3134,72 @@ pub fn fill_for(role: FillRole, accent: egui::Color32) -> egui::Color32 {
                 accent.b(),
                 th.ribbon.ghost_fill_alpha,
             )
+            .into()
         }
     }
 }
 
-pub fn stroke_for(role: StrokeRole, accent: egui::Color32) -> egui::Stroke {
+pub fn stroke_for(role: StrokeRole, accent: impl Into<MaraColor32>) -> MaraStroke {
+    let accent: egui::Color32 = accent.into().into();
     let th = theme();
     match role {
         StrokeRole::WidgetBorder | StrokeRole::SectionBorder | StrokeRole::PopupBorder => {
-            egui::Stroke::new(th.stroke.border_width, widget_border(accent))
+            MaraStroke::new(th.stroke.border_width, widget_border(accent))
         }
         StrokeRole::Separator => {
             let base = th.palette.border_subtle;
-            egui::Stroke::new(
+            MaraStroke::new(
                 1.0,
                 egui::Color32::from_rgba_unmultiplied(
                     base.r(),
                     base.g(),
                     base.b(),
                     th.container.separator_alpha,
-                ),
+                )
+                .into(),
             )
         }
-        StrokeRole::DragGhost => egui::Stroke::new(th.ribbon.ghost_stroke_width, accent),
+        StrokeRole::DragGhost => MaraStroke::new(th.ribbon.ghost_stroke_width, accent.into()),
     }
 }
 
-pub fn radius_for(role: RadiusRole) -> egui::CornerRadius {
+pub fn radius_for(role: RadiusRole) -> MaraCornerRadius {
     let th = theme();
     match role {
-        RadiusRole::Widget => egui::CornerRadius::same(th.shape.radius_widget),
-        RadiusRole::Compact => egui::CornerRadius::same(th.shape.radius_compact),
-        RadiusRole::Section | RadiusRole::Popup => egui::CornerRadius::same(th.shape.radius_md),
-        RadiusRole::Pane => egui::CornerRadius::same(th.shape.radius_lg),
+        RadiusRole::Widget => MaraCornerRadius::same(th.shape.radius_widget),
+        RadiusRole::Compact => MaraCornerRadius::same(th.shape.radius_compact),
+        RadiusRole::Section | RadiusRole::Popup => MaraCornerRadius::same(th.shape.radius_md),
+        RadiusRole::Pane => MaraCornerRadius::same(th.shape.radius_lg),
     }
 }
 
-pub fn frame_for(role: FrameRole, accent: egui::Color32) -> egui::Frame {
+pub fn frame_for(role: FrameRole, accent: impl Into<MaraColor32>) -> FrameSpec {
+    let accent = accent.into();
     match role {
-        FrameRole::Section => egui::Frame::new()
-            .fill(fill_for(FillRole::Section, accent))
-            .stroke(stroke_for(StrokeRole::SectionBorder, accent))
-            .corner_radius(radius_for(RadiusRole::Section))
-            .inner_margin(section_padding()),
-        FrameRole::Popup => egui::Frame::new()
-            .fill(fill_for(FillRole::Popup, accent))
-            .stroke(stroke_for(StrokeRole::PopupBorder, accent))
-            .corner_radius(radius_for(RadiusRole::Popup))
-            .inner_margin(egui::Margin::symmetric(4, 4))
-            .shadow(egui::epaint::Shadow {
-                offset: [0, 4],
-                blur: 16,
-                spread: 0,
-                color: egui::Color32::from_black_alpha(120),
-            }),
-        FrameRole::KeyChip => egui::Frame::new()
-            .fill(fill_for(FillRole::Track, accent))
-            .inner_margin(egui::Margin::symmetric(5, 1))
-            .corner_radius(radius_for(RadiusRole::Widget)),
+        FrameRole::Section => FrameSpec::new(
+            fill_for(FillRole::Section, accent),
+            stroke_for(StrokeRole::SectionBorder, accent),
+            radius_for(RadiusRole::Section),
+            section_padding(),
+        ),
+        FrameRole::Popup => FrameSpec::new(
+            fill_for(FillRole::Popup, accent),
+            stroke_for(StrokeRole::PopupBorder, accent),
+            radius_for(RadiusRole::Popup),
+            MarginSpec::symmetric(4, 4),
+        )
+        .with_shadow(FrameShadowSpec::new(
+            [0, 4],
+            16,
+            0,
+            MaraColor32::from_black_alpha(120),
+        )),
+        FrameRole::KeyChip => FrameSpec::new(
+            fill_for(FillRole::Track, accent),
+            MaraStroke::NONE,
+            radius_for(RadiusRole::Widget),
+            MarginSpec::symmetric(5, 1),
+        ),
     }
 }
 
@@ -3017,7 +3231,8 @@ pub fn frame_for(role: FrameRole, accent: egui::Color32) -> egui::Frame {
 ///
 /// Light mode mirrors: honoured zone L\* ≥ 40, target 60. Black
 /// gets fully lifted to mid grey; mid-green stays put.
-pub fn adapt_accent_to_mode(accent: egui::Color32, is_light: bool) -> egui::Color32 {
+pub fn adapt_accent_to_mode(accent: impl Into<MaraColor32>, is_light: bool) -> MaraColor32 {
+    let accent: egui::Color32 = accent.into().into();
     use pastel::Color as PastelColor;
     let c = PastelColor::from_rgb(accent.r(), accent.g(), accent.b());
     // HSL space — preserves hue exactly. Yellow stays yellow when
@@ -3055,7 +3270,7 @@ pub fn adapt_accent_to_mode(accent: egui::Color32, is_light: bool) -> egui::Colo
     let new_s = (hsl.s * 1.12).min(1.0);
     let adjusted = PastelColor::from_hsla(hsl.h, new_s, new_l, 1.0);
     let rgba = adjusted.to_rgba();
-    egui::Color32::from_rgb(rgba.r, rgba.g, rgba.b)
+    egui::Color32::from_rgb(rgba.r, rgba.g, rgba.b).into()
 }
 
 /// Linear RGB blend of two colours by `t` in `[0, 1]`. Internal
@@ -3078,35 +3293,6 @@ pub(crate) fn lerp_rgb(a: egui::Color32, b: egui::Color32, t: f32) -> egui::Colo
 /// own — so tracks read as a consistent "input on the accent
 /// panel" tier rather than a near-black block sitting on a bright
 /// accent.
-/// Paint a dashed line between two points by walking the segment
-/// from `p1` to `p2` in `dash_on + dash_off` increments. Cheap; one
-/// `line_segment` shape per dash. Used by the row hairline and
-/// section title trailing rule when a theme requests dashes
-/// (`row_separator_dash`).
-pub fn paint_dashed_line(
-    painter: &egui::Painter,
-    p1: egui::Pos2,
-    p2: egui::Pos2,
-    dash_on: f32,
-    dash_off: f32,
-    stroke: egui::Stroke,
-) {
-    let total = (p2 - p1).length();
-    if total <= 0.0 || dash_on <= 0.0 {
-        return;
-    }
-    let dir = (p2 - p1) / total;
-    let step = dash_on + dash_off.max(0.0);
-    let mut t = 0.0;
-    while t < total {
-        let start = p1 + dir * t;
-        let end_t = (t + dash_on).min(total);
-        let end = p1 + dir * end_t;
-        painter.line_segment([start, end], stroke);
-        t += step;
-    }
-}
-
 /// Fill for a *nested* card (subsection / group frame) — picks a
 /// surface that reads as one tier brighter than its parent section.
 ///
@@ -3116,9 +3302,10 @@ pub fn paint_dashed_line(
 /// so a subsection sits on a slightly raised dark-accent variant
 /// instead of a hard-coded grey that doesn't match the parent
 /// section's accent-tinted bg.
-pub fn subsection_fill(accent: egui::Color32) -> egui::Color32 {
+pub fn subsection_fill(accent: impl Into<MaraColor32>) -> MaraColor32 {
+    let accent: egui::Color32 = accent.into().into();
     let th = theme();
-    match th.panel_fill_mode {
+    let out = match th.panel_fill_mode {
         ColorMode::FromAccent {
             lerp_factor,
             lerp_target,
@@ -3127,7 +3314,8 @@ pub fn subsection_fill(accent: egui::Color32) -> egui::Color32 {
             lerp_rgb(base, raise_target(lerp_target), 0.06)
         }
         ColorMode::FromBg => th.bg_hover,
-    }
+    };
+    out.into()
 }
 
 /// Direction to lerp TOWARD when raising a surface one tier above
@@ -3159,12 +3347,14 @@ fn raise_target(_lerp_target: egui::Color32) -> egui::Color32 {
 /// dimmed accent dragged 65 % toward black, so the lerp goes
 /// visibly DARKER than the white-ish panel regardless of how
 /// bright the user's raw accent was.
-pub fn surface_lift_target(accent: egui::Color32) -> egui::Color32 {
-    if theme().is_light {
+pub fn surface_lift_target(accent: impl Into<MaraColor32>) -> MaraColor32 {
+    let accent: egui::Color32 = accent.into().into();
+    let out = if theme().is_light {
         lerp_rgb(accent, egui::Color32::BLACK, 0.65)
     } else {
         accent
-    }
+    };
+    out.into()
 }
 
 /// Background fill for an alternating row. Returns `None` when the
@@ -3174,18 +3364,20 @@ pub fn surface_lift_target(accent: egui::Color32) -> egui::Color32 {
 /// `row_alt_lift` toward white in straight RGB — avoids the hue
 /// shift you'd get pulling toward a coloured highlight, which keeps
 /// accent-tinted GAME panels reading as a single colour family.
-pub fn row_alt_fill(accent: egui::Color32, row_index: u32) -> Option<egui::Color32> {
+pub fn row_alt_fill(accent: impl Into<MaraColor32>, row_index: u32) -> Option<MaraColor32> {
+    let accent: egui::Color32 = accent.into().into();
     let th = theme();
     if !th.row_alternation || row_index.is_multiple_of(2) {
         return None;
     }
-    let base = pane_fill(accent);
-    Some(lerp_rgb(base, egui::Color32::WHITE, th.row_alt_lift))
+    let base: egui::Color32 = pane_fill(accent).into();
+    Some(lerp_rgb(base, egui::Color32::WHITE, th.row_alt_lift).into())
 }
 
-pub fn track_fill(accent: egui::Color32) -> egui::Color32 {
+pub fn track_fill(accent: impl Into<MaraColor32>) -> MaraColor32 {
+    let accent: egui::Color32 = accent.into().into();
     let th = theme();
-    match th.panel_fill_mode {
+    let out = match th.panel_fill_mode {
         ColorMode::FromAccent {
             lerp_factor,
             lerp_target,
@@ -3199,7 +3391,8 @@ pub fn track_fill(accent: egui::Color32) -> egui::Color32 {
             lerp_rgb(panel_color, raise_target(lerp_target), 0.10)
         }
         ColorMode::FromBg => th.bg_input,
-    }
+    };
+    out.into()
 }
 
 /// Fill colour for floating popup surfaces — dropdown lists, the
@@ -3209,9 +3402,10 @@ pub fn track_fill(accent: egui::Color32) -> egui::Color32 {
 /// - GAME returns a shade halfway between the panel and the track
 ///   (≈ panel - 0.10 lerp), so the popup is distinguishable from
 ///   both but stays in the same accent family.
-pub fn popup_fill(accent: egui::Color32) -> egui::Color32 {
+pub fn popup_fill(accent: impl Into<MaraColor32>) -> MaraColor32 {
+    let accent: egui::Color32 = accent.into().into();
     let th = theme();
-    match th.panel_fill_mode {
+    let out = match th.panel_fill_mode {
         ColorMode::FromAccent {
             lerp_factor,
             lerp_target,
@@ -3223,7 +3417,8 @@ pub fn popup_fill(accent: egui::Color32) -> egui::Color32 {
             lerp_rgb(panel_color, raise_target(lerp_target), 0.18)
         }
         ColorMode::FromBg => th.bg_raised,
-    }
+    };
+    out.into()
 }
 
 // ─── Theme-aware text colours ───────────────────────────────────────
@@ -3237,8 +3432,8 @@ pub fn popup_fill(accent: egui::Color32) -> egui::Color32 {
 // `TEXT_SECONDARY` plays on a dark panel, just generalised.
 //
 // These read from [`active_accent`] so callers don't have to thread
-// the accent through every widget signature. `apply_theme` keeps
-// the active accent in sync each frame.
+// the accent through every widget signature. Internal theme application
+// keeps the active accent in sync each frame.
 
 fn dim_against(text: egui::Color32, surface: egui::Color32) -> egui::Color32 {
     // 40 % blend toward the surface — close enough to the surface to
@@ -3257,34 +3452,34 @@ fn dim_against(text: egui::Color32, surface: egui::Color32) -> egui::Color32 {
 /// direct theme-field read makes Dark always return light text and
 /// Light always return dark text, which is what callers actually
 /// want.)
-pub fn on_panel() -> egui::Color32 {
-    theme().palette.text_primary
+pub fn on_panel() -> MaraColor32 {
+    theme().palette.text_primary.into()
 }
 /// Secondary-weight (~`TEXT_SECONDARY` role) version of [`on_panel`].
-pub fn on_panel_dim() -> egui::Color32 {
-    theme().palette.text_secondary
+pub fn on_panel_dim() -> MaraColor32 {
+    theme().palette.text_secondary.into()
 }
 
 /// Primary-weight text colour for paint inside a section frame.
 /// Same direct-from-theme rule as [`on_panel`] — sections share the
 /// brightness mode of their parent pane.
-pub fn on_section() -> egui::Color32 {
-    theme().palette.text_primary
+pub fn on_section() -> MaraColor32 {
+    theme().palette.text_primary.into()
 }
 /// Secondary-weight version of [`on_section`].
-pub fn on_section_dim() -> egui::Color32 {
-    theme().palette.text_secondary
+pub fn on_section_dim() -> MaraColor32 {
+    theme().palette.text_secondary.into()
 }
 
 /// Primary-weight text colour for paint on a track surface — search
 /// field input, dropdown trigger label, slider/progress-bar readout
 /// over the unfilled portion. Same direct-from-theme rule.
-pub fn on_track() -> egui::Color32 {
-    theme().palette.text_primary
+pub fn on_track() -> MaraColor32 {
+    theme().palette.text_primary.into()
 }
 /// Secondary-weight version of [`on_track`].
-pub fn on_track_dim() -> egui::Color32 {
-    theme().palette.text_secondary
+pub fn on_track_dim() -> MaraColor32 {
+    theme().palette.text_secondary.into()
 }
 
 /// Derived "hover" variant of the runtime accent — used by the
@@ -3293,16 +3488,16 @@ pub fn on_track_dim() -> egui::Color32 {
 /// Lerps the accent 25 % toward white. Replaces direct
 /// hardcoded `ACCENT_HOVER` constant which never tracked the user's
 /// chosen accent.
-pub fn accent_hover() -> egui::Color32 {
-    lerp_rgb(active_accent(), egui::Color32::WHITE, 0.25)
+pub fn accent_hover() -> MaraColor32 {
+    lerp_rgb(active_accent().into(), egui::Color32::WHITE, 0.25).into()
 }
 
 /// Derived "pressed" variant of the runtime accent — used by the
 /// scrollbar's drag-state foreground and the code-editor selection
 /// fill. Lerps the accent 25 % toward black. Replaces direct
 /// `ACCENT_PRESSED`.
-pub fn accent_pressed() -> egui::Color32 {
-    lerp_rgb(active_accent(), egui::Color32::BLACK, 0.25)
+pub fn accent_pressed() -> MaraColor32 {
+    lerp_rgb(active_accent().into(), egui::Color32::BLACK, 0.25).into()
 }
 
 /// Fill colour used by **multi-state row widgets** (tree row, hybrid
@@ -3311,16 +3506,17 @@ pub fn accent_pressed() -> egui::Color32 {
 /// colour these widgets used to hardcode, this helper accent-tints
 /// the surface so hover pops on GAME's accent panel and stays
 /// recognisable on PRO's dark panel.
-pub fn row_hover_fill(accent: egui::Color32) -> egui::Color32 {
+pub fn row_hover_fill(accent: impl Into<MaraColor32>) -> MaraColor32 {
+    let accent: egui::Color32 = accent.into().into();
     let th = theme();
-    let surface = if th.container.show_frame {
-        section_fill(accent)
+    let surface: egui::Color32 = if th.container.show_frame {
+        section_fill(accent).into()
     } else {
-        pane_fill(accent)
+        pane_fill(accent).into()
     };
     // 18 % accent blend — enough to tint hover, not enough to
     // collide with the 45 % accent blend used for "selected".
-    lerp_rgb(surface, accent, 0.18)
+    lerp_rgb(surface, accent, 0.18).into()
 }
 
 /// Fill colour used by **multi-state row widgets** when the row is
@@ -3328,14 +3524,15 @@ pub fn row_hover_fill(accent: egui::Color32) -> egui::Color32 {
 /// surface — clearly louder than `row_hover_fill` (18 %) so hover
 /// and selected never visually collapse, even on flat themes
 /// without strokes / glass.
-pub fn row_selected_fill(accent: egui::Color32) -> egui::Color32 {
+pub fn row_selected_fill(accent: impl Into<MaraColor32>) -> MaraColor32 {
+    let accent: egui::Color32 = accent.into().into();
     let th = theme();
-    let surface = if th.container.show_frame {
-        section_fill(accent)
+    let surface: egui::Color32 = if th.container.show_frame {
+        section_fill(accent).into()
     } else {
-        pane_fill(accent)
+        pane_fill(accent).into()
     };
-    lerp_rgb(surface, accent, 0.45)
+    lerp_rgb(surface, accent, 0.45).into()
 }
 
 pub mod font {
@@ -3348,53 +3545,11 @@ pub mod font {
     pub const NUMERIC: f32 = 11.0;
 }
 
-/// Draw a 1 px subtle divider line across the current row. Used to
-/// separate the section header from its body and to split in-section
-/// blocks (e.g. vehicle info vs controls).
-pub fn divider(ui: &mut egui::Ui) {
-    let bw = theme().stroke.border_width;
-    if bw <= 0.0 {
-        return;
-    }
-    let full_width = ui.available_width();
-    let (rect, _) = ui.allocate_exact_size(egui::vec2(full_width, 1.0), egui::Sense::empty());
-    let th = theme();
-    let base = outline_base();
-    let color =
-        egui::Color32::from_rgba_unmultiplied(base.r(), base.g(), base.b(), th.stroke.border_alpha);
-    ui.painter().line_segment(
-        [rect.left_center(), rect.right_center()],
-        egui::Stroke::new(bw, color),
-    );
-}
-
-/// Title divider — same shape as [`divider`]. Used under foldable
-/// section headers so the title block stands apart from the body
-/// content. Routes through `outline_base` + `border_alpha` so it
-/// matches every other border / outline in the kit (was hardcoded
-/// to α 220, far stronger than the kit's actual border weight).
-pub fn thin_divider(ui: &mut egui::Ui) {
-    let bw = theme().stroke.border_width;
-    if bw <= 0.0 {
-        return;
-    }
-    let full_width = ui.available_width();
-    let (rect, _) = ui.allocate_exact_size(egui::vec2(full_width, 1.0), egui::Sense::empty());
-    let th = theme();
-    let base = outline_base();
-    let color =
-        egui::Color32::from_rgba_unmultiplied(base.r(), base.g(), base.b(), th.stroke.border_alpha);
-    ui.painter().line_segment(
-        [rect.left_center(), rect.right_center()],
-        egui::Stroke::new(bw, color),
-    );
-}
-
 /// Uppercase title text for panel-level headings (above sections).
 /// Pops against the Light body font via `.strong()` + an enlarged
 /// point size (20 % above `font::TITLE`) + primary text colour.
-pub fn title_text(label: &str) -> egui::RichText {
-    egui::RichText::new(label)
+pub fn title_text(label: &str) -> TextSpec {
+    TextSpec::new(label)
         .strong()
         .size(font::TITLE * 1.20)
         .color(TEXT_PRIMARY)
@@ -3405,16 +3560,16 @@ pub fn title_text(label: &str) -> egui::RichText {
 /// `on_section_dim()` so it stays readable on whichever surface
 /// the active theme + accent end up producing (PRO: dim grey on
 /// dark card; GAME: contrast-tinted dim against the accent panel).
-pub fn body_label(label: &str) -> egui::RichText {
-    egui::RichText::new(label).small().color(on_section_dim())
+pub fn body_label(label: &str) -> TextSpec {
+    TextSpec::new(label).small().color(on_section_dim())
 }
 
 /// Italic caption — for under-row hints ("drag to edit", etc.). Like
 /// `body_label`, the colour comes from the active theme's
 /// dim-against-section helper so it never decays into "grey on
 /// bright accent" under GAME.
-pub fn caption(label: &str) -> egui::RichText {
-    egui::RichText::new(label)
+pub fn caption(label: &str) -> TextSpec {
+    TextSpec::new(label)
         .small()
         .italics()
         .color(on_section_dim())
@@ -3426,8 +3581,8 @@ pub fn caption(label: &str) -> egui::RichText {
 /// surface; the kit relies on `adapt_accent_to_mode` to pull bright
 /// accents into a darker band in Dark mode so white-on-accent has
 /// real contrast.
-pub fn contrast_text_for(_fill: egui::Color32) -> egui::Color32 {
-    theme().palette.text_primary
+pub fn contrast_text_for(_fill: impl Into<MaraColor32>) -> MaraColor32 {
+    theme().palette.text_primary.into()
 }
 
 #[cfg(test)]

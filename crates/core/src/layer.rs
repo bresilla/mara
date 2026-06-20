@@ -27,7 +27,7 @@
 
 use std::hash::Hash;
 
-use egui::{Id, LayerId, Order, Painter};
+use egui::{Id, LayerId, Order};
 
 /// Pre-defined tiers used by the pane / container / chrome stack.
 /// Callers can pass any `u16` directly; these are just the
@@ -75,7 +75,7 @@ pub mod z {
 /// Map a tier number to its egui [`Order`] tier. Tier `0` reads
 /// as 1; tiers above 1000 clamp to 1000 (Debug).
 #[inline]
-pub fn order_for(tier: u16) -> Order {
+pub(crate) fn order_for(tier: u16) -> Order {
     match tier {
         0..=40 => Order::Middle,
         41..=70 => Order::Foreground,
@@ -88,14 +88,6 @@ pub fn order_for(tier: u16) -> Order {
 /// tier number is folded into the id so two callers at different
 /// tiers always resolve to distinct sublayers even if they share
 /// `salt`.
-pub fn layer_id(salt: impl Hash, tier: u16) -> LayerId {
+pub(crate) fn layer_id(salt: impl Hash, tier: u16) -> LayerId {
     LayerId::new(order_for(tier), Id::new(("mara_z", tier, salt)))
-}
-
-/// Construct a [`Painter`] at the given tier, clipped to the
-/// passed ui's `clip_rect`. The painter writes to a per-tier
-/// sublayer that doesn't collide with any other tier.
-pub fn painter(ui: &egui::Ui, salt: impl Hash, tier: u16) -> Painter {
-    let layer = layer_id(salt, tier);
-    Painter::new(ui.ctx().clone(), layer, ui.clip_rect())
 }

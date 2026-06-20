@@ -14,17 +14,17 @@ use crate::style::{
     ViewTheme, WidgetTheme, WindowChromeTheme,
 };
 
-pub const FLAT_DARK_BG_WINDOW: egui::Color32 = egui::Color32::from_rgb(0x00, 0x00, 0x00);
-pub const FLAT_DARK_BG_PANEL: egui::Color32 = egui::Color32::from_rgb(0x10, 0x10, 0x10);
-pub const FLAT_DARK_BG_RAISED: egui::Color32 = egui::Color32::from_rgb(0x1C, 0x1C, 0x1C);
-pub const FLAT_DARK_BG_HOVER: egui::Color32 = egui::Color32::from_rgb(0x28, 0x28, 0x28);
-pub const FLAT_DARK_BG_INPUT: egui::Color32 = egui::Color32::from_rgb(0x08, 0x08, 0x08);
+pub(crate) const FLAT_DARK_BG_WINDOW: egui::Color32 = egui::Color32::from_rgb(0x00, 0x00, 0x00);
+pub(crate) const FLAT_DARK_BG_PANEL: egui::Color32 = egui::Color32::from_rgb(0x10, 0x10, 0x10);
+pub(crate) const FLAT_DARK_BG_RAISED: egui::Color32 = egui::Color32::from_rgb(0x1C, 0x1C, 0x1C);
+pub(crate) const FLAT_DARK_BG_HOVER: egui::Color32 = egui::Color32::from_rgb(0x28, 0x28, 0x28);
+pub(crate) const FLAT_DARK_BG_INPUT: egui::Color32 = egui::Color32::from_rgb(0x08, 0x08, 0x08);
 
-pub const FLAT_LIGHT_BG_WINDOW: egui::Color32 = egui::Color32::from_rgb(0xF8, 0xF8, 0xF8);
-pub const FLAT_LIGHT_BG_PANEL: egui::Color32 = egui::Color32::from_rgb(0xFF, 0xFF, 0xFF);
-pub const FLAT_LIGHT_BG_RAISED: egui::Color32 = egui::Color32::from_rgb(0xEB, 0xEB, 0xEB);
-pub const FLAT_LIGHT_BG_HOVER: egui::Color32 = egui::Color32::from_rgb(0xDD, 0xDD, 0xDD);
-pub const FLAT_LIGHT_BG_INPUT: egui::Color32 = egui::Color32::from_rgb(0xF2, 0xF2, 0xF2);
+pub(crate) const FLAT_LIGHT_BG_WINDOW: egui::Color32 = egui::Color32::from_rgb(0xF8, 0xF8, 0xF8);
+pub(crate) const FLAT_LIGHT_BG_PANEL: egui::Color32 = egui::Color32::from_rgb(0xFF, 0xFF, 0xFF);
+pub(crate) const FLAT_LIGHT_BG_RAISED: egui::Color32 = egui::Color32::from_rgb(0xEB, 0xEB, 0xEB);
+pub(crate) const FLAT_LIGHT_BG_HOVER: egui::Color32 = egui::Color32::from_rgb(0xDD, 0xDD, 0xDD);
+pub(crate) const FLAT_LIGHT_BG_INPUT: egui::Color32 = egui::Color32::from_rgb(0xF2, 0xF2, 0xF2);
 
 pub const fn theme_flat(mode: Mode) -> Theme {
     let dark = matches!(mode, Mode::Dark);

@@ -42,9 +42,10 @@ use bevy::window::ExitCondition;
 use bevy::winit::WinitPlugin;
 use bevy_glacial::prelude::*;
 use crossbeam_channel::{Receiver, Sender};
+use mara_core::vocab::Color32 as MaraColor32;
 
 mod egui_view;
-pub use egui_view::{EmbeddedBevyViewport, MaraBevyViewport};
+pub use egui_view::MaraBevyViewport;
 
 const EMBEDDED_VIEWPORT_MANUAL_TEXTURE: ManualTextureViewHandle =
     ManualTextureViewHandle(0x4d41_5241);
@@ -113,7 +114,7 @@ pub struct BevyViewportRenderTarget(pub Handle<Image>);
 /// Optional app/content output used by examples to feed a picked
 /// accent colour back to the Mara shell.
 #[derive(Resource, Default, Clone, Copy)]
-pub struct BevyViewportPickedColor(pub Option<egui::Color32>);
+pub struct BevyViewportPickedColor(pub Option<MaraColor32>);
 
 /// Startup set that creates [`BevyViewportRenderTarget`].
 ///
@@ -436,7 +437,7 @@ impl BevyViewportBridge {
     ///
     /// Content can set [`BevyViewportPickedColor`] to feed an accent
     /// or selection color back to the Mara/egui host.
-    pub fn picked_color(&self) -> Option<egui::Color32> {
+    pub fn picked_color(&self) -> Option<MaraColor32> {
         self.scene_state.and_then(|state| state.picked_color)
     }
 }
@@ -508,7 +509,7 @@ struct EmbeddedViewportSceneState {
     yaw: f32,
     elevation: f32,
     distance: f32,
-    picked_color: Option<egui::Color32>,
+    picked_color: Option<MaraColor32>,
 }
 
 impl BevyViewportRenderer {
@@ -1225,7 +1226,7 @@ impl BevyEmbeddedView {
         self.bridge.renderer_failed()
     }
 
-    pub fn picked_color(&self) -> Option<egui::Color32> {
+    pub fn picked_color(&self) -> Option<MaraColor32> {
         self.bridge.picked_color()
     }
 }
@@ -1287,13 +1288,12 @@ mod tests {
         let mut bridge = BevyViewportBridge::new(BevyViewportTexture::new(96, 64));
         let mut captured = None;
         for _ in 0..120 {
-            if let Some(frame) = bridge.render_frame(96, 64, 1.0 / 60.0) {
-                if frame.rgba.chunks_exact(4).any(|pixel| pixel[3] != 0)
-                    || frame.rgba.iter().any(|&byte| byte != 0)
-                {
-                    captured = Some(frame.clone());
-                    break;
-                }
+            if let Some(frame) = bridge.render_frame(96, 64, 1.0 / 60.0)
+                && (frame.rgba.chunks_exact(4).any(|pixel| pixel[3] != 0)
+                    || frame.rgba.iter().any(|&byte| byte != 0))
+            {
+                captured = Some(frame.clone());
+                break;
             }
             if bridge.renderer_failed() {
                 eprintln!("skipping embedded renderer smoke test: no native wgpu adapter");

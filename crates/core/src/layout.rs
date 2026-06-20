@@ -1,0 +1,1024 @@
+//! Backend-neutral layout/backend contract.
+//!
+//! This is intentionally small. Mara's editor UI language does not
+//! need to mirror every egui primitive; it needs enough allocation,
+//! clipping and paint submission to move widgets away from direct
+//! backend calls one family at a time.
+
+use crate::{
+    mui::{MaraInput, MaraResponse},
+    paint::PaintCmd,
+    vocab::{Color32, CornerRadius, Id, Pos2, Rect, Vec2},
+};
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Layer {
+    Background,
+    Middle,
+    Foreground,
+    Overlay,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct AreaHost {
+    pub id: Id,
+    pub pos: Pos2,
+    pub layer: Layer,
+    pub interactable: bool,
+}
+
+impl AreaHost {
+    #[must_use]
+    pub const fn new(id: Id, pos: Pos2, layer: Layer) -> Self {
+        Self {
+            id,
+            pos,
+            layer,
+            interactable: true,
+        }
+    }
+
+    #[must_use]
+    pub const fn non_interactive(mut self) -> Self {
+        self.interactable = false;
+        self
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct AreaSlotSpec {
+    pub host: AreaHost,
+    pub size: Vec2,
+}
+
+impl AreaSlotSpec {
+    #[must_use]
+    pub const fn new(host: AreaHost, size: Vec2) -> Self {
+        Self { host, size }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CanvasSlotSpec {
+    pub size: Vec2,
+    pub sense: Sense,
+}
+
+impl CanvasSlotSpec {
+    #[must_use]
+    pub const fn new(size: Vec2, sense: Sense) -> Self {
+        Self { size, sense }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CanvasRectSpec {
+    pub id: Id,
+    pub rect: Rect,
+    pub sense: Sense,
+}
+
+impl CanvasRectSpec {
+    #[must_use]
+    pub const fn new(id: Id, rect: Rect, sense: Sense) -> Self {
+        Self { id, rect, sense }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum PaintSurfaceRegion {
+    RemainingAvailable,
+    ClipRect(Rect),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PaintSurfaceSpec {
+    pub region: PaintSurfaceRegion,
+}
+
+impl PaintSurfaceSpec {
+    #[must_use]
+    pub const fn remaining_available() -> Self {
+        Self {
+            region: PaintSurfaceRegion::RemainingAvailable,
+        }
+    }
+
+    #[must_use]
+    pub const fn clipped(rect: Rect) -> Self {
+        Self {
+            region: PaintSurfaceRegion::ClipRect(rect),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum ScrollAxis {
+    Horizontal,
+    Vertical,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ScrollRegion {
+    pub id: Id,
+    pub axis: ScrollAxis,
+    pub auto_shrink: [bool; 2],
+    pub max_extent: f32,
+    pub item_spacing: Vec2,
+}
+
+impl ScrollRegion {
+    #[must_use]
+    pub const fn new(id: Id, auto_shrink: [bool; 2], max_extent: f32, row_spacing_y: f32) -> Self {
+        Self::vertical(id, auto_shrink, max_extent, Vec2::new(0.0, row_spacing_y))
+    }
+
+    #[must_use]
+    pub const fn vertical(
+        id: Id,
+        auto_shrink: [bool; 2],
+        max_extent: f32,
+        item_spacing: Vec2,
+    ) -> Self {
+        Self {
+            id,
+            axis: ScrollAxis::Vertical,
+            auto_shrink,
+            max_extent,
+            item_spacing,
+        }
+    }
+
+    #[must_use]
+    pub const fn horizontal(
+        id: Id,
+        auto_shrink: [bool; 2],
+        max_extent: f32,
+        item_spacing: Vec2,
+    ) -> Self {
+        Self {
+            id,
+            axis: ScrollAxis::Horizontal,
+            auto_shrink,
+            max_extent,
+            item_spacing,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum PopupAlign {
+    BottomStart,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PopupSpec {
+    pub align: PopupAlign,
+    pub gap: f32,
+    pub width: f32,
+    pub inner_margin: i8,
+}
+
+impl PopupSpec {
+    #[must_use]
+    pub const fn new(align: PopupAlign, gap: f32, width: f32, inner_margin: i8) -> Self {
+        Self {
+            align,
+            gap,
+            width,
+            inner_margin,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct PopupTrigger {
+    pub response_id: Id,
+    pub popup_id: Id,
+}
+
+impl PopupTrigger {
+    #[must_use]
+    pub const fn new(response_id: Id, popup_id: Id) -> Self {
+        Self {
+            response_id,
+            popup_id,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PopupListSpec {
+    pub item_spacing: Vec2,
+}
+
+impl PopupListSpec {
+    #[must_use]
+    pub const fn new(item_spacing: Vec2) -> Self {
+        Self { item_spacing }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TextEditRegion {
+    pub rect: Rect,
+    pub text_rect: Rect,
+    pub font_size: f32,
+}
+
+impl TextEditRegion {
+    #[must_use]
+    pub const fn new(rect: Rect, text_rect: Rect, font_size: f32) -> Self {
+        Self {
+            rect,
+            text_rect,
+            font_size,
+        }
+    }
+
+    #[must_use]
+    pub fn desired_width(&self) -> f32 {
+        self.text_rect.width().max(0.0)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct TextMeasureSpec {
+    pub text: String,
+    pub size: f32,
+    pub mono: bool,
+}
+
+impl TextMeasureSpec {
+    #[must_use]
+    pub fn new(text: impl Into<String>, size: f32, mono: bool) -> Self {
+        Self {
+            text: text.into(),
+            size,
+            mono,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct TextEditSpec {
+    pub region: TextEditRegion,
+    pub hint: String,
+    pub text_color: Color32,
+    pub hint_color: Color32,
+    pub background_color: Color32,
+    pub frame: bool,
+}
+
+impl TextEditSpec {
+    #[must_use]
+    pub fn singleline(
+        region: TextEditRegion,
+        hint: impl Into<String>,
+        text_color: Color32,
+        hint_color: Color32,
+    ) -> Self {
+        Self {
+            region,
+            hint: hint.into(),
+            text_color,
+            hint_color,
+            background_color: Color32::TRANSPARENT,
+            frame: false,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct InlinePickerSpec {
+    pub slider_width: f32,
+    pub clip_expand: f32,
+}
+
+impl InlinePickerSpec {
+    #[must_use]
+    pub const fn new(slider_width: f32, clip_expand: f32) -> Self {
+        Self {
+            slider_width,
+            clip_expand,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum ColorPickerAlpha {
+    Opaque,
+    OnlyBlend,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct IndentedBodySpec {
+    pub id: Id,
+}
+
+impl IndentedBodySpec {
+    #[must_use]
+    pub const fn new(id: Id) -> Self {
+        Self { id }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct FrameHostSpec {
+    pub outer_width: f32,
+    pub content_width: f32,
+    pub inner_margin: [i8; 2],
+    pub corner: CornerRadius,
+}
+
+impl FrameHostSpec {
+    #[must_use]
+    pub const fn new(
+        outer_width: f32,
+        content_width: f32,
+        inner_margin: [i8; 2],
+        corner: CornerRadius,
+    ) -> Self {
+        Self {
+            outer_width,
+            content_width,
+            inner_margin,
+            corner,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SpaceSpec {
+    pub size: Vec2,
+}
+
+impl SpaceSpec {
+    #[must_use]
+    pub const fn new(size: Vec2) -> Self {
+        Self { size }
+    }
+
+    #[must_use]
+    pub const fn vertical(height: f32) -> Self {
+        Self {
+            size: Vec2::new(0.0, height),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ItemSpacingSpec {
+    pub item_spacing: Vec2,
+}
+
+impl ItemSpacingSpec {
+    #[must_use]
+    pub const fn new(item_spacing: Vec2) -> Self {
+        Self { item_spacing }
+    }
+
+    #[must_use]
+    pub const fn zero() -> Self {
+        Self::new(Vec2::ZERO)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum StackDirection {
+    TopDown,
+    BottomUp,
+    LeftToRight,
+    RightToLeft,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum StackAlign {
+    Min,
+    Center,
+    Max,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct StackScopeSpec {
+    pub direction: StackDirection,
+}
+
+impl StackScopeSpec {
+    #[must_use]
+    pub const fn horizontal() -> Self {
+        Self {
+            direction: StackDirection::LeftToRight,
+        }
+    }
+
+    #[must_use]
+    pub const fn vertical() -> Self {
+        Self {
+            direction: StackDirection::TopDown,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ChildRegion {
+    pub rect: Rect,
+    pub direction: StackDirection,
+    pub align: StackAlign,
+}
+
+impl ChildRegion {
+    #[must_use]
+    pub const fn new(rect: Rect, direction: StackDirection, align: StackAlign) -> Self {
+        Self {
+            rect,
+            direction,
+            align,
+        }
+    }
+
+    #[must_use]
+    pub const fn top_down(rect: Rect, align: StackAlign) -> Self {
+        Self::new(rect, StackDirection::TopDown, align)
+    }
+
+    #[must_use]
+    pub const fn left_to_right(rect: Rect, align: StackAlign) -> Self {
+        Self::new(rect, StackDirection::LeftToRight, align)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ContainerBodySpec {
+    /// `true` when the owning title strip runs horizontally. The
+    /// body always stacks vertically, but this tells the backend
+    /// which parent axis is locked by `span_inner`.
+    pub horizontal_strip: bool,
+    pub span_inner: f32,
+    pub max_flow: Option<f32>,
+    pub end_pad: f32,
+}
+
+impl ContainerBodySpec {
+    #[must_use]
+    pub const fn new(
+        horizontal_strip: bool,
+        span_inner: f32,
+        max_flow: Option<f32>,
+        end_pad: f32,
+    ) -> Self {
+        Self {
+            horizontal_strip,
+            span_inner,
+            max_flow,
+            end_pad,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PaneFlexSpec {
+    pub horizontal_strip: bool,
+    pub span_inner: f32,
+    pub title_thickness: f32,
+    pub body_gap: f32,
+    pub item_spacing: Vec2,
+}
+
+impl PaneFlexSpec {
+    #[must_use]
+    pub const fn new(
+        horizontal_strip: bool,
+        span_inner: f32,
+        title_thickness: f32,
+        body_gap: f32,
+    ) -> Self {
+        Self {
+            horizontal_strip,
+            span_inner,
+            title_thickness,
+            body_gap,
+            item_spacing: Vec2::ZERO,
+        }
+    }
+
+    #[must_use]
+    pub const fn title_size(&self) -> Vec2 {
+        if self.horizontal_strip {
+            Vec2::new(self.span_inner, self.title_thickness)
+        } else {
+            Vec2::new(self.title_thickness, self.span_inner)
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum PaneBodyScrollAxis {
+    FlowVertical,
+    FlowHorizontal,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PaneBodyScrollSpec {
+    pub id: Id,
+    pub axis: PaneBodyScrollAxis,
+    pub span_inner: f32,
+    pub item_spacing: Vec2,
+}
+
+impl PaneBodyScrollSpec {
+    #[must_use]
+    pub const fn new(id: Id, horizontal_strip: bool, span_inner: f32) -> Self {
+        Self {
+            id,
+            axis: if horizontal_strip {
+                PaneBodyScrollAxis::FlowVertical
+            } else {
+                PaneBodyScrollAxis::FlowHorizontal
+            },
+            span_inner,
+            item_spacing: Vec2::ZERO,
+        }
+    }
+
+    #[must_use]
+    pub const fn horizontal_strip(&self) -> bool {
+        matches!(self.axis, PaneBodyScrollAxis::FlowVertical)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SlotRibbonLayoutSpec {
+    pub id: Id,
+    pub pos: Pos2,
+    pub size: Vec2,
+    pub vertical: bool,
+    pub button_size: f32,
+    pub button_gap: f32,
+    pub count: usize,
+}
+
+impl SlotRibbonLayoutSpec {
+    #[must_use]
+    pub fn new(
+        id: Id,
+        pos: Pos2,
+        vertical: bool,
+        count: usize,
+        button_size: f32,
+        button_gap: f32,
+    ) -> Self {
+        let count_f = count as f32;
+        let span = count_f * button_size + (count_f - 1.0).max(0.0) * button_gap;
+        let size = if vertical {
+            Vec2::new(button_size, span)
+        } else {
+            Vec2::new(span, button_size)
+        };
+        Self {
+            id,
+            pos,
+            size,
+            vertical,
+            button_size,
+            button_gap,
+            count,
+        }
+    }
+
+    #[must_use]
+    pub fn item_rect(&self, idx: usize) -> Option<Rect> {
+        if idx >= self.count {
+            return None;
+        }
+        let offset = idx as f32 * (self.button_size + self.button_gap);
+        let min = if self.vertical {
+            Pos2::new(0.0, offset)
+        } else {
+            Pos2::new(offset, 0.0)
+        };
+        Some(Rect::from_min_size(
+            min,
+            Vec2::new(self.button_size, self.button_size),
+        ))
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Sense {
+    Hover,
+    Click,
+    Drag,
+    ClickAndDrag,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum CursorIcon {
+    PointingHand,
+    Grabbing,
+    ResizeHorizontal,
+    ResizeVertical,
+}
+
+pub trait UiBackend {
+    fn begin_area(&mut self, host: AreaHost, rect: Rect);
+    fn allocate(&mut self, size: Vec2, sense: Sense) -> MaraResponse;
+    fn reserve_space(&mut self, size: Vec2) -> Rect {
+        let rect = Rect::from_min_size(self.available_rect().min, size);
+        let _ = self.reserve_rect(rect, Sense::Hover);
+        rect
+    }
+    fn reserve_rect(&mut self, rect: Rect, sense: Sense) -> MaraResponse {
+        self.interact(
+            rect,
+            Id::new((
+                "mara-reserved-rect",
+                rect.min.x.to_bits(),
+                rect.min.y.to_bits(),
+                rect.max.x.to_bits(),
+                rect.max.y.to_bits(),
+            )),
+            sense,
+        )
+    }
+    fn interact(&mut self, rect: Rect, id: Id, sense: Sense) -> MaraResponse;
+    fn available_rect(&self) -> Rect;
+    /// Stable identity of the current scope, for salting widget ids.
+    ///
+    /// A real layout backend must override this with its scope's
+    /// stable id; the default constant is only adequate for stateless
+    /// recording/test backends that never salt persisted state.
+    fn id(&self) -> Id {
+        Id::new("mara-ui-backend")
+    }
+    /// Remaining width before wrap. Defaults to `available_rect().width()`;
+    /// backends may override for an exact native read.
+    fn available_width(&self) -> f32 {
+        self.available_rect().width()
+    }
+    /// Remaining height before wrap. Defaults to `available_rect().height()`;
+    /// backends may override for an exact native read.
+    fn available_height(&self) -> f32 {
+        self.available_rect().height()
+    }
+    /// Per-frame input snapshot for custom interaction logic. Defaults
+    /// to an empty snapshot for backends with no live input source.
+    fn input(&self) -> MaraInput {
+        MaraInput::default()
+    }
+    /// Advance the layout cursor by a fixed gap. No-op default for
+    /// backends that do not track a flowing layout cursor.
+    fn add_space(&mut self, _spec: SpaceSpec) {}
+    fn push_clip(&mut self, rect: Rect);
+    fn pop_clip(&mut self);
+    fn measure_text(&self, text: &str, size: f32, mono: bool) -> Vec2;
+    fn paint(&mut self, cmd: PaintCmd);
+}
+
+/// Hidden egui measurement adapter for first-party crates that have
+/// already expressed text measurement as Mara-owned data but still run
+/// on the current egui backend.
+#[doc(hidden)]
+pub fn __internal_measure_text_egui(painter: &egui::Painter, spec: &TextMeasureSpec) -> Vec2 {
+    crate::backend::egui::measure_text_for_spec(painter, spec)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::vocab::{Color32, Pos2, Stroke};
+
+    #[derive(Default)]
+    struct RecordingBackend {
+        available: Rect,
+        clips: Vec<Rect>,
+        paints: Vec<PaintCmd>,
+    }
+
+    impl UiBackend for RecordingBackend {
+        fn begin_area(&mut self, _host: AreaHost, rect: Rect) {
+            self.available = rect;
+        }
+
+        fn allocate(&mut self, size: Vec2, _sense: Sense) -> MaraResponse {
+            MaraResponse::synthetic(Rect::from_min_size(self.available.min, size))
+        }
+
+        fn interact(&mut self, rect: Rect, _id: Id, _sense: Sense) -> MaraResponse {
+            MaraResponse::synthetic(rect)
+        }
+
+        fn available_rect(&self) -> Rect {
+            self.available
+        }
+
+        fn push_clip(&mut self, rect: Rect) {
+            self.clips.push(rect);
+        }
+
+        fn pop_clip(&mut self) {
+            let _ = self.clips.pop();
+        }
+
+        fn measure_text(&self, text: &str, size: f32, _mono: bool) -> Vec2 {
+            Vec2::new(text.chars().count() as f32 * size * 0.5, size)
+        }
+
+        fn paint(&mut self, cmd: PaintCmd) {
+            self.paints.push(cmd);
+        }
+    }
+
+    #[test]
+    fn backend_contract_allocates_and_records_paint_without_egui() {
+        let mut backend = RecordingBackend::default();
+        let area = Rect::from_min_size(Pos2::new(10.0, 20.0), Vec2::new(100.0, 80.0));
+        backend.begin_area(
+            AreaHost::new(Id::new("area"), area.min, Layer::Background),
+            area,
+        );
+
+        let response = backend.allocate(Vec2::new(12.0, 8.0), Sense::ClickAndDrag);
+        assert_eq!(
+            response.rect,
+            Rect::from_min_size(area.min, Vec2::new(12.0, 8.0))
+        );
+
+        let space = backend.reserve_space(Vec2::new(24.0, 16.0));
+        assert_eq!(space, Rect::from_min_size(area.min, Vec2::new(24.0, 16.0)));
+
+        let reserved = backend.reserve_rect(
+            Rect::from_min_size(Pos2::new(20.0, 30.0), Vec2::new(40.0, 50.0)),
+            Sense::Hover,
+        );
+        assert_eq!(
+            reserved.rect,
+            Rect::from_min_size(Pos2::new(20.0, 30.0), Vec2::new(40.0, 50.0))
+        );
+
+        backend.paint(PaintCmd::Line {
+            a: response.rect.min,
+            b: response.rect.max,
+            stroke: Stroke::new(1.0, Color32::WHITE),
+        });
+
+        assert_eq!(backend.paints.len(), 1);
+    }
+
+    #[test]
+    fn area_host_carries_backend_neutral_identity_position_and_layer() {
+        let host = AreaHost::new(Id::new("palette"), Pos2::new(10.0, 20.0), Layer::Overlay);
+
+        assert_eq!(host.id, Id::new("palette"));
+        assert_eq!(host.pos, Pos2::new(10.0, 20.0));
+        assert_eq!(host.layer, Layer::Overlay);
+        assert!(host.interactable);
+
+        let passive = host.non_interactive();
+        assert!(!passive.interactable);
+    }
+
+    #[test]
+    fn area_slot_spec_keeps_host_and_size_in_mara_data() {
+        let host = AreaHost::new(Id::new("slot"), Pos2::new(12.0, 34.0), Layer::Foreground)
+            .non_interactive();
+        let spec = AreaSlotSpec::new(host, Vec2::new(56.0, 78.0));
+
+        assert_eq!(spec.host, host);
+        assert_eq!(spec.size, Vec2::new(56.0, 78.0));
+    }
+
+    #[test]
+    fn canvas_specs_carry_backend_neutral_canvas_policy() {
+        let slot = CanvasSlotSpec::new(Vec2::new(320.0, 180.0), Sense::ClickAndDrag);
+        assert_eq!(slot.size, Vec2::new(320.0, 180.0));
+        assert_eq!(slot.sense, Sense::ClickAndDrag);
+
+        let rect = Rect::from_min_size(Pos2::new(4.0, 8.0), Vec2::new(64.0, 32.0));
+        let absolute = CanvasRectSpec::new(Id::new("canvas-at"), rect, Sense::Drag);
+        assert_eq!(absolute.id, Id::new("canvas-at"));
+        assert_eq!(absolute.rect, rect);
+        assert_eq!(absolute.sense, Sense::Drag);
+    }
+
+    #[test]
+    fn paint_surface_spec_carries_backend_neutral_painter_policy() {
+        assert_eq!(
+            PaintSurfaceSpec::remaining_available().region,
+            PaintSurfaceRegion::RemainingAvailable
+        );
+
+        let rect = Rect::from_min_size(Pos2::new(8.0, 12.0), Vec2::new(80.0, 24.0));
+        assert_eq!(
+            PaintSurfaceSpec::clipped(rect).region,
+            PaintSurfaceRegion::ClipRect(rect)
+        );
+    }
+
+    #[test]
+    fn scroll_region_carries_backend_neutral_scroll_host_policy() {
+        let region = ScrollRegion::new(Id::new("palette-list"), [false, true], 320.0, 1.0);
+
+        assert_eq!(region.id, Id::new("palette-list"));
+        assert_eq!(region.axis, ScrollAxis::Vertical);
+        assert_eq!(region.auto_shrink, [false, true]);
+        assert_eq!(region.max_extent, 320.0);
+        assert_eq!(region.item_spacing, Vec2::new(0.0, 1.0));
+
+        let horizontal =
+            ScrollRegion::horizontal(Id::new("shelf-row"), [false, false], 512.0, Vec2::ZERO);
+        assert_eq!(horizontal.axis, ScrollAxis::Horizontal);
+        assert_eq!(horizontal.max_extent, 512.0);
+    }
+
+    #[test]
+    fn child_region_carries_backend_neutral_child_layout_policy() {
+        let rect = Rect::from_min_size(Pos2::new(4.0, 5.0), Vec2::new(100.0, 40.0));
+
+        let row = ChildRegion::left_to_right(rect, StackAlign::Min);
+        assert_eq!(row.rect, rect);
+        assert_eq!(row.direction, StackDirection::LeftToRight);
+        assert_eq!(row.align, StackAlign::Min);
+
+        let centered_column = ChildRegion::top_down(rect, StackAlign::Center);
+        assert_eq!(centered_column.direction, StackDirection::TopDown);
+        assert_eq!(centered_column.align, StackAlign::Center);
+    }
+
+    #[test]
+    fn stack_scope_spec_carries_backend_neutral_scope_direction() {
+        assert_eq!(
+            StackScopeSpec::horizontal().direction,
+            StackDirection::LeftToRight
+        );
+        assert_eq!(
+            StackScopeSpec::vertical().direction,
+            StackDirection::TopDown
+        );
+    }
+
+    #[test]
+    fn container_body_spec_carries_backend_neutral_body_layout_policy() {
+        let spec = ContainerBodySpec::new(false, 240.0, Some(512.0), 8.0);
+
+        assert!(!spec.horizontal_strip);
+        assert_eq!(spec.span_inner, 240.0);
+        assert_eq!(spec.max_flow, Some(512.0));
+        assert_eq!(spec.end_pad, 8.0);
+    }
+
+    #[test]
+    fn pane_flex_spec_derives_title_size_without_backend_types() {
+        let horizontal = PaneFlexSpec::new(true, 300.0, 25.0, 6.0);
+        let vertical = PaneFlexSpec::new(false, 300.0, 25.0, 6.0);
+
+        assert_eq!(horizontal.title_size(), Vec2::new(300.0, 25.0));
+        assert_eq!(vertical.title_size(), Vec2::new(25.0, 300.0));
+        assert_eq!(horizontal.body_gap, 6.0);
+    }
+
+    #[test]
+    fn pane_body_scroll_spec_maps_strip_orientation_to_flow_axis() {
+        let vertical = PaneBodyScrollSpec::new(Id::new("pane"), true, 280.0);
+        let horizontal = PaneBodyScrollSpec::new(Id::new("pane"), false, 280.0);
+
+        assert_eq!(vertical.axis, PaneBodyScrollAxis::FlowVertical);
+        assert_eq!(horizontal.axis, PaneBodyScrollAxis::FlowHorizontal);
+        assert!(vertical.horizontal_strip());
+        assert!(!horizontal.horizontal_strip());
+    }
+
+    #[test]
+    fn slot_ribbon_layout_spec_derives_rail_size_and_item_rects() {
+        let vertical = SlotRibbonLayoutSpec::new(
+            Id::new("slot-ribbon"),
+            Pos2::new(4.0, 8.0),
+            true,
+            3,
+            34.0,
+            4.0,
+        );
+
+        assert_eq!(vertical.size, Vec2::new(34.0, 110.0));
+        assert_eq!(
+            vertical.item_rect(1),
+            Some(Rect::from_min_size(
+                Pos2::new(0.0, 38.0),
+                Vec2::new(34.0, 34.0)
+            ))
+        );
+        assert_eq!(vertical.item_rect(3), None);
+
+        let horizontal = SlotRibbonLayoutSpec::new(
+            Id::new("slot-ribbon"),
+            Pos2::new(4.0, 8.0),
+            false,
+            2,
+            34.0,
+            4.0,
+        );
+        assert_eq!(horizontal.size, Vec2::new(72.0, 34.0));
+        assert_eq!(
+            horizontal.item_rect(1),
+            Some(Rect::from_min_size(
+                Pos2::new(38.0, 0.0),
+                Vec2::new(34.0, 34.0)
+            ))
+        );
+    }
+
+    #[test]
+    fn item_spacing_spec_carries_backend_neutral_stack_spacing_policy() {
+        let spec = ItemSpacingSpec::new(Vec2::new(2.0, 3.0));
+
+        assert_eq!(spec.item_spacing, Vec2::new(2.0, 3.0));
+        assert_eq!(ItemSpacingSpec::zero().item_spacing, Vec2::ZERO);
+    }
+
+    #[test]
+    fn popup_spec_carries_backend_neutral_popup_policy() {
+        let spec = PopupSpec::new(PopupAlign::BottomStart, 2.0, 240.0, 2);
+
+        assert_eq!(spec.align, PopupAlign::BottomStart);
+        assert_eq!(spec.gap, 2.0);
+        assert_eq!(spec.width, 240.0);
+        assert_eq!(spec.inner_margin, 2);
+    }
+
+    #[test]
+    fn popup_trigger_carries_backend_neutral_response_and_popup_ids() {
+        let trigger = PopupTrigger::new(Id::new("response"), Id::new("popup"));
+
+        assert_eq!(trigger.response_id, Id::new("response"));
+        assert_eq!(trigger.popup_id, Id::new("popup"));
+    }
+
+    #[test]
+    fn popup_list_spec_carries_backend_neutral_list_spacing() {
+        let spec = PopupListSpec::new(Vec2::new(0.0, 1.0));
+
+        assert_eq!(spec.item_spacing, Vec2::new(0.0, 1.0));
+    }
+
+    #[test]
+    fn cursor_icon_is_backend_neutral_policy() {
+        assert_eq!(CursorIcon::ResizeVertical, CursorIcon::ResizeVertical);
+        assert_ne!(CursorIcon::ResizeVertical, CursorIcon::ResizeHorizontal);
+    }
+
+    #[test]
+    fn text_edit_region_carries_backend_neutral_field_geometry() {
+        let rect = Rect::from_min_size(Pos2::new(10.0, 20.0), Vec2::new(200.0, 24.0));
+        let text_rect = Rect::from_min_size(Pos2::new(18.0, 20.0), Vec2::new(184.0, 24.0));
+
+        let region = TextEditRegion::new(rect, text_rect, 13.0);
+
+        assert_eq!(region.rect, rect);
+        assert_eq!(region.text_rect, text_rect);
+        assert_eq!(region.font_size, 13.0);
+        assert_eq!(region.desired_width(), 184.0);
+    }
+
+    #[test]
+    fn text_edit_spec_carries_backend_neutral_singleline_policy() {
+        let rect = Rect::from_min_size(Pos2::new(10.0, 20.0), Vec2::new(200.0, 24.0));
+        let text_rect = Rect::from_min_size(Pos2::new(18.0, 20.0), Vec2::new(184.0, 24.0));
+        let region = TextEditRegion::new(rect, text_rect, 13.0);
+
+        let spec = TextEditSpec::singleline(
+            region,
+            "Type a command…",
+            Color32::WHITE,
+            Color32::from_black_alpha(160),
+        );
+
+        assert_eq!(spec.region, region);
+        assert_eq!(spec.hint, "Type a command…");
+        assert_eq!(spec.text_color, Color32::WHITE);
+        assert_eq!(spec.hint_color, Color32::from_black_alpha(160));
+        assert_eq!(spec.background_color, Color32::TRANSPARENT);
+        assert!(!spec.frame);
+    }
+
+    #[test]
+    fn text_measure_spec_carries_backend_neutral_font_policy() {
+        let spec = TextMeasureSpec::new("Road 42", 11.0, false);
+        assert_eq!(spec.text, "Road 42");
+        assert_eq!(spec.size, 11.0);
+        assert!(!spec.mono);
+    }
+
+    #[test]
+    fn inline_picker_spec_carries_backend_neutral_picker_host_policy() {
+        let spec = InlinePickerSpec::new(240.0, 28.0);
+
+        assert_eq!(spec.slider_width, 240.0);
+        assert_eq!(spec.clip_expand, 28.0);
+    }
+
+    #[test]
+    fn color_picker_alpha_is_backend_neutral_policy() {
+        assert_eq!(ColorPickerAlpha::Opaque, ColorPickerAlpha::Opaque);
+        assert_ne!(ColorPickerAlpha::Opaque, ColorPickerAlpha::OnlyBlend);
+    }
+}

@@ -60,13 +60,6 @@ pub struct CreationContext<'a> {
 }
 
 impl CreationContext<'_> {
-    /// The raw `egui::Context`. Raw-egui escape hatch.
-    #[cfg(feature = "raw-egui")]
-    #[must_use]
-    pub fn egui_ctx(&self) -> &egui::Context {
-        self.egui_ctx
-    }
-
     /// Internal first-party accessor — NOT part of the public API
     /// and not semver-stable.
     #[doc(hidden)]
@@ -101,9 +94,6 @@ pub trait WindowApp: Sized + 'static {
 pub struct AppRunner {
     options: NativeOptions,
 }
-
-/// Backwards-friendly alias for the window-owning runner.
-pub type App = AppRunner;
 
 impl AppRunner {
     pub fn new() -> Self {
@@ -303,10 +293,10 @@ impl<A: WindowApp> NativeWinitApp<A> {
             return false;
         };
         let size = window.inner_size();
-        let window_size = egui::vec2(size.width as f32, size.height as f32);
+        let window_size = mara_core::vocab::vec2(size.width as f32, size.height as f32);
         let Some(hit) = mara_core::hit_test_window_chrome_regions(
             &self.last_chrome_regions,
-            pos,
+            pos.into(),
             window_size,
             mara_core::style::theme().window_chrome,
         ) else {
@@ -391,7 +381,8 @@ impl<A: WindowApp> NativeWinitApp<A> {
             }
         });
 
-        self.last_chrome_regions = mara_core::window_chrome_regions(&self.egui_ctx);
+        self.last_chrome_regions =
+            mara_core::window_chrome::__internal_window_chrome_regions(&self.egui_ctx);
 
         let egui::FullOutput {
             platform_output,

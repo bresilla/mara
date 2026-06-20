@@ -325,7 +325,7 @@ fn pick_cube(
         }
     }
     if let Some((_, entity, color)) = best {
-        picked.0 = Some(color);
+        picked.0 = Some(color.into());
         selected.0 = Some(entity);
     }
 }

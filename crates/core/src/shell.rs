@@ -15,14 +15,13 @@
 //! shelf presence. A browser or android host advertises nothing, so the
 //! same bar simply drops those buttons.
 
-use egui::Color32;
-
 use crate::ribbon::{
-    ResolvedSlotRibbon, RibbonAction, RibbonCluster, RibbonDrag, RibbonEdge, RibbonMode,
-    RibbonOpen, RibbonPlacement, RibbonRole, RibbonScope, RibbonSlotItem, app_menu_command_id,
-    bottom_shelf_command_id, draw_slot_ribbons_featureful, left_shelf_command_id,
+    __internal_draw_slot_ribbons_featureful_egui, ResolvedSlotRibbon, RibbonAction, RibbonCluster,
+    RibbonDrag, RibbonEdge, RibbonMode, RibbonOpen, RibbonPlacement, RibbonRole, RibbonScope,
+    RibbonSlotItem, app_menu_command_id, bottom_shelf_command_id, left_shelf_command_id,
     right_shelf_command_id,
 };
+use crate::vocab::Id as MaraId;
 
 const TOP_BAR_CHROME_ID: &str = "mara.shell.topbar";
 const APP_MENU_ITEM_ID: &str = "system.app_menu.item";
@@ -126,8 +125,8 @@ impl ShellBar {
         let accent = crate::style::active_accent();
         let view_ids: Vec<&'static str> = self.views.iter().map(|v| v.id).collect();
 
-        let ribbon = self.build_ribbon(accent);
-        let clicks = draw_slot_ribbons_featureful(
+        let ribbon = self.build_ribbon();
+        let clicks = __internal_draw_slot_ribbons_featureful_egui(
             ctx,
             accent,
             std::slice::from_ref(&ribbon),
@@ -163,7 +162,7 @@ impl ShellBar {
         events
     }
 
-    fn build_ribbon(&self, _accent: Color32) -> ResolvedSlotRibbon {
+    fn build_ribbon(&self) -> ResolvedSlotRibbon {
         // Left cluster: app-menu, then the view switcher. Window
         // controls (maximize/close) and shelf toggles are injected by
         // the slot renderer from the published host capabilities +
@@ -201,7 +200,7 @@ impl ShellBar {
         // so the slot renderer has a top permanent Start-cluster ribbon
         // to attach the injected window controls / shelf toggles to.
         ResolvedSlotRibbon {
-            id: egui::Id::new(TOP_BAR_CHROME_ID),
+            id: MaraId::new(TOP_BAR_CHROME_ID),
             chrome_id: Some(TOP_BAR_CHROME_ID),
             scope: RibbonScope::Permanent,
             edge: RibbonEdge::Top,
@@ -216,8 +215,8 @@ impl ShellBar {
 
 /// The `RibbonAction::Command` id carried by a view-switcher button.
 #[must_use]
-fn view_command_id(view_id: &'static str) -> egui::Id {
-    egui::Id::new(("mara.topbar.view", view_id))
+fn view_command_id(view_id: &'static str) -> MaraId {
+    MaraId::new(("mara.topbar.view", view_id))
 }
 
 #[cfg(test)]

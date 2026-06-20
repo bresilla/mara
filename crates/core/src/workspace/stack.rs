@@ -1,6 +1,5 @@
-use egui::Id;
-
 use super::{WorkspaceLevelState, WorkspaceOwner, WorkspacePolicy};
+use crate::vocab::Id as MaraId;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum WorkspaceStackError {
@@ -16,13 +15,13 @@ pub struct WorkspaceStack {
 
 impl Default for WorkspaceStack {
     fn default() -> Self {
-        Self::new(Id::new("mara_root_workspace"))
+        Self::new(MaraId::new("mara_root_workspace"))
     }
 }
 
 impl WorkspaceStack {
     #[must_use]
-    pub fn new(root_id: impl Into<Id>) -> Self {
+    pub fn new(root_id: impl Into<MaraId>) -> Self {
         Self {
             levels: vec![WorkspaceLevelState::root(root_id)],
         }
@@ -56,13 +55,14 @@ impl WorkspaceStack {
         matches!(self.current().owner, WorkspaceOwner::Root)
     }
 
-    pub fn push_module(&mut self, module_id: Id) -> WorkspaceLevelState {
+    pub fn push_module(&mut self, module_id: impl Into<MaraId>) -> WorkspaceLevelState {
         assert!(
             self.levels.len() <= u8::MAX as usize,
             "workspace stack depth cannot exceed L255"
         );
+        let module_id = module_id.into();
         let depth = self.levels.len().min(u8::MAX as usize) as u8;
-        let level_id = Id::new(("mara_module_workspace", module_id, depth));
+        let level_id = MaraId::new(("mara_module_workspace", module_id, depth));
         let level = WorkspaceLevelState::module(level_id, depth, module_id);
         self.levels.push(level);
         level

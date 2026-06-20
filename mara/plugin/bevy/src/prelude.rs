@@ -16,8 +16,8 @@ pub use mara_core::*;
 pub use crate::{
     BevyEmbeddedView, BevyViewportAppConfigure, BevyViewportBridge, BevyViewportInput,
     BevyViewportPickedColor, BevyViewportRenderTarget, BevyViewportSet, BevyViewportTexture,
-    BevyViewportWgpuResources, CapturedBevyFrame, EguiInputAbsorbPlugin, EmbeddedBevyViewport,
-    MaraBevyViewport, MaraPlugin, MaraShellPlugin, RibbonGhostSet, RibbonPlugin, ThemePlugin,
+    BevyViewportWgpuResources, CapturedBevyFrame, EguiInputAbsorbPlugin, MaraBevyViewport,
+    MaraPlugin, MaraShellPlugin, RibbonGhostSet, RibbonPlugin, ThemePlugin,
     gizmo_material::GizmoMaterial,
     make_viewport_render_target,
     node_view_backend::{

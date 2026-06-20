@@ -66,15 +66,20 @@ use crate::style::{
 /// GAME Light surface palette — bright accent-tinted surfaces, dark
 /// text. Text colours flow through the shared `TEXT_*_LIGHT`
 /// constants, not per-theme overrides.
-pub const GAME_LIGHT_BG_WINDOW: egui::Color32 = egui::Color32::from_rgb(0xF0, 0xF1, 0xF5);
-pub const GAME_LIGHT_BG_PANEL: egui::Color32 = egui::Color32::from_rgb(0xFA, 0xFB, 0xFD);
+pub(crate) const GAME_LIGHT_BG_WINDOW: crate::vocab::Color32 =
+    crate::vocab::Color32::from_rgb(0xF0, 0xF1, 0xF5);
+pub(crate) const GAME_LIGHT_BG_PANEL: crate::vocab::Color32 =
+    crate::vocab::Color32::from_rgb(0xFA, 0xFB, 0xFD);
 // Raised + input tightened (same reasoning as PRO Light). Raised
 // flipped from `FFFFFF` (which was actually *brighter* than the
 // panel — wrong direction for a Light theme) to a tone visibly
 // darker than the panel. Input also pulled away from the panel.
-pub const GAME_LIGHT_BG_RAISED: egui::Color32 = egui::Color32::from_rgb(0xF1, 0xF3, 0xF7);
-pub const GAME_LIGHT_BG_HOVER: egui::Color32 = egui::Color32::from_rgb(0xE6, 0xE8, 0xEE);
-pub const GAME_LIGHT_BG_INPUT: egui::Color32 = egui::Color32::from_rgb(0xEE, 0xF0, 0xF5);
+pub(crate) const GAME_LIGHT_BG_RAISED: crate::vocab::Color32 =
+    crate::vocab::Color32::from_rgb(0xF1, 0xF3, 0xF7);
+pub(crate) const GAME_LIGHT_BG_HOVER: crate::vocab::Color32 =
+    crate::vocab::Color32::from_rgb(0xE6, 0xE8, 0xEE);
+pub(crate) const GAME_LIGHT_BG_INPUT: crate::vocab::Color32 =
+    crate::vocab::Color32::from_rgb(0xEE, 0xF0, 0xF5);
 
 /// Built-in GAME profile — square corners, accent-tinted panels,
 /// bracket-decorated titles on a solid accent banner, dashed row
@@ -82,7 +87,7 @@ pub const GAME_LIGHT_BG_INPUT: egui::Color32 = egui::Color32::from_rgb(0xEE, 0xF
 /// whole brightness axis: Dark lerps surfaces toward black for the
 /// deep tactical look, Light lerps toward white for a paper /
 /// accent-stained variant.
-pub const fn theme_game(mode: Mode) -> Theme {
+pub fn theme_game(mode: Mode) -> Theme {
     let dark = matches!(mode, Mode::Dark);
     let lerp_target = if dark {
         egui::Color32::BLACK
@@ -101,43 +106,46 @@ pub const fn theme_game(mode: Mode) -> Theme {
             bg_window: if dark {
                 egui::Color32::from_rgb(0x08, 0x0A, 0x12)
             } else {
-                GAME_LIGHT_BG_WINDOW
+                GAME_LIGHT_BG_WINDOW.into()
             },
             bg_panel: if dark {
                 egui::Color32::from_rgb(0x10, 0x14, 0x1F)
             } else {
-                GAME_LIGHT_BG_PANEL
+                GAME_LIGHT_BG_PANEL.into()
             },
             bg_raised: if dark {
                 egui::Color32::from_rgb(0x16, 0x1B, 0x29)
             } else {
-                GAME_LIGHT_BG_RAISED
+                GAME_LIGHT_BG_RAISED.into()
             },
             bg_hover: if dark {
                 egui::Color32::from_rgb(0x1F, 0x26, 0x38)
             } else {
-                GAME_LIGHT_BG_HOVER
+                GAME_LIGHT_BG_HOVER.into()
             },
             bg_input: if dark {
                 egui::Color32::from_rgb(0x06, 0x08, 0x0E)
             } else {
-                GAME_LIGHT_BG_INPUT
+                GAME_LIGHT_BG_INPUT.into()
             },
-            text_primary: if dark {
+            text_primary: (if dark {
                 TEXT_PRIMARY
             } else {
                 TEXT_PRIMARY_LIGHT
-            },
-            text_secondary: if dark {
+            })
+            .into(),
+            text_secondary: (if dark {
                 TEXT_SECONDARY
             } else {
                 TEXT_SECONDARY_LIGHT
-            },
-            text_disabled: if dark {
+            })
+            .into(),
+            text_disabled: (if dark {
                 TEXT_DISABLED
             } else {
                 TEXT_DISABLED_LIGHT
-            },
+            })
+            .into(),
             border_subtle: if dark {
                 egui::Color32::from_rgb(0x80, 0x80, 0x80)
             } else {
@@ -195,11 +203,11 @@ pub const fn theme_game(mode: Mode) -> Theme {
             line_height_factor: 1.2,
             min_rows: 6,
             force_dark: true,
-            functions: AXIS_Y,
-            literals: AXIS_X,
-            numerics: AXIS_X,
-            strings: SUCCESS,
-            types: AXIS_Z,
+            functions: AXIS_Y.into(),
+            literals: AXIS_X.into(),
+            numerics: AXIS_X.into(),
+            strings: SUCCESS.into(),
+            types: AXIS_Z.into(),
         },
         overlay: OverlayTheme {
             inline_chip_size: 24.0,
@@ -230,27 +238,27 @@ pub const fn theme_game(mode: Mode) -> Theme {
         bg_window: if dark {
             egui::Color32::from_rgb(0x08, 0x0A, 0x12)
         } else {
-            GAME_LIGHT_BG_WINDOW
+            GAME_LIGHT_BG_WINDOW.into()
         },
         bg_panel: if dark {
             egui::Color32::from_rgb(0x10, 0x14, 0x1F)
         } else {
-            GAME_LIGHT_BG_PANEL
+            GAME_LIGHT_BG_PANEL.into()
         },
         bg_raised: if dark {
             egui::Color32::from_rgb(0x16, 0x1B, 0x29)
         } else {
-            GAME_LIGHT_BG_RAISED
+            GAME_LIGHT_BG_RAISED.into()
         },
         bg_hover: if dark {
             egui::Color32::from_rgb(0x1F, 0x26, 0x38)
         } else {
-            GAME_LIGHT_BG_HOVER
+            GAME_LIGHT_BG_HOVER.into()
         },
         bg_input: if dark {
             egui::Color32::from_rgb(0x06, 0x08, 0x0E)
         } else {
-            GAME_LIGHT_BG_INPUT
+            GAME_LIGHT_BG_INPUT.into()
         },
         panel_fill_mode: ColorMode::FromAccent {
             lerp_factor,
@@ -274,21 +282,24 @@ pub const fn theme_game(mode: Mode) -> Theme {
         animations_enabled: true,
         button_anim_scale: 2.0,
         pane_fade_scale: 1.0,
-        text_primary: if dark {
+        text_primary: (if dark {
             TEXT_PRIMARY
         } else {
             TEXT_PRIMARY_LIGHT
-        },
-        text_secondary: if dark {
+        })
+        .into(),
+        text_secondary: (if dark {
             TEXT_SECONDARY
         } else {
             TEXT_SECONDARY_LIGHT
-        },
-        text_disabled: if dark {
+        })
+        .into(),
+        text_disabled: (if dark {
             TEXT_DISABLED
         } else {
             TEXT_DISABLED_LIGHT
-        },
+        })
+        .into(),
         title_color_mode: TextColorMode::Accent,
         title_softness: 0.0,
         ribbon_button_accent_fill: true,

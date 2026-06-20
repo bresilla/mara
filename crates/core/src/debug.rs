@@ -39,6 +39,8 @@
 //! corner. Painting goes through `ctx.debug_painter()` so the
 //! overlay sits ABOVE every clip rect — no clipping, no z-fighting.
 
+#![allow(dead_code)]
+
 use egui::{Color32, FontId, Id, Rect, Stroke, StrokeKind, Ui};
 
 const ENABLED_KEY: &str = "mara_debug_inspector_enabled";

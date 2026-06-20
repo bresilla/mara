@@ -24,9 +24,16 @@
 
 use std::hash::Hash;
 
-use crate::style::{
-    FillRole, FrameRole, RadiusRole, StrokeRole, fill_for, frame_for, glass_alpha_card, on_section,
-    on_track, on_track_dim, radius_for, stroke_for, surface_lift_target, theme,
+use crate::{
+    layout::{PopupAlign, PopupListSpec, PopupSpec, PopupTrigger, Sense, UiBackend},
+    mui::MaraResponse,
+    paint::PaintCmd,
+    style::{
+        FillRole, FrameRole, RadiusRole, StrokeRole, fill_for, frame_for, glass_alpha_card,
+        on_section, on_track, on_track_dim, radius_for, row_hover_fill, row_selected_fill,
+        stroke_for, surface_lift_target, theme,
+    },
+    vocab::{Align2, Color32, Id, Pos2, Rect, Stroke, Vec2},
 };
 
 /// Default trigger height — the canonical 1U row used elsewhere in
@@ -37,13 +44,14 @@ pub const DROPDOWN_ROW_H: f32 = crate::style::UNIT;
 /// `id_salt` disambiguates this dropdown's popup id from siblings in
 /// the same `Ui` (a string, an enum value, an index — anything
 /// hashable).
-pub fn dropdown(
+pub(crate) fn dropdown(
     ui: &mut egui::Ui,
     id_salt: impl Hash,
     selected: &mut usize,
     options: &[&str],
-    accent: egui::Color32,
-) -> egui::Response {
+    accent: impl Into<Color32>,
+) -> MaraResponse {
+    let accent = accent.into();
     dropdown_h(
         ui,
         id_salt,
@@ -55,179 +63,387 @@ pub fn dropdown(
 }
 
 /// Variable-height variant. Used by resizable pods.
-pub fn dropdown_h(
+pub(crate) fn dropdown_h(
     ui: &mut egui::Ui,
     id_salt: impl Hash,
     selected: &mut usize,
     options: &[&str],
-    accent: egui::Color32,
+    accent: impl Into<Color32>,
     height: f32,
-) -> egui::Response {
-    let w = ui.available_width();
-    let (rect, mut resp) = ui.allocate_exact_size(egui::vec2(w, height), egui::Sense::click());
-
-    if ui.is_rect_visible(rect) {
-        let th = theme();
-        let dropdown = th.widgets.dropdown;
-        let tint = if resp.is_pointer_button_down_on() {
-            dropdown.tint_press
-        } else if resp.hovered() {
-            dropdown.tint_hover
-        } else {
-            dropdown.tint_rest
-        };
-        let solid = lerp_col(
-            fill_for(FillRole::Track, accent),
-            surface_lift_target(accent),
-            tint,
-        );
-        let bg = egui::Color32::from_rgba_unmultiplied(
-            solid.r(),
-            solid.g(),
-            solid.b(),
-            glass_alpha_card(),
-        );
-        let border = if resp.hovered() {
-            egui::Stroke::new(th.stroke.border_width, accent)
-        } else {
-            stroke_for(StrokeRole::WidgetBorder, accent)
-        };
-        ui.painter().rect(
-            rect,
-            radius_for(RadiusRole::Widget),
-            bg,
-            border,
-            egui::epaint::StrokeKind::Inside,
-        );
-        // Selected text — truncated so long option labels don't
-        // overflow the trigger.
-        let text_rect = egui::Rect::from_min_max(
-            egui::pos2(rect.min.x + dropdown.pad_x, rect.min.y),
-            egui::pos2(rect.max.x - dropdown.chevron_w - dropdown.pad_x, rect.max.y),
-        );
-        let display = options.get(*selected).copied().unwrap_or("—");
-        let text_col = on_track();
-        let galley = {
-            let mut job = egui::text::LayoutJob::single_section(
-                display.to_string(),
-                egui::TextFormat::simple(egui::FontId::proportional(dropdown.text_font), text_col),
-            );
-            job.wrap.max_width = text_rect.width().max(0.0);
-            job.wrap.max_rows = 1;
-            job.wrap.break_anywhere = true;
-            job.halign = egui::Align::LEFT;
-            ui.painter().layout_job(job)
-        };
-        ui.painter().galley(
-            egui::pos2(
-                text_rect.min.x,
-                text_rect.center().y - galley.size().y * 0.5,
-            ),
-            galley,
-            text_col,
-        );
-        // Chevron — right-aligned, accent on hover.
-        let cx = rect.max.x - dropdown.pad_x - dropdown.chevron_w * 0.5;
-        let cy = rect.center().y;
-        let chev_color = if resp.hovered() {
-            accent
-        } else {
-            on_track_dim()
-        };
-        // `paint_icon` no-ops silently when the iconflow fonts haven't
-        // been installed yet (very first frame before
-        // `apply_theme_system` has run); a fallback chevron from the
-        // proportional font keeps the trigger readable in that one-frame
-        // window. After the fonts are ready, both paint — the bundled
-        // glyph sits over the fallback, which is fine since they
-        // occupy the same cell.
-        ui.painter().text(
-            egui::pos2(cx, cy),
-            egui::Align2::CENTER_CENTER,
-            "▾",
-            egui::FontId::proportional(dropdown.icon_size),
-            chev_color,
-        );
-        crate::icons::paint_icon(
-            ui.painter(),
-            egui::pos2(cx, cy),
-            egui::Align2::CENTER_CENTER,
-            "chevron_down",
-            dropdown.icon_size,
-            chev_color,
-        );
-    }
-    resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand);
+) -> MaraResponse {
+    let accent = accent.into();
+    let display = options.get(*selected).copied().unwrap_or("—");
+    let mut resp = {
+        let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
+        dropdown_trigger_backend(&mut backend, display, accent, height)
+    };
 
     // Stable id for the popup so its open-state survives across
     // frames. `id_salt` disambiguates sibling dropdowns.
-    let trigger_id = ui.id().with(("mara_dropdown", &id_salt));
-    let resp_with_id = egui::Response {
-        id: trigger_id,
-        ..resp.clone()
+    let popup_id = crate::backend::egui::ui_id(ui).with(("mara_dropdown", &id_salt));
+    let trigger = dropdown_popup_trigger(resp.backend_response_id(), popup_id);
+    let Some(resp_with_id) = crate::backend::egui::popup_toggle_response_for_ui(ui, trigger) else {
+        return resp;
     };
 
-    let popup = egui::Popup::from_toggle_button_response(&resp_with_id)
-        .align(egui::RectAlign::BOTTOM_START)
-        .gap(theme().widgets.dropdown.popup_gap)
-        .width(rect.width())
-        .frame(
-            frame_for(FrameRole::Popup, accent).inner_margin(egui::Margin::same(
-                theme().widgets.dropdown.popup_inner_margin,
-            )),
-        );
+    // Popup open-state is owned by Mara's `PopupState` through
+    // `MaraMemory`, not egui's internal popup memory. We toggle on the
+    // trigger click (the same condition egui used) and let egui apply
+    // its anchoring + click-outside/Escape dismissal into the bool.
+    let mut open = {
+        let memory = crate::backend::egui::memory_ctx_for_ui(ui);
+        crate::popup::PopupState::load(&memory, popup_id).is_open()
+    };
+    if resp.clicked() {
+        open = !open;
+    }
+
+    let popup_spec = dropdown_popup_spec(resp.rect.width());
 
     let mut changed = false;
-    if let Some(inner) = popup.show(|ui| {
-        let dropdown = theme().widgets.dropdown;
-        ui.spacing_mut().item_spacing = egui::vec2(0.0, dropdown.item_spacing_y);
-        for (idx, opt) in options.iter().enumerate() {
-            let is_selected = *selected == idx;
-            let (row_rect, row_resp) = ui.allocate_exact_size(
-                egui::vec2(ui.available_width(), dropdown.item_h),
-                egui::Sense::click(),
-            );
-            if ui.is_rect_visible(row_rect) {
-                let bg = if is_selected {
-                    Some(crate::style::row_selected_fill(accent))
-                } else if row_resp.hovered() {
-                    Some(crate::style::row_hover_fill(accent))
-                } else {
-                    None
+    if let Some(inner) = crate::backend::egui::show_popup_open_bool(
+        &resp_with_id,
+        &mut open,
+        popup_spec,
+        frame_for(FrameRole::Popup, accent),
+        |ui| {
+            crate::backend::egui::apply_popup_list_spec(ui, dropdown_popup_list_spec());
+            for (idx, opt) in options.iter().enumerate() {
+                let is_selected = *selected == idx;
+                let row_resp = {
+                    let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
+                    dropdown_popup_row_backend(&mut backend, opt, is_selected, accent)
                 };
-                if let Some(c) = bg {
-                    ui.painter()
-                        .rect_filled(row_rect, radius_for(RadiusRole::Compact), c);
-                }
-                ui.painter().text(
-                    egui::pos2(row_rect.min.x + dropdown.pad_x, row_rect.center().y),
-                    egui::Align2::LEFT_CENTER,
-                    opt,
-                    egui::FontId::proportional(dropdown.text_font),
-                    on_section(),
-                );
+                changed |= apply_dropdown_popup_pick(selected, idx, &row_resp);
             }
-            if row_resp.clicked() && *selected != idx {
-                *selected = idx;
-                changed = true;
-            }
-        }
-    }) {
+        },
+    ) {
         drop(inner);
     }
 
+    // Persist the (possibly egui-dismissed) open-state back into Mara
+    // memory for the next frame.
+    {
+        let mut memory = crate::backend::egui::memory_ctx_for_ui(ui);
+        crate::popup::PopupState::new(open).store(&mut memory, popup_id);
+    }
+
     if changed {
-        resp.mark_changed();
+        resp.changed = true;
     }
     resp
 }
 
-fn lerp_col(a: egui::Color32, b: egui::Color32, t: f32) -> egui::Color32 {
+fn dropdown_popup_spec(width: f32) -> PopupSpec {
+    let dropdown = theme().widgets.dropdown;
+    PopupSpec::new(
+        PopupAlign::BottomStart,
+        dropdown.popup_gap,
+        width,
+        dropdown.popup_inner_margin,
+    )
+}
+
+fn dropdown_popup_trigger(response_id: Id, popup_id: Id) -> PopupTrigger {
+    PopupTrigger::new(response_id, popup_id)
+}
+
+fn dropdown_popup_list_spec() -> PopupListSpec {
+    PopupListSpec::new(Vec2::new(0.0, theme().widgets.dropdown.item_spacing_y))
+}
+
+fn apply_dropdown_popup_pick(
+    selected: &mut usize,
+    idx: usize,
+    row_response: &MaraResponse,
+) -> bool {
+    if row_response.clicked() && *selected != idx {
+        *selected = idx;
+        true
+    } else {
+        false
+    }
+}
+
+pub fn dropdown_trigger_backend(
+    backend: &mut impl UiBackend,
+    display: &str,
+    accent: Color32,
+    height: f32,
+) -> MaraResponse {
+    let w = backend.available_rect().width().max(0.0);
+    let resp = backend.allocate(Vec2::new(w, height), Sense::Click);
+    paint_trigger_backend(backend, resp.rect, display, resp.hovered, accent);
+    resp
+}
+
+pub fn dropdown_popup_row_backend(
+    backend: &mut impl UiBackend,
+    label: &str,
+    selected: bool,
+    accent: Color32,
+) -> MaraResponse {
+    let dropdown = theme().widgets.dropdown;
+    let w = backend.available_rect().width().max(0.0);
+    let resp = backend.allocate(Vec2::new(w, dropdown.item_h), Sense::Click);
+    paint_popup_row_backend(backend, resp.rect, label, selected, resp.hovered, accent);
+    resp
+}
+
+fn paint_trigger_backend(
+    backend: &mut impl UiBackend,
+    rect: Rect,
+    display: &str,
+    hovered: bool,
+    accent: Color32,
+) {
+    let th = theme();
+    let dropdown = th.widgets.dropdown;
+    let tint = if hovered {
+        dropdown.tint_hover
+    } else {
+        dropdown.tint_rest
+    };
+    let solid = lerp_col(
+        fill_for(FillRole::Track, accent),
+        surface_lift_target(accent),
+        tint,
+    );
+    let bg = Color32::from_rgba_unmultiplied(solid.r(), solid.g(), solid.b(), glass_alpha_card());
+    let border = if hovered {
+        Stroke::new(th.stroke.border_width, accent)
+    } else {
+        stroke_for(StrokeRole::WidgetBorder, accent)
+    };
+    backend.paint(PaintCmd::RectFilled {
+        rect,
+        corner: radius_for(RadiusRole::Widget),
+        fill: bg,
+    });
+    backend.paint(PaintCmd::RectStroke {
+        rect,
+        corner: radius_for(RadiusRole::Widget),
+        stroke: border,
+    });
+
+    let text_rect = Rect::from_min_max(
+        Pos2::new(rect.min.x + dropdown.pad_x, rect.min.y),
+        Pos2::new(rect.max.x - dropdown.chevron_w - dropdown.pad_x, rect.max.y),
+    );
+    backend.push_clip(text_rect);
+    backend.paint(PaintCmd::Text {
+        pos: Pos2::new(text_rect.min.x, text_rect.center().y),
+        anchor: Align2::LEFT_CENTER,
+        text: display.to_owned(),
+        size: dropdown.text_font,
+        color: on_track(),
+        mono: false,
+    });
+    backend.pop_clip();
+
+    let chev_color = if hovered { accent } else { on_track_dim() };
+    backend.paint(PaintCmd::Text {
+        pos: Pos2::new(
+            rect.max.x - dropdown.pad_x - dropdown.chevron_w * 0.5,
+            rect.center().y,
+        ),
+        anchor: Align2::CENTER_CENTER,
+        text: "▾".to_owned(),
+        size: dropdown.icon_size,
+        color: chev_color,
+        mono: false,
+    });
+}
+
+fn paint_popup_row_backend(
+    backend: &mut impl UiBackend,
+    rect: Rect,
+    label: &str,
+    selected: bool,
+    hovered: bool,
+    accent: Color32,
+) {
+    let dropdown = theme().widgets.dropdown;
+    let bg = if selected {
+        Some(row_selected_fill(accent))
+    } else if hovered {
+        Some(row_hover_fill(accent))
+    } else {
+        None
+    };
+    if let Some(fill) = bg {
+        backend.paint(PaintCmd::RectFilled {
+            rect,
+            corner: radius_for(RadiusRole::Compact),
+            fill,
+        });
+    }
+    backend.paint(PaintCmd::Text {
+        pos: Pos2::new(rect.min.x + dropdown.pad_x, rect.center().y),
+        anchor: Align2::LEFT_CENTER,
+        text: label.to_owned(),
+        size: dropdown.text_font,
+        color: on_section(),
+        mono: false,
+    });
+}
+
+fn lerp_col(a: Color32, b: Color32, t: f32) -> Color32 {
     let t = t.clamp(0.0, 1.0);
     let blend = |x: u8, y: u8| ((x as f32) * (1.0 - t) + (y as f32) * t).round() as u8;
-    egui::Color32::from_rgb(
+    Color32::from_rgb(
         blend(a.r(), b.r()),
         blend(a.g(), b.g()),
         blend(a.b(), b.b()),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::vocab::Id;
+
+    #[derive(Default)]
+    struct RecordingBackend {
+        available: Rect,
+        paints: Vec<PaintCmd>,
+        clips: Vec<Rect>,
+        interaction: Option<MaraResponse>,
+    }
+
+    impl UiBackend for RecordingBackend {
+        fn begin_area(&mut self, _host: crate::layout::AreaHost, rect: Rect) {
+            self.available = rect;
+        }
+
+        fn allocate(&mut self, size: Vec2, _sense: Sense) -> MaraResponse {
+            self.interaction.clone().unwrap_or_else(|| {
+                MaraResponse::synthetic(Rect::from_min_size(self.available.min, size))
+            })
+        }
+
+        fn interact(&mut self, rect: Rect, _id: Id, _sense: Sense) -> MaraResponse {
+            self.interaction
+                .clone()
+                .unwrap_or_else(|| MaraResponse::synthetic(rect))
+        }
+
+        fn available_rect(&self) -> Rect {
+            self.available
+        }
+
+        fn push_clip(&mut self, rect: Rect) {
+            self.clips.push(rect);
+        }
+
+        fn pop_clip(&mut self) {}
+
+        fn measure_text(&self, text: &str, size: f32, _mono: bool) -> Vec2 {
+            Vec2::new(text.len() as f32 * size * 0.5, size)
+        }
+
+        fn paint(&mut self, cmd: PaintCmd) {
+            self.paints.push(cmd);
+        }
+    }
+
+    #[test]
+    fn dropdown_trigger_backend_emits_chrome_selected_text_and_chevron() {
+        let mut backend = RecordingBackend {
+            available: Rect::from_min_size(Pos2::ZERO, Vec2::new(220.0, DROPDOWN_ROW_H)),
+            paints: Vec::new(),
+            clips: Vec::new(),
+            interaction: None,
+        };
+
+        let response =
+            dropdown_trigger_backend(&mut backend, "Selected", Color32::WHITE, DROPDOWN_ROW_H);
+
+        assert_eq!(response.rect.width(), 220.0);
+        assert_eq!(backend.clips.len(), 1);
+        assert_eq!(backend.paints.len(), 4);
+        let [
+            PaintCmd::RectFilled { .. },
+            PaintCmd::RectStroke { .. },
+            PaintCmd::Text { text: selected, .. },
+            PaintCmd::Text { text: chevron, .. },
+        ] = backend.paints.as_slice()
+        else {
+            panic!("dropdown trigger should emit chrome, selected text, and chevron");
+        };
+        assert_eq!(selected, "Selected");
+        assert_eq!(chevron, "▾");
+    }
+
+    #[test]
+    fn dropdown_popup_row_backend_emits_selected_bg_and_label() {
+        let mut backend = RecordingBackend {
+            available: Rect::from_min_size(Pos2::ZERO, Vec2::new(220.0, DROPDOWN_ROW_H)),
+            paints: Vec::new(),
+            clips: Vec::new(),
+            interaction: None,
+        };
+
+        let response = dropdown_popup_row_backend(&mut backend, "Option A", true, Color32::WHITE);
+
+        assert_eq!(response.rect.width(), 220.0);
+        assert_eq!(backend.paints.len(), 2);
+        let [
+            PaintCmd::RectFilled { .. },
+            PaintCmd::Text { text: label, .. },
+        ] = backend.paints.as_slice()
+        else {
+            panic!("selected dropdown popup row should emit selected bg and label");
+        };
+        assert_eq!(label, "Option A");
+    }
+
+    #[test]
+    fn dropdown_popup_spec_backend_carries_anchor_policy() {
+        let spec = dropdown_popup_spec(220.0);
+
+        assert_eq!(spec.align, PopupAlign::BottomStart);
+        assert_eq!(spec.gap, theme().widgets.dropdown.popup_gap);
+        assert_eq!(spec.width, 220.0);
+        assert_eq!(
+            spec.inner_margin,
+            theme().widgets.dropdown.popup_inner_margin
+        );
+    }
+
+    #[test]
+    fn dropdown_popup_trigger_backend_carries_response_and_popup_ids() {
+        let trigger = dropdown_popup_trigger(Id::new("response"), Id::new("popup"));
+
+        assert_eq!(trigger.response_id, Id::new("response"));
+        assert_eq!(trigger.popup_id, Id::new("popup"));
+    }
+
+    #[test]
+    fn dropdown_popup_list_spec_backend_carries_row_spacing() {
+        let spec = dropdown_popup_list_spec();
+
+        assert_eq!(
+            spec.item_spacing,
+            Vec2::new(0.0, theme().widgets.dropdown.item_spacing_y)
+        );
+    }
+
+    #[test]
+    fn dropdown_popup_pick_backend_updates_selection_only_on_new_click() {
+        let mut selected = 0;
+        let mut clicked =
+            MaraResponse::synthetic(Rect::from_min_size(Pos2::ZERO, Vec2::new(10.0, 10.0)));
+        clicked.clicked = true;
+        let idle = MaraResponse::synthetic(Rect::from_min_size(Pos2::ZERO, Vec2::new(10.0, 10.0)));
+
+        assert!(apply_dropdown_popup_pick(&mut selected, 2, &clicked));
+        assert_eq!(selected, 2);
+
+        assert!(!apply_dropdown_popup_pick(&mut selected, 2, &clicked));
+        assert_eq!(selected, 2);
+
+        assert!(!apply_dropdown_popup_pick(&mut selected, 1, &idle));
+        assert_eq!(selected, 2);
+    }
 }

@@ -23,7 +23,7 @@ mod title;
 
 pub use body::{ContainerSpec, PaneBody};
 pub(crate) use body::{TabRoutingScope, render_containers_with_tab_scope};
-pub use dots::paint_container_dots;
+pub(crate) use dots::paint_container_dots;
 
 pub use anchor::{PaneAnchor, RailZone, TitleSide};
 #[cfg(test)]
@@ -37,9 +37,13 @@ pub use drag::{
 };
 pub(crate) use drag::{ghost_gap_suppressed, set_ghost_gap_suppressed, set_snapshot};
 
-use egui::{Color32, Id, Sense, vec2};
+use egui::{Color32, Id};
 
+use crate::layout::{AreaHost, Layer, PaneBodyScrollSpec, PaneFlexSpec, UiBackend};
 use crate::style;
+use crate::vocab::{
+    Color32 as MaraColor32, Id as MaraId, Pos2 as MaraPos2, Rect as MaraRect, Vec2 as MaraVec2,
+};
 
 // ─── Sizing constants ──────────────────────────────────────────────
 
@@ -98,7 +102,8 @@ const CONTAINER_TITLE_THICKNESS: f32 = 22.0;
 /// Compute the pane's animated openness 0..=1 for `pane_id`. Both
 /// `Pane` and `Normal` call this with the same id so they lerp in
 /// lockstep and the pane size is known in-frame (no anchor drift).
-pub fn body_openness(ctx: &egui::Context, pane_id: Id) -> f32 {
+pub(crate) fn body_openness(ctx: &egui::Context, pane_id: impl Into<MaraId>) -> f32 {
+    let pane_id: Id = pane_id.into().into();
     let open: bool =
         ctx.data_mut(|d| *d.get_persisted_mut_or_insert_with(pane_id.with("body_open"), || true));
     ctx.animate_bool_with_time(
@@ -114,7 +119,8 @@ pub fn body_openness(ctx: &egui::Context, pane_id: Id) -> f32 {
 /// (LEFT/RIGHT rails) interpret this as the pane WIDTH, horizontal
 /// -strip panes (TOP/BOTTOM rails) as the pane HEIGHT — the handle
 /// always grows the pane along its flow axis.
-pub fn user_flow(ctx: &egui::Context, pane_id: Id) -> f32 {
+pub(crate) fn user_flow(ctx: &egui::Context, pane_id: impl Into<MaraId>) -> f32 {
+    let pane_id: Id = pane_id.into().into();
     sanitize_user_extent(
         ctx.data_mut(|d| {
             d.get_persisted::<f32>(pane_id.with("mara_pane_user_body_main"))
@@ -128,7 +134,8 @@ pub fn user_flow(ctx: &egui::Context, pane_id: Id) -> f32 {
 
 /// Persist the user-set body main extent for `pane_id`. Clamped to
 /// [`MIN_USER_FLOW`] .. [`MAX_USER_FLOW`].
-pub fn set_user_flow(ctx: &egui::Context, pane_id: Id, value: f32) {
+pub(crate) fn set_user_flow(ctx: &egui::Context, pane_id: impl Into<MaraId>, value: f32) {
+    let pane_id: Id = pane_id.into().into();
     let clamped = sanitize_user_extent(value, DEFAULT_FLOW_OPEN, MIN_USER_FLOW, MAX_USER_FLOW);
     ctx.data_mut(|d| {
         d.insert_persisted(pane_id.with("mara_pane_user_body_main"), clamped);
@@ -139,7 +146,8 @@ pub fn set_user_flow(ctx: &egui::Context, pane_id: Id, value: f32) {
 /// Defaults to [`PANE_OUTER_SPAN`]. Only consulted when the caller
 /// enables `PaneResize::cross` on the builder; otherwise the pane
 /// keeps its baseline cross size.
-pub fn user_span(ctx: &egui::Context, pane_id: Id) -> f32 {
+pub(crate) fn user_span(ctx: &egui::Context, pane_id: impl Into<MaraId>) -> f32 {
+    let pane_id: Id = pane_id.into().into();
     sanitize_user_extent(
         ctx.data_mut(|d| {
             d.get_persisted::<f32>(pane_id.with("mara_pane_user_cross_main"))
@@ -153,7 +161,8 @@ pub fn user_span(ctx: &egui::Context, pane_id: Id) -> f32 {
 
 /// Persist the user-set CROSS extent for `pane_id`. Clamped to
 /// [`MIN_USER_SPAN`] .. [`MAX_USER_SPAN`].
-pub fn set_user_span(ctx: &egui::Context, pane_id: Id, value: f32) {
+pub(crate) fn set_user_span(ctx: &egui::Context, pane_id: impl Into<MaraId>, value: f32) {
+    let pane_id: Id = pane_id.into().into();
     let clamped = sanitize_user_extent(value, PANE_OUTER_SPAN, MIN_USER_SPAN, MAX_USER_SPAN);
     ctx.data_mut(|d| {
         d.insert_persisted(pane_id.with("mara_pane_user_cross_main"), clamped);
@@ -213,7 +222,7 @@ impl PaneResize {
 /// without needing the pane id wired through their constructors.
 /// Multiple panes' bodies run sequentially within a frame so the
 /// pointer is well-defined while any one body callback runs.
-pub fn active_pane_key() -> Id {
+pub(crate) fn active_pane_key() -> Id {
     Id::new("mara_active_pane_id")
 }
 
@@ -223,19 +232,29 @@ fn ribbon_pane_ids_key() -> Id {
 
 /// Publish the pane ids that are reachable from the current ribbon set.
 ///
-/// When this registry is present, [`Pane::show`] refuses to paint panes whose
-/// id was not registered by a ribbon/panel button. This keeps app chrome
-/// honest: a pane must have a corresponding ribbon affordance instead of being
-/// slapped onto the canvas directly.
-pub fn publish_ribbon_pane_ids(ctx: &egui::Context, ids: impl IntoIterator<Item = impl Into<Id>>) {
-    let ids = ids.into_iter().map(Into::into).collect::<Vec<_>>();
+/// When this registry is present, internal pane rendering refuses to paint
+/// panes whose id was not registered by a ribbon/panel button. This keeps app
+/// chrome honest: a pane must have a corresponding ribbon affordance instead
+/// of being slapped onto the canvas directly.
+#[doc(hidden)]
+pub fn __internal_publish_ribbon_pane_ids(
+    ctx: &egui::Context,
+    ids: impl IntoIterator<Item = impl Into<MaraId>>,
+) {
+    let ids = ids
+        .into_iter()
+        .map(|id| {
+            let id: MaraId = id.into();
+            Id::from(id)
+        })
+        .collect::<Vec<_>>();
     ctx.data_mut(|d| d.insert_temp(ribbon_pane_ids_key(), ids));
 }
 
 fn assert_pane_has_ribbon_button(ctx: &egui::Context, pane_id: Id) {
     let ids = ctx
         .data(|d| d.get_temp::<Vec<Id>>(ribbon_pane_ids_key()))
-        .expect("Pane::show requires published ribbon pane ids; call publish_ribbon_pane_ids with the current ribbon pane buttons before rendering panes");
+        .expect("pane rendering requires published ribbon pane ids; publish the current ribbon pane buttons through MaraHostCtx before rendering panes");
     assert!(
         ids.contains(&pane_id),
         "pane {:?} was rendered without a registered ribbon button; add a ribbon item for it or do not render the pane",
@@ -257,11 +276,11 @@ pub(crate) fn active_container_frame_rect_key() -> Id {
 /// or unfold (cipher decode, chromatic aberration, etc.) salt
 /// their state ids with this counter so each toggle starts a fresh
 /// cycle.
-pub fn toggle_body(ctx: &egui::Context, pane_id: Id) {
+pub(crate) fn toggle_body(ctx: &egui::Context, pane_id: Id) {
     let key = pane_id.with("body_open");
     let ver_key = pane_id.with("body_fold_version");
     let touch_key = pane_id.with("body_open_touched_at");
-    let now = ctx.input(|i| i.time);
+    let now = crate::backend::egui::input_time(ctx);
     ctx.data_mut(|d| {
         let cur: bool = d.get_persisted(key).unwrap_or(true);
         d.insert_persisted(key, !cur);
@@ -277,9 +296,9 @@ pub fn toggle_body(ctx: &egui::Context, pane_id: Id) {
 
 /// Read the timestamp (egui's `i.time` seconds) of the most recent
 /// user toggle of `body_open` for this container. Returns `0.0` if
-/// never toggled. Used by [`Pane::show`]'s auto-fold-tail walk to
+/// never toggled. Used by internal pane rendering's auto-fold-tail walk to
 /// preserve the user's most recent unfold over older opens.
-pub fn body_open_touched_at(ctx: &egui::Context, pane_id: Id) -> f64 {
+pub(crate) fn body_open_touched_at(ctx: &egui::Context, pane_id: Id) -> f64 {
     ctx.data_mut(|d| d.get_persisted::<f64>(pane_id.with("body_open_touched_at")))
         .unwrap_or(0.0)
 }
@@ -287,7 +306,7 @@ pub fn body_open_touched_at(ctx: &egui::Context, pane_id: Id) -> f64 {
 /// Read the per-pane fold-version counter. Bumped by
 /// [`toggle_body`] on every fold/unfold; widgets salt their
 /// animation state ids with it so each toggle re-triggers.
-pub fn fold_version(ctx: &egui::Context, pane_id: Id) -> u64 {
+pub(crate) fn fold_version(ctx: &egui::Context, pane_id: Id) -> u64 {
     ctx.data_mut(|d| {
         d.get_persisted::<u64>(pane_id.with("body_fold_version"))
             .unwrap_or(0)
@@ -306,7 +325,7 @@ fn container_min_flows_key(pane_id: Id) -> Id {
 /// during the previous frame's body callback. Returned in container
 /// order. Empty when no [`crate::container::Normal`] children
 /// painted under this pane.
-pub fn container_min_widths(ctx: &egui::Context, pane_id: Id) -> Vec<f32> {
+pub(crate) fn container_min_widths(ctx: &egui::Context, pane_id: Id) -> Vec<f32> {
     ctx.data(|d| d.get_temp::<Vec<f32>>(container_mins_key(pane_id)))
         .unwrap_or_default()
 }
@@ -321,14 +340,14 @@ pub fn container_min_widths(ctx: &egui::Context, pane_id: Id) -> Vec<f32> {
 /// "containers overlap" artefact that comes from egui's
 /// `available_rect_before_wrap` collapsing to zero when the pane body
 /// runs out of space.
-pub fn container_min_flows(ctx: &egui::Context, pane_id: Id) -> Vec<f32> {
+pub(crate) fn container_min_flows(ctx: &egui::Context, pane_id: Id) -> Vec<f32> {
     ctx.data(|d| d.get_temp::<Vec<f32>>(container_min_flows_key(pane_id)))
         .unwrap_or_default()
 }
 
 /// Clear all four per-pane body-bookkeeping accumulators (min
 /// widths, min flows, container cids, extra body flow). Called by
-/// `Pane::show` at the top of every frame so the body callback
+/// internal pane rendering at the top of every frame so the body callback
 /// can re-register fresh.
 pub(crate) fn clear_container_min_widths(ctx: &egui::Context, pane_id: Id) {
     ctx.data_mut(|d| {
@@ -349,7 +368,7 @@ fn body_extra_flow_key(pane_id: Id) -> Id {
 
 /// Read the list of container CIDs registered against `pane_id`
 /// during this frame's body callback. Returned in container
-/// declaration order. Used by [`Pane::show`] to compute the
+/// declaration order. Used by internal pane rendering to compute the
 /// pane's auto-flow when `PaneResize::flow` is off — pane size =
 /// sum of `crate::container::container_flow(cid)` over these cids
 /// + per-container chrome + sum of extra body chrome + pane chrome.
@@ -359,14 +378,14 @@ fn body_extra_flow_key(pane_id: Id) -> Id {
 /// that updates the persisted value at the END of frame N is
 /// visible to the pane sizer on frame N+1's first read — without
 /// the extra publish-vs-render lag that comes from caching values.
-pub fn published_container_cids(ctx: &egui::Context, pane_id: Id) -> Vec<Id> {
+pub(crate) fn published_container_cids(ctx: &egui::Context, pane_id: Id) -> Vec<Id> {
     ctx.data(|d| d.get_temp::<Vec<Id>>(container_cids_key(pane_id)))
         .unwrap_or_default()
 }
 
 /// Append `cid` to the per-pane container CID list. Called by
 /// `Normal::show` each frame.
-pub fn publish_container_cid(ctx: &egui::Context, pane_id: Id, cid: Id) {
+pub(crate) fn publish_container_cid(ctx: &egui::Context, pane_id: Id, cid: Id) {
     ctx.data_mut(|d| {
         let key = container_cids_key(pane_id);
         let mut acc: Vec<Id> = d.get_temp(key).unwrap_or_default();
@@ -385,7 +404,7 @@ pub fn publish_container_cid(ctx: &egui::Context, pane_id: Id, cid: Id) {
 /// this on top of `published_container_body_flows + per-container
 /// chrome` so the pane stays sized to fit everything its body
 /// callback paints, not just the containers themselves.
-pub fn published_body_extra_flow(ctx: &egui::Context, pane_id: Id) -> f32 {
+pub(crate) fn published_body_extra_flow(ctx: &egui::Context, pane_id: Id) -> f32 {
     ctx.data(|d| d.get_temp::<f32>(body_extra_flow_key(pane_id)))
         .unwrap_or(0.0)
 }
@@ -395,7 +414,7 @@ pub fn published_body_extra_flow(ctx: &egui::Context, pane_id: Id) -> f32 {
 /// `Pane` body — the inter-container drag-handle in
 /// [`paint_container_dots`] uses this to make sure the pane
 /// auto-grows to include each handle's strip height.
-pub fn publish_body_extra_flow(ctx: &egui::Context, pane_id: Id, flow: f32) {
+pub(crate) fn publish_body_extra_flow(ctx: &egui::Context, pane_id: Id, flow: f32) {
     let flow = if flow.is_finite() { flow.max(0.0) } else { 0.0 };
     ctx.data_mut(|d| {
         let key = body_extra_flow_key(pane_id);
@@ -404,7 +423,7 @@ pub fn publish_body_extra_flow(ctx: &egui::Context, pane_id: Id, flow: f32) {
     });
 }
 
-/// Global ctx-data key under which every [`Pane::show`] call
+/// Global ctx-data key under which every internal pane render call
 /// publishes its painted rect each frame. Read by host integrations
 /// (e.g. `bevy_mara::EguiInputAbsorbPlugin`) to decide whether the
 /// cursor is currently over an interactable mara pane — a
@@ -418,42 +437,49 @@ fn published_pane_rects_key() -> Id {
 /// Read every pane's painted rect that was published THIS FRAME.
 /// Empty when no panes are currently rendering. The list resets at
 /// the start of each frame and entries are appended by
-/// `Pane::show`.
-pub fn published_pane_rects(ctx: &egui::Context) -> Vec<egui::Rect> {
-    ctx.data(|d| d.get_temp::<Vec<egui::Rect>>(published_pane_rects_key()))
+/// internal pane rendering.
+///
+/// Internal first-party host hook for input-firewall adapters. App
+/// code should not read raw backend context data to discover panes.
+#[doc(hidden)]
+pub fn __internal_published_pane_rects(ctx: &egui::Context) -> Vec<MaraRect> {
+    ctx.data(|d| d.get_temp::<Vec<MaraRect>>(published_pane_rects_key()))
         .unwrap_or_default()
 }
 
 /// Clear the global pane-rects list unconditionally. Host
-/// integrations call this once per frame BEFORE any `Pane::show`
+/// integrations call this once per frame BEFORE any internal pane rendering
 /// runs (e.g. the bevy_mara firewall, after it has consumed the
 /// previous frame's rects), so the list reflects ONLY panes that
 /// actually painted in the most recent egui pass — without this,
 /// closing every visible pane leaves the last-seen rects stuck in
-/// `published_pane_rects` forever, since `Pane::show` is the only
-/// other entry point that resets the list.
-pub fn clear_published_pane_rects(ctx: &egui::Context) {
+/// `__internal_published_pane_rects` forever, since internal pane rendering is
+/// the only other entry point that resets the list.
+///
+/// Internal first-party host hook for input-firewall adapters.
+#[doc(hidden)]
+pub fn __internal_clear_published_pane_rects(ctx: &egui::Context) {
     ctx.data_mut(|d| {
-        d.remove::<Vec<egui::Rect>>(published_pane_rects_key());
+        d.remove::<Vec<MaraRect>>(published_pane_rects_key());
     });
 }
 
 /// Append `rect` to the global pane-rects list. Called by
-/// `Pane::show` after the Frame paints. The list lives in egui
+/// internal pane rendering after the Frame paints. The list lives in egui
 /// ctx data and is reset by [`maybe_reset_published_pane_rects`].
-fn publish_pane_rect(ctx: &egui::Context, rect: egui::Rect) {
+fn publish_pane_rect(ctx: &egui::Context, rect: impl Into<MaraRect>) {
     ctx.data_mut(|d| {
         let key = published_pane_rects_key();
-        let mut acc: Vec<egui::Rect> = d.get_temp(key).unwrap_or_default();
-        acc.push(rect);
+        let mut acc: Vec<MaraRect> = d.get_temp(key).unwrap_or_default();
+        acc.push(rect.into());
         d.insert_temp(key, acc);
     });
 }
 
 /// Clear the pane-rects list. Called once per frame, before any
-/// `Pane::show` runs, so the list reflects ONLY this frame's
+/// internal pane rendering runs, so the list reflects ONLY this frame's
 /// painted panes. Reset is keyed off `cumulative_pass_nr` — the
-/// list resets the first time `Pane::show` is called in a new
+/// list resets the first time a pane is rendered in a new
 /// pass and stays accumulating until the next pass starts.
 fn maybe_reset_published_pane_rects(ctx: &egui::Context) {
     let key = Id::new("mara_published_pane_rects_pass");
@@ -461,7 +487,7 @@ fn maybe_reset_published_pane_rects(ctx: &egui::Context) {
     let last: u64 = ctx.data(|d| d.get_temp(key)).unwrap_or(u64::MAX);
     if last != now {
         ctx.data_mut(|d| {
-            d.remove::<Vec<egui::Rect>>(published_pane_rects_key());
+            d.remove::<Vec<MaraRect>>(published_pane_rects_key());
             d.insert_temp(key, now);
         });
     }
@@ -476,10 +502,10 @@ pub const RAIL_INSET: f32 = crate::ribbon::EDGE_GAP + crate::ribbon::SIDE_BTN_SI
 
 /// Read which screen edges currently host an active ribbon, as
 /// `[left, right, top, bottom]`. Published every frame by
-/// [`crate::ribbon::draw_slot_ribbons_featureful`]; returns `[true; 4]` when no
+/// the internal featureful ribbon renderer; returns `[true; 4]` when no
 /// ribbons have been drawn yet (conservative default — reserve
 /// space for ribbons on every side until we know better).
-pub fn published_ribbon_edges(ctx: &egui::Context) -> [bool; 4] {
+pub(crate) fn published_ribbon_edges(ctx: &egui::Context) -> [bool; 4] {
     ctx.data(|d| d.get_temp::<[bool; 4]>(egui::Id::new("mara_published_ribbon_edges")))
         .unwrap_or([true; 4])
 }
@@ -490,15 +516,15 @@ const RAIL_PANEL_GAP: f32 = 8.0;
 // ─── Builder ───────────────────────────────────────────────────────
 
 /// A single floating window keyed by `id` and pinned to one of 12
-/// screen positions. Build with [`Pane::new`], then call
-/// [`Pane::show`] each frame the pane should be visible.
+/// screen positions. Build with [`Pane::new`], then render through a
+/// sealed Mara host/view context each frame the pane should be visible.
 pub struct Pane {
     id: Id,
     title: String,
     anchor: PaneAnchor,
-    accent: Color32,
+    accent: MaraColor32,
     resize: PaneResize,
-    order: egui::Order,
+    order: crate::layout::Layer,
 }
 
 impl Pane {
@@ -508,13 +534,13 @@ impl Pane {
         self
     }
 
-    /// Override the egui layer order for this pane.
+    /// Override the backend-neutral layer for this pane.
     ///
-    /// Normal panes live in [`egui::Order::Background`] so ribbon
-    /// chrome stays above their shadows. Hosts can lift persistent
-    /// panes to [`egui::Order::Foreground`] when they intentionally
-    /// render over fullscreen/module overlays.
-    pub fn order(mut self, order: egui::Order) -> Self {
+    /// Normal panes live in [`crate::layout::Layer::Background`] so
+    /// ribbon chrome stays above their shadows. Hosts can lift
+    /// persistent panes to [`crate::layout::Layer::Foreground`] when
+    /// they intentionally render over fullscreen/module overlays.
+    pub fn order(mut self, order: crate::layout::Layer) -> Self {
         self.order = order;
         self
     }
@@ -522,20 +548,21 @@ impl Pane {
     /// Construct a pane builder. `id` is used to scope the
     /// `egui::Area` and any title-strip animations.
     pub fn new(
-        id: impl Into<Id>,
+        id: impl Into<MaraId>,
         title: impl Into<String>,
         anchor: PaneAnchor,
-        accent: Color32,
+        accent: impl Into<MaraColor32>,
     ) -> Self {
         let title = title.into();
         assert!(!title.trim().is_empty(), "panes require a non-empty title");
+        let id: Id = id.into().into();
         Self {
-            id: id.into(),
+            id,
             title,
             anchor,
-            accent,
+            accent: accent.into(),
             resize: PaneResize::NONE,
-            order: egui::Order::Background,
+            order: crate::layout::Layer::Background,
         }
     }
 
@@ -548,7 +575,12 @@ impl Pane {
     /// horizontal title bar grows down with stacked containers; a
     /// vertical title strip grows right). The span axis (the one
     /// the title spans) is fixed per anchor.
-    pub fn show<'spec>(self, ctx: &egui::Context, body: impl FnOnce(&mut PaneBody<'_, 'spec>)) {
+    #[doc(hidden)]
+    pub fn __internal_show<'spec>(
+        self,
+        ctx: &egui::Context,
+        body: impl FnOnce(&mut PaneBody<'_, 'spec>),
+    ) {
         assert_pane_has_ribbon_button(ctx, self.id);
         let (align, offset) = layout::anchor_align(self.anchor);
         let area_id = self.id.with("pane2_area");
@@ -580,7 +612,7 @@ impl Pane {
             if last_frame + 1 < frame_now {
                 elapsed = 0.0;
             }
-            let dt = ctx.input(|i| i.unstable_dt).max(0.0);
+            let dt = crate::backend::egui::unstable_dt(ctx);
             elapsed += dt;
             ctx.data_mut(|d| {
                 d.insert_temp(state_key, elapsed);
@@ -725,8 +757,8 @@ impl Pane {
         // exceeds the budget, the next frame's walk will fold a
         // different tail container to compensate.
         let screen = ctx
-            .data(|d| d.get_temp::<egui::Rect>(crate::ribbon::chrome::chrome_bounds_key()))
-            .unwrap_or_else(|| ctx.content_rect());
+            .data(|d| d.get_temp::<MaraRect>(crate::ribbon::chrome::chrome_bounds_key()))
+            .unwrap_or_else(|| crate::backend::egui::context_content_rect(ctx));
         // Reserve `RAIL_INSET` on the pane's OWN rail (its title
         // strip lives there); on the opposite side only reserve
         // when there's actually a ribbon hosted there. The
@@ -872,11 +904,7 @@ impl Pane {
             d.insert_temp::<f32>(self.id.with("mara_pane_effective_span"), span_outer);
         });
 
-        let outer_size = if horizontal_strip {
-            vec2(span_outer, pane_flow)
-        } else {
-            vec2(pane_flow, span_outer)
-        };
+        let outer_size = layout::pane_outer_size(horizontal_strip, span_outer, pane_flow);
 
         // Compute position MANUALLY from `outer_size` using the
         // anchor + offset + screen rect. egui's `Area::anchor()`
@@ -886,19 +914,22 @@ impl Pane {
         // With `fixed_pos`, position is computed in-frame from
         // our just-computed size, so the anchored corner is
         // pinned with ZERO lag.
-        let pane_pos = layout::compute_pane_pos(align, offset, screen, outer_size);
+        let placement = layout::PanePlacement::new(align, offset, screen, outer_size);
+        let pane_pos = placement.pos;
         // Outer pane rect — used as the initial / fallback rect for
         // the resize handles. The Frame inside the Area shrinks
         // when containers fold; we capture its real rendered rect
         // below so the handles track the painted edge instead of
         // the (always-expanded) Area bounds.
-        let pane_rect = egui::Rect::from_min_size(pane_pos, outer_size);
+        let pane_rect_mara = placement.rect;
+        let pane_rect: egui::Rect = pane_rect_mara.into();
+        let outer_size_egui: egui::Vec2 = outer_size.into();
         // Capture fields needed AFTER `self` is moved into the Area's
         // body closure (which moves `self` into `lay_out_flex`).
         let pane_id = self.id;
         let pane_anchor = self.anchor;
         let pane_resize = self.resize;
-        let pane_accent = self.accent;
+        let pane_accent: Color32 = self.accent.into();
         let pane_title_dbg = self.title.clone();
         // Slot for the Frame's actual rendered rect. The pane Area
         // closure writes this after `Frame::show` returns; the
@@ -930,23 +961,21 @@ impl Pane {
         // — only growth that exceeds last frame's paint by more than
         // one frame would clip, which is the rare transient.
         let clip_key = pane_id.with("mara_pane_painted_rect_for_clip");
-        let last_painted_rect: egui::Rect = ctx
-            .data(|d| d.get_temp::<egui::Rect>(clip_key))
-            .unwrap_or(pane_rect);
-        let pane_clip_rect = pane_rect.union(last_painted_rect);
+        let last_painted_rect: MaraRect = ctx
+            .data(|d| d.get_temp::<MaraRect>(clip_key))
+            .unwrap_or(pane_rect_mara);
+        let pane_clip_rect = pane_rect_mara.union(last_painted_rect);
 
-        egui::Area::new(area_id)
+        crate::backend::egui::area_for_host(AreaHost::new(area_id.into(), pane_pos, self.order))
             // `Order::Background` keeps the pane's drop shadow
             // BELOW the ribbon buttons — buttons paint over any
             // shadow bleed. Removes the need for a tight clip_rect
             // (which was slicing the title strip on the rail-side
             // edge by a couple of pixels).
-            .order(self.order)
-            .fixed_pos(pane_pos)
             .movable(false)
             .interactable(true)
             .fade_in(false)
-            .default_size(outer_size)
+            .default_size(outer_size_egui)
             .show(ctx, |outer_ui| {
                 // egui's Area constrains its content_ui.max_rect to
                 // `state.size` from the PREVIOUS frame. During
@@ -962,7 +991,7 @@ impl Pane {
                 // Same rect as the outer `pane_rect`; recompute here
                 // from `outer_ui.cursor()` so the inside of the
                 // closure doesn't depend on the outer capture order.
-                let pane_rect = egui::Rect::from_min_size(outer_ui.cursor().min, outer_size);
+                let pane_rect = egui::Rect::from_min_size(outer_ui.cursor().min, outer_size_egui);
                 // Use the title-at-end layout DIRECTLY on the outer
                 // child_ui — not via a `with_layout(bottom_up)` inside
                 // a top_down parent. egui tracks `min_rect` by union
@@ -978,21 +1007,25 @@ impl Pane {
                 // child_ui's cursor starts at the anchor edge keeps
                 // min_rect tight to the strip.
                 let title_at_end = title_side.is_at_end();
-                let layout = if horizontal_strip {
+                let direction = if horizontal_strip {
                     if title_at_end {
-                        egui::Layout::bottom_up(egui::Align::Min)
+                        crate::layout::StackDirection::BottomUp
                     } else {
-                        egui::Layout::top_down(egui::Align::Min)
+                        crate::layout::StackDirection::TopDown
                     }
+                } else if title_at_end {
+                    crate::layout::StackDirection::RightToLeft
                 } else {
-                    if title_at_end {
-                        egui::Layout::right_to_left(egui::Align::Min)
-                    } else {
-                        egui::Layout::left_to_right(egui::Align::Min)
-                    }
+                    crate::layout::StackDirection::LeftToRight
                 };
-                let mut child_ui =
-                    outer_ui.new_child(egui::UiBuilder::new().max_rect(pane_rect).layout(layout));
+                let mut child_ui = crate::backend::egui::child_ui_for_region(
+                    outer_ui,
+                    crate::layout::ChildRegion::new(
+                        pane_rect.into(),
+                        direction,
+                        crate::layout::StackAlign::Min,
+                    ),
+                );
                 // ── Hierarchical clip invariant (root) ──
                 //
                 // The pane Area is created at `Order::Background` with
@@ -1009,12 +1042,12 @@ impl Pane {
                 // `set_clip_rect` so we INTERSECT with whatever egui
                 // set on the Area — `set_` can grow the clip and is
                 // footgunny per egui docs.
-                child_ui.shrink_clip_rect(pane_clip_rect);
+                child_ui.shrink_clip_rect(pane_clip_rect.into());
                 {
                     let ui = &mut child_ui;
                     let theme = style::theme();
-                    let fill = if theme.pane.fill_visible {
-                        style::fill_for(style::FillRole::Pane, self.accent)
+                    let fill: Color32 = if theme.pane.fill_visible {
+                        style::fill_for(style::FillRole::Pane, pane_accent).into()
                     } else {
                         Color32::TRANSPARENT
                     };
@@ -1028,8 +1061,9 @@ impl Pane {
                         inner_margin: egui::Margin::same(PANE_INNER_MARGIN as i8),
                         outer_margin: egui::Margin::ZERO,
                         fill,
-                        stroke: style::stroke_for(style::StrokeRole::WidgetBorder, self.accent),
-                        corner_radius: style::radius_for(style::RadiusRole::Pane),
+                        stroke: style::stroke_for(style::StrokeRole::WidgetBorder, pane_accent)
+                            .into(),
+                        corner_radius: style::radius_for(style::RadiusRole::Pane).into(),
                         shadow,
                     }
                     .show(ui, |ui| {
@@ -1048,7 +1082,7 @@ impl Pane {
                     // where `pane_rect` lags by one frame and would
                     // otherwise slice the body's far edge.
                     outer_ui.ctx().data_mut(|d| {
-                        d.insert_temp(clip_key, frame_response.response.rect);
+                        d.insert_temp(clip_key, MaraRect::from(frame_response.response.rect));
                     });
                 }
                 // Publish this pane's painted rect to the global
@@ -1057,7 +1091,7 @@ impl Pane {
                 // "is the cursor over any mara pane?" without
                 // going through egui's quirky `layer_id_at`.
                 maybe_reset_published_pane_rects(outer_ui.ctx());
-                publish_pane_rect(outer_ui.ctx(), painted_rect.get());
+                publish_pane_rect(outer_ui.ctx(), MaraRect::from(painted_rect.get()));
                 // Custom debug inspector — paint the pane's frame
                 // rect with a `Pane[<title>]` label when the user
                 // toggles the inspector and hovers inside.
@@ -1115,12 +1149,13 @@ impl Pane {
             resize,
             order: _,
         } = self;
+        let accent: Color32 = accent.into();
         let title_side = anchor.title_side();
         let horizontal_strip = title_side.is_horizontal_strip();
 
         // Cross axis = the dimension the title strip spans. Tracks
-        // the SAME `span_outer` value `Pane::show` used to size
-        // the pane Area. `Pane::show` publishes the post-clamp
+        // the SAME `span_outer` value the internal pane renderer used to size
+        // the pane Area. The internal renderer publishes the post-clamp
         // effective span under `mara_pane_effective_span` for this
         // pane id; that value already accounts for the screen-edge
         // / perpendicular-ribbon clamp so the Frame paints flush
@@ -1139,39 +1174,33 @@ impl Pane {
             });
         let span_inner = span_outer - PANE_FRAME_CHROME;
 
-        let title_size = if horizontal_strip {
-            vec2(span_inner, TITLE_STRIP_THICKNESS)
-        } else {
-            vec2(TITLE_STRIP_THICKNESS, span_inner)
-        };
+        let flex_spec = PaneFlexSpec::new(
+            horizontal_strip,
+            span_inner,
+            TITLE_STRIP_THICKNESS,
+            style::theme().section_outer_margin_flow_title as f32,
+        );
 
         // Plain-egui layout (no flex). Cross axis is locked via
         // `set_max_*` so `ui.available_*` is stable for child
         // widgets; flow axis is content-driven by `body(ui)`. Title
         // strip and body are placed in the natural reading order
-        // dictated by `title_at_end` (decided in `Pane::show` when
+        // dictated by `title_at_end` (decided by internal pane rendering when
         // building the outer child_ui's layout).
         let title_text = title.clone();
         let paint_title_strip = |ui: &mut egui::Ui| {
-            let (alloc_rect, _) = ui.allocate_exact_size(title_size, Sense::hover());
+            let alloc_rect: egui::Rect =
+                crate::backend::egui::reserve_pane_title_slot(ui, flex_spec).into();
             title::paint_pane_title(ui, alloc_rect, id, &title_text, anchor, accent);
         };
 
         // The outer child_ui already carries the correct layout
         // (top_down / bottom_up / left_to_right / right_to_left)
-        // chosen by `Pane::show` so the cursor starts at the anchor
+        // chosen by internal pane rendering so the cursor starts at the anchor
         // edge — see the comment there for why we *don't* rewrap in
         // a `with_layout(bottom_up)` here. We just clamp the cross
         // axis and zero the item-spacing.
-        if horizontal_strip {
-            ui.set_max_width(span_inner);
-        } else {
-            ui.set_max_height(span_inner);
-        }
-        // Zero `item_spacing` — egui defaults to ~3 px vertical / ~8
-        // px horizontal between widgets, which would push our title
-        // strip + container past `pane_rect`.
-        ui.spacing_mut().item_spacing = egui::vec2(0.0, 0.0);
+        crate::backend::egui::apply_pane_flex_spec(ui, flex_spec);
         // SAME order in both directions: title FIRST (lands at the
         // anchor edge thanks to the layout direction), body SECOND
         // (fills outward). Reversed layouts handle visual placement
@@ -1187,10 +1216,7 @@ impl Pane {
         // strip and the body callback, hits exactly the first container
         // (no other paint runs between title and body) and leaves
         // every subsequent container's stacking gap unchanged.
-        let pane_title_to_body_pad = style::theme().section_outer_margin_flow_title as f32;
-        if pane_title_to_body_pad > 0.0 {
-            ui.add_space(pane_title_to_body_pad);
-        }
+        crate::backend::egui::add_pane_body_gap(ui, flex_spec);
         let mut body = Some(body);
         let mut render_body = |ui: &mut egui::Ui| {
             // Reset per-frame drag bookkeeping (current cache + section
@@ -1202,7 +1228,10 @@ impl Pane {
             // Update cursor BEFORE body runs so `Normal::show`'s
             // target_idx computation sees this frame's cursor.
             let pre_body_drag = drag::state(ui.ctx(), id);
-            if let (Some(item), Some(pos)) = (pre_body_drag.item, ui.ctx().pointer_interact_pos()) {
+            if let (Some(item), Some(pos)) = (
+                pre_body_drag.item,
+                crate::backend::egui::pointer_interact_pos(ui.ctx()).map(Into::into),
+            ) {
                 drag::set_drag(
                     ui.ctx(),
                     id,
@@ -1242,7 +1271,9 @@ impl Pane {
             {
                 let snap = drag::target_cache(ui.ctx(), id);
                 let total = drag::current_cache(ui.ctx(), id).len();
-                let cursor = ui.ctx().pointer_interact_pos().or(drag_state.cursor);
+                let cursor = crate::backend::egui::pointer_interact_pos(ui.ctx())
+                    .map(Into::into)
+                    .or(drag_state.cursor);
                 if let Some(c) = cursor {
                     let cursor_axis = if horizontal_stack { c.x } else { c.y };
                     let target_idx =
@@ -1264,13 +1295,18 @@ impl Pane {
             // ── Floating preview + cursor + release commit ──
             if let Some(dragged_id) = drag_state.item {
                 let snap = drag::target_cache(ui.ctx(), id);
-                let cursor = ui.ctx().pointer_interact_pos().or(drag_state.cursor);
+                let cursor = crate::backend::egui::pointer_interact_pos(ui.ctx())
+                    .map(Into::into)
+                    .or(drag_state.cursor);
                 if let Some(c) = cursor {
                     drag::paint_drag_preview(ui.ctx(), id, &snap, dragged_id, c, accent);
-                    ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+                    crate::backend::egui::set_cursor_icon_for_ui(
+                        ui,
+                        crate::layout::CursorIcon::Grabbing,
+                    );
                 }
 
-                if ui.ctx().input(|i| i.pointer.any_released()) {
+                if crate::backend::egui::pointer_any_released(ui.ctx()) {
                     if let Some(c) = cursor {
                         let cursor_axis = if horizontal_stack { c.x } else { c.y };
                         let target_idx =
@@ -1288,7 +1324,9 @@ impl Pane {
 
             // ── Tab drag: preview + commit-on-release ──
             if let Some(tab_drag_state) = tab_drag::drag_state(ui.ctx(), id) {
-                let cursor = ui.ctx().pointer_latest_pos().or(tab_drag_state.cursor);
+                let cursor = crate::backend::egui::pointer_latest_pos(ui.ctx())
+                    .map(Into::into)
+                    .or(tab_drag_state.cursor);
                 if let Some(c) = cursor {
                     // Persist the cursor pos so next frame can paint at
                     // the right spot even if egui drops the input.
@@ -1303,7 +1341,7 @@ impl Pane {
                     // Floating preview at the cursor, carrying the tab's
                     // own icon so the drag affordance doesn't turn into a
                     // blank accent card while crossing containers.
-                    let preview_size = egui::vec2(28.0, 28.0);
+                    let preview_size = MaraVec2::new(28.0, 28.0);
                     tab_drag::paint_drag_preview(
                         ui.ctx(),
                         id,
@@ -1313,9 +1351,12 @@ impl Pane {
                         "",
                         tab_drag_state.icon,
                     );
-                    ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+                    crate::backend::egui::set_cursor_icon_for_ui(
+                        ui,
+                        crate::layout::CursorIcon::Grabbing,
+                    );
                 }
-                if ui.ctx().input(|i| i.pointer.any_released()) {
+                if crate::backend::egui::pointer_any_released(ui.ctx()) {
                     if let Some(c) = cursor
                         && let Some((tgt_cid, slot)) =
                             tab_drag::find_drop_target_for_drag(ui.ctx(), id, c, tab_drag_state)
@@ -1339,40 +1380,14 @@ impl Pane {
             .data(|d| d.get_temp::<bool>(id.with("mara_pane_body_scroll_enabled")))
             .unwrap_or(false);
         if body_scroll_enabled {
-            let max_body_flow = if horizontal_strip {
-                ui.available_height()
-            } else {
-                ui.available_width()
-            }
-            .max(0.0);
-            let scroll_area = if horizontal_strip {
-                egui::ScrollArea::vertical()
-                    .max_height(max_body_flow)
-                    .min_scrolled_width(span_inner)
-            } else {
-                egui::ScrollArea::horizontal()
-                    .max_width(max_body_flow)
-                    .min_scrolled_height(span_inner)
-            }
-            .id_salt(id.with("mara_pane_body_scroll"))
-            .auto_shrink([false, false]);
-            crate::scroll::show_sticky_scroll_area(
+            crate::backend::egui::show_pane_body_scroll_slot(
                 ui,
-                if horizontal_strip {
-                    crate::scroll::StickyScrollAxis::Vertical
-                } else {
-                    crate::scroll::StickyScrollAxis::Horizontal
-                },
-                scroll_area,
+                PaneBodyScrollSpec::new(
+                    MaraId::from(id.with("mara_pane_body_scroll")),
+                    horizontal_strip,
+                    span_inner,
+                ),
                 |ui| {
-                    if horizontal_strip {
-                        ui.set_min_width(span_inner);
-                        ui.set_max_width(span_inner);
-                    } else {
-                        ui.set_min_height(span_inner);
-                        ui.set_max_height(span_inner);
-                    }
-                    ui.spacing_mut().item_spacing = egui::vec2(0.0, 0.0);
                     render_body(ui);
                 },
             );
@@ -1407,47 +1422,49 @@ fn paint_resize_handles(
     let title_side = anchor.title_side();
     let horizontal_strip = title_side.is_horizontal_strip();
     let zone = anchor.zone();
-    egui::Area::new(pane_id.with("mara_pane_resize_handles_area"))
-        .order(egui::Order::Middle)
-        .fixed_pos(pane_rect.min)
-        // Force the Area to cover the WHOLE pane every frame.
-        // Without this the Area's `state.size` defaults to a tiny
-        // (degenerate) rect on the first paint — only widgets
-        // registered via `ui.interact()` whose rects fall inside
-        // that initial rect register hover / click. Centre-anchored
-        // panes happened to accumulate state across frames and end
-        // up with a usable rect, while corner-anchored panes
-        // (TopRail::End, BottomRail::Start, etc.) silently lost
-        // their resize handles. `default_size` seeds it; the
-        // `allocate_rect` inside the show closure forces the
-        // current-frame rect every paint regardless of any prior
-        // shrink.
-        .default_size(pane_rect.size())
-        .movable(false)
-        .interactable(true)
-        .show(ctx, |ui| {
-            // Expand the Area's `min_rect` (and therefore its clip
-            // rect) to cover the full pane WITHOUT registering an
-            // interactive widget. Using `allocate_rect(_, Sense::hover())`
-            // here was eating the container-title clicks that fold /
-            // unfold the containers — even though `Sense::hover` is
-            // not a click sense, the widget rect still wins the
-            // hit-test because it sits on `Order::Middle` (above the
-            // pane Area's `Order::Background`). `expand_to_include_rect`
-            // just grows `min_rect` for layout / clip purposes.
-            ui.expand_to_include_rect(pane_rect);
-            paint_resize_handles_inner(
-                ui,
-                pane_id,
-                accent,
-                anchor,
-                resize,
-                pane_rect,
-                title_side,
-                horizontal_strip,
-                zone,
-            );
-        });
+    crate::backend::egui::area_for_host(AreaHost::new(
+        pane_id.with("mara_pane_resize_handles_area").into(),
+        pane_rect.min.into(),
+        Layer::Middle,
+    ))
+    // Force the Area to cover the WHOLE pane every frame.
+    // Without this the Area's `state.size` defaults to a tiny
+    // (degenerate) rect on the first paint — only widgets
+    // registered via `ui.interact()` whose rects fall inside
+    // that initial rect register hover / click. Centre-anchored
+    // panes happened to accumulate state across frames and end
+    // up with a usable rect, while corner-anchored panes
+    // (TopRail::End, BottomRail::Start, etc.) silently lost
+    // their resize handles. `default_size` seeds it; the
+    // `allocate_rect` inside the show closure forces the
+    // current-frame rect every paint regardless of any prior
+    // shrink.
+    .default_size(pane_rect.size())
+    .movable(false)
+    .interactable(true)
+    .show(ctx, |ui| {
+        // Expand the Area's `min_rect` (and therefore its clip
+        // rect) to cover the full pane WITHOUT registering an
+        // interactive widget. Using `allocate_rect(_, Sense::hover())`
+        // here was eating the container-title clicks that fold /
+        // unfold the containers — even though `Sense::hover` is
+        // not a click sense, the widget rect still wins the
+        // hit-test because it sits on `Order::Middle` (above the
+        // pane Area's `Order::Background`). `expand_to_include_rect`
+        // just grows `min_rect` for layout / clip purposes.
+        ui.expand_to_include_rect(pane_rect);
+        paint_resize_handles_inner(
+            ui,
+            pane_id,
+            accent,
+            anchor,
+            resize,
+            pane_rect,
+            title_side,
+            horizontal_strip,
+            zone,
+        );
+    });
 }
 
 /// Register the resize handles directly on the pane's own `Ui`
@@ -1529,60 +1546,38 @@ fn paint_resize_handles_inner(
     } else {
         MIN_USER_SPAN
     };
-    let strip_color =
-        |alpha: u8| Color32::from_rgba_unmultiplied(accent.r(), accent.g(), accent.b(), alpha);
-    let paint_indicator = |ui: &egui::Ui, rect: egui::Rect, hovered: bool, dragged: bool| {
-        let alpha: u8 = if dragged {
-            180
-        } else if hovered {
-            110
-        } else {
-            return; // fully invisible at rest
-        };
-        ui.painter()
-            .rect_filled(rect, egui::CornerRadius::ZERO, strip_color(alpha));
+    let accent_mara = MaraColor32::from(accent);
+    let paint_indicator = |ui: &mut egui::Ui, rect: MaraRect, hovered: bool, dragged: bool| {
+        if let Some(cmd) = pane_resize_indicator_paint_cmd(rect, accent_mara, hovered, dragged) {
+            let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
+            backend.paint(cmd);
+        }
     };
+    let pane_rect_mara = MaraRect::from(pane_rect);
 
     // ── Main-axis handle (inner edge) ──
     if resize.flow {
-        let t = RESIZE_HANDLE_THICKNESS;
-        let handle_rect = match title_side {
-            // Title at the top → inner edge is the bottom.
-            TitleSide::Top => egui::Rect::from_min_max(
-                egui::pos2(pane_rect.min.x, pane_rect.max.y - t),
-                pane_rect.max,
-            ),
-            // Title at the bottom → inner edge is the top.
-            TitleSide::Bottom => egui::Rect::from_min_max(
-                pane_rect.min,
-                egui::pos2(pane_rect.max.x, pane_rect.min.y + t),
-            ),
-            // Title at the left → inner edge is the right.
-            TitleSide::Left => egui::Rect::from_min_max(
-                egui::pos2(pane_rect.max.x - t, pane_rect.min.y),
-                pane_rect.max,
-            ),
-            // Title at the right → inner edge is the left.
-            TitleSide::Right => egui::Rect::from_min_max(
-                pane_rect.min,
-                egui::pos2(pane_rect.min.x + t, pane_rect.max.y),
-            ),
-        };
+        let handle_rect_mara = pane_main_resize_handle_rect(pane_rect_mara, title_side);
         let id = pane_id.with("mara_pane_resize_main");
-        let resp = ui.interact(handle_rect, id, Sense::click_and_drag());
+        let resp = {
+            let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
+            backend.interact(
+                handle_rect_mara,
+                id.into(),
+                crate::layout::Sense::ClickAndDrag,
+            )
+        };
         let hovered = resp.hovered();
         let dragged = resp.dragged();
         if hovered || dragged {
-            let icon = if horizontal_strip {
-                egui::CursorIcon::ResizeVertical
-            } else {
-                egui::CursorIcon::ResizeHorizontal
-            };
-            ui.ctx().set_cursor_icon(icon);
+            crate::backend::egui::set_cursor_icon_for_ui(
+                ui,
+                pane_main_resize_cursor(horizontal_strip),
+            );
         }
-        paint_indicator(ui, handle_rect, hovered, dragged);
+        paint_indicator(ui, handle_rect_mara, hovered, dragged);
         if dragged {
-            let delta = resp.drag_delta();
+            let delta = resp.drag_delta;
             let flow_delta = if horizontal_strip { delta.y } else { delta.x };
             // Whether the main-anchored edge is at the FAR side of
             // the pane (so the handle sits at the NEAR side and
@@ -1612,49 +1607,28 @@ fn paint_resize_handles_inner(
     //   * `Middle` is centred — both cross sides are resizable and
     //     the pane grows symmetrically about its centre.
     if resize.span {
-        let t = RESIZE_HANDLE_THICKNESS;
         // For horizontal-strip panes (TOP / BOTTOM rails) the cross
         // axis is X; for vertical-strip panes (LEFT / RIGHT rails)
         // the span axis is Y.
-        let span_min_rect;
-        let span_max_rect;
-        if horizontal_strip {
-            span_min_rect = egui::Rect::from_min_max(
-                pane_rect.min,
-                egui::pos2(pane_rect.min.x + t, pane_rect.max.y),
-            );
-            span_max_rect = egui::Rect::from_min_max(
-                egui::pos2(pane_rect.max.x - t, pane_rect.min.y),
-                pane_rect.max,
-            );
-        } else {
-            span_min_rect = egui::Rect::from_min_max(
-                pane_rect.min,
-                egui::pos2(pane_rect.max.x, pane_rect.min.y + t),
-            );
-            span_max_rect = egui::Rect::from_min_max(
-                egui::pos2(pane_rect.min.x, pane_rect.max.y - t),
-                pane_rect.max,
-            );
-        }
+        let (span_min_rect, span_max_rect) =
+            pane_span_resize_handle_rects(pane_rect_mara, horizontal_strip);
 
-        let icon = if horizontal_strip {
-            egui::CursorIcon::ResizeHorizontal
-        } else {
-            egui::CursorIcon::ResizeVertical
-        };
+        let icon = pane_span_resize_cursor(horizontal_strip);
 
-        let handle_one = |rect: egui::Rect, salt: &'static str, sign: f32, factor: f32| {
+        let mut handle_one = |rect: MaraRect, salt: &'static str, sign: f32, factor: f32| {
             let id = pane_id.with(salt);
-            let resp = ui.interact(rect, id, Sense::click_and_drag());
+            let resp = {
+                let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
+                backend.interact(rect, id.into(), crate::layout::Sense::ClickAndDrag)
+            };
             let hovered = resp.hovered();
             let dragged = resp.dragged();
             if hovered || dragged {
-                ui.ctx().set_cursor_icon(icon);
+                crate::backend::egui::set_cursor_icon_for_ui(ui, icon);
             }
             paint_indicator(ui, rect, hovered, dragged);
             if dragged {
-                let delta = resp.drag_delta();
+                let delta = resp.drag_delta;
                 let span_delta = if horizontal_strip { delta.x } else { delta.y };
                 let signed = sign * span_delta * factor;
                 let cur = user_span(ui.ctx(), pane_id);
@@ -1673,24 +1647,19 @@ fn paint_resize_handles_inner(
         // (cross = X), and its X-min edge is anchored to the LEFT
         // rail — so the resizable side is the X-MAX (right edge),
         // even though the rail zone is `End`.
-        let (align, _offset) = layout::anchor_align(anchor);
-        let span_align = if horizontal_strip {
-            align.x()
-        } else {
-            align.y()
-        };
+        let span_align = layout::anchor_span_align(anchor, horizontal_strip);
         match span_align {
-            egui::Align::Min => {
+            layout::AxisAlign::Min => {
                 // cross-min anchored → grow from cross-max edge.
                 handle_one(span_max_rect, "mara_pane_resize_cross_max", 1.0, 1.0);
             }
-            egui::Align::Max => {
+            layout::AxisAlign::Max => {
                 // cross-max anchored → grow from cross-min edge
                 // (drag in the negative direction = grow → flip
                 // sign).
                 handle_one(span_min_rect, "mara_pane_resize_cross_min", -1.0, 1.0);
             }
-            egui::Align::Center => {
+            layout::AxisAlign::Center => {
                 // Centred on cross — both edges move symmetrically
                 // about the centre, so each handle's drag delta
                 // contributes 2× to the cross extent.
@@ -1701,9 +1670,119 @@ fn paint_resize_handles_inner(
     }
 }
 
+fn pane_main_resize_handle_rect(pane_rect: MaraRect, title_side: TitleSide) -> MaraRect {
+    let t = RESIZE_HANDLE_THICKNESS;
+    match title_side {
+        // Title at the top → inner edge is the bottom.
+        TitleSide::Top => MaraRect::from_min_max(
+            MaraPos2::new(pane_rect.min.x, pane_rect.max.y - t),
+            pane_rect.max,
+        ),
+        // Title at the bottom → inner edge is the top.
+        TitleSide::Bottom => MaraRect::from_min_max(
+            pane_rect.min,
+            MaraPos2::new(pane_rect.max.x, pane_rect.min.y + t),
+        ),
+        // Title at the left → inner edge is the right.
+        TitleSide::Left => MaraRect::from_min_max(
+            MaraPos2::new(pane_rect.max.x - t, pane_rect.min.y),
+            pane_rect.max,
+        ),
+        // Title at the right → inner edge is the left.
+        TitleSide::Right => MaraRect::from_min_max(
+            pane_rect.min,
+            MaraPos2::new(pane_rect.min.x + t, pane_rect.max.y),
+        ),
+    }
+}
+
+fn pane_span_resize_handle_rects(
+    pane_rect: MaraRect,
+    horizontal_strip: bool,
+) -> (MaraRect, MaraRect) {
+    let t = RESIZE_HANDLE_THICKNESS;
+    if horizontal_strip {
+        (
+            MaraRect::from_min_max(
+                pane_rect.min,
+                MaraPos2::new(pane_rect.min.x + t, pane_rect.max.y),
+            ),
+            MaraRect::from_min_max(
+                MaraPos2::new(pane_rect.max.x - t, pane_rect.min.y),
+                pane_rect.max,
+            ),
+        )
+    } else {
+        (
+            MaraRect::from_min_max(
+                pane_rect.min,
+                MaraPos2::new(pane_rect.max.x, pane_rect.min.y + t),
+            ),
+            MaraRect::from_min_max(
+                MaraPos2::new(pane_rect.min.x, pane_rect.max.y - t),
+                pane_rect.max,
+            ),
+        )
+    }
+}
+
+fn pane_resize_indicator_paint_cmd(
+    rect: MaraRect,
+    accent: MaraColor32,
+    hovered: bool,
+    dragged: bool,
+) -> Option<crate::paint::PaintCmd> {
+    let alpha: u8 = if dragged {
+        180
+    } else if hovered {
+        110
+    } else {
+        return None; // fully invisible at rest
+    };
+    Some(crate::paint::PaintCmd::RectFilled {
+        rect,
+        corner: crate::vocab::CornerRadius::ZERO,
+        fill: MaraColor32::from_rgba_unmultiplied(accent.r(), accent.g(), accent.b(), alpha),
+    })
+}
+
+fn pane_main_resize_cursor(horizontal_strip: bool) -> crate::layout::CursorIcon {
+    if horizontal_strip {
+        crate::layout::CursorIcon::ResizeVertical
+    } else {
+        crate::layout::CursorIcon::ResizeHorizontal
+    }
+}
+
+fn pane_span_resize_cursor(horizontal_strip: bool) -> crate::layout::CursorIcon {
+    if horizontal_strip {
+        crate::layout::CursorIcon::ResizeHorizontal
+    } else {
+        crate::layout::CursorIcon::ResizeVertical
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn published_pane_rects_are_mara_vocab_for_host_firewalls() {
+        let ctx = egui::Context::default();
+        let raw = egui::Rect::from_min_max(egui::pos2(10.0, 20.0), egui::pos2(30.0, 50.0));
+
+        publish_pane_rect(&ctx, raw);
+        assert_eq!(
+            __internal_published_pane_rects(&ctx),
+            vec![MaraRect::from(raw)]
+        );
+
+        __internal_clear_published_pane_rects(&ctx);
+        assert_eq!(
+            __internal_published_pane_rects(&ctx),
+            Vec::<MaraRect>::new()
+        );
+    }
 
     #[test]
     fn user_extents_sanitize_non_finite_values() {
@@ -1761,6 +1840,103 @@ mod tests {
         publish_body_extra_flow(&ctx, pane_id, 12.0);
 
         assert_eq!(published_body_extra_flow(&ctx, pane_id), 12.0);
+    }
+
+    #[test]
+    fn pane_main_resize_handle_rect_uses_mara_geometry() {
+        let pane_rect =
+            MaraRect::from_min_max(MaraPos2::new(10.0, 20.0), MaraPos2::new(90.0, 70.0));
+        let t = RESIZE_HANDLE_THICKNESS;
+
+        assert_eq!(
+            pane_main_resize_handle_rect(pane_rect, TitleSide::Top),
+            MaraRect::from_min_max(MaraPos2::new(10.0, 70.0 - t), MaraPos2::new(90.0, 70.0))
+        );
+        assert_eq!(
+            pane_main_resize_handle_rect(pane_rect, TitleSide::Bottom),
+            MaraRect::from_min_max(MaraPos2::new(10.0, 20.0), MaraPos2::new(90.0, 20.0 + t))
+        );
+        assert_eq!(
+            pane_main_resize_handle_rect(pane_rect, TitleSide::Left),
+            MaraRect::from_min_max(MaraPos2::new(90.0 - t, 20.0), MaraPos2::new(90.0, 70.0))
+        );
+        assert_eq!(
+            pane_main_resize_handle_rect(pane_rect, TitleSide::Right),
+            MaraRect::from_min_max(MaraPos2::new(10.0, 20.0), MaraPos2::new(10.0 + t, 70.0))
+        );
+    }
+
+    #[test]
+    fn pane_span_resize_handle_rects_use_mara_geometry() {
+        let pane_rect =
+            MaraRect::from_min_max(MaraPos2::new(10.0, 20.0), MaraPos2::new(90.0, 70.0));
+        let t = RESIZE_HANDLE_THICKNESS;
+
+        let (span_min, span_max) = pane_span_resize_handle_rects(pane_rect, true);
+        assert_eq!(
+            span_min,
+            MaraRect::from_min_max(MaraPos2::new(10.0, 20.0), MaraPos2::new(10.0 + t, 70.0))
+        );
+        assert_eq!(
+            span_max,
+            MaraRect::from_min_max(MaraPos2::new(90.0 - t, 20.0), MaraPos2::new(90.0, 70.0))
+        );
+
+        let (span_min, span_max) = pane_span_resize_handle_rects(pane_rect, false);
+        assert_eq!(
+            span_min,
+            MaraRect::from_min_max(MaraPos2::new(10.0, 20.0), MaraPos2::new(90.0, 20.0 + t))
+        );
+        assert_eq!(
+            span_max,
+            MaraRect::from_min_max(MaraPos2::new(10.0, 70.0 - t), MaraPos2::new(90.0, 70.0))
+        );
+    }
+
+    #[test]
+    fn pane_resize_indicator_lowers_to_mara_paint_command() {
+        let rect = MaraRect::from_min_max(MaraPos2::new(10.0, 20.0), MaraPos2::new(90.0, 70.0));
+        let accent = MaraColor32::from_rgb(1, 2, 3);
+
+        assert!(pane_resize_indicator_paint_cmd(rect, accent, false, false).is_none());
+
+        let Some(crate::paint::PaintCmd::RectFilled {
+            rect: painted_rect,
+            fill,
+            ..
+        }) = pane_resize_indicator_paint_cmd(rect, accent, true, false)
+        else {
+            panic!("hovered resize indicator should lower to a filled Mara rect");
+        };
+        assert_eq!(painted_rect, rect);
+        assert_eq!(fill, MaraColor32::from_rgba_unmultiplied(1, 2, 3, 110));
+
+        let Some(crate::paint::PaintCmd::RectFilled { fill, .. }) =
+            pane_resize_indicator_paint_cmd(rect, accent, true, true)
+        else {
+            panic!("dragged resize indicator should lower to a filled Mara rect");
+        };
+        assert_eq!(fill, MaraColor32::from_rgba_unmultiplied(1, 2, 3, 180));
+    }
+
+    #[test]
+    fn pane_resize_cursors_are_backend_neutral_axis_policy() {
+        assert_eq!(
+            pane_main_resize_cursor(true),
+            crate::layout::CursorIcon::ResizeVertical
+        );
+        assert_eq!(
+            pane_main_resize_cursor(false),
+            crate::layout::CursorIcon::ResizeHorizontal
+        );
+        assert_eq!(
+            pane_span_resize_cursor(true),
+            crate::layout::CursorIcon::ResizeHorizontal
+        );
+        assert_eq!(
+            pane_span_resize_cursor(false),
+            crate::layout::CursorIcon::ResizeVertical
+        );
     }
 
     #[test]

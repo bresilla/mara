@@ -1,7 +1,6 @@
-use egui::Id;
-
 use crate::{
     view::{ViewId, ViewRouter, ViewRouterError},
+    vocab::Id,
     workspace::WorkspaceStackError,
 };
 

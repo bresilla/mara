@@ -118,9 +118,13 @@ impl NodeViewState {
         }
     }
 
-    /// Direct access to the secondary `egui::Context`. Hosts use
-    /// this to set theme / fonts / styles to match the parent UI.
-    pub fn ctx(&self) -> &egui::Context {
+    /// First-party hook for the secondary `egui::Context`.
+    ///
+    /// The sharp-zoom renderer is still egui-backed internally, but
+    /// ordinary graph consumers should go through Mara's graph
+    /// wrapper instead of configuring the raw sub-context directly.
+    #[doc(hidden)]
+    pub fn __internal_ctx(&self) -> &egui::Context {
         &self.sub_ctx
     }
 
@@ -131,9 +135,9 @@ impl NodeViewState {
     ///
     /// ```ignore
     /// if state.take_first_frame() {
-    ///     maraui::style::install_fonts(state.ctx(), ...);
+    ///     maraui::style::__internal_install_fonts(state.__internal_ctx(), ...);
     /// }
-    /// maraui::style::apply_theme_to(state.ctx(), ...);
+    /// maraui::style::__internal_apply_theme_to(state.__internal_ctx(), ...);
     /// mara_graph::show_with_anchor(...);
     /// ```
     pub fn take_first_frame(&mut self) -> bool {
@@ -426,9 +430,9 @@ pub fn show_with_anchor<R>(
 ) -> egui::Response {
     // Sub-context setup (font install, theme bridging) is the
     // caller's responsibility — see [`NodeViewState::take_first_frame`]
-    // and [`NodeViewState::ctx`]. The mara-themed wrapper in
-    // `maraui::extras::graph` runs `maraui::style::install_fonts`
-    // + `apply_theme_to` against the sub-context before invoking
+    // and [`NodeViewState::__internal_ctx`]. The mara-themed wrapper in
+    // `maraui::extras::graph` runs Mara's internal font install
+    // + theme-visual hooks against the sub-context before invoking
     // this function; standalone consumers can leave the sub-context
     // with egui's default visuals.
 

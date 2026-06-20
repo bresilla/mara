@@ -23,10 +23,16 @@
 
 use std::hash::Hash;
 
-use egui::{Color32, Context, Id, Pos2, Rect, Response, Sense, Ui, vec2};
+use egui::{Context, Id, Ui};
 
 use crate::container::SeparatorOrient;
-use crate::style;
+use crate::{
+    layout::{CursorIcon, Sense, UiBackend},
+    mui::MaraResponse,
+    paint::PaintCmd,
+    style,
+    vocab::{Color32 as MaraColor32, Pos2 as MaraPos2, Rect as MaraRect, Vec2 as MaraVec2},
+};
 
 /// Cross-axis hit-rect thickness for the dot handle. Bigger than
 /// the inter-pod [`crate::container::separator::separator_strip_h`] so the
@@ -45,22 +51,23 @@ const DOTS_R: f32 = 1.7;
 const DOTS_ALPHA: u8 = 160;
 
 /// Paint a three-dot resize handle into `ui` and return its drag
-/// `Response`. Caller is expected to read `response.drag_delta()`
+/// `MaraResponse`. Caller is expected to read `response.drag_delta()`
 /// and apply it to the container's persisted flow size.
 ///
 /// On hover or drag the dots paint in `accent`; otherwise in
 /// theme-flipped subtle ink (white-tinted on Dark themes,
 /// black-tinted on Light). Cursor flips to the matching resize
 /// glyph for the orientation.
-pub fn paint_container_dots(
+pub(crate) fn paint_container_dots(
     ui: &mut Ui,
     orient: SeparatorOrient,
     id_salt: impl Hash,
-    accent: Color32,
-) -> Response {
+    accent: impl Into<MaraColor32>,
+) -> MaraResponse {
+    let accent = accent.into();
     let rect = allocate_strip(ui, orient);
     // Register the strip's flow-axis size with the active pane so
-    // `Pane::show`'s auto-flow accounting includes this handle in
+    // pane auto-flow accounting includes this handle in
     // the pane's outer height. Without this, the pane would be
     // sized for sum(container_body_flows) + per-container chrome
     // ONLY — the dot-handle strip per container would extend past
@@ -82,11 +89,13 @@ pub fn paint_container_dots(
     }
     let id = ui.id().with(("mara_pane_container_dots", id_salt));
     let cursor = match orient {
-        SeparatorOrient::Horizontal => egui::CursorIcon::ResizeVertical,
-        SeparatorOrient::Vertical => egui::CursorIcon::ResizeHorizontal,
+        SeparatorOrient::Horizontal => CursorIcon::ResizeVertical,
+        SeparatorOrient::Vertical => CursorIcon::ResizeHorizontal,
     };
-    let resp = ui.interact(rect, id, Sense::drag()).on_hover_cursor(cursor);
-    if !ui.is_rect_visible(rect) {
+    let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
+    let resp = backend.interact(rect, id.into(), Sense::Drag);
+    crate::backend::egui::hover_cursor_for_response(ui.ctx(), &resp, cursor);
+    if !crate::backend::egui::is_ui_rect_visible(ui, rect) {
         return resp;
     }
     let bright = resp.hovered() || resp.dragged();
@@ -94,7 +103,7 @@ pub fn paint_container_dots(
         accent
     } else {
         let base = style::outline_base();
-        Color32::from_rgba_unmultiplied(base.r(), base.g(), base.b(), DOTS_ALPHA)
+        MaraColor32::from_rgba_unmultiplied(base.r(), base.g(), base.b(), DOTS_ALPHA)
     };
     paint_dots(ui, rect, orient, ink);
     resp
@@ -105,53 +114,66 @@ fn dot_rects_key(pane_id: Id) -> Id {
 }
 
 pub(crate) fn clear_container_dot_rects(ctx: &Context, pane_id: Id) {
-    ctx.data_mut(|d| d.remove::<Vec<Rect>>(dot_rects_key(pane_id)));
+    ctx.data_mut(|d| d.remove::<Vec<MaraRect>>(dot_rects_key(pane_id)));
 }
 
-pub(crate) fn record_container_dot_rect(ctx: &Context, pane_id: Id, rect: Rect) {
+pub(crate) fn record_container_dot_rect(ctx: &Context, pane_id: Id, rect: impl Into<MaraRect>) {
+    let rect = rect.into();
     ctx.data_mut(|d| {
-        let mut rects: Vec<Rect> = d.get_temp(dot_rects_key(pane_id)).unwrap_or_default();
+        let mut rects: Vec<MaraRect> = d.get_temp(dot_rects_key(pane_id)).unwrap_or_default();
         rects.push(rect);
         d.insert_temp(dot_rects_key(pane_id), rects);
     });
 }
 
-pub(crate) fn pointer_over_container_dots(ctx: &Context, pane_id: Id, pos: Pos2) -> bool {
+pub(crate) fn pointer_over_container_dots(
+    ctx: &Context,
+    pane_id: Id,
+    pos: impl Into<MaraPos2>,
+) -> bool {
+    let pos = pos.into();
     ctx.data(|d| {
-        d.get_temp::<Vec<Rect>>(dot_rects_key(pane_id))
+        d.get_temp::<Vec<MaraRect>>(dot_rects_key(pane_id))
             .unwrap_or_default()
             .iter()
             .any(|rect| rect.contains(pos))
     })
 }
 
-fn allocate_strip(ui: &mut Ui, orient: SeparatorOrient) -> Rect {
+fn allocate_strip(ui: &mut Ui, orient: SeparatorOrient) -> MaraRect {
+    let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
+    let available = backend.available_rect();
     let size = match orient {
-        SeparatorOrient::Horizontal => vec2(ui.available_width(), DOTS_STRIP_H),
-        SeparatorOrient::Vertical => vec2(DOTS_STRIP_H, ui.available_height()),
+        SeparatorOrient::Horizontal => MaraVec2::new(available.width(), DOTS_STRIP_H),
+        SeparatorOrient::Vertical => MaraVec2::new(DOTS_STRIP_H, available.height()),
     };
-    let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
-    rect
+    backend.allocate(size, Sense::Hover).rect
 }
 
-fn paint_dots(ui: &Ui, rect: Rect, orient: SeparatorOrient, ink: Color32) {
+fn pane_dot_paint_cmds(rect: MaraRect, orient: SeparatorOrient, ink: MaraColor32) -> [PaintCmd; 3] {
     let centre = rect.center();
     match orient {
         SeparatorOrient::Horizontal => {
-            // Three dots arranged left-to-right along the strip's
-            // long axis, centred on its short-axis midline.
-            for dx in [-DOTS_SPACING, 0.0, DOTS_SPACING] {
-                ui.painter()
-                    .circle_filled(egui::pos2(centre.x + dx, centre.y), DOTS_R, ink);
-            }
+            [-DOTS_SPACING, 0.0, DOTS_SPACING].map(|dx| PaintCmd::CircleFilled {
+                center: MaraPos2::new(centre.x + dx, centre.y),
+                radius: DOTS_R,
+                fill: ink,
+            })
         }
         SeparatorOrient::Vertical => {
-            // Three dots stacked top-to-bottom.
-            for dy in [-DOTS_SPACING, 0.0, DOTS_SPACING] {
-                ui.painter()
-                    .circle_filled(egui::pos2(centre.x, centre.y + dy), DOTS_R, ink);
-            }
+            [-DOTS_SPACING, 0.0, DOTS_SPACING].map(|dy| PaintCmd::CircleFilled {
+                center: MaraPos2::new(centre.x, centre.y + dy),
+                radius: DOTS_R,
+                fill: ink,
+            })
         }
+    }
+}
+
+fn paint_dots(ui: &mut Ui, rect: MaraRect, orient: SeparatorOrient, ink: MaraColor32) {
+    for cmd in pane_dot_paint_cmds(rect, orient, ink) {
+        let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
+        crate::layout::UiBackend::paint(&mut backend, cmd);
     }
 }
 
@@ -163,7 +185,7 @@ mod tests {
     fn dot_hit_rects_are_frame_local() {
         let ctx = egui::Context::default();
         let pane_id = Id::new("pane");
-        let rect = Rect::from_min_size(egui::pos2(10.0, 20.0), vec2(30.0, 6.0));
+        let rect = MaraRect::from_min_size(MaraPos2::new(10.0, 20.0), MaraVec2::new(30.0, 6.0));
 
         record_container_dot_rect(&ctx, pane_id, rect);
         assert!(pointer_over_container_dots(&ctx, pane_id, rect.center()));
@@ -177,11 +199,36 @@ mod tests {
         let ctx = egui::Context::default();
         let first = Id::new("first-pane");
         let second = Id::new("second-pane");
-        let rect = Rect::from_min_size(egui::pos2(10.0, 20.0), vec2(30.0, 6.0));
+        let rect = MaraRect::from_min_size(MaraPos2::new(10.0, 20.0), MaraVec2::new(30.0, 6.0));
 
         record_container_dot_rect(&ctx, first, rect);
 
         assert!(pointer_over_container_dots(&ctx, first, rect.center()));
         assert!(!pointer_over_container_dots(&ctx, second, rect.center()));
+    }
+
+    #[test]
+    fn pane_dot_paint_cmds_are_mara_circle_commands() {
+        let rect = MaraRect::from_min_size(
+            MaraPos2::new(10.0, 20.0),
+            crate::vocab::Vec2::new(30.0, 6.0),
+        );
+
+        let cmds = pane_dot_paint_cmds(rect, SeparatorOrient::Horizontal, MaraColor32::WHITE);
+
+        assert_eq!(cmds.len(), 3);
+        assert!(matches!(cmds[0], PaintCmd::CircleFilled { .. }));
+        assert!(matches!(cmds[1], PaintCmd::CircleFilled { .. }));
+        assert!(matches!(cmds[2], PaintCmd::CircleFilled { .. }));
+        if let PaintCmd::CircleFilled {
+            center,
+            radius,
+            fill,
+        } = cmds[1]
+        {
+            assert_eq!(center, rect.center());
+            assert_eq!(radius, DOTS_R);
+            assert_eq!(fill, MaraColor32::WHITE);
+        }
     }
 }

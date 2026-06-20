@@ -1,6 +1,5 @@
-use egui::Id;
-
 use crate::view::ViewEntry;
+use crate::vocab::Id;
 
 use super::{
     RibbonAction, RibbonCluster, RibbonEdge, RibbonOverridePolicy, RibbonScope, RibbonSlot,

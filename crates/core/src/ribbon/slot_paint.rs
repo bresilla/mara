@@ -1,10 +1,14 @@
-use egui::{Color32, Context, Id, Rect, Response, Sense, Vec2, pos2, vec2};
+use egui::Context;
 
 use super::{
     RibbonAction, RibbonCluster, RibbonDrag, RibbonEdge, RibbonOpen, RibbonPlacement, RibbonScope,
     RibbonSlotItem,
     chrome::draw_unified_ribbon_chrome,
-    paint::{paint_ribbon_button, paint_ribbon_glyph, ribbon_button_fg},
+    paint::{paint_ribbon_glyph, ribbon_button_fg, ribbon_button_paint_cmds},
+};
+use crate::layout::{Layer, Sense as MaraSense, SlotRibbonLayoutSpec, UiBackend};
+use crate::vocab::{
+    Color32 as MaraColor32, Id as MaraId, Pos2 as MaraPos2, Rect as MaraRect, Vec2 as MaraVec2,
 };
 
 const LEFT_SHELF_RIBBON_CHROME_ID: &str = "mara.system.left_shelf.ribbon";
@@ -20,7 +24,7 @@ const CLOSE_ITEM_CHROME_ID: &str = "mara.system.close.item";
 
 #[derive(Clone, Debug)]
 pub struct ResolvedSlotRibbon {
-    pub id: Id,
+    pub id: MaraId,
     pub chrome_id: Option<&'static str>,
     pub scope: RibbonScope,
     pub edge: RibbonEdge,
@@ -33,22 +37,23 @@ pub struct ResolvedSlotRibbon {
 
 #[derive(Clone, Debug)]
 pub struct RibbonSlotClick {
-    pub ribbon: Id,
-    pub item: Id,
+    pub ribbon: MaraId,
+    pub item: MaraId,
     pub action: RibbonAction,
-    pub response: Option<Response>,
 }
 
-/// Paint already-resolved slot ribbons as simple icon/button rails.
+/// Internal egui hook for painting already-resolved slot ribbons as
+/// simple icon/button rails.
 ///
-/// Simple renderer for resolved slot ribbons. Most app chrome should
-/// use [`draw_slot_ribbons_featureful`] so it gets drag/reorder,
-/// panel toggles, placement, and fullscreen layering too.
-pub fn draw_slot_ribbons(
+/// Host/app code should route through Mara shell/host facades instead
+/// of calling this raw backend helper directly.
+#[doc(hidden)]
+pub fn __internal_draw_slot_ribbons_egui(
     ctx: &Context,
-    accent: Color32,
+    accent: impl Into<MaraColor32>,
     ribbons: &[ResolvedSlotRibbon],
 ) -> Vec<RibbonSlotClick> {
+    let accent: MaraColor32 = accent.into();
     let augmented = shelf_augmented_ribbons(ctx, ribbons, ShelfButtonOrder::Simple);
     let base = augmented.as_deref().unwrap_or(ribbons);
     let responsive = responsive_phone_ribbons(ctx, base);
@@ -58,7 +63,7 @@ pub fn draw_slot_ribbons(
 
 fn draw_slot_ribbons_inner(
     ctx: &Context,
-    accent: Color32,
+    accent: MaraColor32,
     ribbons: &[ResolvedSlotRibbon],
 ) -> Vec<RibbonSlotClick> {
     assert_resolved_ribbon_icons(ribbons);
@@ -69,7 +74,7 @@ fn draw_slot_ribbons_inner(
     clicks
 }
 
-/// Draw slot ribbons through the featureful chrome path whenever
+/// Internal egui hook for drawing slot ribbons through the featureful chrome path whenever
 /// the slot declarations provide static chrome ids.
 ///
 /// This is the convergence point for the single ribbon API and the
@@ -77,14 +82,19 @@ fn draw_slot_ribbons_inner(
 /// placement, panel toggle state, pane anchoring, and fullscreen rail
 /// layering are preserved. If any ribbon/item lacks a chrome id, the
 /// function falls back to the simple slot painter for that frame.
-pub fn draw_slot_ribbons_featureful(
+///
+/// Host/app code should route through Mara shell/host facades instead
+/// of calling this raw backend helper directly.
+#[doc(hidden)]
+pub fn __internal_draw_slot_ribbons_featureful_egui(
     ctx: &Context,
-    accent: Color32,
+    accent: impl Into<MaraColor32>,
     ribbons: &[ResolvedSlotRibbon],
     open: &mut RibbonOpen,
     placement: &mut RibbonPlacement,
     drag: &mut RibbonDrag,
 ) -> Vec<RibbonSlotClick> {
+    let accent: MaraColor32 = accent.into();
     let featureful_augmented = shelf_augmented_ribbons(ctx, ribbons, ShelfButtonOrder::Featureful);
     let featureful_base = featureful_augmented.as_deref().unwrap_or(ribbons);
     let featureful_responsive = responsive_phone_ribbons(ctx, featureful_base);
@@ -125,7 +135,6 @@ pub fn draw_slot_ribbons_featureful(
                     ribbon: ribbon_id,
                     item: item.id,
                     action: item.action,
-                    response: None,
                 })
         })
         .collect()
@@ -148,15 +157,15 @@ fn shelf_augmented_ribbons(
     ribbons: &[ResolvedSlotRibbon],
     order: ShelfButtonOrder,
 ) -> Option<Vec<ResolvedSlotRibbon>> {
-    let visible_layout = crate::shelf::shelf_layout(ctx);
+    let visible_layout = crate::shelf::__internal_shelf_layout(ctx);
     // Phones don't need app window controls (the OS / browser owns
     // close + maximize), so hide both on phone-class. Computed here and
     // passed in so the augmentation stays a pure function of its args.
     let hide_window_controls = crate::style::screen_class() == crate::style::Breakpoint::Phone;
-    let maximized = ctx.input(|i| i.viewport().maximized).unwrap_or(false);
+    let maximized = crate::backend::egui::viewport_maximized(ctx);
     augment_shelf_buttons_with_chrome(
         ribbons,
-        crate::window_chrome::window_chrome_host_capabilities(ctx),
+        crate::window_chrome::__internal_window_chrome_host_capabilities(ctx),
         crate::shelf::published_shelf_presence(ctx),
         visible_layout.is_some_and(|layout| layout.left.is_some()),
         visible_layout.is_some_and(|layout| layout.right.is_some()),
@@ -241,7 +250,7 @@ fn augment_shelf_buttons_with_chrome(
     changed.then_some(out)
 }
 
-fn contains_item(ribbons: &[ResolvedSlotRibbon], item_id: Id) -> bool {
+fn contains_item(ribbons: &[ResolvedSlotRibbon], item_id: MaraId) -> bool {
     ribbons
         .iter()
         .any(|ribbon| ribbon.items.iter().any(|item| item.id == item_id))
@@ -382,7 +391,7 @@ fn responsive_phone_ribbons(
     if crate::style::screen_class() != crate::style::Breakpoint::Phone {
         return None;
     }
-    let layout = crate::shelf::shelf_layout(ctx);
+    let layout = crate::shelf::__internal_shelf_layout(ctx);
     let left_panel_open = layout.is_some_and(|layout| layout.left.is_some());
     let right_panel_open = layout.is_some_and(|layout| layout.right.is_some());
     let remapped = ribbons
@@ -468,7 +477,7 @@ fn shelf_button_ribbon(
     item: RibbonSlotItem,
 ) -> ResolvedSlotRibbon {
     ResolvedSlotRibbon {
-        id: Id::new(chrome_id),
+        id: MaraId::new(chrome_id),
         chrome_id: Some(chrome_id),
         scope: RibbonScope::Permanent,
         edge: RibbonEdge::Top,
@@ -556,24 +565,24 @@ fn bottom_shelf_item(active: bool) -> RibbonSlotItem {
     item
 }
 
-fn left_shelf_item_id() -> Id {
-    Id::new("system.left_shelf.item")
+fn left_shelf_item_id() -> MaraId {
+    MaraId::new("system.left_shelf.item")
 }
 
-fn maximize_item_id() -> Id {
-    Id::new("system.maximize.item")
+fn maximize_item_id() -> MaraId {
+    MaraId::new("system.maximize.item")
 }
 
-fn close_item_id() -> Id {
-    Id::new("system.close_app")
+fn close_item_id() -> MaraId {
+    MaraId::new("system.close_app")
 }
 
-fn right_shelf_item_id() -> Id {
-    Id::new("system.right_shelf.item")
+fn right_shelf_item_id() -> MaraId {
+    MaraId::new("system.right_shelf.item")
 }
 
-fn bottom_shelf_item_id() -> Id {
-    Id::new("system.bottom_shelf.item")
+fn bottom_shelf_item_id() -> MaraId {
+    MaraId::new("system.bottom_shelf.item")
 }
 
 fn assert_resolved_ribbon_icons(ribbons: &[ResolvedSlotRibbon]) {
@@ -600,7 +609,7 @@ fn can_use_featureful_chrome(ribbons: &[ResolvedSlotRibbon]) -> bool {
 
 fn draw_one_slot_ribbon(
     ctx: &Context,
-    accent: Color32,
+    accent: MaraColor32,
     ribbon: &ResolvedSlotRibbon,
     clicks: &mut Vec<RibbonSlotClick>,
 ) {
@@ -608,53 +617,59 @@ fn draw_one_slot_ribbon(
         return;
     }
 
-    let screen = ctx.content_rect();
+    let screen = crate::backend::egui::context_content_rect(ctx);
     let chrome = chrome_for_scope(ribbon.scope);
-    let count = ribbon.items.len() as f32;
     let vertical = ribbon.edge.is_vertical();
-    let span = count * chrome.button_size + (count - 1.0).max(0.0) * chrome.button_gap;
-    let size = if vertical {
-        vec2(chrome.button_size, span)
-    } else {
-        vec2(span, chrome.button_size)
+    let size = {
+        let count = ribbon.items.len() as f32;
+        let span = count * chrome.button_size + (count - 1.0).max(0.0) * chrome.button_gap;
+        if vertical {
+            MaraVec2::new(chrome.button_size, span)
+        } else {
+            MaraVec2::new(span, chrome.button_size)
+        }
     };
     let pos = ribbon_origin(screen, ribbon.edge, ribbon.cluster, size, chrome.edge_gap);
-    let area_id = Id::new(("mara_slot_ribbon", ribbon.id));
+    let spec = SlotRibbonLayoutSpec::new(
+        MaraId::new(("mara_slot_ribbon", ribbon.id)),
+        pos,
+        vertical,
+        ribbon.items.len(),
+        chrome.button_size,
+        chrome.button_gap,
+    );
 
-    egui::Area::new(area_id)
-        .order(egui::Order::Foreground)
-        .fixed_pos(pos)
-        .show(ctx, |ui| {
-            ui.set_min_size(size);
-            for (idx, item) in ribbon.items.iter().enumerate() {
-                let offset = idx as f32 * (chrome.button_size + chrome.button_gap);
-                let min = if vertical {
-                    pos2(0.0, offset)
-                } else {
-                    pos2(offset, 0.0)
-                };
-                let rect = Rect::from_min_size(min, Vec2::splat(chrome.button_size));
-                let response = ui
-                    .interact(rect, ui.id().with(item.id), Sense::click())
-                    .on_hover_text(item.tooltip.clone());
-                paint_ribbon_button(ui.painter(), rect, accent, item.active, response.hovered());
-                let glyph = glyph_for_item(item);
-                paint_ribbon_glyph(
-                    ui,
-                    rect,
-                    glyph,
-                    ribbon_button_fg(accent, item.active, response.hovered(), glyph),
-                );
-                if response.clicked() {
-                    clicks.push(RibbonSlotClick {
-                        ribbon: ribbon.id,
-                        item: item.id,
-                        action: item.action,
-                        response: Some(response),
-                    });
-                }
+    crate::backend::egui::show_slot_ribbon_area(ctx, spec, Layer::Foreground, |ui| {
+        for (idx, item) in ribbon.items.iter().enumerate() {
+            let Some(rect) = spec.item_rect(idx) else {
+                continue;
+            };
+            let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
+            let response = backend.interact(
+                rect,
+                MaraId::new(("mara_slot_ribbon_item", ribbon.id, item.id)),
+                MaraSense::Click,
+            );
+            crate::backend::egui::hover_text_for_ui_response(ui, &response, &item.tooltip);
+            for cmd in ribbon_button_paint_cmds(rect, accent, item.active, response.hovered()) {
+                crate::backend::egui::render_paint_cmd_ui(ui, cmd);
             }
-        });
+            let glyph = glyph_for_item(item);
+            paint_ribbon_glyph(
+                ui,
+                rect,
+                glyph,
+                ribbon_button_fg(accent, item.active, response.hovered(), glyph),
+            );
+            if response.clicked() {
+                clicks.push(RibbonSlotClick {
+                    ribbon: ribbon.id,
+                    item: item.id,
+                    action: item.action,
+                });
+            }
+        }
+    });
 }
 
 fn chrome_for_scope(scope: RibbonScope) -> crate::style::RibbonChromeTheme {
@@ -667,28 +682,28 @@ fn chrome_for_scope(scope: RibbonScope) -> crate::style::RibbonChromeTheme {
 }
 
 fn ribbon_origin(
-    screen: Rect,
+    screen: MaraRect,
     edge: RibbonEdge,
     cluster: RibbonCluster,
-    size: Vec2,
+    size: MaraVec2,
     margin: f32,
-) -> egui::Pos2 {
+) -> MaraPos2 {
     match edge {
         RibbonEdge::Left => {
             let y = cluster_axis_pos(screen.top(), screen.bottom(), size.y, cluster, margin);
-            pos2(screen.left() + margin, y)
+            MaraPos2::new(screen.left() + margin, y)
         }
         RibbonEdge::Right => {
             let y = cluster_axis_pos(screen.top(), screen.bottom(), size.y, cluster, margin);
-            pos2(screen.right() - margin - size.x, y)
+            MaraPos2::new(screen.right() - margin - size.x, y)
         }
         RibbonEdge::Top => {
             let x = cluster_axis_pos(screen.left(), screen.right(), size.x, cluster, margin);
-            pos2(x, screen.top() + margin)
+            MaraPos2::new(x, screen.top() + margin)
         }
         RibbonEdge::Bottom => {
             let x = cluster_axis_pos(screen.left(), screen.right(), size.x, cluster, margin);
-            pos2(x, screen.bottom() - margin - size.y)
+            MaraPos2::new(x, screen.bottom() - margin - size.y)
         }
     }
 }
@@ -728,7 +743,7 @@ mod tests {
 
     fn top_ribbon(cluster: RibbonCluster, items: Vec<RibbonSlotItem>) -> ResolvedSlotRibbon {
         ResolvedSlotRibbon {
-            id: Id::new(("top", cluster)),
+            id: MaraId::new(("top", cluster)),
             chrome_id: Some("top"),
             scope: RibbonScope::Permanent,
             edge: RibbonEdge::Top,
@@ -849,7 +864,7 @@ mod tests {
     #[test]
     fn shelf_buttons_need_an_existing_top_bar() {
         let ribbons = vec![ResolvedSlotRibbon {
-            id: Id::new("left.rail"),
+            id: MaraId::new("left.rail"),
             chrome_id: Some("left.rail"),
             scope: RibbonScope::View(crate::ViewId::new("test.view")),
             edge: RibbonEdge::Left,
@@ -897,9 +912,9 @@ mod tests {
         assert_eq!(
             ids,
             vec![
-                Id::new("system.maximize.item"),
+                MaraId::new("system.maximize.item"),
                 left_shelf_item_id(),
-                Id::new("view.switch.item"),
+                MaraId::new("view.switch.item"),
             ]
         );
         assert_eq!(augmented[0].items[1].icon, "panel-left");
@@ -945,7 +960,7 @@ mod tests {
         let ids: Vec<_> = augmented[0].items.iter().map(|item| item.id).collect();
         assert_eq!(
             ids,
-            vec![Id::new("system.close_app"), right_shelf_item_id()]
+            vec![MaraId::new("system.close_app"), right_shelf_item_id()]
         );
         assert_eq!(augmented[0].items[1].icon, "panel-right");
     }
@@ -969,7 +984,7 @@ mod tests {
         let ids: Vec<_> = augmented[0].items.iter().map(|item| item.id).collect();
         assert_eq!(
             ids,
-            vec![right_shelf_item_id(), Id::new("system.close_app")]
+            vec![right_shelf_item_id(), MaraId::new("system.close_app")]
         );
         assert_eq!(augmented[0].items[0].icon, "panel-right");
     }
@@ -993,7 +1008,7 @@ mod tests {
         let ids: Vec<_> = augmented[0].items.iter().map(|item| item.id).collect();
         assert_eq!(
             ids,
-            vec![Id::new("system.close_app"), bottom_shelf_item_id()]
+            vec![MaraId::new("system.close_app"), bottom_shelf_item_id()]
         );
         assert_eq!(augmented[0].items[1].icon, "panel-bottom");
     }
@@ -1018,10 +1033,23 @@ mod tests {
         assert_eq!(
             ids,
             vec![
-                Id::new("system.close_app"),
+                MaraId::new("system.close_app"),
                 right_shelf_item_id(),
                 bottom_shelf_item_id(),
             ]
         );
+    }
+
+    #[test]
+    fn simple_slot_ribbon_origin_uses_mara_geometry() {
+        let origin: MaraPos2 = ribbon_origin(
+            MaraRect::from_min_size(MaraPos2::ZERO, MaraVec2::new(800.0, 600.0)),
+            RibbonEdge::Right,
+            RibbonCluster::End,
+            MaraVec2::new(34.0, 110.0),
+            4.0,
+        );
+
+        assert_eq!(origin, MaraPos2::new(762.0, 486.0));
     }
 }

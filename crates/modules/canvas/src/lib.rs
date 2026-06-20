@@ -10,22 +10,26 @@ use mara_core::{
     RibbonOverrideLayer, RibbonOverridePolicy, RibbonScope, RibbonSlot, RibbonSlotDef,
     RibbonSlotId, RibbonSlotItem, ViewCtx, ViewId, WorkspaceBar, WorkspaceBarCluster,
     WorkspaceBarEdge, WorkspaceBarItem, WorkspaceCtx,
+    vocab::{
+        Align2 as MaraAlign2, Color32 as MaraColor32, Pos2 as MaraPos2, Stroke as MaraStroke,
+        Vec2 as MaraVec2,
+    },
 };
 
 /// A retained freehand stroke in logical canvas points.
 #[derive(Clone, Debug, PartialEq)]
 pub struct CanvasStroke {
-    pub points: Vec<egui::Pos2>,
-    pub color: egui::Color32,
+    pub points: Vec<MaraPos2>,
+    pub color: MaraColor32,
     pub width: f32,
 }
 
 impl CanvasStroke {
     #[must_use]
-    pub fn new(color: egui::Color32, width: f32) -> Self {
+    pub fn new(color: impl Into<MaraColor32>, width: f32) -> Self {
         Self {
             points: Vec::new(),
-            color,
+            color: color.into(),
             width,
         }
     }
@@ -80,12 +84,13 @@ impl CanvasSurface {
         &mut self.doc
     }
 
-    fn paint_canvas(&mut self, ui: &mut egui::Ui, min_size: egui::Vec2) {
-        let desired = egui::vec2(
-            ui.available_width().max(min_size.x),
-            ui.available_height().max(min_size.y),
+    fn paint_canvas(&mut self, mui: &mut mara_core::MaraUi<'_>, min_size: impl Into<MaraVec2>) {
+        let min_size = min_size.into();
+        let desired = MaraVec2::new(
+            mui.available_width().max(min_size.x),
+            mui.available_height().max(min_size.y),
         );
-        let (response, painter) = ui.allocate_painter(desired, egui::Sense::drag());
+        let (painter, response) = mui.canvas(desired);
         let rect = response.rect;
         let accent = mara_core::style::active_accent();
         let radius = mara_core::style::radius_for(mara_core::style::RadiusRole::Section);
@@ -99,19 +104,18 @@ impl CanvasSurface {
             rect,
             radius,
             mara_core::style::stroke_for(mara_core::style::StrokeRole::WidgetBorder, accent),
-            egui::StrokeKind::Inside,
         );
 
         if response.drag_started() {
             let mut stroke = CanvasStroke::new(accent, self.pen_width);
-            if let Some(pos) = response.interact_pointer_pos()
+            if let Some(pos) = response.interact_pointer
                 && rect.contains(pos)
             {
                 stroke.points.push(pos);
             }
             self.doc.strokes.push(stroke);
         } else if response.dragged()
-            && let Some(pos) = response.interact_pointer_pos()
+            && let Some(pos) = response.interact_pointer
             && rect.contains(pos)
             && let Some(stroke) = self.doc.strokes.last_mut()
         {
@@ -127,8 +131,9 @@ impl CanvasSurface {
         for stroke in &self.doc.strokes {
             for segment in stroke.points.windows(2) {
                 painter.line_segment(
-                    [segment[0], segment[1]],
-                    egui::Stroke::new(stroke.width, stroke.color),
+                    segment[0],
+                    segment[1],
+                    MaraStroke::new(stroke.width, stroke.color),
                 );
             }
             if let Some(point) = stroke.points.first() {
@@ -139,9 +144,9 @@ impl CanvasSurface {
         if self.doc.strokes.is_empty() {
             painter.text(
                 rect.center(),
-                egui::Align2::CENTER_CENTER,
+                MaraAlign2::CENTER_CENTER,
                 format!("{}\ndrag to draw", self.doc.title),
-                egui::FontId::proportional(13.0),
+                13.0,
                 mara_core::style::on_panel_dim(),
             );
         }
@@ -149,21 +154,21 @@ impl CanvasSurface {
 
     fn tool_ribbon(&self, scope: RibbonScope) -> RibbonSlotDef {
         let pen = RibbonSlotItem::new(
-            egui::Id::new(("canvas.pen", self.id)),
+            mara_core::vocab::Id::new(("canvas.pen", self.id)),
             "draw",
             "Pen",
             "Use pen tool",
-            RibbonAction::Command(egui::Id::new(("canvas.pen.command", self.id))),
+            RibbonAction::Command(mara_core::vocab::Id::new(("canvas.pen.command", self.id))),
         );
         let clear = RibbonSlotItem::new(
-            egui::Id::new(("canvas.clear", self.id)),
+            mara_core::vocab::Id::new(("canvas.clear", self.id)),
             "dismiss",
             "Clear",
             "Clear the whiteboard",
-            RibbonAction::Command(egui::Id::new(("canvas.clear.command", self.id))),
+            RibbonAction::Command(mara_core::vocab::Id::new(("canvas.clear.command", self.id))),
         );
         RibbonSlotDef::new(
-            egui::Id::new(("canvas.ribbon", self.id)),
+            mara_core::vocab::Id::new(("canvas.ribbon", self.id)),
             scope,
             RibbonEdge::Left,
             RibbonCluster::Middle,
@@ -185,7 +190,7 @@ impl CanvasSurface {
 
 impl MaraView for CanvasSurface {
     fn id(&self) -> ViewId {
-        ViewId(self.id)
+        ViewId::from(self.id)
     }
 
     fn title(&self) -> &str {
@@ -197,7 +202,7 @@ impl MaraView for CanvasSurface {
     }
 
     fn ribbons(&mut self) -> Vec<RibbonSlotDef> {
-        vec![self.tool_ribbon(RibbonScope::View(ViewId(self.id)))]
+        vec![self.tool_ribbon(RibbonScope::View(ViewId::from(self.id)))]
     }
 
     fn ribbon_overrides(&mut self) -> RibbonOverrideLayer {
@@ -205,15 +210,15 @@ impl MaraView for CanvasSurface {
     }
 
     fn show(&mut self, ctx: &mut ViewCtx<'_>) {
-        egui::CentralPanel::default().show(ctx.__internal_egui_ctx(), |ui| {
-            self.paint_canvas(ui, egui::vec2(420.0, 300.0));
+        ctx.body(|mui| {
+            self.paint_canvas(mui, MaraVec2::new(420.0, 300.0));
         });
     }
 }
 
 impl MaraModule for CanvasSurface {
-    fn id(&self) -> egui::Id {
-        self.id
+    fn id(&self) -> mara_core::vocab::Id {
+        self.id.into()
     }
 
     fn title(&self) -> &str {
@@ -235,7 +240,11 @@ impl MaraModule for CanvasSurface {
                 ui.label(format!("Whiteboard: {}", self.doc.title));
                 ui.label(format!("{} strokes", self.doc.strokes.len()));
             });
-            self.paint_canvas(ui, egui::vec2(180.0, 120.0));
+            {
+                let mut canvas_ui =
+                    mara_core::MaraUi::__internal_from_raw(ui, mara_core::style::active_accent());
+                self.paint_canvas(&mut canvas_ui, MaraVec2::new(180.0, 120.0));
+            }
             if ctx.can_enter_workspace() && ui.button("Open whiteboard workspace").clicked() {
                 ModuleResponse::enter_workspace()
             } else {
@@ -286,9 +295,9 @@ mod tests {
     #[test]
     fn document_keeps_retained_strokes() {
         let mut doc = CanvasDocument::new("Sketch");
-        let mut stroke = CanvasStroke::new(egui::Color32::WHITE, 3.0);
-        stroke.points.push(egui::pos2(1.0, 2.0));
-        stroke.points.push(egui::pos2(3.0, 4.0));
+        let mut stroke = CanvasStroke::new(MaraColor32::WHITE, 3.0);
+        stroke.points.push(MaraPos2::new(1.0, 2.0));
+        stroke.points.push(MaraPos2::new(3.0, 4.0));
         doc.strokes.push(stroke);
         assert_eq!(doc.strokes.len(), 1);
         doc.clear();

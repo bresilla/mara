@@ -1,21 +1,25 @@
 //! Shared **body** layout helper for [`super::Normal`] and (later)
 //! `super::tabbed`.
 //!
-//! Inside [`Body::paint`]:
+//! Inside [`Body::paint`] the body computes a Mara-owned
+//! [`ContainerBodySpec`](crate::layout::ContainerBodySpec), then hands
+//! that policy to the current backend:
 //!
-//! 1. Snapshot the parent ui's available rect and pre-allocate that
-//!    exact size via `allocate_ui_with_layout` — gives a fixed-size
+//! 1. Snapshot the parent UI's available rect and pre-allocate that
+//!    exact size in backend code — gives a fixed-size
 //!    slot for the inner [`egui::ScrollArea`] to fill.
-//! 2. Clamp the inner ui's CROSS axis to `span_inner` so widgets
+//! 2. Clamp the inner UI's CROSS axis to `span_inner` so widgets
 //!    that call `ui.available_width()` / `available_height()` see a
 //!    stable value across the layout's measurement passes.
-//! 3. Wrap the user's body closure in a *vertical* `ScrollArea`.
+//! 3. Wrap the user's body closure in a backend vertical scroll host.
 //!    The body always forces `top_down` so pods stack vertically
 //!    regardless of which side the container's title is on, so the
 //!    scroll axis is always vertical too — there's no case where
 //!    a horizontal scrollbar would help reach hidden pod content.
 
 use egui::Ui;
+
+use crate::layout::ContainerBodySpec;
 
 #[derive(Copy, Clone, Debug)]
 pub struct Body {
@@ -50,7 +54,8 @@ impl Body {
     }
 
     /// Pre-allocate a fixed-size rect for the body slot, clamp the
-    /// cross axis, and wrap `body` in a vertical [`egui::ScrollArea`].
+    /// cross axis, and wrap `body` in the backend's vertical scroll
+    /// host.
     ///
     /// Two non-obvious settings make scrolling work for the small
     /// body slots a stack of pods produces:
@@ -79,64 +84,15 @@ impl Body {
     /// force `top_down`. `max_flow` is still available for callers
     /// that need to bound the body's perpendicular extent.
     pub fn paint<R>(&self, ui: &mut Ui, body: impl FnOnce(&mut Ui) -> R) -> (R, f32) {
-        let slot_size = ui.available_rect_before_wrap().size();
-        let span_inner = self.span_inner;
-        let horizontal_strip = self.horizontal_strip;
-        let max_flow = self.max_flow;
-        ui.allocate_ui_with_layout(
-            slot_size,
-            egui::Layout::top_down(egui::Align::Min),
-            move |ui| {
-                if horizontal_strip {
-                    ui.set_max_width(span_inner);
-                } else {
-                    ui.set_max_height(span_inner);
-                    if let Some(m) = max_flow {
-                        ui.set_max_width(m);
-                    }
-                }
-                // `ScrollBarVisibility::AlwaysHidden` — the
-                // container's auto-fit path now grows to the body's
-                // intrinsic content height (no `CONTAINER_AUTOFIT_CAP`
-                // applied), so content always fits and a visible
-                // scrollbar would be redundant. Worse, allowing the
-                // bar to auto-toggle creates a 1-frame oscillation
-                // when widgets expand on demand (color picker,
-                // dropdown popup, …): bar appears → reserves width →
-                // content reflows → measured intrinsic changes →
-                // container grows → bar disappears → repeat. Hiding
-                // the bar breaks the loop. Past `CONTAINER_MAX_FLOW`
-                // (= 1200 px) content gets clipped instead of
-                // scrolled — that's the intended escape hatch (the
-                // user can drag the container's resize handle for
-                // more space, or the caller can split the section).
-                // Wrap the user body so we can append the
-                // theme's body-end inner pad (see
-                // `Theme::section_body_inner_end_pad`) AFTER the
-                // last pod renders. Inside the ScrollArea so the
-                // trailing space contributes to the scroll's
-                // measured `content_size` and the container
-                // auto-fits to include it.
-                let end_pad = crate::style::theme().section_body_inner_end_pad;
-                let scroll = egui::ScrollArea::vertical()
-                    .id_salt("mara_body_scroll_v")
-                    .auto_shrink([false, false])
-                    .min_scrolled_height(0.0)
-                    .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)
-                    .show(ui, |ui| {
-                        let r = body(ui);
-                        if end_pad > 0.0 {
-                            ui.add_space(end_pad);
-                        }
-                        r
-                    });
-                // ScrollArea reports its inner content's natural
-                // size. The caller persists this so the container
-                // can auto-fit on the next frame (see
-                // `crate::container::record_container_intrinsic`).
-                (scroll.inner, scroll.content_size.y)
-            },
+        crate::backend::egui::show_container_body_slot(
+            ui,
+            ContainerBodySpec::new(
+                self.horizontal_strip,
+                self.span_inner,
+                self.max_flow,
+                crate::style::theme().section_body_inner_end_pad,
+            ),
+            body,
         )
-        .inner
     }
 }
