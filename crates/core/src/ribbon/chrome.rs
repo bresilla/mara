@@ -483,13 +483,15 @@ fn insets_for_ribbon(
             out.right = EDGE_GAP;
         }
         RibbonEdge::Left | RibbonEdge::Right => {
-            // The top bar's strip is already reserved by `fresh_chrome_bounds`
-            // (the chrome rect side rails anchor to starts below it), so the
-            // rail only needs the normal edge gap on top — adding the full
-            // rail clearance again would push the rail a whole row too low.
-            // The bottom bar is NOT reserved in the chrome rect, so the rail
-            // still self-insets there.
-            out.top = EDGE_GAP;
+            // `fresh_chrome_bounds` already reserves the top bar strip AND
+            // exactly one `SIDE_BTN_GAP` of clearance below it (the rail
+            // clearance is EDGE_GAP + SIDE_BTN_SIZE + SIDE_BTN_GAP, of which
+            // the top bar occupies EDGE_GAP + SIDE_BTN_SIZE). So the rail's
+            // first icon needs NO extra top inset — it then sits one normal
+            // inter-icon gap below the top bar, matching the spacing between
+            // the rail icons themselves. The bottom bar is NOT reserved in
+            // the chrome rect, so the rail still self-insets there.
+            out.top = 0.0;
             out.bottom = corner(edge_has_ribbon(ribbons, RibbonEdge::Bottom));
         }
     }
