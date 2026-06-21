@@ -1,11 +1,79 @@
 //! Title-strip painter for [`super::Pane`]. Theme-aware (PRO solid
 //! accent vs GAME caution stripes), with text alignment + blinking
 //! pip placement driven by the pane's [`PaneAnchor`].
+//!
+//! All drawing is lowered to Mara [`PaintCmd`] values and submitted
+//! through the egui backend adapter; this module no longer calls
+//! `egui::Painter` directly. Time/animation/scramble effects still
+//! read the host context through backend helpers and crate-internal
+//! style helpers while egui remains the only backend.
 
-use egui::{Color32, Id, Rect, pos2};
+use egui::{Color32, Id, Rect};
 
 use super::anchor::{PaneAnchor, TitleSide};
+use crate::paint::{PaintCmd, TextRun};
 use crate::style;
+use crate::vocab::{
+    Align2 as MaraAlign2, Color32 as MaraColor32, CornerRadius as MaraCornerRadius,
+    Pos2 as MaraPos2, Rect as MaraRect, Vec2 as MaraVec2,
+};
+
+/// Submit a single Mara paint command through the egui backend.
+fn paint_cmd(ui: &mut egui::Ui, cmd: PaintCmd) {
+    let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
+    crate::layout::UiBackend::paint(&mut backend, cmd);
+}
+
+/// Paint one blinking pip rectangle, optionally with a red/cyan
+/// chromatic-aberration flash split along the strip's reading axis.
+fn paint_pip(
+    ui: &mut egui::Ui,
+    r: MaraRect,
+    chromatic_pulse: bool,
+    is_horizontal_strip: bool,
+    pip_color: MaraColor32,
+) {
+    if chromatic_pulse {
+        const CHROM_OFFSET: f32 = 2.0;
+        let chrom_red = MaraColor32::from_rgba_unmultiplied(220, 60, 70, 200);
+        let chrom_cyan = MaraColor32::from_rgba_unmultiplied(60, 220, 230, 200);
+        let (off_red, off_cyan) = if is_horizontal_strip {
+            (
+                MaraVec2::new(-CHROM_OFFSET, 0.0),
+                MaraVec2::new(CHROM_OFFSET, 0.0),
+            )
+        } else {
+            (
+                MaraVec2::new(0.0, -CHROM_OFFSET),
+                MaraVec2::new(0.0, CHROM_OFFSET),
+            )
+        };
+        paint_cmd(
+            ui,
+            PaintCmd::RectFilled {
+                rect: r.translate(off_red),
+                corner: MaraCornerRadius::ZERO,
+                fill: chrom_red,
+            },
+        );
+        paint_cmd(
+            ui,
+            PaintCmd::RectFilled {
+                rect: r.translate(off_cyan),
+                corner: MaraCornerRadius::ZERO,
+                fill: chrom_cyan,
+            },
+        );
+    }
+    paint_cmd(
+        ui,
+        PaintCmd::RectFilled {
+            rect: r,
+            corner: MaraCornerRadius::ZERO,
+            fill: pip_color,
+        },
+    );
+}
 
 /// Paint the title strip background + text inside `rect`. Five
 /// pieces:
@@ -33,36 +101,40 @@ pub(crate) fn paint_pane_title(
     let title_size = 15.0 * 1.15;
     let theme = style::theme();
     let stripes_on = theme.pane.title_stripes;
+    let m_rect: MaraRect = rect.into();
 
     // ── 1. Background ──
     if !theme.pane.fill_visible && !stripes_on {
-        ui.painter().rect_filled(
-            rect,
-            egui::CornerRadius::same(theme.radius_lg),
-            style::pane_fill(accent),
+        paint_cmd(
+            ui,
+            PaintCmd::RectFilled {
+                rect: m_rect,
+                corner: MaraCornerRadius::same(theme.radius_lg),
+                fill: style::pane_fill(accent),
+            },
         );
     }
     if stripes_on {
-        style::paint_caution_stripes(ui.painter(), rect, accent);
+        // Stripes are visible — keep animating. Without this egui only
+        // repaints on input events and the strip would appear frozen.
+        crate::backend::egui::request_repaint_after_ms(ui.ctx(), 16);
+        let time_s = crate::backend::egui::input_time(ui.ctx()) as f32;
+        if let Some(cmd) = style::caution_stripes_paint_cmd(m_rect, accent, time_s) {
+            paint_cmd(ui, cmd);
+        }
     }
 
     // ── 2. Title text colour + content ──
-    let text_col = if stripes_on {
+    let text_col: MaraColor32 = if stripes_on {
         if theme.is_light {
-            Color32::BLACK
+            MaraColor32::BLACK
         } else {
-            Color32::WHITE
+            MaraColor32::WHITE
         }
     } else {
         style::section_title_color(accent)
     };
     let title_family = style::title_font_family();
-    let title_family = if ui.fonts(|fonts| fonts.families().contains(&title_family)) {
-        title_family
-    } else {
-        egui::FontFamily::Proportional
-    };
-    let font = egui::FontId::new(title_size, title_family);
     let title_uc = if theme.pane.title_brackets {
         format!("[ {} ]", title.to_uppercase())
     } else {
@@ -81,6 +153,20 @@ pub(crate) fn paint_pane_title(
         style::glitch_text(ui.ctx(), session_id.with("glitch"), &scrambled)
     } else {
         title_uc.clone()
+    };
+
+    // Build the title text run(s) — a single proportional/named run
+    // tinted by `color`. Reused for the main text and the red/cyan
+    // chromatic-aberration ghosts.
+    let make_runs = |color: MaraColor32| -> Vec<TextRun> {
+        vec![TextRun {
+            text: displayed.clone(),
+            size: title_size,
+            color,
+            family: title_family.clone(),
+            extra_letter_spacing: 0.0,
+            leading_space: 0.0,
+        }]
     };
 
     let title_side = anchor.title_side();
@@ -108,9 +194,8 @@ pub(crate) fn paint_pane_title(
         let cipher_offset =
             if theme.scramble_titles && style::scramble_active(ui.ctx(), scramble_id, &title_uc) {
                 const CIPHER_PEAK: f32 = 6.0;
-                let now = ui.ctx().input(|i| i.time) as f32;
-                ui.ctx()
-                    .request_repaint_after(std::time::Duration::from_millis(33));
+                let now = crate::backend::egui::input_time(ui.ctx()) as f32;
+                crate::backend::egui::request_repaint_after_ms(ui.ctx(), 33);
                 let pulse = (now * 32.0).sin().abs();
                 CIPHER_PEAK * (0.55 + 0.45 * pulse)
             } else {
@@ -120,21 +205,27 @@ pub(crate) fn paint_pane_title(
     } else {
         0.0
     };
-    let chr_red = Color32::from_rgb(220, 60, 70);
-    let chr_cyan = Color32::from_rgb(60, 220, 230);
+    let chr_red = MaraColor32::from_rgb(220, 60, 70);
+    let chr_cyan = MaraColor32::from_rgb(60, 220, 230);
 
     if is_horizontal_strip {
         let (pos, align) = if centred {
-            (rect.center(), egui::Align2::CENTER_CENTER)
+            (m_rect.center(), MaraAlign2::CENTER_CENTER)
         } else if reversed {
             (
-                pos2((rect.max.x - TITLE_INSET).round(), rect.center().y.round()),
-                egui::Align2::RIGHT_CENTER,
+                MaraPos2::new(
+                    (m_rect.max.x - TITLE_INSET).round(),
+                    m_rect.center().y.round(),
+                ),
+                MaraAlign2::RIGHT_CENTER,
             )
         } else {
             (
-                pos2((rect.min.x + TITLE_INSET).round(), rect.center().y.round()),
-                egui::Align2::LEFT_CENTER,
+                MaraPos2::new(
+                    (m_rect.min.x + TITLE_INSET).round(),
+                    m_rect.center().y.round(),
+                ),
+                MaraAlign2::LEFT_CENTER,
             )
         };
         if aberration > 0.0 {
@@ -143,61 +234,75 @@ pub(crate) fn paint_pane_title(
             // (Y) on each ghost for a touch of CRT-misregistration
             // grit without smearing the glyph height.
             const CROSS_JITTER: f32 = 1.0;
-            ui.painter().text(
-                pos2(pos.x - aberration, pos.y - CROSS_JITTER),
-                align,
-                &displayed,
-                font.clone(),
-                chr_red,
+            paint_cmd(
+                ui,
+                PaintCmd::TextRuns {
+                    pos: MaraPos2::new(pos.x - aberration, pos.y - CROSS_JITTER),
+                    anchor: align,
+                    angle: 0.0,
+                    runs: make_runs(chr_red),
+                },
             );
-            ui.painter().text(
-                pos2(pos.x + aberration, pos.y + CROSS_JITTER),
-                align,
-                &displayed,
-                font.clone(),
-                chr_cyan,
+            paint_cmd(
+                ui,
+                PaintCmd::TextRuns {
+                    pos: MaraPos2::new(pos.x + aberration, pos.y + CROSS_JITTER),
+                    anchor: align,
+                    angle: 0.0,
+                    runs: make_runs(chr_cyan),
+                },
             );
         }
-        ui.painter().text(pos, align, displayed, font, text_col);
+        paint_cmd(
+            ui,
+            PaintCmd::TextRuns {
+                pos,
+                anchor: align,
+                angle: 0.0,
+                runs: make_runs(text_col),
+            },
+        );
     } else {
-        // Vertical strip: lay out a single galley with placeholder
-        // colour so the same `Arc<Galley>` can drive three
-        // `TextShape`s tinted differently for the aberration ghosts
-        // and the main text. Cheap clone (Arc bump) instead of
-        // re-laying out three separate galleys.
-        let galley = ui
-            .painter()
-            .layout_no_wrap(displayed, font, Color32::PLACEHOLDER);
-        let g = galley.size();
-        let cx = rect.center().x;
+        // Vertical strip: a single rotated text run drives the main
+        // glyphs; the aberration ghosts reuse the same run tinted
+        // red/cyan. `measure_text_runs_for_ui` gives the laid-out
+        // size so the rotated origin can be centred on the strip.
+        let g: MaraVec2 = crate::backend::egui::measure_text_runs_for_ui(ui, &make_runs(text_col));
+        let cx = m_rect.center().x;
         let on_right_side = title_side == TitleSide::Right;
         let top_to_bottom = on_right_side ^ reversed;
         let (text_pos, angle) = if centred {
             if top_to_bottom {
                 (
-                    pos2(
+                    MaraPos2::new(
                         (cx + g.y * 0.5).round(),
-                        (rect.center().y - g.x * 0.5).round(),
+                        (m_rect.center().y - g.x * 0.5).round(),
                     ),
                     std::f32::consts::FRAC_PI_2,
                 )
             } else {
                 (
-                    pos2(
+                    MaraPos2::new(
                         (cx - g.y * 0.5).round(),
-                        (rect.center().y + g.x * 0.5).round(),
+                        (m_rect.center().y + g.x * 0.5).round(),
                     ),
                     -std::f32::consts::FRAC_PI_2,
                 )
             }
         } else if top_to_bottom {
             (
-                pos2((cx + g.y * 0.5).round(), (rect.min.y + TITLE_INSET).round()),
+                MaraPos2::new(
+                    (cx + g.y * 0.5).round(),
+                    (m_rect.min.y + TITLE_INSET).round(),
+                ),
                 std::f32::consts::FRAC_PI_2,
             )
         } else {
             (
-                pos2((cx - g.y * 0.5).round(), (rect.max.y - TITLE_INSET).round()),
+                MaraPos2::new(
+                    (cx - g.y * 0.5).round(),
+                    (m_rect.max.y - TITLE_INSET).round(),
+                ),
                 -std::f32::consts::FRAC_PI_2,
             )
         };
@@ -209,18 +314,34 @@ pub(crate) fn paint_pane_title(
         // height after rotation.
         if aberration > 0.0 {
             const CROSS_JITTER: f32 = 1.0;
-            let r_pos = pos2(text_pos.x - CROSS_JITTER, text_pos.y - aberration);
-            let c_pos = pos2(text_pos.x + CROSS_JITTER, text_pos.y + aberration);
-            let mut s_red = egui::epaint::TextShape::new(r_pos, galley.clone(), chr_red);
-            s_red.angle = angle;
-            ui.painter().add(s_red);
-            let mut s_cyan = egui::epaint::TextShape::new(c_pos, galley.clone(), chr_cyan);
-            s_cyan.angle = angle;
-            ui.painter().add(s_cyan);
+            paint_cmd(
+                ui,
+                PaintCmd::TextRuns {
+                    pos: MaraPos2::new(text_pos.x - CROSS_JITTER, text_pos.y - aberration),
+                    anchor: MaraAlign2::LEFT_TOP,
+                    angle,
+                    runs: make_runs(chr_red),
+                },
+            );
+            paint_cmd(
+                ui,
+                PaintCmd::TextRuns {
+                    pos: MaraPos2::new(text_pos.x + CROSS_JITTER, text_pos.y + aberration),
+                    anchor: MaraAlign2::LEFT_TOP,
+                    angle,
+                    runs: make_runs(chr_cyan),
+                },
+            );
         }
-        let mut shape = egui::epaint::TextShape::new(text_pos, galley, text_col);
-        shape.angle = angle;
-        ui.painter().add(shape);
+        paint_cmd(
+            ui,
+            PaintCmd::TextRuns {
+                pos: text_pos,
+                anchor: MaraAlign2::LEFT_TOP,
+                angle,
+                runs: make_runs(text_col),
+            },
+        );
     }
 
     // ── 4. Blinking pip(s) (GAME only) ──
@@ -230,120 +351,123 @@ pub(crate) fn paint_pane_title(
         // stays bright at the start of each cycle. Bumped from 0.08
         // so the on-state lingers a touch
         // longer and reads clearly between dims.
-        let time = ui.ctx().input(|i| i.time) as f32;
+        let time = crate::backend::egui::input_time(ui.ctx()) as f32;
         const ON_FRAC: f32 = 0.16;
         let on = time.fract() < ON_FRAC;
         let alpha = if on { 255 } else { 76 };
         let pip_color =
-            Color32::from_rgba_unmultiplied(text_col.r(), text_col.g(), text_col.b(), alpha);
+            MaraColor32::from_rgba_unmultiplied(text_col.r(), text_col.g(), text_col.b(), alpha);
         // Every 3rd "ON" pulse, split the pip into red + cyan ghosts
         // for a CRT-misregistration flash. Phase aligns with the
         // 1 Hz blink (time.floor() ticks once per cycle).
         let pulse_idx = time.floor() as i64;
         let chromatic_pulse = on && pulse_idx.rem_euclid(3) == 0;
-        let paint_pip = |r: Rect| {
-            if chromatic_pulse {
-                const CHROM_OFFSET: f32 = 2.0;
-                let chrom_red = Color32::from_rgba_unmultiplied(220, 60, 70, 200);
-                let chrom_cyan = Color32::from_rgba_unmultiplied(60, 220, 230, 200);
-                let (off_red, off_cyan) = if is_horizontal_strip {
-                    (
-                        egui::vec2(-CHROM_OFFSET, 0.0),
-                        egui::vec2(CHROM_OFFSET, 0.0),
-                    )
-                } else {
-                    (
-                        egui::vec2(0.0, -CHROM_OFFSET),
-                        egui::vec2(0.0, CHROM_OFFSET),
-                    )
-                };
-                ui.painter()
-                    .rect_filled(r.translate(off_red), egui::CornerRadius::ZERO, chrom_red);
-                ui.painter().rect_filled(
-                    r.translate(off_cyan),
-                    egui::CornerRadius::ZERO,
-                    chrom_cyan,
-                );
-            }
-            ui.painter()
-                .rect_filled(r, egui::CornerRadius::ZERO, pip_color);
-        };
 
         if is_horizontal_strip {
-            let cy = (rect.center().y - PIP_SIZE * 0.5).round();
-            let right_x = (rect.max.x - PIP_INSET - PIP_SIZE).round();
-            let left_x = (rect.min.x + PIP_INSET).round();
+            let cy = (m_rect.center().y - PIP_SIZE * 0.5).round();
+            let right_x = (m_rect.max.x - PIP_INSET - PIP_SIZE).round();
+            let left_x = (m_rect.min.x + PIP_INSET).round();
+            let pip_size = MaraVec2::new(PIP_SIZE, PIP_SIZE);
             if centred {
-                paint_pip(Rect::from_min_size(
-                    pos2(left_x, cy),
-                    egui::vec2(PIP_SIZE, PIP_SIZE),
-                ));
-                paint_pip(Rect::from_min_size(
-                    pos2(right_x, cy),
-                    egui::vec2(PIP_SIZE, PIP_SIZE),
-                ));
+                paint_pip(
+                    ui,
+                    MaraRect::from_min_size(MaraPos2::new(left_x, cy), pip_size),
+                    chromatic_pulse,
+                    is_horizontal_strip,
+                    pip_color,
+                );
+                paint_pip(
+                    ui,
+                    MaraRect::from_min_size(MaraPos2::new(right_x, cy), pip_size),
+                    chromatic_pulse,
+                    is_horizontal_strip,
+                    pip_color,
+                );
             } else if reversed {
-                paint_pip(Rect::from_min_size(
-                    pos2(left_x, cy),
-                    egui::vec2(PIP_SIZE, PIP_SIZE),
-                ));
+                paint_pip(
+                    ui,
+                    MaraRect::from_min_size(MaraPos2::new(left_x, cy), pip_size),
+                    chromatic_pulse,
+                    is_horizontal_strip,
+                    pip_color,
+                );
             } else {
-                paint_pip(Rect::from_min_size(
-                    pos2(right_x, cy),
-                    egui::vec2(PIP_SIZE, PIP_SIZE),
-                ));
+                paint_pip(
+                    ui,
+                    MaraRect::from_min_size(MaraPos2::new(right_x, cy), pip_size),
+                    chromatic_pulse,
+                    is_horizontal_strip,
+                    pip_color,
+                );
             }
         } else {
-            let cx = (rect.center().x - PIP_SIZE * 0.5).round();
-            let top_y = (rect.min.y + PIP_INSET).round();
-            let bottom_y = (rect.max.y - PIP_INSET - PIP_SIZE).round();
+            let cx = (m_rect.center().x - PIP_SIZE * 0.5).round();
+            let top_y = (m_rect.min.y + PIP_INSET).round();
+            let bottom_y = (m_rect.max.y - PIP_INSET - PIP_SIZE).round();
             let on_right_side = title_side == TitleSide::Right;
             let top_to_bottom = on_right_side ^ reversed;
+            let pip_size = MaraVec2::new(PIP_SIZE, PIP_SIZE);
             if centred {
-                paint_pip(Rect::from_min_size(
-                    pos2(cx, top_y),
-                    egui::vec2(PIP_SIZE, PIP_SIZE),
-                ));
-                paint_pip(Rect::from_min_size(
-                    pos2(cx, bottom_y),
-                    egui::vec2(PIP_SIZE, PIP_SIZE),
-                ));
+                paint_pip(
+                    ui,
+                    MaraRect::from_min_size(MaraPos2::new(cx, top_y), pip_size),
+                    chromatic_pulse,
+                    is_horizontal_strip,
+                    pip_color,
+                );
+                paint_pip(
+                    ui,
+                    MaraRect::from_min_size(MaraPos2::new(cx, bottom_y), pip_size),
+                    chromatic_pulse,
+                    is_horizontal_strip,
+                    pip_color,
+                );
             } else if top_to_bottom {
-                paint_pip(Rect::from_min_size(
-                    pos2(cx, bottom_y),
-                    egui::vec2(PIP_SIZE, PIP_SIZE),
-                ));
+                paint_pip(
+                    ui,
+                    MaraRect::from_min_size(MaraPos2::new(cx, bottom_y), pip_size),
+                    chromatic_pulse,
+                    is_horizontal_strip,
+                    pip_color,
+                );
             } else {
-                paint_pip(Rect::from_min_size(
-                    pos2(cx, top_y),
-                    egui::vec2(PIP_SIZE, PIP_SIZE),
-                ));
+                paint_pip(
+                    ui,
+                    MaraRect::from_min_size(MaraPos2::new(cx, top_y), pip_size),
+                    chromatic_pulse,
+                    is_horizontal_strip,
+                    pip_color,
+                );
             }
         }
-        ui.ctx()
-            .request_repaint_after(std::time::Duration::from_millis(33));
+        crate::backend::egui::request_repaint_after_ms(ui.ctx(), 33);
     }
 
     // ── 5. Divider hairline on the body-facing edge ──
     if theme.pane.show_title_divider {
         let stroke = style::stroke_for(style::StrokeRole::WidgetBorder, accent);
-        match title_side {
-            TitleSide::Top => {
-                ui.painter()
-                    .hline(rect.min.x..=rect.max.x, rect.max.y - 0.5, stroke);
-            }
-            TitleSide::Bottom => {
-                ui.painter()
-                    .hline(rect.min.x..=rect.max.x, rect.min.y + 0.5, stroke);
-            }
-            TitleSide::Left => {
-                ui.painter()
-                    .vline(rect.max.x - 0.5, rect.min.y..=rect.max.y, stroke);
-            }
-            TitleSide::Right => {
-                ui.painter()
-                    .vline(rect.min.x + 0.5, rect.min.y..=rect.max.y, stroke);
-            }
-        }
+        let line = match title_side {
+            TitleSide::Top => PaintCmd::Line {
+                a: MaraPos2::new(m_rect.min.x, m_rect.max.y - 0.5),
+                b: MaraPos2::new(m_rect.max.x, m_rect.max.y - 0.5),
+                stroke,
+            },
+            TitleSide::Bottom => PaintCmd::Line {
+                a: MaraPos2::new(m_rect.min.x, m_rect.min.y + 0.5),
+                b: MaraPos2::new(m_rect.max.x, m_rect.min.y + 0.5),
+                stroke,
+            },
+            TitleSide::Left => PaintCmd::Line {
+                a: MaraPos2::new(m_rect.max.x - 0.5, m_rect.min.y),
+                b: MaraPos2::new(m_rect.max.x - 0.5, m_rect.max.y),
+                stroke,
+            },
+            TitleSide::Right => PaintCmd::Line {
+                a: MaraPos2::new(m_rect.min.x + 0.5, m_rect.min.y),
+                b: MaraPos2::new(m_rect.min.x + 0.5, m_rect.max.y),
+                stroke,
+            },
+        };
+        paint_cmd(ui, line);
     }
 }

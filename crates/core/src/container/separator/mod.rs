@@ -22,9 +22,15 @@
 
 use std::hash::Hash;
 
-use egui::{Color32, Rect, Response, Sense, Stroke, Ui, vec2};
+use egui::Ui;
 
-use crate::style;
+use crate::{
+    layout::{CursorIcon, Sense, UiBackend},
+    mui::MaraResponse,
+    paint::PaintCmd,
+    style,
+    vocab::{Color32 as MaraColor32, Id, Pos2, Rect as MaraRect, Stroke, Vec2},
+};
 
 /// Alpha applied to the title-divider colour when painting the
 /// separator. Theme-driven via
@@ -96,20 +102,17 @@ pub enum SeparatorOrient {
 /// length on the main axis is the parent ui's `available_*`. Colour
 /// comes from [`style::outline_base`], which auto-flips per theme
 /// luma — white-tinted on Dark, black-tinted on Light.
-pub fn paint_separator(ui: &mut Ui, style: SeparatorStyle, orient: SeparatorOrient) {
+pub(crate) fn paint_separator(ui: &mut Ui, style: SeparatorStyle, orient: SeparatorOrient) {
     if matches!(style, SeparatorStyle::None) {
         return;
     }
-    let rect = allocate_strip(ui, orient);
-    if !ui.is_rect_visible(rect) {
-        return;
-    }
-    paint_into(ui, rect, style, orient, default_ink());
+    let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
+    paint_separator_backend(&mut backend, style, orient);
 }
 
 /// Interactive variant: same allocation as [`paint_separator`] but
 /// with `Sense::drag` so the user can grab it. Returns the drag
-/// `Response` — the caller is expected to read `response.drag_delta()`
+/// `MaraResponse` — the caller is expected to read `response.drag_delta`
 /// and apply it to whatever size value owns the neighbour above (or
 /// to the left, for vertical orientation).
 ///
@@ -117,42 +120,58 @@ pub fn paint_separator(ui: &mut Ui, style: SeparatorStyle, orient: SeparatorOrie
 /// same theme-flipped subtle ink as [`paint_separator`]. Cursor
 /// flips to `ResizeVertical` for horizontal separators (drag changes
 /// vertical extent) and `ResizeHorizontal` for vertical separators.
-pub fn paint_separator_resize(
+pub(crate) fn paint_separator_resize(
     ui: &mut Ui,
     style: SeparatorStyle,
     orient: SeparatorOrient,
     id_salt: impl Hash,
-    accent: Color32,
-) -> Response {
-    let rect = allocate_strip(ui, orient);
-    let id = ui.id().with(("mara_separator_resize", id_salt));
+    accent: impl Into<MaraColor32>,
+) -> MaraResponse {
+    let id = Id::from(ui.id().with(("mara_separator_resize", id_salt)));
     let cursor = match orient {
-        SeparatorOrient::Horizontal => egui::CursorIcon::ResizeVertical,
-        SeparatorOrient::Vertical => egui::CursorIcon::ResizeHorizontal,
+        SeparatorOrient::Horizontal => CursorIcon::ResizeVertical,
+        SeparatorOrient::Vertical => CursorIcon::ResizeHorizontal,
     };
-    let resp = ui.interact(rect, id, Sense::drag()).on_hover_cursor(cursor);
-    if !ui.is_rect_visible(rect) {
-        return resp;
-    }
-    let bright = resp.hovered() || resp.dragged();
-    let ink = if bright { accent } else { default_ink() };
-    paint_into(ui, rect, style, orient, ink);
+    let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
+    let resp = paint_separator_resize_backend(&mut backend, style, orient, id, accent.into());
+    crate::backend::egui::hover_cursor_for_ui_response(ui, &resp, cursor);
     resp
 }
 
-/// Allocate the strip rect — the cross axis is `separator_strip_h`,
-/// the main axis is `available_width()` / `available_height()`.
-/// Reserved with `Sense::hover` so `allocate_exact_size`'s auto-id
-/// doesn't claim the interaction id; the explicit `interact` call
-/// in [`paint_separator_resize`] owns the drag id under the
-/// caller-supplied salt.
-fn allocate_strip(ui: &mut Ui, orient: SeparatorOrient) -> Rect {
+/// Backend-neutral non-interactive separator renderer.
+pub fn paint_separator_backend(
+    backend: &mut impl UiBackend,
+    style: SeparatorStyle,
+    orient: SeparatorOrient,
+) -> MaraResponse {
+    let resp = allocate_strip_backend(backend, orient);
+    paint_into_backend(backend, resp.rect, style, orient, default_ink());
+    resp
+}
+
+/// Backend-neutral interactive separator renderer.
+pub fn paint_separator_resize_backend(
+    backend: &mut impl UiBackend,
+    style: SeparatorStyle,
+    orient: SeparatorOrient,
+    id: Id,
+    accent: MaraColor32,
+) -> MaraResponse {
+    let strip = allocate_strip_backend(backend, orient);
+    let resp = backend.interact(strip.rect, id, Sense::Drag);
+    let bright = resp.hovered() || resp.dragged();
+    let ink = if bright { accent } else { default_ink() };
+    paint_into_backend(backend, strip.rect, style, orient, ink);
+    resp
+}
+
+fn allocate_strip_backend(backend: &mut impl UiBackend, orient: SeparatorOrient) -> MaraResponse {
+    let available = backend.available_rect();
     let size = match orient {
-        SeparatorOrient::Horizontal => vec2(ui.available_width(), separator_strip_h()),
-        SeparatorOrient::Vertical => vec2(separator_strip_h(), ui.available_height()),
+        SeparatorOrient::Horizontal => Vec2::new(available.width().max(0.0), separator_strip_h()),
+        SeparatorOrient::Vertical => Vec2::new(separator_strip_h(), available.height().max(0.0)),
     };
-    let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
-    rect
+    backend.allocate(size, Sense::Hover)
 }
 
 /// Theme-flipped ink shared by [`paint_separator`] and the rest
@@ -163,67 +182,197 @@ fn allocate_strip(ui: &mut Ui, orient: SeparatorOrient) -> Rect {
 /// Alpha is theme-driven (`separator_alpha`): PRO 128 keeps the
 /// rule visible against the dark panel; GAME 64 lets it whisper
 /// across the bright accent surface.
-fn default_ink() -> Color32 {
+fn default_ink() -> MaraColor32 {
     let base = style::theme().border_subtle;
-    Color32::from_rgba_unmultiplied(base.r(), base.g(), base.b(), separator_alpha())
+    MaraColor32::from_rgba_unmultiplied(base.r(), base.g(), base.b(), separator_alpha())
 }
 
-fn paint_into(ui: &Ui, rect: Rect, style: SeparatorStyle, orient: SeparatorOrient, ink: Color32) {
+fn paint_into_backend(
+    backend: &mut impl UiBackend,
+    rect: MaraRect,
+    style: SeparatorStyle,
+    orient: SeparatorOrient,
+    ink: MaraColor32,
+) {
     let stroke = Stroke::new(RULE_W, ink);
     match orient {
-        SeparatorOrient::Horizontal => paint_horizontal(ui, rect, style, ink, stroke),
-        SeparatorOrient::Vertical => paint_vertical(ui, rect, style, ink, stroke),
+        SeparatorOrient::Horizontal => paint_horizontal_backend(backend, rect, style, ink, stroke),
+        SeparatorOrient::Vertical => paint_vertical_backend(backend, rect, style, ink, stroke),
     }
 }
 
-fn paint_horizontal(ui: &Ui, rect: Rect, style: SeparatorStyle, ink: Color32, stroke: Stroke) {
+fn paint_horizontal_backend(
+    backend: &mut impl UiBackend,
+    rect: MaraRect,
+    style: SeparatorStyle,
+    ink: MaraColor32,
+    stroke: Stroke,
+) {
     let mid_y = rect.center().y;
     match style {
         SeparatorStyle::None => {}
         SeparatorStyle::Line => {
-            ui.painter().hline(
-                (rect.left() + EDGE_INSET)..=(rect.right() - EDGE_INSET),
-                mid_y,
+            backend.paint(PaintCmd::Line {
+                a: Pos2::new(rect.left() + EDGE_INSET, mid_y),
+                b: Pos2::new(rect.right() - EDGE_INSET, mid_y),
                 stroke,
-            );
+            });
         }
         SeparatorStyle::LineDots => {
             let mid_x = rect.center().x;
             for dx in [-DOT_SPACING, 0.0, DOT_SPACING] {
-                ui.painter()
-                    .circle_filled(egui::pos2(mid_x + dx, mid_y), DOT_R, ink);
+                backend.paint(PaintCmd::CircleFilled {
+                    center: Pos2::new(mid_x + dx, mid_y),
+                    radius: DOT_R,
+                    fill: ink,
+                });
             }
             let half = DOT_SPACING + DOT_R + GRIP_HALF_GAP;
-            ui.painter()
-                .hline((rect.left() + EDGE_INSET)..=(mid_x - half), mid_y, stroke);
-            ui.painter()
-                .hline((mid_x + half)..=(rect.right() - EDGE_INSET), mid_y, stroke);
+            backend.paint(PaintCmd::Line {
+                a: Pos2::new(rect.left() + EDGE_INSET, mid_y),
+                b: Pos2::new(mid_x - half, mid_y),
+                stroke,
+            });
+            backend.paint(PaintCmd::Line {
+                a: Pos2::new(mid_x + half, mid_y),
+                b: Pos2::new(rect.right() - EDGE_INSET, mid_y),
+                stroke,
+            });
         }
     }
 }
 
-fn paint_vertical(ui: &Ui, rect: Rect, style: SeparatorStyle, ink: Color32, stroke: Stroke) {
+fn paint_vertical_backend(
+    backend: &mut impl UiBackend,
+    rect: MaraRect,
+    style: SeparatorStyle,
+    ink: MaraColor32,
+    stroke: Stroke,
+) {
     let mid_x = rect.center().x;
     match style {
         SeparatorStyle::None => {}
         SeparatorStyle::Line => {
-            ui.painter().vline(
-                mid_x,
-                (rect.top() + EDGE_INSET)..=(rect.bottom() - EDGE_INSET),
+            backend.paint(PaintCmd::Line {
+                a: Pos2::new(mid_x, rect.top() + EDGE_INSET),
+                b: Pos2::new(mid_x, rect.bottom() - EDGE_INSET),
                 stroke,
-            );
+            });
         }
         SeparatorStyle::LineDots => {
             let mid_y = rect.center().y;
             for dy in [-DOT_SPACING, 0.0, DOT_SPACING] {
-                ui.painter()
-                    .circle_filled(egui::pos2(mid_x, mid_y + dy), DOT_R, ink);
+                backend.paint(PaintCmd::CircleFilled {
+                    center: Pos2::new(mid_x, mid_y + dy),
+                    radius: DOT_R,
+                    fill: ink,
+                });
             }
             let half = DOT_SPACING + DOT_R + GRIP_HALF_GAP;
-            ui.painter()
-                .vline(mid_x, (rect.top() + EDGE_INSET)..=(mid_y - half), stroke);
-            ui.painter()
-                .vline(mid_x, (mid_y + half)..=(rect.bottom() - EDGE_INSET), stroke);
+            backend.paint(PaintCmd::Line {
+                a: Pos2::new(mid_x, rect.top() + EDGE_INSET),
+                b: Pos2::new(mid_x, mid_y - half),
+                stroke,
+            });
+            backend.paint(PaintCmd::Line {
+                a: Pos2::new(mid_x, mid_y + half),
+                b: Pos2::new(mid_x, rect.bottom() - EDGE_INSET),
+                stroke,
+            });
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[derive(Default)]
+    struct RecordingBackend {
+        available: MaraRect,
+        paints: Vec<PaintCmd>,
+    }
+
+    impl UiBackend for RecordingBackend {
+        fn begin_area(&mut self, _host: crate::layout::AreaHost, rect: MaraRect) {
+            self.available = rect;
+        }
+
+        fn allocate(&mut self, size: Vec2, _sense: Sense) -> MaraResponse {
+            MaraResponse::synthetic(MaraRect::from_min_size(self.available.min, size))
+        }
+
+        fn interact(&mut self, rect: MaraRect, _id: Id, _sense: Sense) -> MaraResponse {
+            MaraResponse::synthetic(rect)
+        }
+
+        fn available_rect(&self) -> MaraRect {
+            self.available
+        }
+
+        fn push_clip(&mut self, _rect: MaraRect) {}
+
+        fn pop_clip(&mut self) {}
+
+        fn measure_text(&self, text: &str, size: f32, _mono: bool) -> Vec2 {
+            Vec2::new(text.len() as f32 * size * 0.5, size)
+        }
+
+        fn paint(&mut self, cmd: PaintCmd) {
+            self.paints.push(cmd);
+        }
+    }
+
+    #[test]
+    fn separator_backend_emits_horizontal_line() {
+        let mut backend = RecordingBackend {
+            available: MaraRect::from_min_size(Pos2::ZERO, Vec2::new(160.0, 32.0)),
+            paints: Vec::new(),
+        };
+
+        let response = paint_separator_backend(
+            &mut backend,
+            SeparatorStyle::Line,
+            SeparatorOrient::Horizontal,
+        );
+
+        assert_eq!(response.rect.width(), 160.0);
+        let [PaintCmd::Line { a, b, .. }] = backend.paints.as_slice() else {
+            panic!("line separator should emit one line command");
+        };
+        assert_eq!(a.y, b.y);
+    }
+
+    #[test]
+    fn separator_resize_backend_emits_dots_and_flanking_rules() {
+        let mut backend = RecordingBackend {
+            available: MaraRect::from_min_size(Pos2::ZERO, Vec2::new(160.0, 32.0)),
+            paints: Vec::new(),
+        };
+
+        let response = paint_separator_resize_backend(
+            &mut backend,
+            SeparatorStyle::LineDots,
+            SeparatorOrient::Vertical,
+            Id::new("resize"),
+            MaraColor32::WHITE,
+        );
+
+        assert_eq!(response.rect.height(), 32.0);
+        assert_eq!(backend.paints.len(), 5);
+        assert!(
+            backend
+                .paints
+                .iter()
+                .take(3)
+                .all(|cmd| matches!(cmd, PaintCmd::CircleFilled { .. }))
+        );
+        assert!(
+            backend
+                .paints
+                .iter()
+                .skip(3)
+                .all(|cmd| matches!(cmd, PaintCmd::Line { .. }))
+        );
     }
 }

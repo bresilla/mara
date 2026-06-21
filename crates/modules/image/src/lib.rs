@@ -10,6 +10,7 @@ use mara_core::{
     MaraModule, MaraView, ModuleInlineCtx, ModuleResponse, RibbonAction, RibbonCluster, RibbonEdge,
     RibbonOverridePolicy, RibbonScope, RibbonSlot, RibbonSlotDef, RibbonSlotId, RibbonSlotItem,
     ViewCtx, ViewId, WorkspaceCtx,
+    vocab::{Align2 as MaraAlign2, Vec2 as MaraVec2},
 };
 
 #[derive(Clone, Debug, PartialEq)]
@@ -62,11 +63,13 @@ impl ImageSurface {
         &self.doc
     }
 
-    fn paint_placeholder(ui: &mut egui::Ui, doc: &ImageDocument) {
-        let avail = ui.available_size_before_wrap();
-        let size = egui::vec2(avail.x.max(160.0), avail.y.max(120.0));
-        let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
-        let painter = ui.painter_at(rect);
+    fn paint_placeholder(mui: &mut mara_core::MaraUi<'_>, doc: &ImageDocument) {
+        let size = MaraVec2::new(
+            mui.available_width().max(160.0),
+            mui.available_height().max(120.0),
+        );
+        let (painter, response) = mui.canvas(size);
+        let rect = response.rect;
         painter.rect_filled(
             rect,
             mara_core::style::radius_for(mara_core::style::RadiusRole::Section),
@@ -82,7 +85,6 @@ impl ImageSurface {
                 mara_core::style::StrokeRole::WidgetBorder,
                 mara_core::style::active_accent(),
             ),
-            egui::StrokeKind::Inside,
         );
 
         let detail = match &doc.source {
@@ -91,9 +93,9 @@ impl ImageSurface {
         };
         painter.text(
             rect.center(),
-            egui::Align2::CENTER_CENTER,
+            MaraAlign2::CENTER_CENTER,
             format!("{}\n{}", doc.title, detail),
-            egui::FontId::proportional(13.0),
+            13.0,
             mara_core::style::on_panel(),
         );
     }
@@ -101,7 +103,7 @@ impl ImageSurface {
 
 impl MaraView for ImageSurface {
     fn id(&self) -> ViewId {
-        ViewId(self.id)
+        ViewId::from(self.id)
     }
 
     fn title(&self) -> &str {
@@ -114,15 +116,15 @@ impl MaraView for ImageSurface {
 
     fn ribbons(&mut self) -> Vec<RibbonSlotDef> {
         let fit = RibbonSlotItem::new(
-            egui::Id::new(("image.fit", self.id)),
+            mara_core::vocab::Id::new(("image.fit", self.id)),
             "fit",
             "Fit",
             "Fit image to view",
-            RibbonAction::Command(egui::Id::new(("image.fit.command", self.id))),
+            RibbonAction::Command(mara_core::vocab::Id::new(("image.fit.command", self.id))),
         );
         vec![RibbonSlotDef::new(
-            egui::Id::new(("image.view.ribbon", self.id)),
-            RibbonScope::View(ViewId(self.id)),
+            mara_core::vocab::Id::new(("image.view.ribbon", self.id)),
+            RibbonScope::View(ViewId::from(self.id)),
             RibbonEdge::Top,
             RibbonCluster::Middle,
             vec![RibbonSlot::new(
@@ -134,15 +136,15 @@ impl MaraView for ImageSurface {
     }
 
     fn show(&mut self, ctx: &mut ViewCtx<'_>) {
-        egui::CentralPanel::default().show(ctx.__internal_egui_ctx(), |ui| {
-            Self::paint_placeholder(ui, &self.doc);
+        ctx.body(|mui| {
+            Self::paint_placeholder(mui, &self.doc);
         });
     }
 }
 
 impl MaraModule for ImageSurface {
-    fn id(&self) -> egui::Id {
-        self.id
+    fn id(&self) -> mara_core::vocab::Id {
+        self.id.into()
     }
 
     fn title(&self) -> &str {
@@ -158,20 +160,20 @@ impl MaraModule for ImageSurface {
         mui: &mut mara_core::MaraUi<'_>,
         ctx: ModuleInlineCtx<'_>,
     ) -> ModuleResponse {
-        let ui = mui.__internal_raw_ui();
-        ui.group(|ui| {
-            ui.label(format!("Image: {}", self.doc.title));
-            match &self.doc.source {
-                ImageSource::Empty => ui.label("No image loaded"),
-                ImageSource::Uri(uri) => ui.label(uri),
-            };
-            if ctx.can_enter_workspace() && ui.button("Open image workspace").clicked() {
-                ModuleResponse::enter_workspace()
-            } else {
-                ModuleResponse::none()
+        mui.label(&format!("Image: {}", self.doc.title));
+        match &self.doc.source {
+            ImageSource::Empty => {
+                mui.label("No image loaded");
             }
-        })
-        .inner
+            ImageSource::Uri(uri) => {
+                mui.label(uri);
+            }
+        };
+        if ctx.can_enter_workspace() && mui.button("Open image workspace").clicked() {
+            ModuleResponse::enter_workspace()
+        } else {
+            ModuleResponse::none()
+        }
     }
 
     fn workspace(&mut self, ws: &mut WorkspaceCtx<'_>) {
@@ -181,18 +183,21 @@ impl MaraModule for ImageSurface {
             mara_core::WorkspaceBarCluster::Middle,
         ));
         ws.add_ribbon(RibbonSlotDef::new(
-            egui::Id::new(("image.workspace.ribbon", self.id)),
+            mara_core::vocab::Id::new(("image.workspace.ribbon", self.id)),
             RibbonScope::WorkspaceLevel(ws.level.id),
             RibbonEdge::Top,
             RibbonCluster::Middle,
             vec![RibbonSlot::new(
                 RibbonSlotId::new(("image.workspace.fit.slot", self.id)),
                 Some(RibbonSlotItem::new(
-                    egui::Id::new(("image.workspace.fit", self.id)),
+                    mara_core::vocab::Id::new(("image.workspace.fit", self.id)),
                     "fit",
                     "Fit",
                     "Fit image to workspace",
-                    RibbonAction::Command(egui::Id::new(("image.workspace.fit.command", self.id))),
+                    RibbonAction::Command(mara_core::vocab::Id::new((
+                        "image.workspace.fit.command",
+                        self.id,
+                    ))),
                 )),
                 RibbonOverridePolicy::Fixed,
             )],

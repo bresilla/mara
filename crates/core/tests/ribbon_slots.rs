@@ -2,7 +2,7 @@ use mara_core::{
     RibbonAction, RibbonActionError, RibbonActionResult, RibbonOverrideLayer, RibbonOverridePolicy,
     RibbonSlot, RibbonSlotId, RibbonSlotItem, RibbonSlotOverride, ViewId, ViewRouter,
     dispatch_ribbon_action, permanent_system_control_slot, permanent_view_switcher_ribbon,
-    resolve_slot_item, resolve_slot_items, restore_workspace_slot_override,
+    resolve_slot_item, resolve_slot_items, restore_workspace_slot_override, vocab::Id as MaraId,
 };
 
 mod support {
@@ -43,11 +43,11 @@ mod support {
 
 fn item(id: &'static str, icon: &'static str) -> RibbonSlotItem {
     RibbonSlotItem::new(
-        egui::Id::new(id),
+        MaraId::new(id),
         icon,
         id,
         id,
-        RibbonAction::Command(egui::Id::new(id)),
+        RibbonAction::Command(MaraId::new(id)),
     )
 }
 
@@ -119,7 +119,7 @@ fn slot_resolution_rejects_direct_invalid_slot_items() {
     let slot = RibbonSlot {
         id: RibbonSlotId::new("direct.invalid.item"),
         default_item: Some(RibbonSlotItem {
-            id: egui::Id::new("direct.invalid.item"),
+            id: MaraId::new("direct.invalid.item"),
             chrome_id: None,
             chrome_tooltip: None,
             icon: " ",
@@ -245,7 +245,7 @@ fn slot_resolution_rejects_direct_invalid_override_layers() {
         overrides: vec![RibbonSlotOverride {
             slot: slot_id,
             item: Some(RibbonSlotItem {
-                id: egui::Id::new("direct.invalid.override.item"),
+                id: MaraId::new("direct.invalid.override.item"),
                 chrome_id: None,
                 chrome_tooltip: None,
                 icon: "info",
@@ -410,7 +410,7 @@ fn dispatch_switch_view_and_workspace_actions() {
     );
     assert_eq!(router.active(), Ok(graph));
 
-    let module_id = egui::Id::new("image-module");
+    let module_id = MaraId::new("image-module");
     assert_eq!(
         dispatch_ribbon_action(RibbonAction::PushModuleWorkspace(module_id), &mut router),
         Ok(RibbonActionResult::PushedModuleWorkspace(module_id))

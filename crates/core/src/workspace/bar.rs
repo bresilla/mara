@@ -1,4 +1,4 @@
-use egui::Id;
+use crate::vocab::Id as MaraId;
 
 /// Edge where a workspace-level bar is attached.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -28,7 +28,7 @@ pub enum WorkspaceBarItemKind {
 
 #[derive(Clone, Debug)]
 pub struct WorkspaceBarItem {
-    pub id: Id,
+    pub id: MaraId,
     pub label: String,
     pub icon: Option<&'static str>,
     pub kind: WorkspaceBarItemKind,
@@ -38,7 +38,7 @@ pub struct WorkspaceBarItem {
 impl WorkspaceBarItem {
     #[must_use]
     pub fn command(
-        id: impl Into<Id>,
+        id: impl Into<MaraId>,
         label: impl Into<String>,
         icon: Option<&'static str>,
     ) -> Self {
@@ -62,7 +62,7 @@ impl WorkspaceBarItem {
 
     #[must_use]
     pub fn toggle(
-        id: impl Into<Id>,
+        id: impl Into<MaraId>,
         label: impl Into<String>,
         icon: Option<&'static str>,
         active: bool,
@@ -72,7 +72,7 @@ impl WorkspaceBarItem {
 
     #[must_use]
     pub fn mode(
-        id: impl Into<Id>,
+        id: impl Into<MaraId>,
         label: impl Into<String>,
         icon: Option<&'static str>,
         active: bool,
@@ -81,7 +81,7 @@ impl WorkspaceBarItem {
     }
 
     #[must_use]
-    pub fn separator(id: impl Into<Id>) -> Self {
+    pub fn separator(id: impl Into<MaraId>) -> Self {
         Self {
             id: id.into(),
             label: String::new(),
@@ -92,7 +92,7 @@ impl WorkspaceBarItem {
     }
 
     fn interactive(
-        id: impl Into<Id>,
+        id: impl Into<MaraId>,
         label: impl Into<String>,
         icon: Option<&'static str>,
         kind: WorkspaceBarItemKind,
@@ -112,7 +112,7 @@ impl WorkspaceBarItem {
 
 #[derive(Clone, Debug)]
 pub struct WorkspaceBar {
-    pub id: Id,
+    pub id: MaraId,
     pub edge: WorkspaceBarEdge,
     pub cluster: WorkspaceBarCluster,
     pub items: Vec<WorkspaceBarItem>,
@@ -120,7 +120,11 @@ pub struct WorkspaceBar {
 
 impl WorkspaceBar {
     #[must_use]
-    pub fn new(id: impl Into<Id>, edge: WorkspaceBarEdge, cluster: WorkspaceBarCluster) -> Self {
+    pub fn new(
+        id: impl Into<MaraId>,
+        edge: WorkspaceBarEdge,
+        cluster: WorkspaceBarCluster,
+    ) -> Self {
         Self {
             id: id.into(),
             edge,
@@ -166,15 +170,15 @@ mod tests {
     #[test]
     fn workspace_bar_commands_require_label_and_icon() {
         let missing_label = std::panic::catch_unwind(|| {
-            let _ = WorkspaceBarItem::command(egui::Id::new("missing.label"), " ", Some("add"));
+            let _ = WorkspaceBarItem::command("missing.label", " ", Some("add"));
         });
         let missing_icon = std::panic::catch_unwind(|| {
-            let _ = WorkspaceBarItem::command(egui::Id::new("missing.icon"), "Add", None);
+            let _ = WorkspaceBarItem::command("missing.icon", "Add", None);
         });
         let blank_icon = std::panic::catch_unwind(|| {
-            let _ = WorkspaceBarItem::command(egui::Id::new("blank.icon"), "Add", Some(" "));
+            let _ = WorkspaceBarItem::command("blank.icon", "Add", Some(" "));
         });
-        let valid = WorkspaceBarItem::command(egui::Id::new("valid"), "Add", Some("add"));
+        let valid = WorkspaceBarItem::command("valid", "Add", Some("add"));
 
         assert!(missing_label.is_err());
         assert!(missing_icon.is_err());
@@ -185,20 +189,14 @@ mod tests {
     #[test]
     fn workspace_bar_interactive_kinds_require_label_and_icon() {
         let missing_toggle_label = std::panic::catch_unwind(|| {
-            let _ = WorkspaceBarItem::toggle(
-                egui::Id::new("missing.toggle.label"),
-                " ",
-                Some("toggle"),
-                false,
-            );
+            let _ = WorkspaceBarItem::toggle("missing.toggle.label", " ", Some("toggle"), false);
         });
         let missing_mode_icon = std::panic::catch_unwind(|| {
-            let _ = WorkspaceBarItem::mode(egui::Id::new("missing.mode.icon"), "Paint", None, true);
+            let _ = WorkspaceBarItem::mode("missing.mode.icon", "Paint", None, true);
         });
-        let toggle =
-            WorkspaceBarItem::toggle(egui::Id::new("toggle"), "Snap", Some("magnet"), true);
-        let mode = WorkspaceBarItem::mode(egui::Id::new("mode"), "Paint", Some("brush"), true);
-        let separator = WorkspaceBarItem::separator(egui::Id::new("separator"));
+        let toggle = WorkspaceBarItem::toggle("toggle", "Snap", Some("magnet"), true);
+        let mode = WorkspaceBarItem::mode("mode", "Paint", Some("brush"), true);
+        let separator = WorkspaceBarItem::separator("separator");
 
         assert!(missing_toggle_label.is_err());
         assert!(missing_mode_icon.is_err());
@@ -211,7 +209,7 @@ mod tests {
     #[test]
     fn workspace_bars_reject_direct_invalid_interactive_items_while_building() {
         let invalid_item = WorkspaceBarItem {
-            id: egui::Id::new("direct.invalid"),
+            id: "direct.invalid".into(),
             label: String::new(),
             icon: Some("info"),
             kind: WorkspaceBarItemKind::Toggle,
@@ -219,12 +217,8 @@ mod tests {
         };
 
         let rejected = std::panic::catch_unwind(|| {
-            let _ = WorkspaceBar::new(
-                egui::Id::new("bar"),
-                WorkspaceBarEdge::Top,
-                WorkspaceBarCluster::Middle,
-            )
-            .with_item(invalid_item);
+            let _ = WorkspaceBar::new("bar", WorkspaceBarEdge::Top, WorkspaceBarCluster::Middle)
+                .with_item(invalid_item);
         });
 
         assert!(rejected.is_err());
@@ -232,19 +226,15 @@ mod tests {
 
     #[test]
     fn workspace_bars_reject_duplicate_item_ids_while_building() {
-        let item_id = egui::Id::new("duplicate.item");
+        let item_id = crate::vocab::Id::new("duplicate.item");
         let duplicate = std::panic::catch_unwind(|| {
-            let _ = WorkspaceBar::new(
-                egui::Id::new("bar"),
-                WorkspaceBarEdge::Top,
-                WorkspaceBarCluster::Middle,
-            )
-            .with_item(WorkspaceBarItem::command(item_id, "First", Some("add")))
-            .with_item(WorkspaceBarItem::command(
-                item_id,
-                "Second",
-                Some("dismiss"),
-            ));
+            let _ = WorkspaceBar::new("bar", WorkspaceBarEdge::Top, WorkspaceBarCluster::Middle)
+                .with_item(WorkspaceBarItem::command(item_id, "First", Some("add")))
+                .with_item(WorkspaceBarItem::command(
+                    item_id,
+                    "Second",
+                    Some("dismiss"),
+                ));
         });
 
         assert!(duplicate.is_err());

@@ -5,9 +5,9 @@
 //! permanent/view/workspace scope semantics and the featureful chrome
 //! behavior: panel buttons, drag/reorder placement, cross-ribbon drops,
 //! fullscreen rails, and pane anchoring.
-//! * [`paint_ribbon_button`] / [`paint_ribbon_glyph`] / etc. —
-//!   surfaced from [`paint`] for downstream callers that want to
-//!   paint their own button-shaped widgets in the same style.
+//! * `ribbon_button_paint_cmds` / `paint_ribbon_glyph` / etc. —
+//!   internal paint helpers that lower rail chrome into Mara paint
+//!   commands.
 //! * [`EDGE_GAP`] / [`SIDE_BTN_SIZE`] / [`SIDE_BTN_GAP`] — layout
 //!   constants every consumer (incl. [`crate::pane`]) reads to
 //!   align with the rail strip.
@@ -27,10 +27,10 @@ pub mod slot_paint;
 pub use paint::{EDGE_GAP, SIDE_BTN_GAP, SIDE_BTN_SIZE};
 
 pub use action::RibbonAction;
+pub(crate) use chrome::ribbon_avoiding_rect;
 pub use chrome::{
     RibbonAvoidance, RibbonCluster, RibbonDrag, RibbonEdge, RibbonGlyph, RibbonMode, RibbonOpen,
-    RibbonPlacement, RibbonRole, RibbonWidth, main_bar_empty_drag_started, ribbon_avoiding_rect,
-    ribbon_clearance,
+    RibbonPlacement, RibbonRole, RibbonWidth, ribbon_clearance,
 };
 pub use dispatch::{RibbonActionError, RibbonActionResult, dispatch_ribbon_action};
 pub use permanent::{
@@ -46,6 +46,7 @@ pub use slot::{
     RibbonSlotId, RibbonSlotItem, RibbonSlotOverride,
 };
 pub use slot_paint::{
-    ResolvedSlotRibbon, RibbonSlotClick, draw_slot_ribbons, draw_slot_ribbons_featureful,
+    __internal_draw_slot_ribbons_egui, __internal_draw_slot_ribbons_featureful_egui,
+    __internal_draw_slot_ribbons_featureful_no_system_egui, ResolvedSlotRibbon, RibbonSlotClick,
     phone_remapped_ribbon_edge,
 };

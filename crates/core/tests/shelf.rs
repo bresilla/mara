@@ -61,10 +61,10 @@ fn shelves_reserve_viewport_space() {
     assert_eq!(layout.left.unwrap().width(), 200.0);
     assert_eq!(layout.right.unwrap().width(), 180.0);
     assert_eq!(layout.bottom.unwrap().height(), 160.0);
-    assert_eq!(layout.viewport.min, pos2(200.0, 0.0));
-    assert_eq!(layout.viewport.max, pos2(820.0, 640.0));
-    assert_eq!(shelf_insets(layout), egui::vec2(380.0, 160.0));
-    assert_eq!(layout.available(), available);
+    assert_eq!(layout.viewport.min, pos2(200.0, 0.0).into());
+    assert_eq!(layout.viewport.max, pos2(820.0, 640.0).into());
+    assert_eq!(shelf_insets(layout), egui::vec2(380.0, 160.0).into());
+    assert_eq!(layout.available(), available.into());
 }
 
 #[test]
@@ -82,18 +82,18 @@ fn shelf_layout_is_canonical_not_declaration_ordered() {
 
     assert_eq!(
         layout.left.unwrap(),
-        Rect::from_min_max(pos2(0.0, 0.0), pos2(200.0, 800.0))
+        Rect::from_min_max(pos2(0.0, 0.0), pos2(200.0, 800.0)).into()
     );
     assert_eq!(
         layout.right.unwrap(),
-        Rect::from_min_max(pos2(820.0, 0.0), pos2(1000.0, 800.0))
+        Rect::from_min_max(pos2(820.0, 0.0), pos2(1000.0, 800.0)).into()
     );
     assert_eq!(
         layout.bottom.unwrap(),
-        Rect::from_min_max(pos2(200.0, 640.0), pos2(820.0, 800.0))
+        Rect::from_min_max(pos2(200.0, 640.0), pos2(820.0, 800.0)).into()
     );
-    assert_eq!(layout.viewport.min, pos2(200.0, 0.0));
-    assert_eq!(layout.viewport.max, pos2(820.0, 640.0));
+    assert_eq!(layout.viewport.min, pos2(200.0, 0.0).into());
+    assert_eq!(layout.viewport.max, pos2(820.0, 640.0).into());
 }
 
 #[test]
@@ -109,12 +109,12 @@ fn shelf_layout_clamps_oversized_shelves_to_available_space() {
 
     let layout = layout_shelves(available, &shelves, &mut state, &theme);
 
-    assert!(available.contains(layout.left.unwrap().min));
-    assert!(available.contains(layout.left.unwrap().max));
-    assert!(available.contains(layout.right.unwrap().min));
-    assert!(available.contains(layout.right.unwrap().max));
-    assert!(available.contains(layout.bottom.unwrap().min));
-    assert!(available.contains(layout.bottom.unwrap().max));
+    assert!(available.contains(layout.left.unwrap().min.into()));
+    assert!(available.contains(layout.left.unwrap().max.into()));
+    assert!(available.contains(layout.right.unwrap().min.into()));
+    assert!(available.contains(layout.right.unwrap().max.into()));
+    assert!(available.contains(layout.bottom.unwrap().min.into()));
+    assert!(available.contains(layout.bottom.unwrap().max.into()));
     assert!(layout.viewport.width() >= 0.0);
     assert!(layout.viewport.height() >= 0.0);
 }
@@ -287,7 +287,7 @@ fn hidden_side_shelf_does_not_reserve_layout_space() {
     let layout = layout_shelves(available, &shelves, &mut state, &theme);
 
     assert!(layout.left.is_none());
-    assert_eq!(layout.viewport, available);
+    assert_eq!(layout.viewport, available.into());
 }
 
 #[test]

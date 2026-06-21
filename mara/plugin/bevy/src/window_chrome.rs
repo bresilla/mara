@@ -6,7 +6,7 @@
 use bevy::math::CompassOctant;
 use bevy::prelude::*;
 use bevy::window::{CursorIcon, PrimaryWindow, SystemCursorIcon, Window};
-use bevy_egui::{EguiContext, EguiPreUpdateSet, EguiPrimaryContextPass, PrimaryEguiContext, egui};
+use bevy_egui::{EguiContext, EguiPreUpdateSet, EguiPrimaryContextPass, PrimaryEguiContext};
 
 /// Runtime switches for Mara's borderless native-window chrome.
 #[derive(Resource, Clone, Copy, Debug)]
@@ -206,8 +206,8 @@ fn mara_window_chrome_system(
         }
         return;
     };
-    let pos = egui::pos2(cursor.x, cursor.y);
-    let window_size = egui::vec2(window.width(), window.height());
+    let pos = mara_core::vocab::pos2(cursor.x, cursor.y);
+    let window_size = mara_core::vocab::vec2(window.width(), window.height());
 
     let update = input_claim.state.update(
         &regions.regions,
@@ -284,7 +284,8 @@ fn sync_window_chrome_regions_system(
     let Ok(mut egui_ctx) = egui_ctx_q.single_mut() else {
         return;
     };
-    regions.regions = mara_core::window_chrome_regions(egui_ctx.get_mut());
+    regions.regions =
+        mara_core::window_chrome::__internal_window_chrome_regions(egui_ctx.get_mut());
 }
 
 fn release_window_chrome_claim_system(
@@ -296,7 +297,7 @@ fn release_window_chrome_claim_system(
         return;
     };
     let ctx = egui_ctx.get_mut();
-    mara_core::publish_window_chrome_host_capabilities(
+    mara_core::window_chrome::__internal_publish_window_chrome_host_capabilities(
         ctx,
         mara_core::WindowChromeHostCapabilities {
             native_move: settings.enabled && settings.move_from_drag_regions,

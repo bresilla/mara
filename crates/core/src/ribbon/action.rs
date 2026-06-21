@@ -1,6 +1,5 @@
-use egui::Id;
-
 use crate::view::ViewId;
+use crate::vocab::Id;
 
 /// Action emitted by slot-based ribbon items.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

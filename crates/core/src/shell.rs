@@ -15,16 +15,16 @@
 //! shelf presence. A browser or android host advertises nothing, so the
 //! same bar simply drops those buttons.
 
-use egui::Color32;
-
 use crate::ribbon::{
-    ResolvedSlotRibbon, RibbonAction, RibbonCluster, RibbonDrag, RibbonEdge, RibbonMode,
-    RibbonOpen, RibbonPlacement, RibbonRole, RibbonScope, RibbonSlotItem, app_menu_command_id,
-    bottom_shelf_command_id, draw_slot_ribbons_featureful, left_shelf_command_id,
+    __internal_draw_slot_ribbons_featureful_egui, ResolvedSlotRibbon, RibbonAction, RibbonCluster,
+    RibbonDrag, RibbonEdge, RibbonMode, RibbonOpen, RibbonPlacement, RibbonRole, RibbonScope,
+    RibbonSlotItem, app_menu_command_id, bottom_shelf_command_id, left_shelf_command_id,
     right_shelf_command_id,
 };
+use crate::vocab::Id as MaraId;
 
 const TOP_BAR_CHROME_ID: &str = "mara.shell.topbar";
+const TOP_BAR_VIEWS_CHROME_ID: &str = "mara.shell.topbar.views";
 const APP_MENU_ITEM_ID: &str = "system.app_menu.item";
 
 /// One button in the permanent top bar's view switcher. The buttons
@@ -59,7 +59,9 @@ pub struct ShellBar {
     pub enabled: bool,
     /// Show the left-edge application-menu button.
     pub app_menu: bool,
-    /// View-switcher buttons (left cluster, after the menu).
+    /// View-switcher buttons. Rendered centred in the bar (Middle
+    /// cluster), between the left-edge app-menu and the right-edge
+    /// window controls.
     pub views: Vec<ShellView>,
     /// Currently active view id, highlighted in the switcher. Updated
     /// automatically when [`ShellBar::show`] reports a
@@ -126,14 +128,9 @@ impl ShellBar {
         let accent = crate::style::active_accent();
         let view_ids: Vec<&'static str> = self.views.iter().map(|v| v.id).collect();
 
-        let ribbon = self.build_ribbon(accent);
-        let clicks = draw_slot_ribbons_featureful(
-            ctx,
-            accent,
-            std::slice::from_ref(&ribbon),
-            open,
-            placement,
-            drag,
+        let ribbons = self.build_ribbons();
+        let clicks = __internal_draw_slot_ribbons_featureful_egui(
+            ctx, accent, &ribbons, open, placement, drag,
         );
 
         let mut events = Vec::new();
@@ -163,15 +160,16 @@ impl ShellBar {
         events
     }
 
-    fn build_ribbon(&self, _accent: Color32) -> ResolvedSlotRibbon {
-        // Left cluster: app-menu, then the view switcher. Window
-        // controls (maximize/close) and shelf toggles are injected by
-        // the slot renderer from the published host capabilities +
-        // shelf presence, so we never build them here — that is what
-        // makes the bar adapt to web/android automatically.
-        let mut items: Vec<RibbonSlotItem> = Vec::new();
+    fn build_ribbons(&self) -> Vec<ResolvedSlotRibbon> {
+        // Conventional top-bar layout:
+        //   * Start (far left): the app-menu button.
+        //   * Middle (centred): the view switcher.
+        //   * End (far right): window controls (maximize/close) + shelf
+        //     toggles — injected by the slot renderer from the published
+        //     host capabilities, so the bar adapts to web/android.
+        let mut start_items: Vec<RibbonSlotItem> = Vec::new();
         if self.app_menu {
-            items.push(
+            start_items.push(
                 RibbonSlotItem::featureful(
                     APP_MENU_ITEM_ID,
                     "line-horizontal-3",
@@ -182,6 +180,8 @@ impl ShellBar {
                 .with_role(RibbonRole::Icon),
             );
         }
+
+        let mut view_items: Vec<RibbonSlotItem> = Vec::new();
         for view in &self.views {
             let mut item = RibbonSlotItem::featureful(
                 view.id,
@@ -194,14 +194,14 @@ impl ShellBar {
             )
             .with_role(RibbonRole::Icon);
             item.active = self.active == Some(view.id);
-            items.push(item);
+            view_items.push(item);
         }
 
-        // Always emit the permanent top bar even when `items` is empty,
-        // so the slot renderer has a top permanent Start-cluster ribbon
-        // to attach the injected window controls / shelf toggles to.
-        ResolvedSlotRibbon {
-            id: egui::Id::new(TOP_BAR_CHROME_ID),
+        // The Start ribbon is always emitted (even empty) — it is the
+        // permanent top bar the slot renderer attaches injected window
+        // controls / shelf toggles to.
+        let mut ribbons = vec![ResolvedSlotRibbon {
+            id: MaraId::new(TOP_BAR_CHROME_ID),
             chrome_id: Some(TOP_BAR_CHROME_ID),
             scope: RibbonScope::Permanent,
             edge: RibbonEdge::Top,
@@ -209,15 +209,33 @@ impl ShellBar {
             mode: RibbonMode::ThreeSided,
             cluster: RibbonCluster::Start,
             accepts: &[],
-            items,
+            items: start_items,
+        }];
+
+        // The view switcher rides the Middle cluster so it sits centred
+        // in the bar, independent of the app-menu and window controls.
+        if !view_items.is_empty() {
+            ribbons.push(ResolvedSlotRibbon {
+                id: MaraId::new(TOP_BAR_VIEWS_CHROME_ID),
+                chrome_id: Some(TOP_BAR_VIEWS_CHROME_ID),
+                scope: RibbonScope::Permanent,
+                edge: RibbonEdge::Top,
+                role: RibbonRole::Icon,
+                mode: RibbonMode::ThreeSided,
+                cluster: RibbonCluster::Middle,
+                accepts: &[],
+                items: view_items,
+            });
         }
+
+        ribbons
     }
 }
 
 /// The `RibbonAction::Command` id carried by a view-switcher button.
 #[must_use]
-fn view_command_id(view_id: &'static str) -> egui::Id {
-    egui::Id::new(("mara.topbar.view", view_id))
+fn view_command_id(view_id: &'static str) -> MaraId {
+    MaraId::new(("mara.topbar.view", view_id))
 }
 
 #[cfg(test)]

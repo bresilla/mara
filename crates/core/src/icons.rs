@@ -1,19 +1,17 @@
 //! Filled Fluent UI System Icons via the [`iconflow`] crate.
 //!
 //! mara_core registers every Fluent UI font variant in
-//! [`crate::style::apply_theme`]'s font install pass so widgets can
+//! Mara's internal style font install pass so widgets can
 //! render an icon glyph anywhere a `RichText` or `painter().text(..)`
 //! call lands. Lookup is by string name (e.g. `"search"`,
 //! `"chevron_down"`); style is filled and size is the regular
 //! variant — that's the look the user asked for.
 //!
-//! Two entry points:
+//! Public entry points:
 //!
-//! * [`icon`] — returns `Option<(char, FontFamily)>` so callers that
-//!   need the codepoint directly (custom painters) can place it
-//!   themselves.
-//! * [`icon_text`] — wraps the same lookup in a `RichText` ready to
-//!   drop into `ui.label(...)` / `ui.add(Label::new(...))`.
+//! * [`is_icon_payload`] validates Fluent icon names and raw SVG payloads.
+//! * [`icon_glyph`] returns backend-neutral glyph data so callers can lower
+//!   icons into Mara paint commands.
 //!
 //! Fonts are bundled via iconflow's `fonts()` registry — we walk it
 //! once at theme-apply time and register each `(family, bytes)` pair
@@ -22,13 +20,20 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use crate::{
+    paint::{PaintCmd, TextFamily},
+    vocab::{
+        Align2 as MaraAlign2, Color32 as MaraColor32, Pos2 as MaraPos2, Rect as MaraRect,
+        Vec2 as MaraVec2,
+    },
+};
 use egui;
 use iconflow::{IconRef, Pack, Size, Style, fonts, try_icon};
 
 /// `true` once `ctx.set_fonts(...)` has installed the iconflow font
-/// families in egui — set from [`crate::style::install_fonts`]
-/// after the `set_fonts` call. Read by [`paint_icon`] /
-/// [`paint_section_icon`] so they SKIP rendering when fonts aren't
+/// families in egui — set from Mara's internal style font installer
+/// after the `set_fonts` call. Read by the internal egui icon paint hooks so
+/// they SKIP rendering when fonts aren't
 /// ready (rather than panicking inside epaint when a `FontFamily`
 /// hasn't been bound). Without this, ribbon buttons painted on the
 /// FIRST frame — before bevy_mara's `apply_theme_system` runs —
@@ -41,9 +46,13 @@ fn fonts_ready() -> bool {
     ICONFLOW_FONTS_READY.load(Ordering::Relaxed)
 }
 
+pub(crate) fn icon_fonts_ready() -> bool {
+    fonts_ready()
+}
+
 /// Pull every iconflow font into `FontDefinitions` and register
 /// each as a named family so `FontFamily::Name(family)` resolves to
-/// the right glyph table. Called from [`crate::style::install_fonts`].
+/// the right glyph table. Called from Mara's internal style font installer.
 pub(crate) fn install_iconflow_fonts(fonts_def: &mut egui::FontDefinitions) {
     let fallback_fonts = fonts_def
         .families
@@ -73,7 +82,7 @@ pub(crate) fn install_iconflow_fonts(fonts_def: &mut egui::FontDefinitions) {
 pub enum Icon<'a> {
     /// Look up `&str` in the bundled Fluent UI System Icons set.
     Name(&'a str),
-    /// Raw SVG markup. Painted by `paint_section_icon` via
+    /// Raw SVG markup. Painted by the internal egui icon paint hook via
     /// `egui::Image::from_bytes` + `paint_at`. No-ops silently if
     /// the host hasn't installed an SVG loader.
     Svg(&'a str),
@@ -102,102 +111,56 @@ pub fn is_icon_payload(payload: &str) -> bool {
     trimmed.starts_with("<svg") || trimmed.starts_with("<?xml") || icon(payload).is_some()
 }
 
-/// Paint a [`Icon`] at `pos`, aligned via `align`, sized to `size`
-/// pixels, tinted by `color`. Dispatches to the Fluent painter for
-/// `Icon::Name`, and to egui's image loader for `Icon::Svg`.
-pub fn paint_section_icon(
-    ui: &mut egui::Ui,
-    pos: egui::Pos2,
-    align: egui::Align2,
-    icon: Icon<'_>,
-    size: f32,
-    color: egui::Color32,
-) {
-    match icon {
-        Icon::Name(name) => {
-            if !fonts_ready() {
-                return;
-            }
-            paint_icon(ui.painter(), pos, align, name, size, color);
-        }
-        Icon::Svg(svg) => {
-            let rect = align.anchor_rect(egui::Rect::from_min_size(pos, egui::vec2(size, size)));
-            // Stable URI per SVG content so egui's loader can cache;
-            // a tiny djb2 hash keeps the URI short without pulling
-            // in `std::collections::hash_map::DefaultHasher`.
-            let mut h: u64 = 5381;
-            for b in svg.as_bytes() {
-                h = h.wrapping_mul(33).wrapping_add(*b as u64);
-            }
-            let uri = format!("bytes://mara_svg_icon_{:016x}.svg", h);
-            let img = egui::Image::from_bytes(uri, svg.as_bytes().to_vec())
-                .tint(color)
-                .fit_to_exact_size(rect.size());
-            img.paint_at(ui, rect);
-        }
-    }
-}
-
 /// Look up a filled Fluent UI System Icon by name. Returns the
 /// glyph character + the font family to render it in. Returns
 /// `None` when the icon isn't in the bundled set — caller should
 /// fall back gracefully.
-pub fn icon(name: &str) -> Option<(char, egui::FontFamily)> {
-    let IconRef { family, codepoint } =
-        try_icon(Pack::Fluentui, name, Style::Filled, Size::Regular).ok()?;
-    let glyph = char::from_u32(codepoint)?;
+pub(crate) fn icon(name: &str) -> Option<(char, egui::FontFamily)> {
+    let (glyph, family) = icon_glyph(name)?;
     Some((glyph, egui::FontFamily::Name(family.into())))
 }
 
-/// Build a `RichText` rendering the named filled Fluent UI icon at
-/// `size` px in `color`. Returns `None` if the icon isn't bundled —
-/// callers can `.unwrap_or_else(|| RichText::new("?"))` or similar.
-///
-/// ```ignore
-/// if let Some(t) = mara_core::icons::icon_text("search", 14.0, accent) {
-///     ui.label(t);
-/// }
-/// ```
-pub fn icon_text(name: &str, size: f32, color: egui::Color32) -> Option<egui::RichText> {
-    if !fonts_ready() {
-        return None;
-    }
-    let (glyph, family) = icon(name)?;
-    Some(
-        egui::RichText::new(glyph.to_string())
-            .font(egui::FontId::new(size, family))
-            .color(color),
-    )
+/// Look up a filled Fluent UI System Icon as backend-neutral paint
+/// data: glyph character plus the named icon font family.
+pub fn icon_glyph(name: &str) -> Option<(char, String)> {
+    let IconRef { family, codepoint } =
+        try_icon(Pack::Fluentui, name, Style::Filled, Size::Regular).ok()?;
+    let glyph = char::from_u32(codepoint)?;
+    Some((glyph, family.to_string()))
 }
 
-/// Paint a named filled Fluent UI icon at `pos` aligned by `align`
-/// in `color` at `size` px. No-op when the icon isn't bundled.
-pub fn paint_icon(
-    painter: &egui::Painter,
-    pos: egui::Pos2,
-    align: egui::Align2,
-    name: &str,
+/// Lower an icon payload to backend-neutral Mara paint data.
+///
+/// Named Fluent icons become named-font text commands. SVG payloads become
+/// raw SVG paint commands with Mara-owned placement geometry; the backend
+/// adapter remains responsible for image/SVG loader integration.
+pub(crate) fn icon_paint_cmd(
+    icon: Icon<'_>,
+    pos: MaraPos2,
+    anchor: MaraAlign2,
     size: f32,
-    color: egui::Color32,
-) {
-    // Fonts not yet installed → skip silently. The next frame
-    // `apply_theme` has run, [`ICONFLOW_FONTS_READY`] is `true`, and
-    // the icon will paint. This guard turns the crash into a
-    // one-frame visual blip on initial startup.
-    if !fonts_ready() {
-        return;
-    }
-    if let Some((glyph, family)) = icon(name) {
-        if !painter.fonts(|fonts| fonts.families().contains(&family)) {
-            return;
+    color: MaraColor32,
+) -> Option<PaintCmd> {
+    match icon {
+        Icon::Name(name) => {
+            let (glyph, family) = icon_glyph(name)?;
+            Some(PaintCmd::TextWithFamily {
+                pos,
+                anchor,
+                text: glyph.to_string(),
+                size,
+                color,
+                family: TextFamily::Named(family),
+            })
         }
-        painter.text(
-            pos,
-            align,
-            glyph.to_string(),
-            egui::FontId::new(size, family),
-            color,
-        );
+        Icon::Svg(svg) => {
+            let rect = anchor.anchor_rect(MaraRect::from_min_size(pos, MaraVec2::new(size, size)));
+            Some(PaintCmd::Svg {
+                svg: svg.to_owned(),
+                rect,
+                tint: color,
+            })
+        }
     }
 }
 
@@ -231,5 +194,54 @@ mod tests {
             proportional.as_slice(),
             "icon font should be first, followed by the normal proportional fallback chain"
         );
+    }
+
+    #[test]
+    fn icon_payload_validation_does_not_depend_on_runtime_font_install() {
+        ICONFLOW_FONTS_READY.store(false, Ordering::Relaxed);
+
+        assert!(
+            is_icon_payload("search"),
+            "static icon validation should check the bundled registry, not egui runtime font state"
+        );
+    }
+
+    #[test]
+    fn icon_paint_cmd_lowers_svg_to_mara_svg_geometry() {
+        let cmd = icon_paint_cmd(
+            Icon::Svg("<svg viewBox='0 0 8 8'></svg>"),
+            MaraPos2::new(10.0, 20.0),
+            MaraAlign2::CENTER_CENTER,
+            16.0,
+            MaraColor32::WHITE,
+        )
+        .expect("svg icons should always lower");
+
+        let PaintCmd::Svg { rect, tint, .. } = cmd else {
+            panic!("expected Mara SVG paint command");
+        };
+        assert_eq!(
+            rect,
+            MaraRect::from_min_max(MaraPos2::new(2.0, 12.0), MaraPos2::new(18.0, 28.0))
+        );
+        assert_eq!(tint, MaraColor32::WHITE);
+    }
+
+    #[test]
+    fn icon_paint_cmd_lowers_named_icon_to_named_font_text() {
+        let cmd = icon_paint_cmd(
+            Icon::Name("search"),
+            MaraPos2::new(1.0, 2.0),
+            MaraAlign2::CENTER_CENTER,
+            18.0,
+            MaraColor32::WHITE,
+        )
+        .expect("search icon should be bundled");
+
+        let PaintCmd::TextWithFamily { family, text, .. } = cmd else {
+            panic!("expected named-font text command");
+        };
+        assert_eq!(text.chars().count(), 1);
+        assert!(matches!(family, TextFamily::Named(_)));
     }
 }

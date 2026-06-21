@@ -21,8 +21,8 @@ impl MaraView for DualSurface {
 }
 
 impl MaraModule for DualSurface {
-    fn id(&self) -> egui::Id {
-        egui::Id::new("dual-module")
+    fn id(&self) -> mara_core::vocab::Id {
+        mara_core::vocab::Id::new("dual-module")
     }
 
     fn title(&self) -> &str {

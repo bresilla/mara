@@ -14,8 +14,8 @@
 //! ]);
 //! ```
 
-use crate::icons::Icon;
 use crate::pod::Pod;
+use crate::{icons::Icon, vocab::Id as MaraId};
 
 pub struct Tab {
     /// Stable id used by the per-pane tab-drag routing — `(tab_id →
@@ -30,7 +30,7 @@ pub struct Tab {
 
 impl Tab {
     pub fn new(
-        id: impl Into<egui::Id>,
+        id: impl Into<MaraId>,
         title: impl Into<String>,
         icon: impl Into<Icon<'static>>,
     ) -> Self {
@@ -45,7 +45,7 @@ impl Tab {
             "tab containers require every tab to have a non-empty icon"
         );
         Self {
-            id: id.into(),
+            id: id.into().into(),
             title,
             icon,
             pods: Vec::new(),
@@ -59,7 +59,11 @@ impl Tab {
 
     /// The stable id passed to [`Tab::new`].
     #[must_use]
-    pub fn id(&self) -> egui::Id {
+    pub fn id(&self) -> MaraId {
+        self.id.into()
+    }
+
+    pub(crate) fn egui_id(&self) -> egui::Id {
         self.id
     }
 }
@@ -97,5 +101,21 @@ mod tests {
         let tab = Tab::new("tab-with-icon", "Valid", "settings");
 
         assert_eq!(tab.title, "Valid");
+    }
+
+    #[test]
+    fn tab_public_id_uses_mara_vocab() {
+        let tab = Tab::new("tab-id", "Valid", "settings");
+        let id: MaraId = tab.id();
+
+        assert_eq!(egui::Id::from(id), tab.egui_id());
+    }
+
+    #[test]
+    fn tab_new_preserves_existing_mara_id_without_rehashing() {
+        let id = MaraId::new("stable-tab-id");
+        let tab = Tab::new(id, "Valid", "settings");
+
+        assert_eq!(tab.id(), id);
     }
 }

@@ -1,9 +1,8 @@
 use std::collections::HashSet;
 
-use egui::Id;
-
 use crate::icons;
 use crate::view::ViewId;
+use crate::vocab::Id;
 
 use super::{RibbonAction, RibbonCluster, RibbonEdge, RibbonMode, RibbonRole};
 

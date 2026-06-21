@@ -8,7 +8,7 @@
 
 use std::time::Duration;
 
-use egui;
+use mara_core::{ViewCtx, vocab::Color32 as MaraColor32};
 
 use crate::{BevyEmbeddedView, BevyViewportInput, BevyViewportWgpuResources};
 
@@ -31,10 +31,6 @@ pub struct MaraBevyViewport {
     native_texture: Option<egui::TextureId>,
     native_texture_size: [usize; 2],
 }
-
-/// Backwards-friendly name for apps that think of this as the
-/// embedded Bevy viewport.
-pub type EmbeddedBevyViewport = MaraBevyViewport;
 
 impl MaraBevyViewport {
     pub fn new() -> Self {
@@ -144,15 +140,16 @@ impl MaraBevyViewport {
 
     pub fn show(
         &mut self,
-        ctx: &egui::Context,
+        ctx: &mut ViewCtx<'_>,
         render_state: Option<&egui_wgpu::RenderState>,
-        accent: egui::Color32,
-    ) -> Option<egui::Color32> {
+        accent: impl Into<MaraColor32>,
+    ) -> Option<MaraColor32> {
+        let accent = accent.into();
         self.set_active(true);
         let mut picked_color = None;
         egui::CentralPanel::default()
             .frame(egui::Frame::new().fill(egui::Color32::TRANSPARENT))
-            .show(ctx, |ui| {
+            .show(ctx.__internal_egui_ctx(), |ui| {
                 let rect = ui.max_rect();
                 let painter = ui.painter_at(rect);
                 let theme = mara_core::style::theme();
@@ -342,45 +339,43 @@ impl MaraBevyViewport {
                             }
                         };
                         let dt = if attempt == 0 { dt } else { 0.0 };
-                        if use_native_gpu_texture && let Some(render_state) = render_state {
-                            if let Some(frame) = self
+                        if use_native_gpu_texture
+                            && let Some(render_state) = render_state
+                            && let Some(frame) = self
                                 .bevy
                                 .render_texture_with_input(pixels[0], pixels[1], dt, input)
-                            {
-                                let size = [frame.width as usize, frame.height as usize];
-                                if size == target_size {
-                                    let texture_id = {
-                                        let mut renderer = render_state.renderer.write();
-                                        match self.native_texture {
-                                            Some(texture_id)
-                                                if self.native_texture_size == size =>
-                                            {
-                                                // The egui texture id already points at the
-                                                // Bevy render target. Bevy updates the GPU
-                                                // texture contents in-place, so avoid rebuilding
-                                                // the egui bind group every frame.
-                                                texture_id
-                                            }
-                                            Some(texture_id) => {
-                                                renderer.free_texture(&texture_id);
-                                                renderer.register_native_texture(
-                                                    &render_state.device,
-                                                    &frame.view,
-                                                    wgpu::FilterMode::Linear,
-                                                )
-                                            }
-                                            None => renderer.register_native_texture(
+                        {
+                            let size = [frame.width as usize, frame.height as usize];
+                            if size == target_size {
+                                let texture_id = {
+                                    let mut renderer = render_state.renderer.write();
+                                    match self.native_texture {
+                                        Some(texture_id) if self.native_texture_size == size => {
+                                            // The egui texture id already points at the
+                                            // Bevy render target. Bevy updates the GPU
+                                            // texture contents in-place, so avoid rebuilding
+                                            // the egui bind group every frame.
+                                            texture_id
+                                        }
+                                        Some(texture_id) => {
+                                            renderer.free_texture(&texture_id);
+                                            renderer.register_native_texture(
                                                 &render_state.device,
                                                 &frame.view,
                                                 wgpu::FilterMode::Linear,
-                                            ),
+                                            )
                                         }
-                                    };
-                                    self.native_texture = Some(texture_id);
-                                    self.native_texture_size = size;
-                                    self.last_pixels = pixels;
-                                    break;
-                                }
+                                        None => renderer.register_native_texture(
+                                            &render_state.device,
+                                            &frame.view,
+                                            wgpu::FilterMode::Linear,
+                                        ),
+                                    }
+                                };
+                                self.native_texture = Some(texture_id);
+                                self.native_texture_size = size;
+                                self.last_pixels = pixels;
+                                break;
                             }
                         }
 
@@ -438,12 +433,11 @@ impl MaraBevyViewport {
                 }
                 ui.ctx()
                     .request_repaint_after(Duration::from_secs_f64(next));
-                return;
             });
         picked_color
     }
 
-    fn paint_warmup(&self, ui: &egui::Ui, rect: egui::Rect, accent: egui::Color32) {
+    fn paint_warmup(&self, ui: &egui::Ui, rect: egui::Rect, accent: MaraColor32) {
         let painter = ui.painter_at(rect);
         let grid = 36.0;
         let grid_col =
@@ -473,7 +467,7 @@ impl MaraBevyViewport {
                 "warming up embedded Bevy renderer…"
             },
             egui::FontId::proportional(13.0),
-            mara_core::style::on_panel(),
+            mara_core::style::on_panel().into(),
         );
     }
 }

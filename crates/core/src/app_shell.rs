@@ -6,22 +6,21 @@
 //! contents and dispatches actions, while host crates decide how to
 //! paint the resolved items.
 
-use egui::{Color32, Id};
-
 use crate::{
     WorkspaceCtx,
     ribbon::{
-        ResolvedSlotRibbon, RibbonAction, RibbonActionError, RibbonActionResult,
-        RibbonOverrideLayer, RibbonScope, RibbonSlotDef, RibbonSlotItem, dispatch_ribbon_action,
-        draw_slot_ribbons, resolve_slot_items, restore_workspace_slot_override,
+        __internal_draw_slot_ribbons_egui, ResolvedSlotRibbon, RibbonAction, RibbonActionError,
+        RibbonActionResult, RibbonOverrideLayer, RibbonScope, RibbonSlotDef, RibbonSlotItem,
+        dispatch_ribbon_action, resolve_slot_items, restore_workspace_slot_override,
         slot::validate_ribbon_slot_def,
     },
     view::{ViewCtx, ViewRouter, ViewRouterError},
+    vocab::{Color32, Id as MaraId},
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ResolvedRibbon {
-    pub id: Id,
+    pub id: MaraId,
     pub chrome_id: Option<&'static str>,
     pub scope: RibbonScope,
     pub edge: crate::ribbon::RibbonEdge,
@@ -177,17 +176,17 @@ pub enum AppShellError {
         count: usize,
     },
     PermanentRibbonNotTop {
-        id: Id,
+        id: MaraId,
         edge: crate::ribbon::RibbonEdge,
     },
     PermanentRibbonMustBeFixed {
-        id: Id,
+        id: MaraId,
     },
     ViewRibbonWrongScope {
-        id: Id,
+        id: MaraId,
     },
     WorkspaceRibbonWrongScope {
-        id: Id,
+        id: MaraId,
     },
 }
 
@@ -405,7 +404,7 @@ fn validate_view_ribbons(
 }
 
 fn validate_workspace_ribbons(
-    active_workspace: Id,
+    active_workspace: MaraId,
     ribbons: &[RibbonSlotDef],
 ) -> Result<(), AppShellError> {
     if let Some(ribbon) = ribbons.iter().find(
@@ -429,12 +428,19 @@ pub fn dispatch_app_shell_action(
 /// This calls the active L0 view only when the active workspace stack
 /// is at root. L1+ module workspace rendering will layer onto this
 /// once modules can register workspace renderers.
-pub fn show_app_shell(
+/// Internal egui render hook for the current app-shell implementation.
+///
+/// Public app/host code should prefer resolving shell data and routing
+/// rendering through a Mara host facade. This remains public only as a
+/// hidden first-party adapter while egui is the sole concrete backend.
+#[doc(hidden)]
+pub fn __internal_show_app_shell_egui(
     egui_ctx: &egui::Context,
     router: &mut ViewRouter,
     permanent_ribbons: &[RibbonSlotDef],
-    accent: Color32,
+    accent: impl Into<Color32>,
 ) -> Result<AppShellResolution, AppShellError> {
+    let accent = accent.into();
     let resolved = resolve_app_shell_ribbons(router, permanent_ribbons)?;
     let depth = router.active_workspace()?.depth();
     if depth == 0 {
@@ -453,24 +459,30 @@ pub fn show_app_shell(
 
 /// Resolve, paint, and dispatch slot-based app-shell ribbons, then
 /// render the active L0 view when the active stack is at root.
-pub fn show_app_shell_chrome_with_slot_ribbons(
+/// Internal egui render hook for API-enforced shell chrome.
+#[doc(hidden)]
+pub fn __internal_show_app_shell_chrome_with_slot_ribbons_egui(
     egui_ctx: &egui::Context,
     router: &mut ViewRouter,
     chrome: &AppShellChrome,
-    accent: Color32,
+    accent: impl Into<Color32>,
 ) -> Result<(AppShellResolution, Vec<RibbonActionResult>), AppShellError> {
+    let accent = accent.into();
     let permanent_ribbons = chrome.permanent_ribbon_defs();
-    show_app_shell_with_slot_ribbons(egui_ctx, router, &permanent_ribbons, accent)
+    __internal_show_app_shell_with_slot_ribbons_egui(egui_ctx, router, &permanent_ribbons, accent)
 }
 
-pub fn show_app_shell_with_slot_ribbons(
+/// Internal egui render hook for resolved slot-ribbon shell chrome.
+#[doc(hidden)]
+pub fn __internal_show_app_shell_with_slot_ribbons_egui(
     egui_ctx: &egui::Context,
     router: &mut ViewRouter,
     permanent_ribbons: &[RibbonSlotDef],
-    accent: Color32,
+    accent: impl Into<Color32>,
 ) -> Result<(AppShellResolution, Vec<RibbonActionResult>), AppShellError> {
+    let accent = accent.into();
     let resolved = resolve_app_shell_ribbons(router, permanent_ribbons)?;
-    let clicks = draw_slot_ribbons(egui_ctx, accent, &resolved.as_slot_ribbons());
+    let clicks = __internal_draw_slot_ribbons_egui(egui_ctx, accent, &resolved.as_slot_ribbons());
     let mut results = Vec::with_capacity(clicks.len());
     for click in clicks {
         results.push(dispatch_app_shell_action(router, click.action)?);
@@ -501,16 +513,20 @@ pub fn show_app_shell_with_slot_ribbons(
 /// `render_workspace`. Any ribbons or override layers added to the
 /// [`WorkspaceCtx`] are then folded into the slot-resolution pass
 /// before painting permanent/view/workspace chrome.
-pub fn show_app_shell_with_workspace_renderer<F>(
+/// Internal egui render hook for shell chrome plus host-supplied
+/// workspace rendering.
+#[doc(hidden)]
+pub fn __internal_show_app_shell_with_workspace_renderer_egui<F>(
     egui_ctx: &egui::Context,
     router: &mut ViewRouter,
     permanent_ribbons: &[RibbonSlotDef],
-    accent: Color32,
+    accent: impl Into<Color32>,
     render_workspace: F,
 ) -> Result<(AppShellResolution, Vec<RibbonActionResult>), AppShellError>
 where
     F: FnOnce(&egui::Context, &mut WorkspaceCtx<'_>),
 {
+    let accent = accent.into();
     let depth = router.active_workspace()?.depth();
     let mut workspace_ribbons = Vec::new();
     let mut workspace_layers = Vec::new();
@@ -529,7 +545,7 @@ where
         &workspace_ribbons,
         &workspace_layers,
     )?;
-    let clicks = draw_slot_ribbons(egui_ctx, accent, &resolved.as_slot_ribbons());
+    let clicks = __internal_draw_slot_ribbons_egui(egui_ctx, accent, &resolved.as_slot_ribbons());
     let mut results = Vec::with_capacity(clicks.len());
     for click in clicks {
         results.push(dispatch_app_shell_action(router, click.action)?);

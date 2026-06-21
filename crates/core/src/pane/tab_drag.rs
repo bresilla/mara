@@ -12,6 +12,12 @@ use std::collections::{HashMap, HashSet};
 use egui::{Color32, Context, Id, Pos2, Rect};
 
 use crate::icons::Icon;
+use crate::layout::{AreaHost, Layer, UiBackend};
+use crate::paint::PaintCmd;
+use crate::vocab::{
+    Color32 as MaraColor32, CornerRadius as MaraCornerRadius, Pos2 as MaraPos2, Rect as MaraRect,
+    Stroke as MaraStroke, Vec2 as MaraVec2,
+};
 
 // ─── State types ───────────────────────────────────────────────────
 
@@ -444,50 +450,69 @@ fn find_drop_target_filtered(
 
 // ─── Paint helpers ─────────────────────────────────────────────────
 
-/// Paint the dragged tab's preview at the cursor on
-/// `Order::Tooltip` — floats above every pane / container layer.
+/// Paint the dragged tab's preview at the cursor on Mara's overlay
+/// layer — floats above every pane / container layer.
 pub fn paint_drag_preview(
     ctx: &Context,
     pane_id: Id,
-    button_size: egui::Vec2,
+    button_size: MaraVec2,
     cursor: Pos2,
     accent: Color32,
     label: &str,
     icon: Option<Icon<'static>>,
 ) {
-    let pos = egui::pos2(
+    let cursor = MaraPos2::from(cursor);
+    let pos = MaraPos2::new(
         cursor.x - button_size.x * 0.5,
         cursor.y - button_size.y * 0.5,
     );
     let area_id = pane_id.with("mara_tab_drag_preview");
-    egui::Area::new(area_id)
-        .order(egui::Order::Tooltip)
-        .fixed_pos(pos)
-        .interactable(false)
-        .show(ctx, |ui| {
-            let rect = Rect::from_min_size(pos, button_size);
-            let theme = crate::style::theme();
-            ui.painter().rect(
-                rect,
-                egui::CornerRadius::same(theme.radius_compact),
-                Color32::from_rgba_unmultiplied(accent.r(), accent.g(), accent.b(), 72),
-                egui::Stroke::new(1.5, accent),
-                egui::StrokeKind::Inside,
-            );
+    crate::backend::egui::show_area_for_host(
+        ctx,
+        AreaHost::new(area_id.into(), pos, Layer::Overlay).non_interactive(),
+        |ui| {
+            let rect = MaraRect::from_min_size(pos, button_size);
+            let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
+            for cmd in tab_drag_preview_paint_cmds(rect, accent.into()) {
+                backend.paint(cmd);
+            }
             // Glyph + label, centred. Best-effort; icon may be empty.
             if let Some(icon) = icon {
                 let icon_size = button_size.y * 0.55;
-                crate::icons::paint_section_icon(
-                    ui,
-                    rect.center(),
-                    egui::Align2::CENTER_CENTER,
+                if matches!(icon, crate::icons::Icon::Name(_)) && !crate::icons::icon_fonts_ready()
+                {
+                    return;
+                }
+                if let Some(cmd) = crate::icons::icon_paint_cmd(
                     icon,
+                    rect.center(),
+                    crate::vocab::Align2::CENTER_CENTER,
                     icon_size,
                     crate::style::on_panel(),
-                );
+                ) {
+                    backend.paint(cmd);
+                }
             }
             let _ = label;
-        });
+        },
+    );
+}
+
+fn tab_drag_preview_paint_cmds(rect: MaraRect, accent: MaraColor32) -> [PaintCmd; 2] {
+    let theme = crate::style::theme();
+    let corner = MaraCornerRadius::same(theme.radius_compact);
+    [
+        PaintCmd::RectFilled {
+            rect,
+            corner,
+            fill: MaraColor32::from_rgba_unmultiplied(accent.r(), accent.g(), accent.b(), 72),
+        },
+        PaintCmd::RectStroke {
+            rect,
+            corner,
+            stroke: MaraStroke::new(1.5, accent),
+        },
+    ]
 }
 
 #[cfg(test)]
@@ -544,6 +569,29 @@ mod tests {
             Some((container_id, 1)),
             "same-strip target slots must be computed as if the dragged tab has already been lifted"
         );
+    }
+
+    #[test]
+    fn tab_drag_preview_lowers_to_mara_fill_and_stroke_commands() {
+        let rect = MaraRect::from_min_size(MaraPos2::new(5.0, 7.0), MaraVec2::new(28.0, 28.0));
+        let cmds = tab_drag_preview_paint_cmds(rect, MaraColor32::from_rgb(4, 5, 6));
+
+        assert!(matches!(
+            cmds[0],
+            PaintCmd::RectFilled {
+                rect: got,
+                fill,
+                ..
+            } if got == rect && fill.a() == 72
+        ));
+        assert!(matches!(
+            cmds[1],
+            PaintCmd::RectStroke {
+                rect: got,
+                stroke,
+                ..
+            } if got == rect && stroke.color == MaraColor32::from_rgb(4, 5, 6)
+        ));
     }
 
     #[test]

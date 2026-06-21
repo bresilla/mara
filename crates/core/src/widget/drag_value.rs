@@ -7,7 +7,16 @@
 
 use std::ops::RangeInclusive;
 
-use crate::style::{BODY_FONT_SIZE, on_panel, theme};
+use crate::{
+    layout::{Sense, UiBackend},
+    mui::MaraResponse,
+    paint::PaintCmd,
+    style::{
+        BODY_FONT_SIZE, FillRole, RadiusRole, StrokeRole, fill_for, on_panel, on_track, radius_for,
+        stroke_for, theme,
+    },
+    vocab::{Align2, Color32, Id, Pos2, Rect, Vec2},
+};
 
 /// Fixed width of the value box, so multiple drag-value rows stack
 /// with their boxes aligned.
@@ -17,7 +26,7 @@ pub const DRAG_VALUE_INPUT_WIDTH: f32 = 72.0;
 pub const DRAG_VALUE_ROW_H: f32 = 18.0;
 
 /// Labelled drag-value row.
-pub fn drag_value(
+pub(crate) fn drag_value(
     ui: &mut egui::Ui,
     label: &str,
     value: &mut f64,
@@ -25,14 +34,14 @@ pub fn drag_value(
     range: RangeInclusive<f64>,
     decimals: usize,
     suffix: &str,
-) -> egui::Response {
+) -> MaraResponse {
     let row_h = theme().widgets.drag_value.row_h;
     drag_value_h(ui, label, value, speed, range, decimals, suffix, row_h)
 }
 
 /// Variable-height drag-value row — used by resizable pods.
 #[allow(clippy::too_many_arguments)]
-pub fn drag_value_h(
+pub(crate) fn drag_value_h(
     ui: &mut egui::Ui,
     label: &str,
     value: &mut f64,
@@ -41,123 +50,276 @@ pub fn drag_value_h(
     decimals: usize,
     suffix: &str,
     height: f32,
-) -> egui::Response {
-    let drag = theme().widgets.drag_value;
-    let scale = height / drag.row_h;
-    let total_w = ui.available_width();
-    let (row_rect, _) = ui.allocate_exact_size(egui::vec2(total_w, height), egui::Sense::hover());
-    let input_w = (drag.input_w * scale).round();
-    let input_rect = egui::Rect::from_min_size(
-        egui::pos2(row_rect.right() - input_w, row_rect.top()),
-        egui::vec2(input_w, height),
-    );
-    if !label.is_empty() {
-        ui.painter().text(
-            egui::pos2(row_rect.left(), row_rect.center().y),
-            egui::Align2::LEFT_CENTER,
-            label,
-            egui::FontId::proportional((BODY_FONT_SIZE * scale).round()),
-            on_panel(),
-        );
-    }
-    // Place the DragValue inside its own child UI so we can override
-    // text + spacing without bleeding to siblings. `add_sized` uses
-    // `centered_and_justified`, which only stretches main-axis and
-    // leaves the button's natural HEIGHT (~15 px) centered in the
-    // 18 px row — pushing the text + frame off the row's centreline.
-    // `ui.put(rect, widget)` forces the widget into the exact
-    // `input_rect`, so frame + text both span the full row and
-    // share a centreline with the label glyph painted on the left.
-    // Button vertical padding is also zeroed so the inner text
-    // anchors at the rect's geometric centre rather than 1 px below.
-    let mut child = ui.new_child(
-        egui::UiBuilder::new()
-            .max_rect(input_rect)
-            .layout(egui::Layout::left_to_right(egui::Align::Center)),
-    );
-    child.style_mut().override_font_id =
-        Some(egui::FontId::proportional((BODY_FONT_SIZE * scale).round()));
-    child.style_mut().spacing.button_padding.y = 0.0;
-    child.put(
-        input_rect,
-        egui::DragValue::new(value)
-            .speed(speed)
-            .range(range)
-            .fixed_decimals(decimals)
-            .suffix(suffix),
+) -> MaraResponse {
+    let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
+    drag_value_backend(
+        &mut backend,
+        label,
+        value,
+        speed,
+        range,
+        decimals,
+        suffix,
+        height,
     )
 }
 
-/// Coloured-axis drag-value row — `glyph` (e.g. `"X"`) painted in
-/// `glyph_color`, fixed-width DragValue on the right.
-pub fn axis_drag(
-    ui: &mut egui::Ui,
-    glyph: &str,
-    glyph_color: egui::Color32,
+/// Backend-neutral non-text-editing drag-value row.
+///
+/// This keeps the immediate drag behavior but intentionally does not
+/// implement click-to-type editing. Text editing remains a later
+/// backend/runtime concern.
+#[allow(clippy::too_many_arguments)]
+pub fn drag_value_backend(
+    backend: &mut impl UiBackend,
+    label: &str,
     value: &mut f64,
     speed: f64,
-    suffix: &str,
+    range: RangeInclusive<f64>,
     decimals: usize,
-) -> egui::Response {
-    let row_h = theme().widgets.drag_value.row_h;
-    axis_drag_h(
-        ui,
-        glyph,
-        glyph_color,
+    suffix: &str,
+    height: f32,
+) -> MaraResponse {
+    drag_value_row_backend(
+        backend,
+        label,
+        on_panel(),
+        false,
         value,
         speed,
-        suffix,
+        Some(range),
         decimals,
-        row_h,
+        suffix,
+        height,
     )
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn axis_drag_h(
-    ui: &mut egui::Ui,
+fn drag_value_row_backend(
+    backend: &mut impl UiBackend,
+    label: &str,
+    label_color: Color32,
+    label_mono: bool,
+    value: &mut f64,
+    speed: f64,
+    range: Option<RangeInclusive<f64>>,
+    decimals: usize,
+    suffix: &str,
+    height: f32,
+) -> MaraResponse {
+    let drag = theme().widgets.drag_value;
+    let scale = height / drag.row_h;
+    let total_w = backend.available_rect().width().max(0.0);
+    let row_rect = backend
+        .allocate(Vec2::new(total_w, height), Sense::Hover)
+        .rect;
+    let input_w = (drag.input_w * scale).round();
+    let input_rect = Rect::from_min_size(
+        Pos2::new(row_rect.right() - input_w, row_rect.top()),
+        Vec2::new(input_w, height),
+    );
+    if !label.is_empty() {
+        backend.paint(PaintCmd::Text {
+            pos: Pos2::new(row_rect.left(), row_rect.center().y),
+            anchor: Align2::LEFT_CENTER,
+            text: label.to_owned(),
+            size: (BODY_FONT_SIZE * scale).round(),
+            color: label_color,
+            mono: label_mono,
+        });
+    }
+    let id = Id::new((
+        "mara_drag_value",
+        label,
+        input_rect.min.x.to_bits(),
+        input_rect.min.y.to_bits(),
+    ));
+    let mut resp = backend.interact(input_rect, id, Sense::ClickAndDrag);
+    if resp.dragged && resp.drag_delta.x != 0.0 {
+        let mut next = *value + resp.drag_delta.x as f64 * speed;
+        if let Some(range) = &range {
+            next = next.clamp(*range.start(), *range.end());
+        }
+        if (next - *value).abs() > f64::EPSILON {
+            *value = next;
+            resp.changed = true;
+        }
+    }
+    paint_value_box(
+        backend,
+        input_rect,
+        &format!("{:.*}{}", decimals, *value, suffix),
+        scale,
+    );
+    resp
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn axis_drag_backend(
+    backend: &mut impl UiBackend,
     glyph: &str,
-    glyph_color: egui::Color32,
+    glyph_color: Color32,
     value: &mut f64,
     speed: f64,
     suffix: &str,
     decimals: usize,
     height: f32,
-) -> egui::Response {
-    let drag = theme().widgets.drag_value;
-    let scale = height / drag.row_h;
-    let total_w = ui.available_width();
-    let (row_rect, _) = ui.allocate_exact_size(egui::vec2(total_w, height), egui::Sense::hover());
-    let input_w = (drag.input_w * scale).round();
-    let input_rect = egui::Rect::from_min_size(
-        egui::pos2(row_rect.right() - input_w, row_rect.top()),
-        egui::vec2(input_w, height),
-    );
-    // Bold-monospace glyph, axis-tinted.
-    ui.painter().text(
-        egui::pos2(row_rect.left(), row_rect.center().y),
-        egui::Align2::LEFT_CENTER,
+) -> MaraResponse {
+    drag_value_row_backend(
+        backend,
         glyph,
-        egui::FontId::new(
-            (BODY_FONT_SIZE * scale).round(),
-            egui::FontFamily::Monospace,
-        ),
         glyph_color,
-    );
-    let mut child = ui.new_child(
-        egui::UiBuilder::new()
-            .max_rect(input_rect)
-            .layout(egui::Layout::left_to_right(egui::Align::Center)),
-    );
-    child.style_mut().override_font_id = Some(egui::FontId::new(
-        (BODY_FONT_SIZE * scale).round(),
-        egui::FontFamily::Monospace,
-    ));
-    child.style_mut().spacing.button_padding.y = 0.0;
-    child.put(
-        input_rect,
-        egui::DragValue::new(value)
-            .speed(speed)
-            .fixed_decimals(decimals)
-            .suffix(suffix),
+        true,
+        value,
+        speed,
+        None,
+        decimals,
+        suffix,
+        height,
     )
+}
+
+fn paint_value_box(backend: &mut impl UiBackend, rect: Rect, text: &str, scale: f32) {
+    let accent = theme().palette.text_primary;
+    let corner = radius_for(RadiusRole::Compact);
+    backend.paint(PaintCmd::RectFilled {
+        rect,
+        corner,
+        fill: fill_for(FillRole::Track, accent),
+    });
+    backend.paint(PaintCmd::RectStroke {
+        rect,
+        corner,
+        stroke: stroke_for(StrokeRole::WidgetBorder, accent),
+    });
+    backend.push_clip(rect);
+    backend.paint(PaintCmd::Text {
+        pos: rect.center(),
+        anchor: Align2::CENTER_CENTER,
+        text: text.to_owned(),
+        size: (BODY_FONT_SIZE * scale).round(),
+        color: on_track(),
+        mono: true,
+    });
+    backend.pop_clip();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[derive(Default)]
+    struct RecordingBackend {
+        available: Rect,
+        paints: Vec<PaintCmd>,
+        clips: Vec<Rect>,
+        interaction: Option<MaraResponse>,
+    }
+
+    impl UiBackend for RecordingBackend {
+        fn begin_area(&mut self, _host: crate::layout::AreaHost, rect: Rect) {
+            self.available = rect;
+        }
+
+        fn allocate(&mut self, size: Vec2, _sense: Sense) -> MaraResponse {
+            MaraResponse::synthetic(Rect::from_min_size(self.available.min, size))
+        }
+
+        fn interact(&mut self, rect: Rect, _id: Id, _sense: Sense) -> MaraResponse {
+            self.interaction
+                .clone()
+                .unwrap_or_else(|| MaraResponse::synthetic(rect))
+        }
+
+        fn available_rect(&self) -> Rect {
+            self.available
+        }
+
+        fn push_clip(&mut self, rect: Rect) {
+            self.clips.push(rect);
+        }
+
+        fn pop_clip(&mut self) {}
+
+        fn measure_text(&self, text: &str, size: f32, _mono: bool) -> Vec2 {
+            Vec2::new(text.len() as f32 * size * 0.5, size)
+        }
+
+        fn paint(&mut self, cmd: PaintCmd) {
+            self.paints.push(cmd);
+        }
+    }
+
+    #[test]
+    fn drag_value_backend_emits_label_box_and_value_text() {
+        let mut backend = RecordingBackend {
+            available: Rect::from_min_size(Pos2::ZERO, Vec2::new(180.0, DRAG_VALUE_ROW_H)),
+            paints: Vec::new(),
+            clips: Vec::new(),
+            interaction: None,
+        };
+        let mut value = 12.5;
+
+        let response = drag_value_backend(
+            &mut backend,
+            "size",
+            &mut value,
+            0.1,
+            0.0..=100.0,
+            1,
+            " px",
+            DRAG_VALUE_ROW_H,
+        );
+
+        assert_eq!(response.rect.width(), DRAG_VALUE_INPUT_WIDTH);
+        assert_eq!(backend.clips.len(), 1);
+        assert_eq!(backend.paints.len(), 4);
+        let [
+            PaintCmd::Text { text: label, .. },
+            PaintCmd::RectFilled { .. },
+            PaintCmd::RectStroke { .. },
+            PaintCmd::Text {
+                text: readout,
+                mono: true,
+                ..
+            },
+        ] = backend.paints.as_slice()
+        else {
+            panic!("drag value should emit label, input chrome, and value text");
+        };
+        assert_eq!(label, "size");
+        assert_eq!(readout, "12.5 px");
+    }
+
+    #[test]
+    fn drag_value_backend_drag_updates_value_and_marks_changed() {
+        let input = Rect::from_min_size(
+            Pos2::new(108.0, 0.0),
+            Vec2::new(DRAG_VALUE_INPUT_WIDTH, DRAG_VALUE_ROW_H),
+        );
+        let mut interaction = MaraResponse::synthetic(input);
+        interaction.dragged = true;
+        interaction.drag_delta = Vec2::new(10.0, 0.0);
+        let mut backend = RecordingBackend {
+            available: Rect::from_min_size(Pos2::ZERO, Vec2::new(180.0, DRAG_VALUE_ROW_H)),
+            paints: Vec::new(),
+            clips: Vec::new(),
+            interaction: Some(interaction),
+        };
+        let mut value = 1.0;
+
+        let response = drag_value_backend(
+            &mut backend,
+            "size",
+            &mut value,
+            0.5,
+            0.0..=10.0,
+            1,
+            "",
+            DRAG_VALUE_ROW_H,
+        );
+
+        assert_eq!(value, 6.0);
+        assert!(response.changed);
+    }
 }

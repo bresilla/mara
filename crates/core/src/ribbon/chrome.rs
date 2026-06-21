@@ -5,8 +5,16 @@ use std::collections::HashMap;
 
 use super::{
     RibbonSlotItem,
-    paint::{EDGE_GAP, SIDE_BTN_GAP, SIDE_BTN_SIZE, paint_ribbon_button, ribbon_button_fg},
+    paint::{EDGE_GAP, SIDE_BTN_GAP, SIDE_BTN_SIZE, ribbon_button_fg, ribbon_button_paint_cmds},
     slot_paint::ResolvedSlotRibbon,
+};
+use crate::{
+    layout::{Layer, Sense as MaraSense, SlotRibbonLayoutSpec, UiBackend},
+    paint::PaintCmd,
+    vocab::{
+        Align2 as MaraAlign2, Color32 as MaraColor32, Id as MaraId, Pos2 as MaraPos2,
+        Rect as MaraRect, Vec2 as MaraVec2,
+    },
 };
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -95,9 +103,9 @@ impl RibbonAvoidance {
     }
 
     #[must_use]
-    pub fn apply_to_rect(self, rect: egui::Rect) -> egui::Rect {
+    pub fn apply_to_rect(self, rect: impl Into<MaraRect>) -> MaraRect {
         let gap = ribbon_clearance();
-        let mut out = rect;
+        let mut out = rect.into();
         if self.left {
             out.min.x = (out.min.x + gap).min(out.max.x);
         }
@@ -120,8 +128,8 @@ pub const fn ribbon_clearance() -> f32 {
 }
 
 #[must_use]
-pub fn ribbon_avoiding_rect(ctx: &egui::Context, avoidance: RibbonAvoidance) -> egui::Rect {
-    avoidance.apply_to_rect(ctx.content_rect())
+pub(crate) fn ribbon_avoiding_rect(ctx: &egui::Context, avoidance: RibbonAvoidance) -> MaraRect {
+    avoidance.apply_to_rect(crate::backend::egui::context_content_rect(ctx))
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -256,6 +264,15 @@ impl RibbonPlacement {
     ) -> (&'static str, RibbonCluster, u32) {
         assert_chrome_id(item_id, "ribbon placement requires a non-empty item id");
         assert_chrome_id(ribbon, "ribbon placement requires a non-empty ribbon id");
+        // System chrome (window controls + shelf toggles, prefix
+        // `mara.system.`) is injected fresh every frame at fixed positions
+        // and is never user-reorderable, so it always ignores placement
+        // overrides. Without this, a stray drag on any other ribbon button
+        // stamps a persistent override onto maximize/close that mis-places
+        // (and effectively hides) them on every subsequent view.
+        if item_id.starts_with("mara.system.") {
+            return (ribbon, cluster, slot);
+        }
         self.overrides
             .get(item_id)
             .copied()
@@ -272,7 +289,7 @@ fn assert_chrome_id(id: &'static str, message: &str) {
 #[derive(Default, Debug, Clone)]
 pub struct RibbonDrag {
     pub item: Option<&'static str>,
-    pub cursor: Option<egui::Pos2>,
+    pub cursor: Option<MaraPos2>,
     pub source: Option<(&'static str, RibbonCluster, u32)>,
 }
 
@@ -280,9 +297,9 @@ pub(crate) fn chrome_bounds_key() -> egui::Id {
     egui::Id::new("mara_ribbon_chrome_bounds")
 }
 
-fn chrome_rect(ctx: &egui::Context) -> egui::Rect {
-    ctx.data(|d| d.get_temp::<egui::Rect>(chrome_bounds_key()))
-        .unwrap_or_else(|| ctx.content_rect())
+fn chrome_rect(ctx: &egui::Context) -> MaraRect {
+    ctx.data(|d| d.get_temp::<MaraRect>(chrome_bounds_key()))
+        .unwrap_or_else(|| crate::backend::egui::context_content_rect(ctx))
 }
 
 /// The chrome bounds (= viewport that floating side ribbons / panes
@@ -296,16 +313,31 @@ fn chrome_rect(ctx: &egui::Context) -> egui::Rect {
 /// first frame's window size. That self-perpetuation was the root of
 /// the "side rail / panes stop tracking window resize" bug, and it
 /// bit hosts that never did anything wrong (a single stale write
-/// stuck forever). See [`crate::shelf::publish_shelf_layout`].
-fn fresh_chrome_bounds(ctx: &egui::Context) -> egui::Rect {
-    crate::shelf::shelf_layout(ctx)
+/// stuck forever). See [`crate::shelf::__internal_publish_shelf_layout`].
+fn fresh_chrome_bounds(ctx: &egui::Context) -> MaraRect {
+    let rect = crate::shelf::__internal_shelf_layout(ctx)
         .map(|layout| layout.viewport)
-        .unwrap_or_else(|| ctx.content_rect())
+        .unwrap_or_else(|| crate::backend::egui::context_content_rect(ctx));
+    // The enforced top bar is full-width and owns the top strip. Reserve
+    // that strip in the chrome bounds so CONTENT positioned inside it
+    // (panes, side rails) renders BELOW the bar and is never hidden under
+    // it. This is the single source of top-bar clearance for in-chrome
+    // content. Backgrounds (view bodies, shelf fills) use the raw content
+    // rect and still extend behind the glass bar.
+    let [_, _, has_top, _] = crate::pane::published_ribbon_edges(ctx);
+    if has_top {
+        let clearance = ribbon_clearance();
+        return MaraRect::from_min_max(
+            crate::vocab::Pos2::new(rect.min.x, (rect.min.y + clearance).min(rect.max.y)),
+            rect.max,
+        );
+    }
+    rect
 }
 
-fn ribbon_rect(ctx: &egui::Context, ribbon: &ResolvedSlotRibbon) -> egui::Rect {
+fn ribbon_rect(ctx: &egui::Context, ribbon: &ResolvedSlotRibbon) -> MaraRect {
     if ribbon.edge == RibbonEdge::Top {
-        ctx.content_rect()
+        crate::backend::egui::context_content_rect(ctx)
     } else {
         chrome_rect(ctx)
     }
@@ -316,7 +348,7 @@ fn main_bar_empty_drag_started_id() -> egui::Id {
 }
 
 #[must_use]
-pub fn main_bar_empty_drag_started(ctx: &egui::Context) -> bool {
+pub(crate) fn main_bar_empty_drag_started(ctx: &egui::Context) -> bool {
     ctx.data(|d| {
         d.get_temp::<bool>(main_bar_empty_drag_started_id())
             .unwrap_or(false)
@@ -451,14 +483,22 @@ fn insets_for_ribbon(
             out.right = EDGE_GAP;
         }
         RibbonEdge::Left | RibbonEdge::Right => {
-            out.top = corner(edge_has_ribbon(ribbons, RibbonEdge::Top));
+            // `fresh_chrome_bounds` already reserves the top bar strip AND
+            // exactly one `SIDE_BTN_GAP` of clearance below it (the rail
+            // clearance is EDGE_GAP + SIDE_BTN_SIZE + SIDE_BTN_GAP, of which
+            // the top bar occupies EDGE_GAP + SIDE_BTN_SIZE). So the rail's
+            // first icon needs NO extra top inset — it then sits one normal
+            // inter-icon gap below the top bar, matching the spacing between
+            // the rail icons themselves. The bottom bar is NOT reserved in
+            // the chrome rect, so the rail still self-insets there.
+            out.top = 0.0;
             out.bottom = corner(edge_has_ribbon(ribbons, RibbonEdge::Bottom));
         }
     }
     out
 }
 
-fn strip_rect(ribbon: &ResolvedSlotRibbon, ctx: &egui::Context, insets: SideInsets) -> egui::Rect {
+fn strip_rect(ribbon: &ResolvedSlotRibbon, ctx: &egui::Context, insets: SideInsets) -> MaraRect {
     let screen = ribbon_rect(ctx, ribbon);
     let strip_inset = |inset: f32| {
         if inset > EDGE_GAP {
@@ -468,36 +508,42 @@ fn strip_rect(ribbon: &ResolvedSlotRibbon, ctx: &egui::Context, insets: SideInse
         }
     };
     match ribbon.edge {
-        RibbonEdge::Left => egui::Rect::from_min_max(
-            screen.min + egui::vec2(EDGE_GAP, strip_inset(insets.top)),
-            egui::pos2(
+        RibbonEdge::Left => MaraRect::from_min_max(
+            MaraPos2::new(
+                screen.min.x + EDGE_GAP,
+                screen.min.y + strip_inset(insets.top),
+            ),
+            MaraPos2::new(
                 screen.min.x + EDGE_GAP + SIDE_BTN_SIZE,
                 screen.max.y - strip_inset(insets.bottom),
             ),
         ),
-        RibbonEdge::Right => egui::Rect::from_min_max(
-            egui::pos2(
+        RibbonEdge::Right => MaraRect::from_min_max(
+            MaraPos2::new(
                 screen.max.x - EDGE_GAP - SIDE_BTN_SIZE,
                 screen.min.y + strip_inset(insets.top),
             ),
-            egui::pos2(
+            MaraPos2::new(
                 screen.max.x - EDGE_GAP,
                 screen.max.y - strip_inset(insets.bottom),
             ),
         ),
-        RibbonEdge::Top => egui::Rect::from_min_max(
-            screen.min + egui::vec2(strip_inset(insets.left), EDGE_GAP),
-            egui::pos2(
+        RibbonEdge::Top => MaraRect::from_min_max(
+            MaraPos2::new(
+                screen.min.x + strip_inset(insets.left),
+                screen.min.y + EDGE_GAP,
+            ),
+            MaraPos2::new(
                 screen.max.x - strip_inset(insets.right),
                 screen.min.y + EDGE_GAP + SIDE_BTN_SIZE,
             ),
         ),
-        RibbonEdge::Bottom => egui::Rect::from_min_max(
-            egui::pos2(
+        RibbonEdge::Bottom => MaraRect::from_min_max(
+            MaraPos2::new(
                 screen.min.x + strip_inset(insets.left),
                 screen.max.y - EDGE_GAP - SIDE_BTN_SIZE,
             ),
-            egui::pos2(
+            MaraPos2::new(
                 screen.max.x - strip_inset(insets.right),
                 screen.max.y - EDGE_GAP,
             ),
@@ -510,7 +556,7 @@ fn cluster_region(
     cluster: RibbonCluster,
     ctx: &egui::Context,
     insets: SideInsets,
-) -> egui::Rect {
+) -> MaraRect {
     let strip = strip_rect(ribbon, ctx, insets);
     match ribbon.mode {
         RibbonMode::Centered | RibbonMode::OneSided(_) => strip,
@@ -519,20 +565,20 @@ fn cluster_region(
                 let mid = (strip.top() + strip.bottom()) * 0.5;
                 match cluster {
                     RibbonCluster::Start | RibbonCluster::Middle => {
-                        egui::Rect::from_min_max(strip.min, egui::pos2(strip.max.x, mid))
+                        MaraRect::from_min_max(strip.min, MaraPos2::new(strip.max.x, mid))
                     }
                     RibbonCluster::End => {
-                        egui::Rect::from_min_max(egui::pos2(strip.min.x, mid), strip.max)
+                        MaraRect::from_min_max(MaraPos2::new(strip.min.x, mid), strip.max)
                     }
                 }
             } else {
                 let mid = (strip.left() + strip.right()) * 0.5;
                 match cluster {
                     RibbonCluster::Start | RibbonCluster::Middle => {
-                        egui::Rect::from_min_max(strip.min, egui::pos2(mid, strip.max.y))
+                        MaraRect::from_min_max(strip.min, MaraPos2::new(mid, strip.max.y))
                     }
                     RibbonCluster::End => {
-                        egui::Rect::from_min_max(egui::pos2(mid, strip.min.y), strip.max)
+                        MaraRect::from_min_max(MaraPos2::new(mid, strip.min.y), strip.max)
                     }
                 }
             }
@@ -544,14 +590,14 @@ fn cluster_region(
                 let t2 = strip.min.y + h * 2.0;
                 match cluster {
                     RibbonCluster::Start => {
-                        egui::Rect::from_min_max(strip.min, egui::pos2(strip.max.x, t1))
+                        MaraRect::from_min_max(strip.min, MaraPos2::new(strip.max.x, t1))
                     }
-                    RibbonCluster::Middle => egui::Rect::from_min_max(
-                        egui::pos2(strip.min.x, t1),
-                        egui::pos2(strip.max.x, t2),
+                    RibbonCluster::Middle => MaraRect::from_min_max(
+                        MaraPos2::new(strip.min.x, t1),
+                        MaraPos2::new(strip.max.x, t2),
                     ),
                     RibbonCluster::End => {
-                        egui::Rect::from_min_max(egui::pos2(strip.min.x, t2), strip.max)
+                        MaraRect::from_min_max(MaraPos2::new(strip.min.x, t2), strip.max)
                     }
                 }
             } else {
@@ -560,14 +606,14 @@ fn cluster_region(
                 let t2 = strip.min.x + w * 2.0;
                 match cluster {
                     RibbonCluster::Start => {
-                        egui::Rect::from_min_max(strip.min, egui::pos2(t1, strip.max.y))
+                        MaraRect::from_min_max(strip.min, MaraPos2::new(t1, strip.max.y))
                     }
-                    RibbonCluster::Middle => egui::Rect::from_min_max(
-                        egui::pos2(t1, strip.min.y),
-                        egui::pos2(t2, strip.max.y),
+                    RibbonCluster::Middle => MaraRect::from_min_max(
+                        MaraPos2::new(t1, strip.min.y),
+                        MaraPos2::new(t2, strip.max.y),
                     ),
                     RibbonCluster::End => {
-                        egui::Rect::from_min_max(egui::pos2(t2, strip.min.y), strip.max)
+                        MaraRect::from_min_max(MaraPos2::new(t2, strip.min.y), strip.max)
                     }
                 }
             }
@@ -577,9 +623,9 @@ fn cluster_region(
 
 #[derive(Clone, Copy)]
 struct ButtonPlacement {
-    screen: egui::Rect,
-    anchor: egui::Align2,
-    offset: egui::Vec2,
+    screen: MaraRect,
+    anchor: MaraAlign2,
+    offset: MaraVec2,
 }
 
 fn place_button(
@@ -605,14 +651,14 @@ fn place_button(
                 RibbonCluster::End => -SIDE_BTN_SIZE - insets.bottom - slot as f32 * step,
             };
             let anchor = if cluster == RibbonCluster::End {
-                egui::Align2::LEFT_BOTTOM
+                MaraAlign2::LEFT_BOTTOM
             } else {
-                egui::Align2::LEFT_TOP
+                MaraAlign2::LEFT_TOP
             };
             ButtonPlacement {
                 screen,
                 anchor,
-                offset: egui::vec2(x, y),
+                offset: MaraVec2::new(x, y),
             }
         }
         RibbonEdge::Right => {
@@ -626,14 +672,14 @@ fn place_button(
                 RibbonCluster::End => -SIDE_BTN_SIZE - insets.bottom - slot as f32 * step,
             };
             let anchor = if cluster == RibbonCluster::End {
-                egui::Align2::RIGHT_BOTTOM
+                MaraAlign2::RIGHT_BOTTOM
             } else {
-                egui::Align2::RIGHT_TOP
+                MaraAlign2::RIGHT_TOP
             };
             ButtonPlacement {
                 screen,
                 anchor,
-                offset: egui::vec2(x, y),
+                offset: MaraVec2::new(x, y),
             }
         }
         RibbonEdge::Top => {
@@ -644,14 +690,14 @@ fn place_button(
                 RibbonCluster::End => -SIDE_BTN_SIZE - insets.right - slot as f32 * step,
             };
             let anchor = match cluster {
-                RibbonCluster::Start => egui::Align2::LEFT_TOP,
-                RibbonCluster::Middle => egui::Align2::CENTER_TOP,
-                RibbonCluster::End => egui::Align2::RIGHT_TOP,
+                RibbonCluster::Start => MaraAlign2::LEFT_TOP,
+                RibbonCluster::Middle => MaraAlign2::CENTER_TOP,
+                RibbonCluster::End => MaraAlign2::RIGHT_TOP,
             };
             ButtonPlacement {
                 screen,
                 anchor,
-                offset: egui::vec2(x, y),
+                offset: MaraVec2::new(x, y),
             }
         }
         RibbonEdge::Bottom => {
@@ -662,54 +708,40 @@ fn place_button(
                 RibbonCluster::End => -SIDE_BTN_SIZE - insets.right - slot as f32 * step,
             };
             let anchor = match cluster {
-                RibbonCluster::Start => egui::Align2::LEFT_BOTTOM,
-                RibbonCluster::Middle => egui::Align2::CENTER_BOTTOM,
-                RibbonCluster::End => egui::Align2::RIGHT_BOTTOM,
+                RibbonCluster::Start => MaraAlign2::LEFT_BOTTOM,
+                RibbonCluster::Middle => MaraAlign2::CENTER_BOTTOM,
+                RibbonCluster::End => MaraAlign2::RIGHT_BOTTOM,
             };
             ButtonPlacement {
                 screen,
                 anchor,
-                offset: egui::vec2(x, y),
+                offset: MaraVec2::new(x, y),
             }
         }
     }
 }
 
-fn screen_rect(ctx: &egui::Context, placement: ButtonPlacement) -> egui::Rect {
-    let _ = ctx;
+fn screen_rect(placement: ButtonPlacement) -> MaraRect {
     let screen = placement.screen;
-    let size = egui::vec2(SIDE_BTN_SIZE, SIDE_BTN_SIZE);
-    let min = match placement.anchor {
-        egui::Align2::LEFT_TOP => egui::pos2(
-            screen.min.x + placement.offset.x,
-            screen.min.y + placement.offset.y,
-        ),
-        egui::Align2::LEFT_BOTTOM => egui::pos2(
-            screen.min.x + placement.offset.x,
-            screen.max.y + placement.offset.y,
-        ),
-        egui::Align2::RIGHT_TOP => egui::pos2(
-            screen.max.x + placement.offset.x,
-            screen.min.y + placement.offset.y,
-        ),
-        egui::Align2::RIGHT_BOTTOM => egui::pos2(
-            screen.max.x + placement.offset.x,
-            screen.max.y + placement.offset.y,
-        ),
-        egui::Align2::CENTER_TOP => egui::pos2(
-            screen.center().x + placement.offset.x,
-            screen.min.y + placement.offset.y,
-        ),
-        egui::Align2::CENTER_BOTTOM => egui::pos2(
-            screen.center().x + placement.offset.x,
-            screen.max.y + placement.offset.y,
-        ),
-        _ => egui::pos2(
-            screen.center().x + placement.offset.x,
-            screen.center().y + placement.offset.y,
-        ),
+    let size = MaraVec2::new(SIDE_BTN_SIZE, SIDE_BTN_SIZE);
+    let anchor = placement.anchor;
+    let offset = placement.offset;
+    let min = if anchor == MaraAlign2::LEFT_TOP {
+        crate::vocab::Pos2::new(screen.min.x + offset.x, screen.min.y + offset.y)
+    } else if anchor == MaraAlign2::LEFT_BOTTOM {
+        crate::vocab::Pos2::new(screen.min.x + offset.x, screen.max.y + offset.y)
+    } else if anchor == MaraAlign2::RIGHT_TOP {
+        crate::vocab::Pos2::new(screen.max.x + offset.x, screen.min.y + offset.y)
+    } else if anchor == MaraAlign2::RIGHT_BOTTOM {
+        crate::vocab::Pos2::new(screen.max.x + offset.x, screen.max.y + offset.y)
+    } else if anchor == MaraAlign2::CENTER_TOP {
+        crate::vocab::Pos2::new(screen.center().x + offset.x, screen.min.y + offset.y)
+    } else if anchor == MaraAlign2::CENTER_BOTTOM {
+        crate::vocab::Pos2::new(screen.center().x + offset.x, screen.max.y + offset.y)
+    } else {
+        crate::vocab::Pos2::new(screen.center().x + offset.x, screen.center().y + offset.y)
     };
-    egui::Rect::from_min_size(min, size)
+    MaraRect::from_min_size(min, size)
 }
 
 fn accepts_drop(
@@ -730,20 +762,25 @@ fn item_role(item: &RibbonSlotItem, ribbon: &ResolvedSlotRibbon) -> RibbonRole {
     item.role.unwrap_or(ribbon.role)
 }
 
-fn paint_item_glyph(ui: &mut egui::Ui, rect: egui::Rect, item: &RibbonSlotItem, fg: egui::Color32) {
-    crate::icons::paint_section_icon(
-        ui,
+fn paint_item_glyph(ui: &mut egui::Ui, rect: MaraRect, item: &RibbonSlotItem, fg: MaraColor32) {
+    let icon = crate::icons::Icon::from(item.icon);
+    if matches!(icon, crate::icons::Icon::Name(_)) && !crate::icons::icon_fonts_ready() {
+        return;
+    }
+    if let Some(cmd) = crate::icons::icon_paint_cmd(
+        icon,
         rect.center(),
-        egui::Align2::CENTER_CENTER,
-        crate::icons::Icon::from(item.icon),
+        crate::vocab::Align2::CENTER_CENTER,
         18.0,
         fg,
-    );
+    ) {
+        crate::backend::egui::render_paint_cmd_ui(ui, cmd);
+    }
 }
 
 pub fn draw_unified_ribbon_chrome(
     ctx: &egui::Context,
-    accent: egui::Color32,
+    accent: MaraColor32,
     ribbons: &[ResolvedSlotRibbon],
     open: &mut RibbonOpen,
     placement: &mut RibbonPlacement,
@@ -831,17 +868,14 @@ pub fn draw_unified_ribbon_chrome(
                         let mut best_slot = 0;
                         let mut best_dist = f32::INFINITY;
                         for slot in 0..=count {
-                            let rect = screen_rect(
+                            let rect = screen_rect(place_button(
                                 ctx,
-                                place_button(
-                                    ctx,
-                                    ribbon,
-                                    cluster_eff,
-                                    slot,
-                                    count + 1,
-                                    insets_for_ribbon(ribbons, ribbon, insets),
-                                ),
-                            );
+                                ribbon,
+                                cluster_eff,
+                                slot,
+                                count + 1,
+                                insets_for_ribbon(ribbons, ribbon, insets),
+                            ));
                             let axis = if ribbon.edge.is_vertical() {
                                 rect.center().y
                             } else {
@@ -951,57 +985,81 @@ pub fn draw_unified_ribbon_chrome(
         let item = &ribbons[*base_r_idx].items[*i_idx];
         let cluster_eff = effective_cluster(ribbon.mode, cluster);
         let slot_eff = slot.min(total.saturating_sub(1));
-        let resting = screen_rect(
+        let resting = screen_rect(place_button(
             ctx,
-            place_button(
-                ctx,
-                ribbon,
-                cluster_eff,
-                slot_eff,
-                total.max(1),
-                insets_for_ribbon(ribbons, ribbon, insets),
-            ),
-        );
+            ribbon,
+            cluster_eff,
+            slot_eff,
+            total.max(1),
+            insets_for_ribbon(ribbons, ribbon, insets),
+        ));
         button_rects.push(resting);
         let dragging_this = drag.item == Some(*iid);
         let paint_pos = if dragging_this {
             let center = drag.cursor.unwrap_or_else(|| resting.center());
-            egui::pos2(
+            MaraPos2::new(
                 center.x - SIDE_BTN_SIZE * 0.5,
                 center.y - SIDE_BTN_SIZE * 0.5,
             )
         } else {
             resting.min
         };
-        let order = if dragging_this {
-            egui::Order::Tooltip
+        // System chrome (window controls + shelf toggles, prefix
+        // `mara.system.`) renders on the top-most Overlay layer so it can
+        // never be covered by Foreground content (view bodies, panes,
+        // shelf chrome). This keeps maximize/close persistently visible on
+        // the top bar across every view.
+        let is_system_chrome = item
+            .chrome_id
+            .is_some_and(|id| id.starts_with("mara.system."));
+        let layer = if dragging_this || is_system_chrome {
+            Layer::Overlay
         } else {
-            egui::Order::Foreground
+            Layer::Foreground
         };
         let role = item_role(item, &ribbons[ribbon_idx]);
         let is_active = match role {
             RibbonRole::Panel => open.is_open(rid, iid) || active(iid),
             RibbonRole::Icon => active(iid),
         };
-        let area_response = egui::Area::new(egui::Id::new(("mara_ribbon_btn", iid)))
-            .order(order)
-            .fixed_pos(paint_pos)
-            .interactable(true)
-            .show(ctx, |ui| {
+        let button_spec = SlotRibbonLayoutSpec::new(
+            MaraId::new(("mara_ribbon_btn", iid)),
+            paint_pos,
+            true,
+            1,
+            SIDE_BTN_SIZE,
+            SIDE_BTN_GAP,
+        );
+        let area_response =
+            crate::backend::egui::show_slot_ribbon_area(ctx, button_spec, layer, |ui| {
                 let sense = if item.draggable {
-                    egui::Sense::click_and_drag()
+                    MaraSense::ClickAndDrag
                 } else {
-                    egui::Sense::click()
+                    MaraSense::Click
                 };
-                let (rect, response) =
-                    ui.allocate_exact_size(egui::vec2(SIDE_BTN_SIZE, SIDE_BTN_SIZE), sense);
-                paint_ribbon_button(
-                    ui.painter(),
+                let rect = button_spec
+                    .item_screen_rect(0)
+                    .expect("single ribbon button spec must have an item rect");
+                let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
+                let response =
+                    backend.interact(rect, MaraId::new(("mara_ribbon_btn_hit", iid)), sense);
+                if crate::probe::__internal_enabled(ui.ctx()) {
+                    crate::probe::__internal_record(
+                        ui.ctx(),
+                        crate::probe::ElementPose::new("ribbon-btn", rect).with_label(format!(
+                            "{:?}/{:?} '{}'",
+                            ribbon.edge, cluster_eff, item.tooltip
+                        )),
+                    );
+                }
+                for cmd in ribbon_button_paint_cmds(
                     rect,
                     accent,
                     is_active,
                     response.hovered() || dragging_this,
-                );
+                ) {
+                    crate::backend::egui::render_paint_cmd_ui(ui, cmd);
+                }
                 let glyph = RibbonGlyph::Icon(item.icon);
                 let fg = ribbon_button_fg(
                     accent,
@@ -1010,15 +1068,16 @@ pub fn draw_unified_ribbon_chrome(
                     glyph,
                 );
                 paint_item_glyph(ui, rect, item, fg);
-                response.on_hover_text(item.tooltip.clone())
+                crate::backend::egui::hover_text_for_ui_response(ui, &response, &item.tooltip);
+                response
             });
-        ctx.move_to_top(area_response.response.layer_id);
+        crate::backend::egui::move_area_response_to_top(ctx, &area_response.response);
         let response = area_response.inner;
         if item.draggable && response.drag_started() {
             drag_started_idx = Some(idx);
         }
         if dragging_this && response.dragged() {
-            drag.cursor = ctx.pointer_interact_pos();
+            drag.cursor = crate::backend::egui::pointer_interact_pos(ctx);
         }
         if dragging_this && response.drag_stopped() {
             drag_stopped = true;
@@ -1043,40 +1102,65 @@ pub fn draw_unified_ribbon_chrome(
             })
             .count() as u32
             + 1;
-        let rect = screen_rect(
+        let rect = screen_rect(place_button(
             ctx,
-            place_button(
-                ctx,
-                ribbon,
-                tgt_cluster,
-                insert,
-                count,
-                insets_for_ribbon(ribbons, ribbon, insets),
-            ),
+            ribbon,
+            tgt_cluster,
+            insert,
+            count,
+            insets_for_ribbon(ribbons, ribbon, insets),
+        ));
+        let outline_spec = SlotRibbonLayoutSpec::new(
+            MaraId::new("mara_ribbon_drop_outline"),
+            rect.min,
+            true,
+            1,
+            SIDE_BTN_SIZE,
+            SIDE_BTN_GAP,
         );
-        egui::Area::new(egui::Id::new("mara_ribbon_drop_outline"))
-            .order(egui::Order::Foreground)
-            .fixed_pos(rect.min)
-            .interactable(false)
-            .show(ctx, |ui| {
-                let (rect, _) = ui.allocate_exact_size(
-                    egui::vec2(SIDE_BTN_SIZE, SIDE_BTN_SIZE),
-                    egui::Sense::hover(),
-                );
-                ui.painter().rect(
+        crate::backend::egui::show_slot_ribbon_area_with_interactivity(
+            ctx,
+            outline_spec,
+            Layer::Foreground,
+            false,
+            |ui| {
+                let rect = outline_spec
+                    .item_screen_rect(0)
+                    .expect("single ribbon drop-outline spec must have an item rect");
+                let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
+                let _response = backend.interact(
                     rect,
-                    crate::style::radius_for(crate::style::RadiusRole::Section),
-                    crate::style::fill_for(crate::style::FillRole::DragGhost, accent),
-                    crate::style::stroke_for(crate::style::StrokeRole::DragGhost, accent),
-                    egui::StrokeKind::Inside,
+                    MaraId::new("mara_ribbon_drop_outline_hit"),
+                    MaraSense::Hover,
                 );
-            });
+                let corner = crate::style::radius_for(crate::style::RadiusRole::Section);
+                crate::backend::egui::render_paint_cmd_ui(
+                    ui,
+                    PaintCmd::RectFilled {
+                        rect,
+                        corner,
+                        fill: crate::style::fill_for(crate::style::FillRole::DragGhost, accent),
+                    },
+                );
+                crate::backend::egui::render_paint_cmd_ui(
+                    ui,
+                    PaintCmd::RectStroke {
+                        rect,
+                        corner,
+                        stroke: crate::style::stroke_for(
+                            crate::style::StrokeRole::DragGhost,
+                            accent,
+                        ),
+                    },
+                );
+            },
+        );
     }
 
     if let Some(idx) = drag_started_idx {
         let (_, _, rid, iid, cluster, slot) = flat[idx];
         drag.item = Some(iid);
-        drag.cursor = ctx.pointer_interact_pos();
+        drag.cursor = crate::backend::egui::pointer_interact_pos(ctx);
         drag.source = Some(placement.resolve_parts(iid, rid, cluster, slot));
     }
 
@@ -1102,15 +1186,12 @@ pub fn draw_unified_ribbon_chrome(
 
     let empty_main_bar_drag_started = ribbons.first().is_some_and(|main| {
         let main_strip = strip_rect(main, ctx, insets_for_ribbon(ribbons, main, insets));
-        ctx.input(|i| {
-            i.pointer.interact_pos().is_some_and(|pos| {
-                i.pointer.button_pressed(egui::PointerButton::Primary)
-                    && main_strip.contains(pos)
-                    && !button_rects.iter().any(|rect| rect.contains(pos))
-            })
+        crate::backend::egui::primary_pointer_pressed_interact_pos(ctx).is_some_and(|pos| {
+            main_strip.contains(pos) && !button_rects.iter().any(|rect| rect.contains(pos))
         })
     });
-    let window_chrome_capabilities = crate::window_chrome::window_chrome_host_capabilities(ctx);
+    let window_chrome_capabilities =
+        crate::window_chrome::__internal_window_chrome_host_capabilities(ctx);
     if window_chrome_capabilities.native_move || window_chrome_capabilities.native_resize {
         let drag_regions = if window_chrome_capabilities.native_move {
             ribbons
@@ -1121,16 +1202,22 @@ pub fn draw_unified_ribbon_chrome(
         } else {
             Vec::new()
         };
-        crate::window_chrome::publish_window_chrome_regions(
+        // Pad each button's exclusion rect by the inter-button gap so the
+        // whole button cluster (including the slivers *between* buttons and
+        // the bar's top/bottom margin) is a contiguous no-drag zone.
+        // Without this, a press that lands in a 4px gap or near a button
+        // edge is hit-tested as the top-bar drag region and starts a window
+        // move instead of clicking the button.
+        crate::window_chrome::__internal_publish_window_chrome_regions(
             ctx,
             drag_regions,
-            button_rects.iter().copied(),
+            button_rects.iter().map(|rect| rect.expand(SIDE_BTN_GAP)),
         );
     } else {
         crate::window_chrome::clear_window_chrome_regions(ctx);
     }
     if window_chrome_capabilities.native_resize {
-        crate::window_chrome::paint_resize_corner_hover(
+        crate::window_chrome::__internal_paint_resize_corner_hover(
             ctx,
             accent,
             crate::style::theme().window_chrome,
@@ -1159,7 +1246,7 @@ pub fn draw_unified_ribbon_chrome(
                 enforce_single_open_side(ribbons, open, rid);
             }
         }
-        clicks.push(item.id);
+        clicks.push(item.id.into());
     }
     clicks
 }
@@ -1269,7 +1356,7 @@ mod tests {
 
     fn test_ctx_with_chrome(rect: egui::Rect) -> egui::Context {
         let ctx = egui::Context::default();
-        ctx.data_mut(|data| data.insert_temp(chrome_bounds_key(), rect));
+        ctx.data_mut(|data| data.insert_temp(chrome_bounds_key(), MaraRect::from(rect)));
         ctx
     }
 
@@ -1279,7 +1366,7 @@ mod tests {
             screen_rect: Some(screen),
             ..Default::default()
         });
-        ctx.data_mut(|data| data.insert_temp(chrome_bounds_key(), chrome));
+        ctx.data_mut(|data| data.insert_temp(chrome_bounds_key(), MaraRect::from(chrome)));
         ctx
     }
 
@@ -1289,7 +1376,7 @@ mod tests {
 
     fn ribbon_with_id(id: &'static str, edge: RibbonEdge) -> ResolvedSlotRibbon {
         ResolvedSlotRibbon {
-            id: egui::Id::new((id, edge)),
+            id: crate::vocab::Id::new((id, edge)),
             chrome_id: Some(id),
             scope: RibbonScope::Permanent,
             edge,
@@ -1373,7 +1460,16 @@ mod tests {
             )),
             ..Default::default()
         });
-        assert_eq!(fresh_chrome_bounds(&ctx), ctx.content_rect());
+        // Chrome bounds reserve the (assumed-present) top bar strip, so the
+        // content area starts one rail clearance below the window top.
+        let cr = ctx.content_rect();
+        assert_eq!(
+            fresh_chrome_bounds(&ctx),
+            MaraRect::from(egui::Rect::from_min_max(
+                egui::pos2(cr.min.x, cr.min.y + ribbon_clearance()),
+                cr.max,
+            ))
+        );
         // Simulate the renderer writing the key (what froze it before).
         let first = fresh_chrome_bounds(&ctx);
         ctx.data_mut(|d| d.insert_temp(chrome_bounds_key(), first));
@@ -1392,7 +1488,10 @@ mod tests {
 
         assert_eq!(
             second,
-            egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(1200.0, 700.0)),
+            MaraRect::from(egui::Rect::from_min_max(
+                egui::pos2(0.0, ribbon_clearance()),
+                egui::pos2(1200.0, 700.0)
+            )),
             "chrome bounds must follow the resized window, not the stale write"
         );
         assert_ne!(second, first, "bounds must not freeze at the first pass");
@@ -1409,8 +1508,19 @@ mod tests {
             ..Default::default()
         });
         let reserved = egui::Rect::from_min_max(egui::pos2(60.0, 40.0), egui::pos2(740.0, 480.0));
-        crate::shelf::publish_shelf_layout(&ctx, crate::shelf::ShelfLayout::full(reserved));
-        assert_eq!(fresh_chrome_bounds(&ctx), reserved);
+        crate::shelf::__internal_publish_shelf_layout(
+            &ctx,
+            crate::shelf::ShelfLayout::full(reserved),
+        );
+        // The published shelf viewport is preferred, then the top-bar strip
+        // is reserved on top of it.
+        assert_eq!(
+            fresh_chrome_bounds(&ctx),
+            MaraRect::from(egui::Rect::from_min_max(
+                egui::pos2(60.0, 40.0 + ribbon_clearance()),
+                egui::pos2(740.0, 480.0)
+            ))
+        );
         let _ = ctx.end_pass();
     }
 
@@ -1448,10 +1558,14 @@ mod tests {
 
         for edge in [RibbonEdge::Left, RibbonEdge::Right] {
             let ribbon = ribbon(edge);
-            let rect = screen_rect(
+            let rect = screen_rect(place_button(
                 &ctx,
-                place_button(&ctx, &ribbon, RibbonCluster::Middle, 0, 1, insets),
-            );
+                &ribbon,
+                RibbonCluster::Middle,
+                0,
+                1,
+                insets,
+            ));
 
             assert_eq!(rect.center().y, chrome.center().y);
         }
@@ -1464,17 +1578,44 @@ mod tests {
         let insets = SideInsets::default();
         let ribbon = ribbon(RibbonEdge::Left);
 
-        let first = screen_rect(
+        let first = screen_rect(place_button(
             &ctx,
-            place_button(&ctx, &ribbon, RibbonCluster::Middle, 0, 3, insets),
-        );
-        let last = screen_rect(
+            &ribbon,
+            RibbonCluster::Middle,
+            0,
+            3,
+            insets,
+        ));
+        let last = screen_rect(place_button(
             &ctx,
-            place_button(&ctx, &ribbon, RibbonCluster::Middle, 2, 3, insets),
-        );
+            &ribbon,
+            RibbonCluster::Middle,
+            2,
+            3,
+            insets,
+        ));
         let group_center = (first.center().y + last.center().y) * 0.5;
 
         assert_eq!(group_center, chrome.center().y);
+    }
+
+    #[test]
+    fn featureful_button_placement_uses_mara_geometry() {
+        let chrome = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(800.0, 480.0));
+        let ctx = test_ctx_with_chrome(chrome);
+        let ribbon = ribbon(RibbonEdge::Bottom);
+
+        let rect: MaraRect = screen_rect(place_button(
+            &ctx,
+            &ribbon,
+            RibbonCluster::End,
+            0,
+            1,
+            SideInsets::default(),
+        ));
+
+        assert_eq!(rect.bottom(), chrome.bottom() - EDGE_GAP);
+        assert_eq!(rect.right(), chrome.right());
     }
 
     #[test]

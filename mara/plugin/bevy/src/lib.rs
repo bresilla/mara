@@ -43,8 +43,8 @@ pub use shell::MaraShellPlugin;
 pub use mara_bevy::{
     BevyEmbeddedView, BevyViewportAppConfigure, BevyViewportBridge, BevyViewportInput,
     BevyViewportPickedColor, BevyViewportRenderTarget, BevyViewportSet, BevyViewportTexture,
-    BevyViewportWgpuResources, CapturedBevyFrame, EmbeddedBevyViewport, MaraBevyViewport,
-    make_viewport_render_target, spawn_viewport_camera,
+    BevyViewportWgpuResources, CapturedBevyFrame, MaraBevyViewport, make_viewport_render_target,
+    spawn_viewport_camera,
 };
 pub use mara_core::extras;
 
@@ -59,14 +59,14 @@ use bevy::input::mouse::{
 };
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
-use bevy_egui::{EguiContexts, EguiPreUpdateSet, EguiPrimaryContextPass, egui};
+use bevy_egui::{EguiContexts, EguiPreUpdateSet, EguiPrimaryContextPass};
 use std::collections::HashSet;
 
 // ─── Theme ──────────────────────────────────────────────────────────
 
 /// Registers [`mara_core::style::AccentColor`] +
 /// [`mara_core::style::GlassOpacity`] as Bevy resources and runs
-/// [`mara_core::style::apply_theme`] every frame.
+/// Mara's internal egui theme hook every frame.
 pub struct ThemePlugin;
 
 impl Plugin for ThemePlugin {
@@ -88,7 +88,7 @@ fn apply_theme_system(
     opacity: Res<mara_core::style::GlassOpacity>,
 ) {
     let Ok(ctx) = contexts.ctx_mut() else { return };
-    mara_core::style::apply_theme(ctx, *accent, *opacity);
+    mara_core::style::__internal_apply_theme(ctx, *accent, *opacity);
 }
 
 // ─── Ribbons ────────────────────────────────────────────────────────
@@ -128,21 +128,24 @@ impl Plugin for RibbonPlugin {
 
 /// Publishes a full-window [`ShelfLayout`](mara_core::ShelfLayout) as
 /// the per-frame baseline so floating ribbons/panes track the live
-/// window size **without the host having to call
-/// `publish_shelf_layout` itself**.
+/// window size **without the host having to publish shelf layout
+/// itself**.
 ///
 /// This is the "correct-by-default" half of the resize-tracking fix.
 /// It is order-independent: it only writes when no shelf layout was
 /// already published during this egui pass, so an app that reserves
-/// real shelves (via `show_shelves` / `publish_shelf_layout`, in any
+/// real shelves (via `show_shelves` / facade shelf publication, in any
 /// system order) keeps its reservation — whoever publishes "for real"
 /// this pass wins. Apps that draw no shelves get live resize for free.
 fn auto_publish_shelf_layout_system(mut contexts: EguiContexts) {
     let Ok(ctx) = contexts.ctx_mut() else { return };
-    if mara_core::shelf_layout_published_this_pass(ctx) {
+    if mara_core::shelf::__internal_shelf_layout_published_this_pass(ctx) {
         return;
     }
-    mara_core::publish_shelf_layout(ctx, mara_core::ShelfLayout::full(ctx.content_rect()));
+    mara_core::shelf::__internal_publish_shelf_layout(
+        ctx,
+        mara_core::ShelfLayout::full(ctx.content_rect()),
+    );
 }
 
 /// **F12** — toggle egui's "show interactive widget bounds" overlay.
@@ -181,7 +184,7 @@ fn debug_toggle_system(mut contexts: EguiContexts) {
 /// ## What it filters
 ///
 /// 1. **Mouse wheel**: cleared whenever the cursor sits inside any
-///    `mara_core::pane::published_pane_rects`. Wheel events are
+///    `mara_core::pane::__internal_published_pane_rects`. Wheel events are
 ///    one-shot and don't have an "ongoing" semantic, so a flat
 ///    cursor-over-pane gate is correct.
 ///
@@ -232,8 +235,8 @@ fn consume_egui_input_system(
         return;
     };
     let Ok(ctx) = contexts.ctx_mut() else { return };
-    let pos = egui::pos2(cursor.x, cursor.y);
-    let pane_rects = mara_core::pane::published_pane_rects(ctx);
+    let pos = mara_core::vocab::pos2(cursor.x, cursor.y);
+    let pane_rects = mara_core::pane::__internal_published_pane_rects(ctx);
     let cursor_over_pane = pane_rects.iter().any(|r| r.contains(pos));
 
     // `egui.is_using_pointer()` is true whenever ANY egui widget has
@@ -253,7 +256,7 @@ fn consume_egui_input_system(
     // it (the graph drives input through a SECONDARY egui context,
     // so the parent's `is_using_pointer` stays false while the user
     // pans the graph).
-    let fs_active = mara_core::embed::is_any_fullscreen(ctx);
+    let fs_active = mara_core::embed::__internal_is_any_fullscreen(ctx);
     let ui_owns_pointer = cursor_over_pane || egui_owns_pointer || fs_active;
 
     // Track which mouse buttons were pressed while the cursor was
@@ -314,11 +317,11 @@ fn consume_egui_input_system(
 
     // Clear the published-rects list now that we've consumed it.
     // The next egui pass either repopulates it (open panes call
-    // `Pane::show` → publish) or leaves it empty (no panes shown
+    // internal pane rendering → publish) or leaves it empty (no panes shown
     // this frame). Without this, closing every pane would leave the
-    // last-seen rects stuck in ctx data — `Pane::show` is the only
+    // last-seen rects stuck in ctx data — pane rendering is the only
     // other reset path, and it doesn't fire when no panes paint.
-    mara_core::pane::clear_published_pane_rects(ctx);
+    mara_core::pane::__internal_clear_published_pane_rects(ctx);
 }
 
 /// Standalone plugin that installs only the egui pointer-event

@@ -3,21 +3,42 @@
 //! border. Attach to any `egui::Response` (tree row body, button,
 //! inspector cell) and the menu opens on right-click / long-press.
 
-use crate::style::{FrameRole, frame_for, glass_alpha_card};
+use crate::{
+    layout::ItemSpacingSpec,
+    style::{FrameRole, frame_for, glass_alpha_card},
+    vocab::{Color32, Vec2},
+};
 
 /// Attach a mara-styled context menu to `resp`. Opens on
 /// secondary-click, closes on outside click. `accent` drives the
 /// border colour and glass-tint of the popup.
-pub fn context_menu_mara(
+pub(crate) fn context_menu_mara(
     resp: &egui::Response,
-    accent: egui::Color32,
+    accent: impl Into<Color32>,
     add_contents: impl FnOnce(&mut egui::Ui),
 ) {
+    let accent = accent.into();
     let frame = frame_for(FrameRole::Popup, accent);
 
-    egui::Popup::context_menu(resp).frame(frame).show(|ui| {
-        ui.spacing_mut().item_spacing.y = 0.0;
-        let _ = glass_alpha_card();
-        add_contents(ui);
-    });
+    egui::Popup::context_menu(resp)
+        .frame(crate::backend::egui::egui_frame_for_style_spec(frame))
+        .show(|ui| {
+            crate::backend::egui::apply_item_spacing_spec(ui, context_menu_item_spacing_spec());
+            let _ = glass_alpha_card();
+            add_contents(ui);
+        });
+}
+
+fn context_menu_item_spacing_spec() -> ItemSpacingSpec {
+    ItemSpacingSpec::new(Vec2::ZERO)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn context_menu_spacing_is_mara_layout_policy() {
+        assert_eq!(context_menu_item_spacing_spec().item_spacing, Vec2::ZERO);
+    }
 }
