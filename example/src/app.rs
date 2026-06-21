@@ -2857,8 +2857,11 @@ fn canvas_root_body(
     let (painter, response) = mui.canvas_at(canvas_rect);
     let backdrop = mui.painter();
 
-    backdrop.rect_filled(screen_rect, 0, mara_core::style::theme().palette.bg_panel);
-    painter.rect_filled(canvas_rect, 0, mara_core::style::theme().palette.bg_window);
+    // The whiteboard fills the WHOLE window (full-bleed) so it shows
+    // through the glass top bar and behind the shelves — drawing still
+    // happens only in `canvas_rect` (the open area below the bar, between
+    // shelves), but the surface itself is edge-to-edge.
+    backdrop.rect_filled(screen_rect, 0, mara_core::style::theme().palette.bg_window);
 
     let grid = 32.0;
     let grid_col = Color32::from_rgba_unmultiplied(
@@ -2867,20 +2870,20 @@ fn canvas_root_body(
         mara_core::style::on_panel_dim().b(),
         34,
     );
-    let mut x = canvas_rect.left() + grid;
-    while x < canvas_rect.right() {
-        painter.line_segment(
-            pos2(x, canvas_rect.top()),
-            pos2(x, canvas_rect.bottom()),
+    let mut x = screen_rect.left() + grid;
+    while x < screen_rect.right() {
+        backdrop.line_segment(
+            pos2(x, screen_rect.top()),
+            pos2(x, screen_rect.bottom()),
             Stroke::new(1.0, grid_col),
         );
         x += grid;
     }
-    let mut y = canvas_rect.top() + grid;
-    while y < canvas_rect.bottom() {
-        painter.line_segment(
-            pos2(canvas_rect.left(), y),
-            pos2(canvas_rect.right(), y),
+    let mut y = screen_rect.top() + grid;
+    while y < screen_rect.bottom() {
+        backdrop.line_segment(
+            pos2(screen_rect.left(), y),
+            pos2(screen_rect.right(), y),
             Stroke::new(1.0, grid_col),
         );
         y += grid;

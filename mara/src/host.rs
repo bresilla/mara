@@ -64,6 +64,10 @@ impl<'a> MaraHostCtx<'a> {
     ///
     /// Root surfaces should use this host facade instead of reading
     /// raw backend geometry and calling shelf layout helpers directly.
+    /// Shelves are reserved over the FULL content rect (top to bottom) so
+    /// the side-shelf background extends up *behind* the enforced glass
+    /// top bar — the part of the bar over a shelf shows the shelf
+    /// background, the rest shows the view's own background.
     pub fn layout_shelves(
         &self,
         shelves: &[mara_core::ShelfDef<'_>],
@@ -93,6 +97,11 @@ impl<'a> MaraHostCtx<'a> {
         body: impl FnOnce(&mut mara_core::MaraUi<'_>, mara_core::vocab::Rect) -> R,
     ) -> R {
         let accent = accent.into();
+        // The body gets the FULL content rect (edge to edge, top to
+        // bottom) so a root surface can paint full-bleed *behind* the
+        // glass top bar — the canvas shows through the bar instead of a
+        // flat panel colour sitting under it. The enforced top bar and the
+        // shelves render over this body.
         egui::CentralPanel::default()
             .frame(egui::Frame::new().fill(egui::Color32::TRANSPARENT))
             .show(self.egui, |ui| {
@@ -113,7 +122,12 @@ impl<'a> MaraHostCtx<'a> {
         placement: &mut mara_core::ribbon::RibbonPlacement,
         drag: &mut mara_core::ribbon::RibbonDrag,
     ) -> Vec<mara_core::ribbon::RibbonSlotClick> {
-        mara_core::ribbon::__internal_draw_slot_ribbons_featureful_egui(
+        // App ribbon renders must NOT inject system chrome (window
+        // controls + shelf toggles): the enforced `ShellBar` owns those.
+        // Injecting here too renders them twice AND dispatches a single
+        // click twice — for a shelf toggle that means it flips on then off
+        // in the same interaction (net no-op), so the shelves never toggle.
+        mara_core::ribbon::__internal_draw_slot_ribbons_featureful_no_system_egui(
             self.egui, accent, ribbons, open, placement, drag,
         )
     }

@@ -302,11 +302,20 @@ impl<A: WindowApp> NativeWinitApp<A> {
         let Some(pos) = self.last_cursor_pos else {
             return false;
         };
+        // `last_cursor_pos` and the winit window size are in PHYSICAL
+        // pixels, but the published chrome regions (drag + exclusion rects)
+        // are in egui LOGICAL POINTS. The two only coincide at
+        // pixels_per_point == 1.0; Ctrl+/Ctrl- changes egui's zoom factor
+        // (hence `pixels_per_point`), so without this conversion the
+        // exclusion rects drift out from under the cursor as you zoom and
+        // a button press is mis-read as a window drag. Convert to points.
+        let ppp = self.egui_ctx.pixels_per_point().max(f32::EPSILON);
+        let pos = mara_core::vocab::pos2(pos.x / ppp, pos.y / ppp);
         let size = window.inner_size();
-        let window_size = mara_core::vocab::vec2(size.width as f32, size.height as f32);
+        let window_size = mara_core::vocab::vec2(size.width as f32 / ppp, size.height as f32 / ppp);
         let Some(hit) = mara_core::hit_test_window_chrome_regions(
             &self.last_chrome_regions,
-            pos.into(),
+            pos,
             window_size,
             mara_core::style::theme().window_chrome,
         ) else {

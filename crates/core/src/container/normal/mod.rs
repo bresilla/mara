@@ -2022,6 +2022,21 @@ fn paint_folder_tabs(
             // body's edge so the fill overpaints the container's
             // adjacent stroke at this tab's range).
             paint_tab_rect_chrome(ui, paint_rect, cell.corners, active_fill, None);
+            // Only the SELECTED tab gets a border, and only on its three
+            // OUTER sides — the body-facing side stays open so the tab's
+            // outline flows straight into the body's border (folder tab).
+            // The fill above already erased the body's border under the
+            // tab, so the open ends meet the body border seamlessly.
+            let border = style::stroke_for(style::StrokeRole::SectionBorder, accent);
+            let points = active_tab_border_points(cell.base, f32::from(tab_radius), strip_side);
+            let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
+            crate::layout::UiBackend::paint(
+                &mut backend,
+                PaintCmd::Polyline {
+                    points,
+                    stroke: border,
+                },
+            );
             paint_icon_or_svg(
                 ui,
                 cell.base.center().into(),
@@ -2281,6 +2296,56 @@ fn paint_top_tabs(
         },
     );
     crate::debug::tag(ui, title_rect.into(), "TopTabStrip".to_string());
+}
+
+/// Outline points for the SELECTED folder tab: a path along the tab's
+/// three OUTER sides with rounded corners on the strip-outer edges, left
+/// OPEN on the body-facing edge so it flows into the body's border.
+fn active_tab_border_points(base: MaraRect, radius: f32, strip_side: TitleSide) -> Vec<MaraPos2> {
+    let r = radius.clamp(0.0, base.width().min(base.height()) * 0.5);
+    let (l, rt, t, bm) = (base.left(), base.right(), base.top(), base.bottom());
+    let arc = |cx: f32, cy: f32, a0: f32, a1: f32| -> Vec<MaraPos2> {
+        let steps = 8;
+        (0..=steps)
+            .map(|i| {
+                let f = i as f32 / steps as f32;
+                let a = (a0 + (a1 - a0) * f).to_radians();
+                MaraPos2::new(cx + r * a.cos(), cy + r * a.sin())
+            })
+            .collect()
+    };
+    let mut p = Vec::new();
+    match strip_side {
+        // strip on top → body below → open bottom, round top corners.
+        TitleSide::Top => {
+            p.push(MaraPos2::new(l, bm));
+            p.extend(arc(l + r, t + r, 180.0, 270.0));
+            p.extend(arc(rt - r, t + r, 270.0, 360.0));
+            p.push(MaraPos2::new(rt, bm));
+        }
+        // strip on bottom → body above → open top, round bottom corners.
+        TitleSide::Bottom => {
+            p.push(MaraPos2::new(l, t));
+            p.extend(arc(l + r, bm - r, 180.0, 90.0));
+            p.extend(arc(rt - r, bm - r, 90.0, 0.0));
+            p.push(MaraPos2::new(rt, t));
+        }
+        // strip on left → body right → open right, round left corners.
+        TitleSide::Left => {
+            p.push(MaraPos2::new(rt, t));
+            p.extend(arc(l + r, t + r, 270.0, 180.0));
+            p.extend(arc(l + r, bm - r, 180.0, 90.0));
+            p.push(MaraPos2::new(rt, bm));
+        }
+        // strip on right → body left → open left, round right corners.
+        TitleSide::Right => {
+            p.push(MaraPos2::new(l, t));
+            p.extend(arc(rt - r, t + r, 270.0, 360.0));
+            p.extend(arc(rt - r, bm - r, 0.0, 90.0));
+            p.push(MaraPos2::new(l, bm));
+        }
+    }
+    p
 }
 
 fn paint_tab_rect_chrome(

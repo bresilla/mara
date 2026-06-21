@@ -264,6 +264,15 @@ impl RibbonPlacement {
     ) -> (&'static str, RibbonCluster, u32) {
         assert_chrome_id(item_id, "ribbon placement requires a non-empty item id");
         assert_chrome_id(ribbon, "ribbon placement requires a non-empty ribbon id");
+        // System chrome (window controls + shelf toggles, prefix
+        // `mara.system.`) is injected fresh every frame at fixed positions
+        // and is never user-reorderable, so it always ignores placement
+        // overrides. Without this, a stray drag on any other ribbon button
+        // stamps a persistent override onto maximize/close that mis-places
+        // (and effectively hides) them on every subsequent view.
+        if item_id.starts_with("mara.system.") {
+            return (ribbon, cluster, slot);
+        }
         self.overrides
             .get(item_id)
             .copied()
@@ -306,9 +315,24 @@ fn chrome_rect(ctx: &egui::Context) -> MaraRect {
 /// bit hosts that never did anything wrong (a single stale write
 /// stuck forever). See [`crate::shelf::__internal_publish_shelf_layout`].
 fn fresh_chrome_bounds(ctx: &egui::Context) -> MaraRect {
-    crate::shelf::__internal_shelf_layout(ctx)
+    let rect = crate::shelf::__internal_shelf_layout(ctx)
         .map(|layout| layout.viewport)
-        .unwrap_or_else(|| crate::backend::egui::context_content_rect(ctx))
+        .unwrap_or_else(|| crate::backend::egui::context_content_rect(ctx));
+    // The enforced top bar is full-width and owns the top strip. Reserve
+    // that strip in the chrome bounds so CONTENT positioned inside it
+    // (panes, side rails) renders BELOW the bar and is never hidden under
+    // it. This is the single source of top-bar clearance for in-chrome
+    // content. Backgrounds (view bodies, shelf fills) use the raw content
+    // rect and still extend behind the glass bar.
+    let [_, _, has_top, _] = crate::pane::published_ribbon_edges(ctx);
+    if has_top {
+        let clearance = ribbon_clearance();
+        return MaraRect::from_min_max(
+            crate::vocab::Pos2::new(rect.min.x, (rect.min.y + clearance).min(rect.max.y)),
+            rect.max,
+        );
+    }
+    rect
 }
 
 fn ribbon_rect(ctx: &egui::Context, ribbon: &ResolvedSlotRibbon) -> MaraRect {
@@ -459,7 +483,13 @@ fn insets_for_ribbon(
             out.right = EDGE_GAP;
         }
         RibbonEdge::Left | RibbonEdge::Right => {
-            out.top = corner(edge_has_ribbon(ribbons, RibbonEdge::Top));
+            // The top bar's strip is already reserved by `fresh_chrome_bounds`
+            // (the chrome rect side rails anchor to starts below it), so the
+            // rail only needs the normal edge gap on top — adding the full
+            // rail clearance again would push the rail a whole row too low.
+            // The bottom bar is NOT reserved in the chrome rect, so the rail
+            // still self-insets there.
+            out.top = EDGE_GAP;
             out.bottom = corner(edge_has_ribbon(ribbons, RibbonEdge::Bottom));
         }
     }
@@ -972,7 +1002,15 @@ pub fn draw_unified_ribbon_chrome(
         } else {
             resting.min
         };
-        let layer = if dragging_this {
+        // System chrome (window controls + shelf toggles, prefix
+        // `mara.system.`) renders on the top-most Overlay layer so it can
+        // never be covered by Foreground content (view bodies, panes,
+        // shelf chrome). This keeps maximize/close persistently visible on
+        // the top bar across every view.
+        let is_system_chrome = item
+            .chrome_id
+            .is_some_and(|id| id.starts_with("mara.system."));
+        let layer = if dragging_this || is_system_chrome {
             Layer::Overlay
         } else {
             Layer::Foreground
@@ -1162,10 +1200,16 @@ pub fn draw_unified_ribbon_chrome(
         } else {
             Vec::new()
         };
+        // Pad each button's exclusion rect by the inter-button gap so the
+        // whole button cluster (including the slivers *between* buttons and
+        // the bar's top/bottom margin) is a contiguous no-drag zone.
+        // Without this, a press that lands in a 4px gap or near a button
+        // edge is hit-tested as the top-bar drag region and starts a window
+        // move instead of clicking the button.
         crate::window_chrome::__internal_publish_window_chrome_regions(
             ctx,
             drag_regions,
-            button_rects.iter().copied(),
+            button_rects.iter().map(|rect| rect.expand(SIDE_BTN_GAP)),
         );
     } else {
         crate::window_chrome::clear_window_chrome_regions(ctx);
@@ -1414,9 +1458,15 @@ mod tests {
             )),
             ..Default::default()
         });
+        // Chrome bounds reserve the (assumed-present) top bar strip, so the
+        // content area starts one rail clearance below the window top.
+        let cr = ctx.content_rect();
         assert_eq!(
             fresh_chrome_bounds(&ctx),
-            MaraRect::from(ctx.content_rect())
+            MaraRect::from(egui::Rect::from_min_max(
+                egui::pos2(cr.min.x, cr.min.y + ribbon_clearance()),
+                cr.max,
+            ))
         );
         // Simulate the renderer writing the key (what froze it before).
         let first = fresh_chrome_bounds(&ctx);
@@ -1436,9 +1486,9 @@ mod tests {
 
         assert_eq!(
             second,
-            MaraRect::from(egui::Rect::from_min_size(
-                egui::pos2(0.0, 0.0),
-                egui::vec2(1200.0, 700.0)
+            MaraRect::from(egui::Rect::from_min_max(
+                egui::pos2(0.0, ribbon_clearance()),
+                egui::pos2(1200.0, 700.0)
             )),
             "chrome bounds must follow the resized window, not the stale write"
         );
@@ -1460,7 +1510,15 @@ mod tests {
             &ctx,
             crate::shelf::ShelfLayout::full(reserved),
         );
-        assert_eq!(fresh_chrome_bounds(&ctx), reserved.into());
+        // The published shelf viewport is preferred, then the top-bar strip
+        // is reserved on top of it.
+        assert_eq!(
+            fresh_chrome_bounds(&ctx),
+            MaraRect::from(egui::Rect::from_min_max(
+                egui::pos2(60.0, 40.0 + ribbon_clearance()),
+                egui::pos2(740.0, 480.0)
+            ))
+        );
         let _ = ctx.end_pass();
     }
 

@@ -1503,6 +1503,16 @@ fn paint_shelf_background(ui: &mut egui::Ui, rect: Rect, accent: Color32, theme:
     let fill: MaraColor32 = style::glass_fill(active.bg_panel, accent, theme.background_alpha);
     let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
     crate::layout::UiBackend::paint(&mut backend, shelf_background_paint_cmd(rect.into(), fill));
+    // Border line in the same style as the pane frame (WidgetBorder
+    // stroke), so a docked shelf reads as a framed surface like a pane.
+    crate::layout::UiBackend::paint(
+        &mut backend,
+        PaintCmd::RectStroke {
+            rect: rect.into(),
+            corner: MaraCornerRadius::ZERO,
+            stroke: style::stroke_for(style::StrokeRole::WidgetBorder, accent),
+        },
+    );
 }
 
 fn shelf_background_paint_cmd(rect: MaraRect, fill: MaraColor32) -> PaintCmd {
