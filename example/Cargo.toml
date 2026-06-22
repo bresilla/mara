@@ -8,7 +8,7 @@ repository.workspace = true
 publish = false
 
 [dependencies]
-mara = { path = "../mara", features = ["window", "bevy", "canvas", "code", "graph", "image", "map", "three-d"] }
+mara = { path = "../mara", features = ["window", "bevy", "canvas", "board", "code", "graph", "image", "map", "three-d"] }
 egui_plot = "0.34"
 bevy = { workspace = true, features = ["webgl2"] }
 bevy_egui = { workspace = true, features = ["default_fonts", "render"] }

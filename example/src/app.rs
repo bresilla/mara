@@ -66,6 +66,7 @@ use mara_map::{
 // offscreen renderer is created from `mara::host::MaraHostCtx`.
 use mara::host::{EframeNodeViewBackend, MaraHostCtx};
 use mara::ui::modules::bevy::MaraBevyViewport;
+use mara::ui::modules::board::BoardView;
 use mara::ui::modules::three_d::{Scene3d, TriangleMesh3d, View3d};
 use mara_core::extras::code::Syntax;
 use mara_core::extras::graph::{
@@ -124,6 +125,7 @@ const ACTION_CANVAS_CLEAR: &str = "demo_action_canvas_clear";
 const ACTION_VIEW_BEVY: &str = "demo_action_view_bevy";
 const ACTION_VIEW_CANVAS: &str = "demo_action_view_canvas";
 const ACTION_VIEW_3D: &str = "demo_action_view_3d";
+const ACTION_VIEW_BOARD: &str = "demo_action_view_board";
 const ACTION_COREVIZ_ZONES: &str = "demo_action_coreviz_zones";
 const ACTION_COREVIZ_MANAGEMENT: &str = "demo_action_coreviz_management";
 const ACTION_MAP_SELECT: &str = "demo_action_map_select";
@@ -1480,6 +1482,7 @@ enum DemoRootView {
     BevyScene,
     Canvas,
     ThreeD,
+    Board,
     CorevizZones,
     CorevizManagement,
 }
@@ -1498,6 +1501,20 @@ struct CanvasViewState {
 struct ThreeDViewState {
     view: View3d,
     workspace: WorkspaceStack,
+}
+
+struct BoardViewState {
+    view: BoardView,
+    workspace: WorkspaceStack,
+}
+
+impl Default for BoardViewState {
+    fn default() -> Self {
+        Self {
+            view: BoardView::new("demo-board", "Board"),
+            workspace: WorkspaceStack::new("demo-board-workspace"),
+        }
+    }
 }
 
 impl Default for ThreeDViewState {
@@ -1763,6 +1780,7 @@ pub struct DemoApp {
     root_view: DemoRootView,
     canvas_view: CanvasViewState,
     three_d_view: ThreeDViewState,
+    board_view: BoardViewState,
     canvas_shelves: CanvasShelfState,
     map_view: MapViewState,
     bevy_view: MaraBevyViewport,
@@ -1814,6 +1832,7 @@ fn demo_shell_views() -> Vec<mara_core::ShellView> {
             "Map object selection view",
         ),
         mara_core::ShellView::new(ACTION_VIEW_3D, "cube", "Three-d scene view"),
+        mara_core::ShellView::new(ACTION_VIEW_BOARD, "square-multiple", "Board view"),
     ]
 }
 
@@ -1823,6 +1842,7 @@ fn shell_active_view_id(root_view: DemoRootView) -> &'static str {
         DemoRootView::BevyScene => ACTION_VIEW_BEVY,
         DemoRootView::Canvas => ACTION_VIEW_CANVAS,
         DemoRootView::ThreeD => ACTION_VIEW_3D,
+        DemoRootView::Board => ACTION_VIEW_BOARD,
         DemoRootView::CorevizZones => ACTION_COREVIZ_ZONES,
         DemoRootView::CorevizManagement => ACTION_COREVIZ_MANAGEMENT,
     }
@@ -2016,6 +2036,7 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
         root_view,
         canvas_view,
         three_d_view,
+        board_view,
         canvas_shelves,
         map_view,
         bevy_view,
@@ -2070,6 +2091,8 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
         canvas_root_view(host, accent_col, canvas_view, &mut canvas_shelves.0);
     } else if *root_view == DemoRootView::ThreeD {
         three_d_root_view(host, accent_col, three_d_view);
+    } else if *root_view == DemoRootView::Board {
+        board_root_view(host, accent_col, board_view);
     } else if root_view.is_coreviz() {
         map_root_view(
             host,
@@ -2319,6 +2342,7 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
                 DemoRootView::BevyScene => id == ACTION_VIEW_BEVY,
                 DemoRootView::Canvas => id == ACTION_VIEW_CANVAS,
                 DemoRootView::ThreeD => id == ACTION_VIEW_3D,
+                DemoRootView::Board => id == ACTION_VIEW_BOARD,
                 DemoRootView::CorevizZones => {
                     id == ACTION_COREVIZ_ZONES
                         || matches!(
@@ -2412,6 +2436,14 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
             *root_view = DemoRootView::ThreeD;
             open.set(RIBBON_LEFT, PANE_3D_SCENE);
             open.set(RIBBON_RIGHT, PANE_3D_INSPECTOR);
+            host.request_repaint();
+            continue;
+        }
+        if item_is(ACTION_VIEW_BOARD) {
+            if fs_active {
+                host.restore_fullscreen();
+            }
+            *root_view = DemoRootView::Board;
             host.request_repaint();
             continue;
         }
@@ -2825,6 +2857,14 @@ fn three_d_root_view(
     let mut view_ctx = host.view_ctx(&mut three_d.workspace, accent, RibbonAvoidance::none());
     three_d.view.set_gpu_render_state(host.render_state());
     three_d.view.show(&mut view_ctx);
+}
+
+fn board_root_view(host: &MaraHostCtx<'_>, accent: MaraColor32, board: &mut BoardViewState) {
+    // Honor the view's own avoidance: a Board view declares it shrinks to
+    // sit inside the ribbons rather than painting behind them.
+    let avoidance = board.view.content_avoidance();
+    let mut view_ctx = host.view_ctx(&mut board.workspace, accent, avoidance);
+    board.view.show(&mut view_ctx);
 }
 
 // ─── Canvas root view ──────────────────────────────────────────────

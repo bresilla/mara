@@ -557,7 +557,7 @@ impl<'a> MaraMap<'a> {
     pub(crate) fn __internal_show(self, ctx: &egui::Context) -> MaraMapResponse {
         let mut output = MaraMapResponse::default();
         egui::CentralPanel::default()
-            .frame(egui::Frame::new().fill(mara_core::style::theme().palette.bg_panel))
+            .frame(egui::Frame::new().fill(egui::Color32::TRANSPARENT))
             .show(ctx, |ui| {
                 output = paint_map(ui, self.surface, self.interaction);
             });

@@ -8,6 +8,7 @@ members = [
     "crates/modules/graph",
     "crates/modules/image",
     "crates/modules/canvas",
+    "crates/modules/board",
     "crates/modules/map",
     "crates/modules/three_d",
     "crates/modules/bevy",
@@ -68,6 +69,8 @@ mara_image = { path = "crates/modules/image", version = "0.3.0" }
 # `mara_canvas` — retained-stroke whiteboard proof module for
 # recursive View + Module workspaces.
 mara_canvas = { path = "crates/modules/canvas", version = "0.3.0" }
+# `mara_board` — pixel-drawing Board surface/view for the multiview layer.
+mara_board = { path = "crates/modules/board", version = "0.3.0" }
 # `mara_map` — retained f64 map annotations and a Mara map component.
 mara_map = { path = "crates/modules/map", version = "0.3.0" }
 # `mara_3d` — retained scene/camera/object 3D module surface backed by three-d.

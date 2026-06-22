@@ -8,6 +8,7 @@ repository.workspace = true
 
 [dependencies]
 mara_canvas = { workspace = true, optional = true }
+mara_board = { workspace = true, optional = true }
 mara_code = { workspace = true, optional = true }
 mara_core = { path = "../crates/core", version = "0.3.0", default-features = false }
 mara_graph = { workspace = true, optional = true }
@@ -31,6 +32,7 @@ winit = { version = "0.30", default-features = false, features = [
 [features]
 default = ["canvas", "code", "graph", "image", "map"]
 canvas = ["dep:mara_canvas"]
+board = ["dep:mara_board"]
 code = ["dep:mara_code", "mara_core/code"]
 graph = ["dep:mara_graph", "mara_core/graph"]
 image = ["dep:mara_image"]

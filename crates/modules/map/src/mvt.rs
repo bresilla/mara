@@ -771,6 +771,7 @@ fn paint_tile_pass(
                     layer,
                     feature,
                     land_fill_color(&layer.name, feature, palette),
+                    Some(palette.background),
                 ),
                 PaintPass::WaterFill => paint_area_fill(
                     painter,
@@ -780,15 +781,9 @@ fn paint_tile_pass(
                     layer,
                     feature,
                     water_fill_color(&layer.name, feature, palette),
+                    Some(palette.land_default),
                 ),
                 PaintPass::BuildingFill => {
-                    let extruded = layer.name == "building"
-                        && paint_building_extrusion(
-                            painter, rect, viewport, key, layer, feature, palette,
-                        );
-                    if extruded {
-                        continue;
-                    }
                     paint_area_fill(
                         painter,
                         rect,
@@ -797,6 +792,7 @@ fn paint_tile_pass(
                         layer,
                         feature,
                         building_fill_color(&layer.name, feature, palette),
+                        Some(palette.land_default),
                     );
                     if layer.name == "building" {
                         paint_feature_lines(
@@ -920,7 +916,6 @@ struct MapPalette {
     water_line: egui::Color32,
     building: egui::Color32,
     building_outline: egui::Color32,
-    building_side: egui::Color32,
     boundary: egui::Color32,
     aeroway_line: egui::Color32,
     label: egui::Color32,
@@ -945,7 +940,7 @@ impl MapPalette {
         let accent: egui::Color32 = mara_core::style::active_accent().into();
         if theme.is_light {
             Self {
-                background: tint(rgb(0xf2, 0xef, 0xea), accent, 0.045),
+                background: theme.palette.bg_window,
                 land_default: tint(rgba(0xc9, 0xda, 0xb2, 150), accent, 0.055),
                 forest: tint(rgb(0xb7, 0xd2, 0xa3), accent, 0.055),
                 grass: tint(rgb(0xc9, 0xe1, 0xb5), accent, 0.055),
@@ -966,7 +961,6 @@ impl MapPalette {
                 water_line: tint(rgb(0x86, 0xbd, 0xcf), accent, 0.07),
                 building: tint(rgb(0xd8, 0xd2, 0xc8), accent, 0.06),
                 building_outline: tint(rgb(0xbe, 0xb8, 0xae), accent, 0.07),
-                building_side: tint(rgb(0xb8, 0xb0, 0xa4), accent, 0.07),
                 boundary: tint(rgba(0x86, 0x7d, 0x74, 155), accent, 0.08),
                 aeroway_line: tint(rgb(0xc4, 0xbd, 0xb3), accent, 0.06),
                 label: tint(rgb(0x4c, 0x45, 0x3d), accent, 0.08),
@@ -986,7 +980,7 @@ impl MapPalette {
             }
         } else {
             Self {
-                background: dark_style(rgb(0x0b, 0x0f, 0x12), accent, 0.04),
+                background: theme.palette.bg_window,
                 land_default: dark_style(rgba(0x18, 0x1f, 0x23, 238), accent, 0.05),
                 forest: dark_style(rgb(0x20, 0x30, 0x28), accent, 0.24),
                 grass: dark_style(rgb(0x27, 0x35, 0x2b), accent, 0.28),
@@ -1007,7 +1001,6 @@ impl MapPalette {
                 water_line: dark_style(rgb(0x14, 0x56, 0x70), accent, 0.075),
                 building: dark_style(rgb(0x26, 0x2b, 0x31), accent, 0.035),
                 building_outline: dark_style(rgb(0x3a, 0x42, 0x49), accent, 0.045),
-                building_side: dark_style(rgb(0x15, 0x19, 0x1d), accent, 0.035),
                 boundary: dark_style(rgba(0x88, 0x90, 0x94, 115), accent, 0.04),
                 aeroway_line: dark_style(rgb(0x5b, 0x60, 0x64), accent, 0.035),
                 label: dark_style(rgb(0xdc, 0xdf, 0xe3), accent, 0.035),
@@ -1037,8 +1030,9 @@ fn paint_area_fill(
     layer: &DecodedLayer,
     feature: &DecodedFeature,
     fill: Option<egui::Color32>,
+    hole_fill: Option<egui::Color32>,
 ) {
-    for cmd in area_fill_paint_cmds(rect, viewport, key, layer, feature, fill) {
+    for cmd in area_fill_paint_cmds(rect, viewport, key, layer, feature, fill, hole_fill) {
         render_paint_cmd(painter, cmd);
     }
 }
@@ -1050,6 +1044,7 @@ fn area_fill_paint_cmds(
     layer: &DecodedLayer,
     feature: &DecodedFeature,
     fill: Option<egui::Color32>,
+    hole_fill: Option<egui::Color32>,
 ) -> Vec<PaintCmd> {
     if feature.geometry_type != GeometryType::Polygon {
         return Vec::new();
@@ -1058,14 +1053,32 @@ fn area_fill_paint_cmds(
         return Vec::new();
     };
     let fill = MaraColor32::from(fill);
+    let hole_fill = hole_fill.map(MaraColor32::from);
     let mut cmds = Vec::new();
-    for path in &feature.paths {
-        let points = screen_points(path, layer.extent, key, rect, viewport);
-        let points = normalized_screen_ring(&points);
-        if points.len() >= 3 && path_intersects_rect(&points, rect.expand(64.0)) {
+
+    let rings = screen_rings_for_feature(feature, layer.extent, key, rect, viewport);
+    let has_exterior = rings.iter().any(|ring| !ring.is_hole);
+    let (exteriors, holes): (Vec<_>, Vec<_>) = rings.into_iter().partition(|ring| !ring.is_hole);
+    for ring in exteriors.into_iter().chain(holes) {
+        if !path_intersects_rect(&ring.points, rect.expand(64.0)) {
+            continue;
+        }
+
+        let ring_fill = if ring.is_hole && has_exterior {
+            let Some(hole_fill) = hole_fill else {
+                continue;
+            };
+            hole_fill
+        } else {
+            fill
+        };
+
+        if let Some(cmd) = mesh_polygon_paint_cmd(&ring.points, ring_fill.into()) {
+            cmds.push(cmd);
+        } else {
             cmds.push(PaintCmd::Polygon {
-                points: points.into_iter().map(Into::into).collect(),
-                fill,
+                points: ring.points.into_iter().map(Into::into).collect(),
+                fill: ring_fill,
                 stroke: MaraStroke::NONE,
             });
         }
@@ -1073,160 +1086,42 @@ fn area_fill_paint_cmds(
     cmds
 }
 
-fn paint_building_extrusion(
-    painter: &egui::Painter,
-    rect: egui::Rect,
-    viewport: MapViewport,
-    key: TileKey,
-    layer: &DecodedLayer,
-    feature: &DecodedFeature,
-    palette: &MapPalette,
-) -> bool {
-    let cmds = building_extrusion_paint_cmds(rect, viewport, key, layer, feature, palette);
-    let painted = !cmds.is_empty();
-    for cmd in cmds {
-        render_paint_cmd(painter, cmd);
-    }
-    painted
+struct ScreenRing {
+    points: Vec<egui::Pos2>,
+    is_hole: bool,
 }
 
-fn building_extrusion_paint_cmds(
-    rect: egui::Rect,
-    viewport: MapViewport,
-    key: TileKey,
-    layer: &DecodedLayer,
+fn screen_rings_for_feature(
     feature: &DecodedFeature,
-    palette: &MapPalette,
-) -> Vec<PaintCmd> {
-    if viewport.zoom < 17.0 || feature.geometry_type != GeometryType::Polygon {
-        return Vec::new();
-    }
-    let render_height = feature
-        .prop_f64("render_height")
-        .or_else(|| feature.prop_f64("height"))
-        .unwrap_or(14.0)
-        .max(0.0);
-    let render_min_height = feature
-        .prop_f64("render_min_height")
-        .or_else(|| feature.prop_f64("min_height"))
-        .unwrap_or(0.0)
-        .max(0.0)
-        .min(render_height);
-    let zoom_gain = smoothstep(17.0, 18.0, viewport.zoom as f32);
-    let meters_to_px = (0.36 + (viewport.zoom as f32 - 15.0).max(0.0) * 0.15).clamp(0.36, 1.12);
-    let height_px = (render_height as f32 * meters_to_px * zoom_gain).clamp(8.0, 300.0);
-    let base_px = (render_min_height as f32 * meters_to_px * zoom_gain).clamp(0.0, height_px);
-    let mut cmds = Vec::new();
-
-    for path in &feature.paths {
-        // Keep this path 1:1 with the tile path — the side-mesh loop
-        // below zips screen edges with tile edges to detect tile
-        // boundary edges.
-        let screen_path = screen_points_raw(path, layer.extent, key, rect, viewport);
-        let points = normalized_screen_ring(&screen_path);
-        if points.len() < 3 || !path_intersects_rect(&points, rect.expand(height_px + 64.0)) {
-            continue;
-        }
-        if polygon_abs_area(&points) < 18.0 {
-            continue;
-        }
-        let Some(center) = polygon_centroid(&points) else {
-            continue;
-        };
-        let away = center - rect.center();
-        let direction = if away.length_sq() <= f32::EPSILON {
-            egui::vec2(0.0, -1.0)
-        } else {
-            away.normalized()
-        };
-        let radial = (away.length() / (rect.size().length() * 0.5).max(1.0)).clamp(0.0, 1.0);
-        let projection = 0.68 + smoothstep(0.08, 0.95, radial) * 1.72;
-        let top_offset = egui::vec2(
-            direction.x * height_px * projection,
-            direction.y * height_px * projection,
-        );
-        let base_offset = egui::vec2(
-            direction.x * base_px * projection,
-            direction.y * base_px * projection,
-        );
-
-        let mut side_vertices = Vec::new();
-        let mut side_indices = Vec::new();
-        for (screen_edge, tile_edge) in screen_path.windows(2).zip(path.windows(2)) {
-            let a = screen_edge[0];
-            let b = screen_edge[1];
-            if a.distance(b) <= 0.5 {
-                continue;
-            }
-            if is_tile_boundary_edge(tile_edge[0], tile_edge[1], layer.extent) {
-                continue;
-            }
-            push_mesh_quad(
-                &mut side_vertices,
-                &mut side_indices,
-                a + base_offset,
-                b + base_offset,
-                b + top_offset,
-                a + top_offset,
-                palette.building_side,
-            );
-        }
-        if !side_indices.is_empty() {
-            cmds.push(PaintCmd::Mesh {
-                vertices: side_vertices,
-                indices: side_indices,
-            });
-        }
-
-        let roof = points
-            .iter()
-            .map(|point| *point + top_offset)
-            .collect::<Vec<_>>();
-        if let Some(cmd) = mesh_polygon_paint_cmd(&roof, palette.building) {
-            cmds.push(cmd);
-        }
-        cmds.extend(building_roof_outline_paint_cmds(
-            &screen_path,
-            path,
-            layer.extent,
-            top_offset,
-            egui::Stroke::new(0.65, palette.building_outline),
-        ));
-    }
-    cmds
-}
-
-fn building_roof_outline_paint_cmds(
-    screen_path: &[egui::Pos2],
-    tile_path: &[TilePoint],
     extent: u32,
-    top_offset: egui::Vec2,
-    stroke: egui::Stroke,
-) -> Vec<PaintCmd> {
-    let mut cmds = Vec::new();
-    for (screen_edge, tile_edge) in screen_path.windows(2).zip(tile_path.windows(2)) {
-        let a = screen_edge[0];
-        let b = screen_edge[1];
-        if a.distance(b) <= 0.5 || is_tile_boundary_edge(tile_edge[0], tile_edge[1], extent) {
-            continue;
-        }
-        cmds.push(PaintCmd::Line {
-            a: (a + top_offset).into(),
-            b: (b + top_offset).into(),
-            stroke: stroke.into(),
-        });
-    }
-    cmds
-}
+    key: TileKey,
+    rect: egui::Rect,
+    viewport: MapViewport,
+) -> Vec<ScreenRing> {
+    let mut rings = feature
+        .paths
+        .iter()
+        .filter_map(|path| {
+            let points = normalized_screen_ring(&screen_points(path, extent, key, rect, viewport));
+            if points.len() < 3 {
+                return None;
+            }
+            Some(ScreenRing {
+                is_hole: polygon_signed_area(&points) < 0.0,
+                points,
+            })
+        })
+        .collect::<Vec<_>>();
 
-fn is_tile_boundary_edge(a: TilePoint, b: TilePoint, extent: u32) -> bool {
-    let extent = extent as i32;
-    const TOL: i32 = 1;
-    let near = |value: i32, target: i32| (value - target).abs() <= TOL;
-    (near(a.x, 0) && near(b.x, 0))
-        || (near(a.x, extent) && near(b.x, extent))
-        || (near(a.y, 0) && near(b.y, 0))
-        || (near(a.y, extent) && near(b.y, extent))
+    // Real MVT polygons use opposite winding for exterior and interior
+    // rings. If a provider gives us non-conforming winding for every ring,
+    // keep rendering all rings as exteriors instead of dropping the feature.
+    if rings.iter().all(|ring| ring.is_hole) {
+        for ring in &mut rings {
+            ring.is_hole = false;
+        }
+    }
+    rings
 }
 
 fn normalized_screen_ring(points: &[egui::Pos2]) -> Vec<egui::Pos2> {
@@ -1251,13 +1146,16 @@ fn normalized_screen_ring(points: &[egui::Pos2]) -> Vec<egui::Pos2> {
 }
 
 fn polygon_abs_area(points: &[egui::Pos2]) -> f32 {
+    polygon_signed_area(points).abs()
+}
+
+fn polygon_signed_area(points: &[egui::Pos2]) -> f32 {
     points
         .iter()
         .zip(points.iter().cycle().skip(1))
         .take(points.len())
         .map(|(a, b)| a.x * b.y - b.x * a.y)
         .sum::<f32>()
-        .abs()
         * 0.5
 }
 
@@ -1290,25 +1188,6 @@ fn push_mesh_triangle(
         });
     }
     indices.extend_from_slice(&[start, start + 1, start + 2]);
-}
-
-fn push_mesh_quad(
-    vertices: &mut Vec<PaintVertex>,
-    indices: &mut Vec<u32>,
-    a: egui::Pos2,
-    b: egui::Pos2,
-    c: egui::Pos2,
-    d: egui::Pos2,
-    color: egui::Color32,
-) {
-    let start = vertices.len() as u32;
-    for pos in [a, b, c, d] {
-        vertices.push(PaintVertex {
-            pos: pos.into(),
-            color: color.into(),
-        });
-    }
-    indices.extend_from_slice(&[start, start + 1, start + 2, start, start + 2, start + 3]);
 }
 
 fn paint_feature_lines(
@@ -1800,11 +1679,6 @@ fn lerp_color(a: egui::Color32, b: egui::Color32, t: f32) -> egui::Color32 {
     )
 }
 
-fn smoothstep(edge0: f32, edge1: f32, value: f32) -> f32 {
-    let t = ((value - edge0) / (edge1 - edge0)).clamp(0.0, 1.0);
-    t * t * (3.0 - 2.0 * t)
-}
-
 fn screen_points(
     path: &[TilePoint],
     extent: u32,
@@ -1839,28 +1713,6 @@ fn screen_points(
         out.push(p);
     }
     out
-}
-
-fn screen_points_raw(
-    path: &[TilePoint],
-    extent: u32,
-    key: TileKey,
-    rect: egui::Rect,
-    viewport: MapViewport,
-) -> Vec<egui::Pos2> {
-    let scale = 2.0_f64.powf(viewport.zoom - f64::from(key.z));
-    let center_world = geo_to_world(viewport.center, f64::from(key.z));
-    let extent = f64::from(extent.max(1));
-    path.iter()
-        .map(|point| {
-            let world_x = f64::from(key.x) * TILE_SIZE + f64::from(point.x) / extent * TILE_SIZE;
-            let world_y = f64::from(key.y) * TILE_SIZE + f64::from(point.y) / extent * TILE_SIZE;
-            egui::pos2(
-                rect.center().x + ((world_x - center_world.0) * scale) as f32,
-                rect.center().y + ((world_y - center_world.1) * scale) as f32,
-            )
-        })
-        .collect()
 }
 
 fn path_intersects_rect(points: &[egui::Pos2], rect: egui::Rect) -> bool {
@@ -1947,15 +1799,6 @@ impl DecodedFeature {
             Some(FeatureValue::I64(value)) => Some(*value),
             Some(FeatureValue::U64(value)) => i64::try_from(*value).ok(),
             Some(FeatureValue::F64(value)) => Some(*value as i64),
-            _ => None,
-        }
-    }
-
-    fn prop_f64(&self, key: &str) -> Option<f64> {
-        match self.properties.get(key) {
-            Some(FeatureValue::F64(value)) => Some(*value),
-            Some(FeatureValue::I64(value)) => Some(*value as f64),
-            Some(FeatureValue::U64(value)) => Some(*value as f64),
             _ => None,
         }
     }
@@ -2386,40 +2229,32 @@ mod tests {
         }
     }
 
-    fn building_feature() -> DecodedFeature {
+    fn polygon_with_hole_feature() -> DecodedFeature {
         DecodedFeature {
-            id: Some(3),
+            id: Some(4),
             geometry_type: GeometryType::Polygon,
-            paths: vec![vec![
-                TilePoint { x: 100, y: 100 },
-                TilePoint { x: 600, y: 100 },
-                TilePoint { x: 600, y: 600 },
-                TilePoint { x: 100, y: 600 },
-                TilePoint { x: 100, y: 100 },
-            ]],
-            properties: HashMap::from([("height".to_owned(), FeatureValue::F64(20.0))]),
-        }
-    }
-
-    fn building_layer(feature: DecodedFeature) -> DecodedLayer {
-        DecodedLayer {
-            name: "building".to_owned(),
-            extent: 4096,
-            features: vec![feature],
-        }
-    }
-
-    fn center_tile_key(z: u8) -> TileKey {
-        let world = geo_to_world(GeoPosition::lon_lat(0.0, 0.0), f64::from(z));
-        TileKey {
-            z,
-            x: (world.0 / TILE_SIZE).floor() as u32,
-            y: (world.1 / TILE_SIZE).floor() as u32,
+            paths: vec![
+                vec![
+                    TilePoint { x: 0, y: 0 },
+                    TilePoint { x: 4096, y: 0 },
+                    TilePoint { x: 4096, y: 4096 },
+                    TilePoint { x: 0, y: 4096 },
+                    TilePoint { x: 0, y: 0 },
+                ],
+                vec![
+                    TilePoint { x: 3072, y: 1024 },
+                    TilePoint { x: 1024, y: 1024 },
+                    TilePoint { x: 1024, y: 3072 },
+                    TilePoint { x: 3072, y: 3072 },
+                    TilePoint { x: 3072, y: 1024 },
+                ],
+            ],
+            properties: HashMap::new(),
         }
     }
 
     #[test]
-    fn mvt_area_fills_lower_to_mara_polygon_commands() {
+    fn mvt_area_fills_lower_to_mara_mesh_commands() {
         let feature = polygon_feature();
         let layer = test_layer(polygon_feature());
 
@@ -2430,18 +2265,46 @@ mod tests {
             &layer,
             &feature,
             Some(egui::Color32::from_rgb(10, 20, 30)),
+            Some(egui::Color32::from_rgb(1, 2, 3)),
         );
 
         assert_eq!(cmds.len(), 1);
         assert!(matches!(
             &cmds[0],
-            PaintCmd::Polygon {
-                points,
-                fill,
-                stroke
-            } if points.len() >= 3
-                && *fill == MaraColor32::from_rgb(10, 20, 30)
-                && *stroke == MaraStroke::NONE
+            PaintCmd::Mesh { vertices, indices }
+                if vertices.len() >= 3
+                    && indices.len() >= 3
+                    && vertices.iter().all(|vertex| vertex.color == MaraColor32::from_rgb(10, 20, 30))
+        ));
+    }
+
+    #[test]
+    fn mvt_area_fills_use_opposite_winding_rings_as_holes() {
+        let feature = polygon_with_hole_feature();
+        let layer = test_layer(polygon_with_hole_feature());
+        let fill = egui::Color32::from_rgb(10, 20, 30);
+        let hole_fill = egui::Color32::from_rgb(1, 2, 3);
+
+        let cmds = area_fill_paint_cmds(
+            test_rect(),
+            test_viewport(),
+            test_tile_key(),
+            &layer,
+            &feature,
+            Some(fill),
+            Some(hole_fill),
+        );
+
+        assert_eq!(cmds.len(), 2);
+        assert!(matches!(
+            &cmds[0],
+            PaintCmd::Mesh { vertices, .. }
+                if vertices.iter().all(|vertex| vertex.color == MaraColor32::from(fill))
+        ));
+        assert!(matches!(
+            &cmds[1],
+            PaintCmd::Mesh { vertices, .. }
+                if vertices.iter().all(|vertex| vertex.color == MaraColor32::from(hole_fill))
         ));
     }
 
@@ -2521,32 +2384,6 @@ mod tests {
                 && *color == MaraColor32::from_rgb(70, 80, 90)
                 && !mono
         ));
-    }
-
-    #[test]
-    fn mvt_building_extrusions_lower_to_mara_mesh_and_line_commands() {
-        let feature = building_feature();
-        let layer = building_layer(building_feature());
-        let viewport = MapViewport::new(GeoPosition::lon_lat(0.0, 0.0), 18.0);
-
-        let cmds = building_extrusion_paint_cmds(
-            test_rect(),
-            viewport,
-            center_tile_key(17),
-            &layer,
-            &feature,
-            &MapPalette::current(),
-        );
-
-        assert!(cmds.iter().any(|cmd| matches!(
-            cmd,
-            PaintCmd::Mesh { vertices, indices }
-                if vertices.len() >= 3 && indices.len() >= 3
-        )));
-        assert!(cmds.iter().any(|cmd| matches!(
-            cmd,
-            PaintCmd::Line { stroke, .. } if stroke.width == 0.65
-        )));
     }
 
     #[test]

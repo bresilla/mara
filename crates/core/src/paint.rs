@@ -71,6 +71,31 @@ pub enum PaintCmd {
         radius: f32,
         stroke: Stroke,
     },
+    /// Axis-aligned ellipse bounded by `rect` (filled and/or stroked).
+    Ellipse {
+        rect: Rect,
+        fill: Color32,
+        stroke: Stroke,
+    },
+    /// Open elliptical arc — a curved line, no fill. Angles are in
+    /// radians, `0` at the +x axis, increasing clockwise (screen y-down).
+    Arc {
+        center: Pos2,
+        radius: Vec2,
+        start_angle: f32,
+        end_angle: f32,
+        stroke: Stroke,
+    },
+    /// Filled circular/elliptical sector — a pie wedge from `center`
+    /// across the arc. Angles as in [`PaintCmd::Arc`].
+    Sector {
+        center: Pos2,
+        radius: Vec2,
+        start_angle: f32,
+        end_angle: f32,
+        fill: Color32,
+        stroke: Stroke,
+    },
     Arrow {
         origin: Pos2,
         vec: Vec2,

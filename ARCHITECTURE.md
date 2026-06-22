@@ -40,6 +40,7 @@ crates/
   modules/code/          mara_code   — code editor widget (vendored fork)
   modules/image/         mara_image  — proof View+Module surface
   modules/canvas/        mara_canvas — freehand canvas View+Module
+  modules/board/         mara_board  — pixel-drawing Board surface + multiview
   modules/map/           mara_map    — vector-tile map View+Module
   modules/three_d/       mara_three_d— retained 3D scene View+Module
   modules/bevy/          mara_bevy   — embedded Bevy viewport (offscreen)
@@ -65,7 +66,7 @@ layer that makes the toolkit backend-swappable.
 | `vocab` | `vocab.rs` | Mara's own `Pos2` / `Vec2` / `Rect` / `Color32` / `Id`, wrapping the egui equivalents. The public API speaks *only* these — egui types never leak. |
 | `UiBackend` | `layout.rs` | Trait the UI calls instead of `egui::Ui`: `allocate`, `interact`, `reserve_rect`, `show_area*`, `id`, `available_width/height`, `input`, `add_space`. |
 | `EguiUiBackend` | `backend/egui.rs` | The one concrete `UiBackend` today — wraps `&mut egui::Ui` and translates calls to egui. |
-| `PaintCmd` / `PaintList` | `paint.rs` | A paint **intermediate representation**: `Rect`, `Polygon`, `Polyline`, `Text`, `Svg`, `Circle*`, `Clip`, … Widgets build `PaintCmd`s; `render_paint_cmd*` lowers them to egui shapes. |
+| `PaintCmd` / `PaintList` | `paint.rs` | A paint **intermediate representation**: `Rect`, `Polygon`, `Polyline`, `Text`, `Svg`, `Circle*`, `Ellipse`, `Arc`, `Sector`, `Image`, `Clip`, … Widgets build `PaintCmd`s; `render_paint_cmd*` lowers them to egui shapes. Exposed as `MaraPainter` methods (`rect_filled`, `text`, `ellipse_filled`/`ellipse_stroke`, `arc`, `sector`, `image`, …). |
 | `MaraMemory` / `MaraMemoryCtx` | `memory.rs` | Backend-neutral persisted per-id state, backed by egui's data store. |
 
 On top of these sits the **sealed widget surface**:
@@ -250,6 +251,51 @@ L0  MaraView  ── owns one WorkspaceStack
                    └─ fullscreen ─► push L2 …
 ```
 
+### Boards & multiview
+
+The pane/shelf hierarchy above is for *widget* UIs. A **`Board`**
+(`mara_board`) is the other shape: a **pure pixel-drawing surface** — an
+id'd region you draw raw `PaintCmd` primitives into and read pointer input
+back from (no widgets, no freehand sketch). It is `MaraUi::canvas_at(rect)`
+wrapped with an id:
+
+```
+board.surface(mui, rect) -> (MaraPainter, MaraResponse)
+```
+
+The consumer owns the data model *and* the hit-testing; Mara owns only the
+surface and the draw calls. This is the leaf an external driver composes
+screens out of — e.g. an ISOBUS virtual terminal that decodes its own
+object pool elsewhere and just issues draw instructions. **Mara stays
+GUI-only**: it provides Boards and primitives, not the IOP/CAN/data model.
+
+A **multiview** is a single `MaraView` whose content area is carved into
+*several* addressable Boards (or nested sub-views) — the shape an
+instrument panel / VT needs: one large "data-mask" Board flanked by columns
+of small "soft-key" Boards, each drawn into and hit-tested independently.
+
+```
+MaraView (multiview)
+├── Board "data_mask"          (centre, large)
+└── Split vertical             (the soft-key column)
+    ├── Board "sk_1"  ├── Board "sk_2"  └── Board "sk_3" …
+```
+
+- **Today (imperative):** a view subdivides `ctx.content_rect()` inside
+  `show()` and calls `mui.canvas_at(rect)` per region (see
+  `mara_board::BoardView`, which renders a centre gauge Board flanked by
+  soft-key Boards).
+- **Planned (declarative):** a `MaraView` returns a layout descriptor —
+  `Single`, or `Multi` over a **split-tree** (recursive H/V splits with
+  ratios) plus **absolute** rects — of **named leaves** (each a Board or a
+  sub-view). The host computes the rects, so it can later own an opt-in
+  drag-to-rearrange. Backgrounds may still paint full-bleed behind the
+  leaves; only interactive content is bounded to a leaf.
+
+The geometric `MaraPainter` primitives that back Board content
+(`ellipse_*`, `arc`, `sector`, plus the existing rect/line/text/image) are
+what VT-style objects (gauges, meters, indicators) lower to.
+
 ---
 
 ## 7. Ribbons and the Shell bar
@@ -301,6 +347,7 @@ portability characteristics:
 |---|---|---|
 | `mara_image` | `MaraView` + `MaraModule` | Through `MaraUi`/`PaintCmd` (fully abstracted) |
 | `mara_canvas` | `MaraView` + `MaraModule` | Through `MaraUi`/`PaintCmd` (fully abstracted) |
+| `mara_board` | `MaraView` (+ `Board` leaf) | Through `MaraUi`/`PaintCmd` — id'd `canvas_at` pixel surfaces; a view can be a multiview of Boards (see §6) |
 | `mara_map` | `MaraView` + `MaraModule` | Hybrid: basemap via raw egui tessellation (`mvt.rs`); annotations lower to `PaintCmd` |
 | `mara_graph` | View/Module (Mara styling optional) | A **secondary `egui::Context`** rendered to a wgpu texture (sharp-zoom), composited back as an image |
 | `mara_code` | View/Module (Mara styling optional) | Raw egui in the parent context (vendored editor) |

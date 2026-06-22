@@ -1190,8 +1190,67 @@ pub(crate) fn painter_with_clip(painter: &egui::Painter, rect: vocab::Rect) -> e
     painter.with_clip_rect(rect.intersect(painter.clip_rect()))
 }
 
+/// Sample an (elliptical) arc into a polyline. Angles in radians, 0 at
+/// +x, increasing clockwise (screen y-down). Segment count scales with
+/// the swept angle so small arcs stay cheap and big ones stay smooth.
+fn arc_polyline(
+    center: vocab::Pos2,
+    radius: vocab::Vec2,
+    start_angle: f32,
+    end_angle: f32,
+) -> Vec<egui::Pos2> {
+    let c: egui::Pos2 = center.into();
+    let r: egui::Vec2 = radius.into();
+    let sweep = (end_angle - start_angle).abs();
+    let segments = ((sweep / std::f32::consts::TAU * 64.0).ceil() as usize).clamp(2, 512);
+    (0..=segments)
+        .map(|i| {
+            let t = start_angle + (end_angle - start_angle) * (i as f32 / segments as f32);
+            egui::pos2(c.x + r.x * t.cos(), c.y + r.y * t.sin())
+        })
+        .collect()
+}
+
 pub(crate) fn render_paint_cmd(painter: &egui::Painter, cmd: PaintCmd) {
     match cmd {
+        PaintCmd::Ellipse { rect, fill, stroke } => {
+            let rect: egui::Rect = rect.into();
+            painter.add(egui::epaint::EllipseShape {
+                center: rect.center(),
+                radius: rect.size() / 2.0,
+                fill: fill.into(),
+                stroke: Into::<egui::Stroke>::into(stroke),
+            });
+        }
+        PaintCmd::Arc {
+            center,
+            radius,
+            start_angle,
+            end_angle,
+            stroke,
+        } => {
+            painter.add(egui::Shape::line(
+                arc_polyline(center, radius, start_angle, end_angle),
+                Into::<egui::Stroke>::into(stroke),
+            ));
+        }
+        PaintCmd::Sector {
+            center,
+            radius,
+            start_angle,
+            end_angle,
+            fill,
+            stroke,
+        } => {
+            let mut points = vec![center.into()];
+            points.extend(arc_polyline(center, radius, start_angle, end_angle));
+            painter.add(egui::epaint::PathShape {
+                points,
+                closed: true,
+                fill: fill.into(),
+                stroke: Into::<egui::Stroke>::into(stroke).into(),
+            });
+        }
         PaintCmd::Line { a, b, stroke } => {
             painter.line_segment([a.into(), b.into()], Into::<egui::Stroke>::into(stroke));
         }
@@ -1321,6 +1380,42 @@ pub(crate) fn render_paint_cmd(painter: &egui::Painter, cmd: PaintCmd) {
 
 pub(crate) fn shape_from_paint_cmd(cmd: PaintCmd) -> egui::Shape {
     match cmd {
+        PaintCmd::Ellipse { rect, fill, stroke } => {
+            let rect: egui::Rect = rect.into();
+            egui::Shape::Ellipse(egui::epaint::EllipseShape {
+                center: rect.center(),
+                radius: rect.size() / 2.0,
+                fill: fill.into(),
+                stroke: Into::<egui::Stroke>::into(stroke),
+            })
+        }
+        PaintCmd::Arc {
+            center,
+            radius,
+            start_angle,
+            end_angle,
+            stroke,
+        } => egui::Shape::line(
+            arc_polyline(center, radius, start_angle, end_angle),
+            Into::<egui::Stroke>::into(stroke),
+        ),
+        PaintCmd::Sector {
+            center,
+            radius,
+            start_angle,
+            end_angle,
+            fill,
+            stroke,
+        } => {
+            let mut points = vec![center.into()];
+            points.extend(arc_polyline(center, radius, start_angle, end_angle));
+            egui::Shape::Path(egui::epaint::PathShape {
+                points,
+                closed: true,
+                fill: fill.into(),
+                stroke: Into::<egui::Stroke>::into(stroke).into(),
+            })
+        }
         PaintCmd::Line { a, b, stroke } => {
             egui::Shape::line_segment([a.into(), b.into()], Into::<egui::Stroke>::into(stroke))
         }
@@ -1546,6 +1641,50 @@ fn layout_job_for_text_runs(
 mod tests {
     use super::*;
     use crate::vocab::{Color32, CornerRadius, Pos2, Rect, Stroke, Vec2};
+
+    #[test]
+    fn arc_polyline_hits_endpoints_and_scales_with_sweep() {
+        use std::f32::consts::{FRAC_PI_2, TAU};
+        // Quarter arc, radius 10, 0 → 90° (clockwise: +x toward +y screen-down).
+        let quarter = arc_polyline(Pos2::new(0.0, 0.0), Vec2::new(10.0, 10.0), 0.0, FRAC_PI_2);
+        assert!(quarter.len() >= 3);
+        let first = quarter.first().unwrap();
+        let last = quarter.last().unwrap();
+        assert!((first.x - 10.0).abs() < 0.01 && first.y.abs() < 0.01);
+        assert!(last.x.abs() < 0.01 && (last.y - 10.0).abs() < 0.01);
+        // A full sweep is sampled with more segments than a quarter sweep.
+        let full = arc_polyline(Pos2::new(0.0, 0.0), Vec2::new(10.0, 10.0), 0.0, TAU);
+        assert!(full.len() > quarter.len());
+    }
+
+    #[test]
+    fn shape_from_paint_cmd_maps_ellipse_arc_sector() {
+        let ellipse = shape_from_paint_cmd(PaintCmd::Ellipse {
+            rect: Rect::from_min_size(Pos2::new(0.0, 0.0), Vec2::new(20.0, 10.0)),
+            fill: Color32::WHITE,
+            stroke: Stroke::NONE,
+        });
+        assert!(matches!(ellipse, egui::Shape::Ellipse(_)));
+
+        let arc = shape_from_paint_cmd(PaintCmd::Arc {
+            center: Pos2::new(0.0, 0.0),
+            radius: Vec2::new(5.0, 5.0),
+            start_angle: 0.0,
+            end_angle: 1.0,
+            stroke: Stroke::new(1.0, Color32::WHITE),
+        });
+        assert!(matches!(arc, egui::Shape::Path(_)));
+
+        let sector = shape_from_paint_cmd(PaintCmd::Sector {
+            center: Pos2::new(0.0, 0.0),
+            radius: Vec2::new(5.0, 5.0),
+            start_angle: 0.0,
+            end_angle: 1.0,
+            fill: Color32::WHITE,
+            stroke: Stroke::NONE,
+        });
+        assert!(matches!(sector, egui::Shape::Path(_)));
+    }
 
     #[test]
     fn context_painter_for_layer_uses_mara_layer_and_clip() {
