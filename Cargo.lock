@@ -1010,7 +1010,7 @@ dependencies = [
 
 [[package]]
 name = "bevy_mara"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "bevy",
  "mara_bevy",
@@ -3593,7 +3593,7 @@ checksum = "0ceec5bc11778974d1bcb055b18002eba7f4b3518b6a0081b3af5f21666da9ad"
 
 [[package]]
 name = "mara"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "egui",
  "egui-wgpu",
@@ -3614,7 +3614,7 @@ dependencies = [
 
 [[package]]
 name = "mara_3d"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "bytemuck",
  "egui",
@@ -3626,7 +3626,7 @@ dependencies = [
 
 [[package]]
 name = "mara_bevy"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "bevy",
  "crossbeam-channel",
@@ -3638,14 +3638,14 @@ dependencies = [
 
 [[package]]
 name = "mara_board"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "mara_core",
 ]
 
 [[package]]
 name = "mara_canvas"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "egui",
  "mara_core",
@@ -3653,7 +3653,7 @@ dependencies = [
 
 [[package]]
 name = "mara_code"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "egui",
  "serde",
@@ -3661,7 +3661,7 @@ dependencies = [
 
 [[package]]
 name = "mara_core"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "bevy",
  "egui",
@@ -3673,7 +3673,7 @@ dependencies = [
 
 [[package]]
 name = "mara_example"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "bevy",
  "bevy_ecs",
@@ -3692,7 +3692,7 @@ dependencies = [
 
 [[package]]
 name = "mara_graph"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "egui",
  "egui-scale",
@@ -3705,7 +3705,7 @@ dependencies = [
 
 [[package]]
 name = "mara_image"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "egui",
  "mara_core",
@@ -3713,7 +3713,7 @@ dependencies = [
 
 [[package]]
 name = "mara_map"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "egui",
  "egui_extras",
@@ -3724,7 +3724,7 @@ dependencies = [
 
 [[package]]
 name = "mara_sealed_check"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "mara",
 ]

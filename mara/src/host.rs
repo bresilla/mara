@@ -131,7 +131,7 @@ impl<'a, 'spec> RibbonRail<'a, 'spec> {
         body: impl FnOnce(&mut mara_core::pane::PaneBody<'_, 'spec>) + 'a,
     ) -> Self {
         self.pane_in(
-            mara_core::ribbon::RibbonCluster::Start,
+            ribbon_cluster_for_pane_anchor(anchor),
             id,
             icon,
             title,
@@ -196,6 +196,16 @@ impl<'a, 'spec> RibbonRail<'a, 'spec> {
             action,
         });
         self
+    }
+}
+
+fn ribbon_cluster_for_pane_anchor(
+    anchor: mara_core::pane::PaneAnchor,
+) -> mara_core::ribbon::RibbonCluster {
+    match anchor.zone() {
+        mara_core::pane::RailZone::Start => mara_core::ribbon::RibbonCluster::Start,
+        mara_core::pane::RailZone::Middle => mara_core::ribbon::RibbonCluster::Middle,
+        mara_core::pane::RailZone::End => mara_core::ribbon::RibbonCluster::End,
     }
 }
 
@@ -576,6 +586,57 @@ impl MaraHostCtx<'_> {
         );
         self.egui.data_mut(|data| data.insert_persisted(key, state));
         clicks
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::RibbonRail;
+    use mara_core::pane::{PaneAnchor, RailZone};
+    use mara_core::ribbon::RibbonCluster;
+
+    #[test]
+    fn ribbon_rail_pane_places_button_in_anchor_zone_cluster() {
+        let rail = RibbonRail::view_left("rail", "view")
+            .pane(
+                "start",
+                "list",
+                "Start",
+                PaneAnchor::LeftRail(RailZone::Start),
+                |_| {},
+            )
+            .pane(
+                "middle",
+                "options",
+                "Middle",
+                PaneAnchor::LeftRail(RailZone::Middle),
+                |_| {},
+            )
+            .pane(
+                "end",
+                "save",
+                "End",
+                PaneAnchor::LeftRail(RailZone::End),
+                |_| {},
+            );
+
+        assert_eq!(rail.panes[0].cluster, RibbonCluster::Start);
+        assert_eq!(rail.panes[1].cluster, RibbonCluster::Middle);
+        assert_eq!(rail.panes[2].cluster, RibbonCluster::End);
+    }
+
+    #[test]
+    fn ribbon_rail_pane_in_keeps_explicit_cluster() {
+        let rail = RibbonRail::view_left("rail", "view").pane_in(
+            RibbonCluster::End,
+            "start",
+            "list",
+            "Start",
+            PaneAnchor::LeftRail(RailZone::Start),
+            |_| {},
+        );
+
+        assert_eq!(rail.panes[0].cluster, RibbonCluster::End);
     }
 }
 
