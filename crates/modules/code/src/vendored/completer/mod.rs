@@ -194,7 +194,7 @@ impl Completer {
                     cursor_rect,
                     editor_output.response.layer_id,
                 )
-                .frame(Frame::popup(&ctx.style()).fill(theme.bg()))
+                .frame(Frame::popup(&ctx.global_style()).fill(theme.bg()))
                 .sense(Sense::empty())
                 .show(|ui| {
                     ui.response().sense = Sense::empty();

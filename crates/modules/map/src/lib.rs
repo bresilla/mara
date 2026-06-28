@@ -556,11 +556,14 @@ impl<'a> MaraMap<'a> {
     #[doc(hidden)]
     pub(crate) fn __internal_show(self, ctx: &egui::Context) -> MaraMapResponse {
         let mut output = MaraMapResponse::default();
-        egui::CentralPanel::default()
-            .frame(egui::Frame::new().fill(egui::Color32::TRANSPARENT))
-            .show(ctx, |ui| {
-                output = paint_map(ui, self.surface, self.interaction);
-            });
+        #[allow(deprecated)]
+        {
+            egui::CentralPanel::default()
+                .frame(egui::Frame::new().fill(egui::Color32::TRANSPARENT))
+                .show(ctx, |ui| {
+                    output = paint_map(ui, self.surface, self.interaction);
+                });
+        }
         output
     }
 }
@@ -647,7 +650,7 @@ fn paint_map(
     }
 
     if response.hovered() {
-        let scroll = ui.input(|input| input.smooth_scroll_delta.y + input.raw_scroll_delta.y);
+        let scroll = ui.input(|input| input.smooth_scroll_delta.y);
         if scroll.abs() > f32::EPSILON {
             zoom_viewport_at(
                 &mut surface.viewport,

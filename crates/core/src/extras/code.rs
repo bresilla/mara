@@ -332,14 +332,17 @@ impl crate::MaraView for CodeEditorSurface {
 
     fn show(&mut self, ctx: &mut crate::ViewCtx<'_>) {
         let rect = ctx.content_rect();
-        egui::CentralPanel::default().show(ctx.egui_ctx, |ui| {
-            let mut body = ui.new_child(
-                egui::UiBuilder::new()
-                    .max_rect(rect.into())
-                    .layout(egui::Layout::top_down(egui::Align::Min)),
-            );
-            self.show_editor(&mut body);
-        });
+        #[allow(deprecated)]
+        {
+            egui::CentralPanel::default().show(ctx.egui_ctx, |ui| {
+                let mut body = ui.new_child(
+                    egui::UiBuilder::new()
+                        .max_rect(rect.into())
+                        .layout(egui::Layout::top_down(egui::Align::Min)),
+                );
+                self.show_editor(&mut body);
+            });
+        }
     }
 }
 

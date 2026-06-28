@@ -1,73 +1,128 @@
-//! `mara_board` — a pure pixel-drawing **Board** surface for Mara.
+//! `mara_board` — a **Board**: a pixel-drawing surface module for Mara.
 //!
-//! A Board is an id'd canvas region you draw raw paint primitives into
-//! (rect, text, ellipse, arc, image, …) and read pointer input back from
-//! — no widgets, no freehand sketching. It is the leaf surface of the
-//! (planned) multiview view layer: an external driver (e.g. an ISOBUS
-//! virtual terminal that decodes its own object pool) composes a screen
-//! by drawing into one or more Boards. Mara stays GUI-only — it owns the
-//! surface and the draw calls, not the data model.
+//! A Board is the drawing counterpart to `mara_canvas`: where the canvas
+//! captures freehand strokes, a Board lets *you* draw raw paint
+//! primitives (`rect`, `text`, `ellipse`, `arc`, `sector`, `image`, …)
+//! and read pointer input back. No widgets. It is a peer module to
+//! canvas / code / image / graph — a top-level [`MaraView`] and an
+//! embeddable [`MaraModule`].
+//!
+//! A Board can carry its own **internal layout** ([`mara_core::Layout`])
+//! — splitting itself into named cells the draw callback fills. That is
+//! enough to build an entire ISOBUS virtual terminal *inside one Board*
+//! (a data-mask cell + soft-key cells). Splitting across *several*
+//! Boards instead is a separate concern — that is `mara_core::MultiView`.
+//!
+//! Mara stays GUI-only: a Board owns the surface and the draw calls, not
+//! the data model. The consumer (e.g. a VT driver that decoded an object
+//! pool elsewhere) supplies the drawing via [`Board::on_draw`].
 
 use mara_core::{
-    MaraPainter, MaraResponse, MaraUi, MaraView, RibbonAvoidance, ViewCtx, ViewId,
-    vocab::{Align2, Color32, Pos2, Rect, Stroke, Vec2},
+    CellId, Layout, MaraModule, MaraPainter, MaraResponse, MaraUi, MaraView, ModuleInlineCtx,
+    ModuleResponse, RibbonAvoidance, ViewCtx, ViewId,
+    vocab::{Color32, Rect, Vec2},
 };
 
-/// A pixel-drawing surface keyed by id.
+/// The drawing context handed to a Board's [`Board::on_draw`] callback.
 ///
-/// Wraps [`MaraUi::canvas_at`] and hands back its painter + response so a
-/// caller draws raw [`mara_core::PaintCmd`]-level primitives and hit-tests
-/// pointer input itself. This is the leaf the multiview layout places.
-#[derive(Clone, Copy, Debug)]
+/// `painter` draws into the board, `rect` is its bounds, `response`
+/// carries this frame's pointer/click state, `accent` is the theme
+/// accent, and `cells` are the board's internal layout regions (empty if
+/// the board has no internal layout).
+pub struct BoardPaint<'a> {
+    pub painter: &'a MaraPainter,
+    pub response: &'a MaraResponse,
+    pub rect: Rect,
+    pub accent: Color32,
+    pub cells: &'a [(CellId, Rect)],
+}
+
+impl BoardPaint<'_> {
+    /// The rect of an internal-layout cell by id.
+    #[must_use]
+    pub fn cell(&self, id: CellId) -> Option<Rect> {
+        self.cells.iter().find(|(c, _)| *c == id).map(|(_, r)| *r)
+    }
+}
+
+/// A pixel-drawing surface. Build it, optionally give it an internal
+/// [`Layout`], and supply the drawing with [`Board::on_draw`].
 pub struct Board {
     id: ViewId,
+    title: String,
+    icon: &'static str,
+    avoidance: RibbonAvoidance,
+    layout: Option<Layout>,
+    draw: Box<dyn FnMut(BoardPaint)>,
 }
 
 impl Board {
     #[must_use]
-    pub fn new(id: impl Into<ViewId>) -> Self {
-        Self { id: id.into() }
-    }
-
-    #[must_use]
-    pub fn id(&self) -> ViewId {
-        self.id
-    }
-
-    /// Acquire the board's drawing surface at `rect`: a painter to draw
-    /// into and a response carrying the pointer/click for hit-testing.
-    pub fn surface(
-        &self,
-        mui: &mut MaraUi<'_>,
-        rect: impl Into<Rect>,
-    ) -> (MaraPainter, MaraResponse) {
-        mui.canvas_at(rect.into())
-    }
-}
-
-/// A multiview demo: one central Board flanked by columns of small
-/// VT-style "soft-key" Boards on each side. Every region is an
-/// independent [`Board`] surface drawn into separately — proving a view
-/// can be split into many addressable pixel surfaces (the shape an
-/// ISOBUS virtual terminal needs: a data-mask board + soft-key boards).
-pub struct BoardView {
-    id: &'static str,
-    title: String,
-}
-
-impl BoardView {
-    #[must_use]
-    pub fn new(id: &'static str, title: impl Into<String>) -> Self {
+    pub fn new(id: impl std::hash::Hash, title: impl Into<String>) -> Self {
         Self {
-            id,
+            id: ViewId::new(id),
             title: title.into(),
+            icon: "square-multiple",
+            avoidance: RibbonAvoidance::none(),
+            layout: None,
+            draw: Box::new(|_| {}),
         }
     }
+
+    #[must_use]
+    pub fn with_icon(mut self, icon: &'static str) -> Self {
+        self.icon = icon;
+        self
+    }
+
+    /// Make the board shrink inside the ribbons (vs. painting behind
+    /// them). Pass [`RibbonAvoidance::all`] for an instrument-panel look.
+    #[must_use]
+    pub fn with_content_avoidance(mut self, avoidance: RibbonAvoidance) -> Self {
+        self.avoidance = avoidance;
+        self
+    }
+
+    /// Give the board an internal layout — its draw callback then sees
+    /// the resolved cells via [`BoardPaint::cell`] / `BoardPaint::cells`.
+    #[must_use]
+    pub fn with_layout(mut self, layout: Layout) -> Self {
+        self.layout = Some(layout);
+        self
+    }
+
+    /// Set the per-frame drawing callback.
+    #[must_use]
+    pub fn on_draw(mut self, draw: impl FnMut(BoardPaint) + 'static) -> Self {
+        self.draw = Box::new(draw);
+        self
+    }
+
+    fn paint(
+        &mut self,
+        painter: &MaraPainter,
+        response: &MaraResponse,
+        rect: Rect,
+        accent: Color32,
+    ) {
+        let cells = self
+            .layout
+            .as_ref()
+            .map(|layout| layout.resolve(rect))
+            .unwrap_or_default();
+        (self.draw)(BoardPaint {
+            painter,
+            response,
+            rect,
+            accent,
+            cells: &cells,
+        });
+    }
 }
 
-impl MaraView for BoardView {
+impl MaraView for Board {
     fn id(&self) -> ViewId {
-        ViewId::new(self.id)
+        self.id
     }
 
     fn title(&self) -> &str {
@@ -75,134 +130,41 @@ impl MaraView for BoardView {
     }
 
     fn icon(&self) -> &'static str {
-        "square-multiple"
+        self.icon
     }
 
-    /// Unlike the canvas/map views (which paint full-bleed *behind* the
-    /// ribbons), a Board view shrinks to sit *inside* all the ribbons —
-    /// the top bar and the left/right/bottom rails are never drawn over
-    /// it. Panes still float over it (they're toggleable). The content
-    /// area comes from [`ViewCtx::content_rect`], which already insets by
-    /// this avoidance.
     fn content_avoidance(&self) -> RibbonAvoidance {
-        RibbonAvoidance::all()
+        self.avoidance
     }
 
     fn show(&mut self, ctx: &mut ViewCtx<'_>) {
-        let area = ctx.content_rect();
+        let rect = ctx.content_rect();
         ctx.body(|mui| {
             let accent = mui.accent();
-            // Backdrop for the content area (the gaps between boards).
-            mui.painter()
-                .rect_filled(area, 0, mara_core::style::theme().palette.bg_window);
-
-            let pad = 10.0;
-            let col_w = 120.0;
-            let keys = 5;
-            let inner = Rect::from_min_max(
-                Pos2::new(area.left() + pad, area.top() + pad),
-                Pos2::new(area.right() - pad, area.bottom() - pad),
-            );
-            let left_col =
-                Rect::from_min_max(inner.min, Pos2::new(inner.left() + col_w, inner.bottom()));
-            let right_col =
-                Rect::from_min_max(Pos2::new(inner.right() - col_w, inner.top()), inner.max);
-            let center = Rect::from_min_max(
-                Pos2::new(left_col.right() + pad, inner.top()),
-                Pos2::new(right_col.left() - pad, inner.bottom()),
-            );
-
-            // Soft-key Boards down each side — each its own surface.
-            for (col, side) in [(left_col, "L"), (right_col, "R")] {
-                let kh = (col.height() - pad * (keys as f32 - 1.0)) / keys as f32;
-                for i in 0..keys {
-                    let top = col.top() + i as f32 * (kh + pad);
-                    let kr = Rect::from_min_max(
-                        Pos2::new(col.left(), top),
-                        Pos2::new(col.right(), top + kh),
-                    );
-                    let key = Board::new(ViewId::new(("board.softkey", side, i)));
-                    let (painter, response) = key.surface(mui, kr);
-                    draw_soft_key(
-                        &painter,
-                        kr,
-                        &format!("{side}{}", i + 1),
-                        accent,
-                        response.hovered,
-                    );
-                }
-            }
-
-            // The big central Board.
-            let data_mask = Board::new(ViewId::new("board.data_mask"));
-            let (painter, _response) = data_mask.surface(mui, center);
-            draw_center_board(&painter, center, accent);
+            let (painter, response) = mui.canvas_at(rect);
+            self.paint(&painter, &response, rect, accent);
         });
     }
 }
 
-/// One VT-style soft key: rounded fill + border + label, highlighted on
-/// hover so it reads as independently targetable.
-fn draw_soft_key(painter: &MaraPainter, rect: Rect, label: &str, accent: Color32, hovered: bool) {
-    let bg = if hovered {
-        accent
-    } else {
-        Color32::from_rgb(40, 46, 58)
-    };
-    painter.rect_filled(rect, 8, bg);
-    painter.rect_stroke(rect, 8, Stroke::new(1.5, Color32::from_gray(90)));
-    painter.text(
-        rect.center(),
-        Align2::CENTER_CENTER,
-        label,
-        16.0,
-        Color32::WHITE,
-    );
-}
+impl MaraModule for Board {
+    fn id(&self) -> mara_core::vocab::Id {
+        self.id.0
+    }
 
-/// The central Board's content — a framed surface with a big gauge built
-/// from the new arc primitive, plus a sample ellipse.
-fn draw_center_board(painter: &MaraPainter, area: Rect, accent: Color32) {
-    painter.rect_filled(area, 10, Color32::from_rgb(24, 28, 36));
-    painter.rect_stroke(area, 10, Stroke::new(1.5, Color32::from_gray(80)));
-    painter.text(
-        Pos2::new(area.center().x, area.top() + 18.0),
-        Align2::CENTER_TOP,
-        "center board",
-        14.0,
-        Color32::from_gray(160),
-    );
+    fn title(&self) -> &str {
+        &self.title
+    }
 
-    let c = area.center();
-    let r = (area.width().min(area.height()) * 0.30).max(24.0);
-    let deg = |d: f32| d.to_radians();
-    let (a0, sweep, value) = (deg(135.0), deg(270.0), 0.62_f32);
-    painter.arc(
-        c,
-        Vec2::new(r, r),
-        a0,
-        a0 + sweep,
-        Stroke::new(12.0, Color32::from_gray(70)),
-    );
-    painter.arc(
-        c,
-        Vec2::new(r, r),
-        a0,
-        a0 + sweep * value,
-        Stroke::new(12.0, accent),
-    );
-    let na = a0 + sweep * value;
-    painter.line_segment(
-        c,
-        Pos2::new(c.x + r * 0.82 * na.cos(), c.y + r * 0.82 * na.sin()),
-        Stroke::new(3.5, Color32::WHITE),
-    );
+    fn icon(&self) -> &'static str {
+        self.icon
+    }
 
-    // A sample ellipse below the gauge.
-    let er = Rect::from_min_size(
-        Pos2::new(c.x - 60.0, area.bottom() - 70.0),
-        Vec2::new(120.0, 44.0),
-    );
-    painter.ellipse_filled(er, Color32::from_rgb(70, 110, 200));
-    painter.ellipse_stroke(er, Stroke::new(2.0, Color32::WHITE));
+    fn inline(&mut self, mui: &mut MaraUi<'_>, _ctx: ModuleInlineCtx<'_>) -> ModuleResponse {
+        let accent = mui.accent();
+        let (painter, response) = mui.canvas(Vec2::new(220.0, 140.0));
+        let rect = response.rect;
+        self.paint(&painter, &response, rect, accent);
+        ModuleResponse::none()
+    }
 }

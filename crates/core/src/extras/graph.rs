@@ -649,9 +649,12 @@ where
     }
 
     fn show(&mut self, ctx: &mut crate::ViewCtx<'_>) {
-        egui::CentralPanel::default().show(ctx.egui_ctx, |ui| {
-            self.show_graph(ui);
-        });
+        #[allow(deprecated)]
+        {
+            egui::CentralPanel::default().show(ctx.egui_ctx, |ui| {
+                self.show_graph(ui);
+            });
+        }
     }
 }
 

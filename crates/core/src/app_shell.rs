@@ -446,12 +446,8 @@ pub fn __internal_show_app_shell_egui(
     if depth == 0 {
         let entry = router.active_entry_mut()?;
         let content_avoidance = entry.view.content_avoidance();
-        let mut ctx = ViewCtx {
-            egui_ctx,
-            workspace: &mut entry.workspace,
-            accent,
-            content_avoidance,
-        };
+        let mut ctx =
+            ViewCtx::__internal_new(egui_ctx, &mut entry.workspace, accent, content_avoidance);
         entry.view.show(&mut ctx);
     }
     Ok(resolved)
@@ -492,12 +488,8 @@ pub fn __internal_show_app_shell_with_slot_ribbons_egui(
     if depth == 0 {
         let entry = router.active_entry_mut()?;
         let content_avoidance = entry.view.content_avoidance();
-        let mut ctx = ViewCtx {
-            egui_ctx,
-            workspace: &mut entry.workspace,
-            accent,
-            content_avoidance,
-        };
+        let mut ctx =
+            ViewCtx::__internal_new(egui_ctx, &mut entry.workspace, accent, content_avoidance);
         entry.view.show(&mut ctx);
     }
 
@@ -554,12 +546,8 @@ where
     if depth == 0 {
         let entry = router.active_entry_mut()?;
         let content_avoidance = entry.view.content_avoidance();
-        let mut ctx = ViewCtx {
-            egui_ctx,
-            workspace: &mut entry.workspace,
-            accent,
-            content_avoidance,
-        };
+        let mut ctx =
+            ViewCtx::__internal_new(egui_ctx, &mut entry.workspace, accent, content_avoidance);
         entry.view.show(&mut ctx);
     }
 

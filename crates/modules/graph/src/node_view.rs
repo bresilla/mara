@@ -20,8 +20,8 @@
 //! per graph editor and tweaking that context's `pixels_per_point`
 //! to mirror the inverse of the zoom level. We follow the same
 //! recipe here, but generalise the rendering hook into a backend
-//! trait so the same code runs under both `bevy_egui` (Bevy 3D)
-//! and `eframe`'s wgpu backend.
+//! trait so the same code can run under different wgpu-backed
+//! Mara hosts without tying the graph to a specific window owner.
 //!
 //! ## Lifecycle
 //!
@@ -311,10 +311,8 @@ pub trait NodeViewBackend {
     /// finishes writing into the mara_core-allocated wgpu texture.
     /// Default impl is a no-op (eframe doesn't need it — the
     /// render pass writes into the same texture egui samples
-    /// directly). Bevy overrides this to queue a copy from the
-    /// mara_core-owned source texture into a Bevy `Image` asset's
-    /// GpuImage in render world (= what `bevy_egui` actually
-    /// samples on the parent UI side).
+    /// directly). Hosts with separate render worlds can override
+    /// this to queue a copy into their own texture asset.
     fn after_render(
         &mut self,
         _texture: &wgpu::Texture,
@@ -380,6 +378,7 @@ fn render_into_target(
                 depth_stencil_attachment: None,
                 timestamp_writes: None,
                 occlusion_query_set: None,
+                multiview_mask: None,
             })
             .forget_lifetime();
         renderer.render(&mut rpass, &primitives, &screen_descriptor);
@@ -627,11 +626,14 @@ pub fn show_with_anchor<R>(
     state.ensure_target(backend, size_pixels);
     let sub_ctx = state.sub_ctx.clone();
     sub_ctx.begin_pass(raw);
-    egui::CentralPanel::default()
-        .frame(egui::Frame::new())
-        .show(&sub_ctx, |ui| {
-            body(ui);
-        });
+    #[allow(deprecated)]
+    {
+        egui::CentralPanel::default()
+            .frame(egui::Frame::new())
+            .show(&sub_ctx, |ui| {
+                body(ui);
+            });
+    }
     let full = sub_ctx.end_pass();
     let primitives = sub_ctx.tessellate(full.shapes, sub_ppp);
     render_into_target(

@@ -1,6 +1,6 @@
 [package]
 name = "bevy_mara"
-description = "Bevy integration for the mara glass-themed editor UI kit. Wraps `mara_core` with `Resource`s, a `Plugin` that installs the theme, and the transform-gizmo always-on-top material."
+description = "Bevy content helpers for Mara-owned applications. Mara owns egui; this crate deliberately avoids Bevy-owned egui bridge dependencies."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -8,26 +8,10 @@ repository.workspace = true
 readme = "README.md"
 
 [dependencies]
-# `mara_core` is the entire UI core — pane / ribbon / container /
-# pod systems, widgets, theme runtime, vendored fonts. `bevy_mara`
-# is now just the Bevy-specific glue (resource registration, input
-# firewall, gizmo material) plus the vendored extras (node graph +
-# code editor) under `bevy_mara::extras::*`.
+# `mara_core` is still re-exported for old adapter consumers, but
+# the canonical app-facing path is `mara::ui`.
 mara_core = { workspace = true, features = ["bevy"] }
 mara_bevy = { workspace = true }
-mara_graph = { workspace = true, optional = true }
-# Direct egui dep — needed by the input-firewall plugin and the
-# `gizmo_material` shader. The vendored extras (`mara_graph` +
-# `mara_code`) ship as standalone crates so their transitive deps
-# move with them — no `egui-scale`/`slab`/`smallvec` here anymore.
-egui = { workspace = true }
-# Used by `BevyNodeViewBackend` to expose the wgpu device / queue
-# Bevy's render world owns. Texture registration is more involved
-# than eframe's path and currently lands as a `todo!()` placeholder
-# — Bevy needs a custom RenderApp node + Image asset extract
-# pipeline before sharp-zoom node-graph rendering works on the
-# Bevy side.
-wgpu = { workspace = true }
 bevy = { workspace = true, features = [
     "std",
     "async_executor",
@@ -61,18 +45,11 @@ bevy = { workspace = true, features = [
     "wayland",
     "reflect_auto_register",
 ] }
-bevy_egui = { workspace = true, features = [
-    "default_fonts",
-    "render",
-] }
-crossbeam-channel = "0.5"
-pollster = "0.4"
-bevy_glacial = { git = "https://github.com/bresilla/bevy_glacial.git", rev = "d7bc6d3" }
 
 [features]
 # Forward to mara_core's matching feature flags so consumers can
 # pick which standalone extras (`mara_graph`, `mara_code`) and
 # their mara-tinted wrappers compile in.
 default = ["graph", "code"]
-graph = ["mara_core/graph", "dep:mara_graph"]
+graph = ["mara_core/graph"]
 code = ["mara_core/code"]

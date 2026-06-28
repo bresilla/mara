@@ -785,13 +785,17 @@ pub(crate) fn singleline_text_edit_for_spec<'a>(
             .color(Into::<egui::Color32>::into(spec.hint_color))
             .size(spec.region.font_size),
     );
-    egui::TextEdit::singleline(text)
+    let edit = egui::TextEdit::singleline(text)
         .desired_width(spec.region.desired_width())
-        .frame(spec.frame)
         .hint_text(hint_text)
         .text_color(spec.text_color.into())
         .background_color(spec.background_color.into())
-        .font(egui::FontId::proportional(spec.region.font_size))
+        .font(egui::FontId::proportional(spec.region.font_size));
+    if spec.frame {
+        edit
+    } else {
+        edit.frame(egui::Frame::NONE)
+    }
 }
 
 pub(crate) struct TextEditOutput {
@@ -1220,6 +1224,7 @@ pub(crate) fn render_paint_cmd(painter: &egui::Painter, cmd: PaintCmd) {
                 radius: rect.size() / 2.0,
                 fill: fill.into(),
                 stroke: Into::<egui::Stroke>::into(stroke),
+                angle: 0.0,
             });
         }
         PaintCmd::Arc {
@@ -1387,6 +1392,7 @@ pub(crate) fn shape_from_paint_cmd(cmd: PaintCmd) -> egui::Shape {
                 radius: rect.size() / 2.0,
                 fill: fill.into(),
                 stroke: Into::<egui::Stroke>::into(stroke),
+                angle: 0.0,
             })
         }
         PaintCmd::Arc {

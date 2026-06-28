@@ -4558,19 +4558,22 @@ impl MaraView for View3d {
     }
 
     fn show(&mut self, ctx: &mut ViewCtx<'_>) {
-        egui::CentralPanel::default()
-            .frame(
-                egui::Frame::new()
-                    .fill(egui::Color32::TRANSPARENT)
-                    .inner_margin(0.0)
-                    .outer_margin(0.0),
-            )
-            .show(ctx.__internal_egui_ctx(), |ui| {
-                let rect = ctx.content_rect().intersect(ui.max_rect().into());
-                let rect: egui::Rect = rect.into();
-                let response = ui.allocate_rect(rect, egui::Sense::click_and_drag());
-                self.paint_preview(ui, response.rect, &response);
-            });
+        #[allow(deprecated)]
+        {
+            egui::CentralPanel::default()
+                .frame(
+                    egui::Frame::new()
+                        .fill(egui::Color32::TRANSPARENT)
+                        .inner_margin(0.0)
+                        .outer_margin(0.0),
+                )
+                .show(ctx.__internal_egui_ctx(), |ui| {
+                    let rect = ctx.content_rect().intersect(ui.max_rect().into());
+                    let rect: egui::Rect = rect.into();
+                    let response = ui.allocate_rect(rect, egui::Sense::click_and_drag());
+                    self.paint_preview(ui, response.rect, &response);
+                });
+        }
     }
 }
 
@@ -5170,6 +5173,7 @@ impl egui_wgpu::CallbackTrait for GpuPreviewCallback {
                     }),
                     timestamp_writes: None,
                     occlusion_query_set: None,
+                    multiview_mask: None,
                 })
                 .forget_lifetime();
 
@@ -5318,6 +5322,7 @@ impl egui_wgpu::CallbackTrait for GpuSceneCallback {
                     }),
                     timestamp_writes: None,
                     occlusion_query_set: None,
+                    multiview_mask: None,
                 })
                 .forget_lifetime();
 
@@ -5467,14 +5472,14 @@ impl GpuPreviewResources {
             });
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("mara_3d_gpu_preview_pipeline_layout"),
-            bind_group_layouts: &[&bind_group_layout],
-            push_constant_ranges: &[],
+            bind_group_layouts: &[Some(&bind_group_layout)],
+            immediate_size: 0,
         });
         let scene_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("mara_3d_gpu_scene_pipeline_layout"),
-                bind_group_layouts: &[&bind_group_layout, &scene_uniform_layout],
-                push_constant_ranges: &[],
+                bind_group_layouts: &[Some(&bind_group_layout), Some(&scene_uniform_layout)],
+                immediate_size: 0,
             });
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("mara_3d_gpu_preview_shader"),
@@ -5508,8 +5513,8 @@ impl GpuPreviewResources {
             },
             depth_stencil: Some(wgpu::DepthStencilState {
                 format: wgpu::TextureFormat::Depth32Float,
-                depth_write_enabled: true,
-                depth_compare: wgpu::CompareFunction::Less,
+                depth_write_enabled: Some(true),
+                depth_compare: Some(wgpu::CompareFunction::Less),
                 stencil: wgpu::StencilState::default(),
                 bias: wgpu::DepthBiasState::default(),
             }),
@@ -5535,7 +5540,7 @@ impl GpuPreviewResources {
                 })],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
             }),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         });
         let scene_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -5567,8 +5572,8 @@ impl GpuPreviewResources {
             },
             depth_stencil: Some(wgpu::DepthStencilState {
                 format: wgpu::TextureFormat::Depth32Float,
-                depth_write_enabled: true,
-                depth_compare: wgpu::CompareFunction::Less,
+                depth_write_enabled: Some(true),
+                depth_compare: Some(wgpu::CompareFunction::Less),
                 stencil: wgpu::StencilState::default(),
                 bias: wgpu::DepthBiasState::default(),
             }),
@@ -5594,7 +5599,7 @@ impl GpuPreviewResources {
                 })],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
             }),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         });
         let quad_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -5642,7 +5647,7 @@ impl GpuPreviewResources {
                 })],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
             }),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         });
 
@@ -5659,7 +5664,7 @@ impl GpuPreviewResources {
             address_mode_w: wgpu::AddressMode::Repeat,
             mag_filter: wgpu::FilterMode::Nearest,
             min_filter: wgpu::FilterMode::Nearest,
-            mipmap_filter: wgpu::FilterMode::Nearest,
+            mipmap_filter: wgpu::MipmapFilterMode::Nearest,
             ..Default::default()
         }));
         self.white_bind_group = None;
@@ -5708,7 +5713,7 @@ fn create_vertex_buffer(device: &wgpu::Device, label: &str, bytes: &[u8]) -> wgp
     });
     {
         let mut mapped = buffer.slice(..).get_mapped_range_mut();
-        mapped[..bytes.len()].copy_from_slice(bytes);
+        mapped.slice(..bytes.len()).copy_from_slice(bytes);
     }
     buffer.unmap();
     buffer
@@ -5724,7 +5729,7 @@ fn create_uniform_buffer(device: &wgpu::Device, label: &str, bytes: &[u8]) -> wg
     });
     {
         let mut mapped = buffer.slice(..).get_mapped_range_mut();
-        mapped[..bytes.len()].copy_from_slice(bytes);
+        mapped.slice(..bytes.len()).copy_from_slice(bytes);
     }
     buffer.unmap();
     buffer

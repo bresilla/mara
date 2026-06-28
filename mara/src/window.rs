@@ -391,7 +391,8 @@ impl<A: WindowApp> NativeWinitApp<A> {
         let frame_timing = std::env::var_os("MARA_FRAME_TIME").is_some();
         let frame_t0 = std::time::Instant::now();
 
-        let full_output = self.egui_ctx.run(raw_input, |ctx| {
+        let full_output = self.egui_ctx.run_ui(raw_input, |ui| {
+            let ctx = ui.ctx();
             let mut host = MaraHostCtx::mara_window(ctx, Some(&render_state));
             app.update(&mut host);
 
