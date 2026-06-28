@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.3.1] - 2026-06-28
+
+### <!-- 0 -->⛰️  Features
+
+- Rearchitect Bevy as embedded viewport content
+- Add Board pixel-drawing surface and new paint primitives
+- Adjust ribbon rail top inset calculation
+- Improve tab and ribbon chrome
+- Changes
+- Implement enforced cross-platform shell bar
+
+### <!-- 1 -->🐛 Bug Fixes
+
+- Bump internal dep pins to 0.3.0
+
+### <!-- 4 -->⚡ Performance
+
+- Optimize the wgpu part
+
+### <!-- 7 -->⚙️ Miscellaneous Tasks
+
+- Remove obsolete architectural
+
 ## [0.3.0] - 2026-06-09
 
 ### <!-- 0 -->⛰️  Features
