@@ -1,10 +1,9 @@
 SHELL := /bin/bash
 
-PROJECT_NAME := $(shell sed -n '/^[[:space:]]*[^#\[[:space:]]/p' PROJECT | head -1 | tr -d '[:space:]')
-PROJECT_VERSION := $(shell sed -n '/^[[:space:]]*[^#\[[:space:]]/p' PROJECT | sed -n '2p' | tr -d '[:space:]')
-ifeq ($(PROJECT_NAME),)
-    $(error Error: PROJECT file not found or invalid)
-endif
+PROJECT_NAME_FROM_CARGO := $(shell sed -n 's/^[[:space:]]*name[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' Cargo.toml | head -1)
+PROJECT_VERSION_FROM_CARGO := $(shell sed -n 's/^[[:space:]]*version[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' Cargo.toml | head -1)
+PROJECT_NAME ?= $(or $(PROJECT_NAME_FROM_CARGO),$(notdir $(CURDIR)))
+PROJECT_VERSION ?= $(or $(PROJECT_VERSION_FROM_CARGO),dev)
 
 TOP_DIR := $(CURDIR)
 CARGO := cargo

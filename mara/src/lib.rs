@@ -17,6 +17,9 @@ pub mod ui;
 pub mod window;
 
 pub mod prelude {
+    pub use crate::host::{
+        MaraHostCtx, MaraWindowHost, RibbonActionButton, RibbonPane, RibbonRail,
+    };
     pub use crate::ui::prelude::*;
 
     #[cfg(all(feature = "window", not(target_arch = "wasm32")))]

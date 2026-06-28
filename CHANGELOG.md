@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.3.2] - 2026-06-28
+
+### <!-- 0 -->⛰️  Features
+
+- Introduce high-level ribbon rail API
+
 ## [0.3.1] - 2026-06-28
 
 ### <!-- 0 -->⛰️  Features

@@ -13,6 +13,192 @@ pub struct MaraHostCtx<'a> {
     window: MaraWindowHost,
 }
 
+/// High-level declaration for one Mara ribbon rail.
+///
+/// This is the app-facing API for the common "rail buttons open panes,
+/// actions return clicks" shell shape. It owns the boring parts that
+/// consumers were previously forced to copy from the demo:
+/// `ResolvedSlotRibbon` construction, `RibbonScope`, pane-id
+/// publication, `RibbonOpen` state, and the required panes-before-ribbons
+/// paint order.
+pub struct RibbonRail<'a, 'spec> {
+    id: &'static str,
+    scope: mara_core::RibbonScope,
+    edge: mara_core::ribbon::RibbonEdge,
+    mode: mara_core::ribbon::RibbonMode,
+    accepts: &'static [&'static str],
+    default_open: Option<&'static str>,
+    panes: Vec<RibbonPane<'a, 'spec>>,
+    actions: Vec<RibbonActionButton>,
+}
+
+/// One pane button hosted by a [`RibbonRail`].
+pub struct RibbonPane<'a, 'spec> {
+    id: &'static str,
+    title: &'static str,
+    icon: &'static str,
+    cluster: mara_core::ribbon::RibbonCluster,
+    anchor: mara_core::pane::PaneAnchor,
+    resize: mara_core::pane::PaneResize,
+    body: Box<dyn FnOnce(&mut mara_core::pane::PaneBody<'_, 'spec>) + 'a>,
+}
+
+/// One non-pane action button hosted by a [`RibbonRail`].
+#[derive(Clone, Copy, Debug)]
+pub struct RibbonActionButton {
+    id: &'static str,
+    icon: &'static str,
+    tooltip: &'static str,
+    cluster: mara_core::ribbon::RibbonCluster,
+    action: mara_core::ribbon::RibbonAction,
+}
+
+#[derive(Clone, Default)]
+struct HostRibbonRailState {
+    initialized: bool,
+    open: mara_core::ribbon::RibbonOpen,
+    placement: mara_core::ribbon::RibbonPlacement,
+    drag: mara_core::ribbon::RibbonDrag,
+}
+
+impl<'a, 'spec> RibbonRail<'a, 'spec> {
+    #[must_use]
+    pub fn view(
+        id: &'static str,
+        view: impl std::hash::Hash,
+        edge: mara_core::ribbon::RibbonEdge,
+    ) -> Self {
+        Self {
+            id,
+            scope: mara_core::RibbonScope::View(mara_core::ViewId::new(view)),
+            edge,
+            mode: mara_core::ribbon::RibbonMode::ThreeSided,
+            accepts: &[],
+            default_open: None,
+            panes: Vec::new(),
+            actions: Vec::new(),
+        }
+    }
+
+    #[must_use]
+    pub fn view_left(id: &'static str, view: impl std::hash::Hash) -> Self {
+        Self::view(id, view, mara_core::ribbon::RibbonEdge::Left)
+    }
+
+    #[must_use]
+    pub fn view_right(id: &'static str, view: impl std::hash::Hash) -> Self {
+        Self::view(id, view, mara_core::ribbon::RibbonEdge::Right)
+    }
+
+    #[must_use]
+    pub fn view_bottom(id: &'static str, view: impl std::hash::Hash) -> Self {
+        Self::view(id, view, mara_core::ribbon::RibbonEdge::Bottom)
+    }
+
+    #[must_use]
+    pub fn permanent_top(id: &'static str) -> Self {
+        Self {
+            id,
+            scope: mara_core::RibbonScope::Permanent,
+            edge: mara_core::ribbon::RibbonEdge::Top,
+            mode: mara_core::ribbon::RibbonMode::ThreeSided,
+            accepts: &[],
+            default_open: None,
+            panes: Vec::new(),
+            actions: Vec::new(),
+        }
+    }
+
+    #[must_use]
+    pub fn accepts(mut self, accepts: &'static [&'static str]) -> Self {
+        self.accepts = accepts;
+        self
+    }
+
+    #[must_use]
+    pub fn default_open(mut self, pane_id: &'static str) -> Self {
+        self.default_open = Some(pane_id);
+        self
+    }
+
+    #[must_use]
+    pub fn pane(
+        self,
+        id: &'static str,
+        icon: &'static str,
+        title: &'static str,
+        anchor: mara_core::pane::PaneAnchor,
+        body: impl FnOnce(&mut mara_core::pane::PaneBody<'_, 'spec>) + 'a,
+    ) -> Self {
+        self.pane_in(
+            mara_core::ribbon::RibbonCluster::Start,
+            id,
+            icon,
+            title,
+            anchor,
+            body,
+        )
+    }
+
+    #[must_use]
+    pub fn pane_in(
+        mut self,
+        cluster: mara_core::ribbon::RibbonCluster,
+        id: &'static str,
+        icon: &'static str,
+        title: &'static str,
+        anchor: mara_core::pane::PaneAnchor,
+        body: impl FnOnce(&mut mara_core::pane::PaneBody<'_, 'spec>) + 'a,
+    ) -> Self {
+        self.panes.push(RibbonPane {
+            id,
+            title,
+            icon,
+            cluster,
+            anchor,
+            resize: mara_core::pane::PaneResize::SPAN,
+            body: Box::new(body),
+        });
+        self
+    }
+
+    #[must_use]
+    pub fn action(
+        self,
+        id: &'static str,
+        icon: &'static str,
+        tooltip: &'static str,
+        action: mara_core::ribbon::RibbonAction,
+    ) -> Self {
+        self.action_in(
+            mara_core::ribbon::RibbonCluster::End,
+            id,
+            icon,
+            tooltip,
+            action,
+        )
+    }
+
+    #[must_use]
+    pub fn action_in(
+        mut self,
+        cluster: mara_core::ribbon::RibbonCluster,
+        id: &'static str,
+        icon: &'static str,
+        tooltip: &'static str,
+        action: mara_core::ribbon::RibbonAction,
+    ) -> Self {
+        self.actions.push(RibbonActionButton {
+            id,
+            icon,
+            tooltip,
+            cluster,
+            action,
+        });
+        self
+    }
+}
+
 impl<'a> MaraHostCtx<'a> {
     pub fn new(
         egui: &'a egui::Context,
@@ -235,6 +421,20 @@ impl<'a> MaraHostCtx<'a> {
         mara_core::embed::__internal_restore_fullscreen(self.egui)
     }
 
+    /// Apply the current Mara theme with default host state.
+    ///
+    /// A bare `mara::window::WindowApp` should look like Mara without
+    /// app code manually calling `set_theme`/`apply_theme` every frame.
+    /// The active theme itself still comes from
+    /// [`mara_core::style::theme`], whose process default is PRO/Dark;
+    /// apps can change that global theme and this method will apply it.
+    pub fn apply_default_theme(&self) {
+        self.apply_theme(
+            mara_core::style::AccentColor(mara_core::style::raw_accent()),
+            mara_core::style::glass_opacity(),
+        );
+    }
+
     /// Apply Mara theme/glass/accent for the current frame.
     pub fn apply_theme(
         &self,
@@ -274,6 +474,108 @@ impl<'a> MaraHostCtx<'a> {
     #[cfg(feature = "graph")]
     pub fn node_view_backend(&self) -> Option<EframeNodeViewBackend<'a>> {
         self.render_state.map(EframeNodeViewBackend::new)
+    }
+}
+
+impl MaraHostCtx<'_> {
+    /// Show a high-level rail declaration.
+    ///
+    /// This paints open panes first, then the ribbon rail, because the
+    /// ribbon must remain above panes. It also publishes the rail's pane
+    /// ids before calling `show_pane`, so consumers cannot forget the
+    /// registration handshake.
+    pub fn show_ribbon_rail<'rail, 'spec>(
+        &self,
+        rail: RibbonRail<'rail, 'spec>,
+        accent: impl Into<mara_core::vocab::Color32>,
+    ) -> Vec<mara_core::ribbon::RibbonSlotClick> {
+        let accent = accent.into();
+        let key = egui::Id::new(("mara_host_ribbon_rail_state", rail.id));
+        let mut state = self
+            .egui
+            .data_mut(|data| data.get_persisted::<HostRibbonRailState>(key))
+            .unwrap_or_default();
+        if !state.initialized {
+            if let Some(pane_id) = rail.default_open {
+                state.open.set(rail.id, pane_id);
+            }
+            state.initialized = true;
+        }
+
+        self.publish_ribbon_pane_ids(rail.panes.iter().map(|pane| pane.id));
+
+        let mut resolved = Vec::new();
+        for cluster in [
+            mara_core::ribbon::RibbonCluster::Start,
+            mara_core::ribbon::RibbonCluster::Middle,
+            mara_core::ribbon::RibbonCluster::End,
+        ] {
+            let mut items = Vec::new();
+            for pane in rail.panes.iter().filter(|pane| pane.cluster == cluster) {
+                items.push(
+                    mara_core::ribbon::RibbonSlotItem::featureful(
+                        pane.id,
+                        pane.icon,
+                        pane.title,
+                        pane.title,
+                        mara_core::ribbon::RibbonAction::Command(mara_core::vocab::Id::new(
+                            pane.id,
+                        )),
+                    )
+                    .with_role(mara_core::ribbon::RibbonRole::Panel),
+                );
+            }
+            for action in rail
+                .actions
+                .iter()
+                .filter(|action| action.cluster == cluster)
+            {
+                items.push(
+                    mara_core::ribbon::RibbonSlotItem::featureful(
+                        action.id,
+                        action.icon,
+                        action.tooltip,
+                        action.tooltip,
+                        action.action,
+                    )
+                    .with_role(mara_core::ribbon::RibbonRole::Icon),
+                );
+            }
+            if items.is_empty() {
+                continue;
+            }
+            resolved.push(mara_core::ribbon::ResolvedSlotRibbon {
+                id: mara_core::vocab::Id::new((rail.id, cluster)),
+                chrome_id: Some(rail.id),
+                scope: rail.scope,
+                edge: rail.edge,
+                role: mara_core::ribbon::RibbonRole::Panel,
+                mode: rail.mode,
+                cluster,
+                accepts: rail.accepts,
+                items,
+            });
+        }
+
+        for pane in rail.panes {
+            if state.open.is_open(rail.id, pane.id) {
+                self.show_pane(
+                    mara_core::pane::Pane::new(pane.id, pane.title, pane.anchor, accent)
+                        .resize(pane.resize),
+                    pane.body,
+                );
+            }
+        }
+
+        let clicks = self.draw_slot_ribbons_featureful(
+            accent,
+            &resolved,
+            &mut state.open,
+            &mut state.placement,
+            &mut state.drag,
+        );
+        self.egui.data_mut(|data| data.insert_persisted(key, state));
+        clicks
     }
 }
 

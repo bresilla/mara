@@ -216,10 +216,21 @@ impl Default for GroundGrid {
 /// Draws [`GroundGrid`] with Bevy gizmos when the resource is visible.
 pub struct GroundGridPlugin;
 
+#[derive(Resource, Default)]
+struct GroundGridPluginInstalled;
+
 impl Plugin for GroundGridPlugin {
     fn build(&self, app: &mut App) {
+        if app.world().contains_resource::<GroundGridPluginInstalled>() {
+            return;
+        }
+        app.insert_resource(GroundGridPluginInstalled);
         app.init_resource::<GroundGrid>()
             .add_systems(Update, draw_ground_grid_system);
+    }
+
+    fn is_unique(&self) -> bool {
+        false
     }
 }
 
@@ -1417,6 +1428,13 @@ mod tests {
             .get::<RenderTarget>(camera)
             .expect("render target component");
         assert_eq!(target.as_image(), Some(&handle));
+    }
+
+    #[test]
+    fn ground_grid_plugin_is_idempotent() {
+        let mut app = App::new();
+        app.add_plugins(GroundGridPlugin);
+        app.add_plugins(GroundGridPlugin);
     }
 
     #[test]
