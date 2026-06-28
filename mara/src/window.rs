@@ -394,6 +394,14 @@ impl<A: WindowApp> NativeWinitApp<A> {
         let full_output = self.egui_ctx.run_ui(raw_input, |ui| {
             let ctx = ui.ctx();
             let mut host = MaraHostCtx::mara_window(ctx, Some(&render_state));
+            // A bare `WindowApp` should already look and behave like
+            // Mara: apply the active Mara theme, publish native window
+            // capabilities for the enforced top bar, and provide the
+            // no-shelf layout baseline that ribbons/panes read. Apps
+            // with custom themes or real shelves can still override
+            // these later in their own update pass.
+            host.apply_default_theme();
+            host.publish_full_shelf_layout();
             app.update(&mut host);
 
             // Enforced permanent top bar — rendered by the runner, not
