@@ -5,7 +5,7 @@
 //! * **The dragged container `return`s early** in `Normal::show` —
 //!   it doesn't allocate a layout slot, so the OTHER containers
 //!   visibly collapse upward to fill its place.
-//! * **An inline ghost gap** is allocated via `allocate_exact_size`
+//! * **An inline ghost gap** is allocated via the Mara UI backend
 //!   at the cursor's target slot during the iteration — pushing
 //!   subsequent containers DOWN to make room. The gap is painted
 //!   with an accent rect so the user sees where the drop will land.
@@ -16,10 +16,16 @@
 //! * **A floating preview** of the dragged container's last-known
 //!   rect renders at the cursor (paint-only, separate Area).
 
-use egui::{Color32, Context, Id, Pos2, Rect, Sense, Ui, Vec2};
+use egui::{Color32, Context, Id, Pos2, Rect, Ui, Vec2};
 
+use crate::layout::{AreaHost, Layer, Sense, UiBackend};
+use crate::paint::PaintCmd;
 use crate::pane::active_pane_key;
 use crate::style;
+use crate::vocab::{
+    Color32 as MaraColor32, CornerRadius as MaraCornerRadius, Pos2 as MaraPos2, Rect as MaraRect,
+    Stroke as MaraStroke, Vec2 as MaraVec2,
+};
 
 // ─── State ─────────────────────────────────────────────────────────
 
@@ -224,7 +230,7 @@ pub fn set_section_order(ctx: &Context, pane_id: Id, order: Vec<Id>) {
 
 /// Look up the **active pane**'s drag state. Used by `Normal` —
 /// which doesn't directly know its parent `Pane`'s id — via the
-/// `active_pane_key` pointer that `Pane::show` writes at the top
+/// `active_pane_key` pointer that internal pane rendering writes at the top
 /// of every frame.
 pub fn active_drag(ctx: &Context) -> Option<(Id, DragState)> {
     let pane_id: Id = ctx.data(|d| d.get_temp(active_pane_key()))?;
@@ -297,15 +303,11 @@ pub fn paint_ghost_gap_inline(
     accent: Color32,
     _horizontal_stack: bool,
 ) {
-    let (rect, _) = ui.allocate_exact_size(dragged_size, Sense::hover());
-    let theme = style::theme();
-    ui.painter().rect(
-        rect,
-        egui::CornerRadius::same(theme.radius_md),
-        Color32::from_rgba_unmultiplied(accent.r(), accent.g(), accent.b(), 36),
-        egui::Stroke::new(1.5, accent),
-        egui::StrokeKind::Inside,
-    );
+    let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
+    let rect = backend
+        .allocate(MaraVec2::from(dragged_size), Sense::Hover)
+        .rect;
+    paint_ghost_rect(&mut backend, rect, accent.into(), 36);
 }
 
 /// Allocate a same-main-axis slot but keep the ghost's cross-axis
@@ -321,20 +323,49 @@ pub fn paint_ghost_gap_entry_inline(
     horizontal_stack: bool,
 ) {
     let size = entry.rect.size();
-    let (slot_rect, _) = ui.allocate_exact_size(size, Sense::hover());
+    let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
+    let slot_rect = backend.allocate(MaraVec2::from(size), Sense::Hover).rect;
+    let entry_rect: MaraRect = entry.rect.into();
     let rect = if horizontal_stack {
-        Rect::from_min_size(egui::pos2(slot_rect.left(), entry.rect.top()), size)
+        MaraRect::from_min_size(
+            MaraPos2::new(slot_rect.left(), entry_rect.top()),
+            MaraVec2::from(size),
+        )
     } else {
-        Rect::from_min_size(egui::pos2(entry.rect.left(), slot_rect.top()), size)
+        MaraRect::from_min_size(
+            MaraPos2::new(entry_rect.left(), slot_rect.top()),
+            MaraVec2::from(size),
+        )
     };
+    paint_ghost_rect(&mut backend, rect, accent.into(), 36);
+}
+
+fn ghost_rect_paint_cmds(rect: MaraRect, accent: MaraColor32, fill_alpha: u8) -> [PaintCmd; 2] {
     let theme = style::theme();
-    ui.painter().rect(
-        rect,
-        egui::CornerRadius::same(theme.radius_md),
-        Color32::from_rgba_unmultiplied(accent.r(), accent.g(), accent.b(), 36),
-        egui::Stroke::new(1.5, accent),
-        egui::StrokeKind::Inside,
-    );
+    let corner = MaraCornerRadius::same(theme.radius_md);
+    [
+        PaintCmd::RectFilled {
+            rect,
+            corner,
+            fill: MaraColor32::from_rgba_unmultiplied(
+                accent.r(),
+                accent.g(),
+                accent.b(),
+                fill_alpha,
+            ),
+        },
+        PaintCmd::RectStroke {
+            rect,
+            corner,
+            stroke: MaraStroke::new(1.5, accent),
+        },
+    ]
+}
+
+fn paint_ghost_rect(backend: &mut impl UiBackend, rect: MaraRect, accent: MaraColor32, alpha: u8) {
+    for cmd in ghost_rect_paint_cmds(rect, accent, alpha) {
+        backend.paint(cmd);
+    }
 }
 
 /// Paint the dragged container's preview at the cursor on
@@ -350,24 +381,23 @@ pub fn paint_drag_preview(
     let Some(entry) = snapshot.iter().find(|e| e.id == dragged) else {
         return;
     };
-    let size = entry.rect.size();
-    let pos = egui::pos2(cursor.x - size.x * 0.5, cursor.y - size.y * 0.5);
+    let size = MaraVec2::from(entry.rect.size());
+    let cursor = MaraPos2::from(cursor);
+    let pos = MaraPos2::new(cursor.x - size.x * 0.5, cursor.y - size.y * 0.5);
     let area_id = pane_id.with("mara_pane_drag_preview");
-    egui::Area::new(area_id)
-        .order(egui::Order::Tooltip)
-        .fixed_pos(pos)
-        .interactable(false)
-        .show(ctx, |ui| {
-            let rect = egui::Rect::from_min_size(pos, size);
-            let theme = style::theme();
-            ui.painter().rect(
-                rect,
-                egui::CornerRadius::same(theme.radius_md),
-                Color32::from_rgba_unmultiplied(accent.r(), accent.g(), accent.b(), 72),
-                egui::Stroke::new(1.5, accent),
-                egui::StrokeKind::Inside,
+    crate::backend::egui::show_area_for_host(
+        ctx,
+        AreaHost::new(area_id.into(), pos, Layer::Overlay).non_interactive(),
+        |ui| {
+            let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
+            paint_ghost_rect(
+                &mut backend,
+                MaraRect::from_min_size(pos, size),
+                accent.into(),
+                72,
             );
-        });
+        },
+    );
 }
 
 #[cfg(test)]
@@ -565,5 +595,28 @@ mod tests {
             !target.iter().any(|entry| entry.id == stale),
             "live targeting must not resurrect removed containers from stale snapshots"
         );
+    }
+
+    #[test]
+    fn ghost_gap_lowers_to_mara_fill_and_stroke_commands() {
+        let rect = MaraRect::from_min_size(MaraPos2::new(10.0, 20.0), MaraVec2::new(90.0, 60.0));
+        let cmds = ghost_rect_paint_cmds(rect, MaraColor32::from_rgb(10, 20, 30), 36);
+
+        assert!(matches!(
+            cmds[0],
+            PaintCmd::RectFilled {
+                rect: got,
+                fill,
+                ..
+            } if got == rect && fill.a() == 36
+        ));
+        assert!(matches!(
+            cmds[1],
+            PaintCmd::RectStroke {
+                rect: got,
+                stroke,
+                ..
+            } if got == rect && stroke.color == MaraColor32::from_rgb(10, 20, 30)
+        ));
     }
 }

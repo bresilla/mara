@@ -25,7 +25,14 @@
 
 use std::hash::Hash;
 
-use crate::style;
+use crate::{
+    paint::{PaintCmd, TextFamily},
+    style,
+    vocab::{
+        Align2 as MaraAlign2, Color32 as MaraColor32, CornerRadius, Id as MaraId, Pos2 as MaraPos2,
+        Rect as MaraRect, Stroke as MaraStroke, Vec2 as MaraVec2,
+    },
+};
 
 /// Row height — matches [`crate::widget::SELECT_ROW_H`] so trees and
 /// outliner-style lists stack at the same rhythm.
@@ -70,7 +77,7 @@ pub enum TreeIconKind {
     /// (still required by the slice shape — pass any `&mut bool`);
     /// the icon response is returned in [`TreeRowResponse::icons`]
     /// so callers can act on clicks (e.g. "select the material").
-    Color(egui::Color32),
+    Color(MaraColor32),
 }
 
 /// One slot in the right-gutter of a [`tree_row`].
@@ -169,7 +176,7 @@ impl TreeBranchGuide {
 /// fixed-width right gutter of action toggles — pass the same slice
 /// shape for every row in the tree.
 #[allow(clippy::too_many_arguments)]
-pub fn tree_row(
+pub(crate) fn tree_row(
     ui: &mut egui::Ui,
     id_salt: impl Hash + Copy,
     depth: u32,
@@ -177,16 +184,16 @@ pub fn tree_row(
     icon: Option<&str>,
     label: &str,
     selected: bool,
-    accent: egui::Color32,
+    accent: impl Into<MaraColor32> + Copy,
     slots: &mut [TreeIconSlot<'_>],
 ) -> TreeRowResponse {
-    let w = ui.available_width();
+    let accent_mara = accent.into();
+    let w = crate::backend::egui::ui_available_width(ui);
     // Reserve z-slots for the row background fill + indent guides
     // BEFORE inline widgets draw.
-    let bg_anchor = ui.painter().add(egui::Shape::Noop);
-    let guide_anchor = ui.painter().add(egui::Shape::Noop);
+    let bg_slot = crate::backend::egui::reserve_deferred_paint_cmd_slot(ui);
 
-    let (rect, body_rect, chevron_rect_opt, icon_rect_opt, slot_rects) = compute_row_rects(
+    let row = compute_row_rects(
         ui,
         w,
         depth,
@@ -194,30 +201,48 @@ pub fn tree_row(
         icon.is_some(),
         slots.len(),
     );
+    let rect = row.rect;
+    let body_rect = row.body_rect;
+    let chevron_rect_opt = row.chevron_rect;
+    let icon_rect_opt = row.icon_rect;
 
-    let body = ui.interact(
-        body_rect,
-        ui.id().with(("mara_tree_body", id_salt)),
-        egui::Sense::click(),
-    );
-    let chevron = chevron_rect_opt.map(|cr| {
-        ui.interact(
-            cr,
-            ui.id().with(("mara_tree_chevron", id_salt)),
-            egui::Sense::click(),
-        )
-    });
-    let mut icon_responses: Vec<egui::Response> = Vec::with_capacity(slots.len());
-    for (i, slot_rect) in slot_rects.iter().enumerate() {
-        let mut r = ui.interact(
-            *slot_rect,
-            ui.id().with(("mara_tree_slot", id_salt, i)),
-            egui::Sense::click(),
+    let ui_id = crate::backend::egui::ui_id(ui);
+    let body_id = ui_id.with(("mara_tree_body", id_salt));
+    let chevron_id = ui_id.with(("mara_tree_chevron", id_salt));
+    let slot_ids: Vec<MaraId> = (0..slots.len())
+        .map(|i| ui_id.with(("mara_tree_slot", id_salt, i)))
+        .collect();
+    let (body, chevron, icon_responses) = {
+        let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
+        let body = crate::layout::UiBackend::interact(
+            &mut backend,
+            body_rect,
+            body_id,
+            crate::layout::Sense::Click,
         );
-        if let Some(tip) = slots[i].tooltip {
-            r = r.on_hover_text(tip);
+        let chevron = chevron_rect_opt.map(|cr| {
+            crate::layout::UiBackend::interact(
+                &mut backend,
+                cr,
+                chevron_id,
+                crate::layout::Sense::Click,
+            )
+        });
+        let mut icon_responses = Vec::with_capacity(slots.len());
+        for (i, slot_rect) in row.slot_rects.iter().enumerate() {
+            icon_responses.push(crate::layout::UiBackend::interact(
+                &mut backend,
+                *slot_rect,
+                slot_ids[i],
+                crate::layout::Sense::Click,
+            ));
         }
-        icon_responses.push(r);
+        (body, chevron, icon_responses)
+    };
+    for (i, response) in icon_responses.iter().enumerate() {
+        if let Some(tip) = slots[i].tooltip {
+            crate::backend::egui::hover_text_for_ui_response(ui, response, tip);
+        }
     }
 
     // Background fill — paints under the inline widgets via the
@@ -225,57 +250,46 @@ pub fn tree_row(
     let any_slot_hovered = icon_responses.iter().any(|r| r.hovered());
     let hovered =
         body.hovered() || chevron.as_ref().is_some_and(|c| c.hovered()) || any_slot_hovered;
-    let bg_shape = if selected {
-        egui::Shape::rect_filled(
+    let bg_cmd = if selected {
+        Some(PaintCmd::RectFilled {
             rect,
-            style::radius_for(style::RadiusRole::Compact),
-            style::row_selected_fill(accent),
-        )
+            corner: style::radius_for(style::RadiusRole::Compact),
+            fill: style::row_selected_fill(accent_mara),
+        })
     } else if hovered {
-        egui::Shape::rect_filled(
+        Some(PaintCmd::RectFilled {
             rect,
-            style::radius_for(style::RadiusRole::Compact),
-            style::row_hover_fill(accent),
-        )
+            corner: style::radius_for(style::RadiusRole::Compact),
+            fill: style::row_hover_fill(accent_mara),
+        })
     } else {
-        egui::Shape::Noop
+        None
     };
-    ui.painter().set(bg_anchor, bg_shape);
+    crate::backend::egui::fill_deferred_paint_cmd_slot(ui, bg_slot, bg_cmd);
 
     // Indent guides — faint vertical lines at each ancestor depth.
     let guide_base = style::theme().border_subtle;
     let guide_color =
-        egui::Color32::from_rgba_unmultiplied(guide_base.r(), guide_base.g(), guide_base.b(), 90);
-    let mut guides = Vec::with_capacity(depth as usize);
-    for d in 0..depth {
-        let tree = style::theme().widgets.tree;
-        let x = rect.min.x + tree.row_pad_l + d as f32 * tree.indent + tree.chevron_w * 0.5;
-        guides.push(egui::Shape::line_segment(
-            [egui::pos2(x, rect.min.y), egui::pos2(x, rect.max.y)],
-            egui::Stroke::new(tree.guide_width, guide_color),
-        ));
-    }
-    ui.painter().set(
-        guide_anchor,
-        if guides.is_empty() {
-            egui::Shape::Noop
-        } else {
-            egui::Shape::Vec(guides)
-        },
+        MaraColor32::from_rgba_unmultiplied(guide_base.r(), guide_base.g(), guide_base.b(), 90);
+    crate::backend::egui::paint_cmds_for_ui(
+        ui,
+        tree_indent_guide_paint_cmds(rect, style::theme().widgets.tree, depth, guide_color),
     );
 
     // Chevron glyph — animated rotating triangle.
-    let glyph_col = style::section_title_color(accent);
+    let glyph_col = style::section_title_color(accent_mara);
     let mut chevron_shift_clicked = false;
     if let (Some(exp), Some(cr)) = (expanded, chevron_rect_opt) {
-        let how_open = ui
-            .ctx()
-            .animate_bool_responsive(ui.id().with(("mara_tree_chev_anim", id_salt)), *exp);
+        let how_open = crate::backend::egui::animate_bool_responsive_for_ui(
+            ui,
+            ui_id.with(("mara_tree_chev_anim", id_salt)),
+            *exp,
+        );
         paint_chevron(ui, cr, how_open, glyph_col);
         if let Some(ref cresp) = chevron
             && cresp.clicked()
         {
-            let shift_held = ui.ctx().input(|i| i.modifiers.shift);
+            let shift_held = crate::backend::egui::input_snapshot_for_ui(ui).modifiers_shift;
             if shift_held {
                 chevron_shift_clicked = true;
             } else {
@@ -286,29 +300,23 @@ pub fn tree_row(
 
     // Type-icon slot — Fluent name lookup with literal-text fallback.
     if let (Some(name), Some(ir)) = (icon, icon_rect_opt) {
-        if crate::icons::icon(name).is_some() {
-            crate::icons::paint_icon(
-                ui.painter(),
-                ir.center(),
-                egui::Align2::CENTER_CENTER,
-                name,
-                style::theme().icons.tree_type_icon_size,
-                glyph_col,
-            );
+        let size = if crate::icons::icon(name).is_some() {
+            style::theme().icons.tree_type_icon_size
         } else {
-            ui.painter().text(
-                ir.center(),
-                egui::Align2::CENTER_CENTER,
-                name,
-                egui::FontId::proportional(style::theme().icons.tree_glyph_icon_size),
-                glyph_col,
-            );
-        }
+            style::theme().icons.tree_glyph_icon_size
+        };
+        paint_icon_or_glyph(
+            ui,
+            ir.center(),
+            MaraAlign2::CENTER_CENTER,
+            name,
+            size,
+            glyph_col,
+        );
     }
 
     // Label — truncated to the body rect minus its left padding.
-    let parent_clip = ui.clip_rect();
-    if parent_clip.intersects(rect) {
+    if crate::backend::egui::is_ui_rect_visible(ui, rect) {
         let label_left = body_rect.min.x
             + style::theme().widgets.tree.row_pad_l
             + depth as f32 * style::theme().widgets.tree.indent
@@ -319,37 +327,34 @@ pub fn tree_row(
                 0.0
             }
             + style::theme().widgets.tree.label_pad_l;
-        let label_rect = egui::Rect::from_min_max(
-            egui::pos2(label_left, rect.min.y),
-            egui::pos2(body_rect.max.x, rect.max.y),
+        let label_rect = MaraRect::from_min_max(
+            MaraPos2::new(label_left, rect.min.y),
+            MaraPos2::new(body_rect.max.x, rect.max.y),
         );
-        let label_color = style::on_section();
-        let font = egui::FontId::proportional(style::theme().widgets.tree.label_font);
-        let galley = {
-            let mut job = egui::text::LayoutJob::single_section(
-                label.to_string(),
-                egui::TextFormat::simple(font, label_color),
-            );
-            job.wrap.max_width = label_rect.width().max(0.0);
-            job.wrap.max_rows = 1;
-            job.wrap.break_anywhere = true;
-            job.halign = egui::Align::LEFT;
-            ui.painter().layout_job(job)
-        };
-        ui.painter().galley(
-            egui::pos2(
-                label_rect.min.x,
-                label_rect.center().y - galley.size().y * 0.5,
+        crate::backend::egui::paint_cmd_for_ui(
+            ui,
+            clipped_text_paint_cmd(
+                label_rect,
+                label_rect.left_center(),
+                MaraAlign2::LEFT_CENTER,
+                label,
+                style::theme().widgets.tree.label_font,
+                style::on_section(),
             ),
-            galley,
-            label_color,
         );
 
         // Right-gutter slots — paint each icon in its reserved square.
         for (i, slot) in slots.iter_mut().enumerate() {
-            let rect = slot_rects[i];
+            let rect = row.slot_rects[i];
             let resp = &icon_responses[i];
-            paint_slot_icon(ui, rect, &slot.kind, *slot.state, resp.hovered(), accent);
+            paint_slot_icon(
+                ui,
+                rect,
+                &slot.kind,
+                *slot.state,
+                resp.hovered(),
+                accent_mara,
+            );
         }
     }
 
@@ -362,9 +367,9 @@ pub fn tree_row(
     }
 
     TreeRowResponse {
-        body: body.into(),
-        chevron: chevron.map(Into::into),
-        icons: icon_responses.into_iter().map(Into::into).collect(),
+        body,
+        chevron,
+        icons: icon_responses,
         chevron_shift_clicked,
     }
 }
@@ -375,7 +380,7 @@ pub fn tree_row(
 /// item; clicking the `+` arms child creation without also selecting
 /// the row.
 #[allow(clippy::too_many_arguments)]
-pub fn tree_action_row(
+pub(crate) fn tree_action_row(
     ui: &mut egui::Ui,
     id_salt: impl Hash + Copy,
     depth: u32,
@@ -387,7 +392,7 @@ pub fn tree_action_row(
     action_glyph: &str,
     action_tooltip: Option<&str>,
     action_armed: bool,
-    accent: egui::Color32,
+    accent: impl Into<MaraColor32> + Copy,
 ) -> TreeActionRowResponse {
     tree_action_row_with_guide(
         ui,
@@ -411,7 +416,7 @@ pub fn tree_action_row(
 /// and ancestor continuation, so the row can render `├`, `└`, and
 /// deep `│` columns exactly like Coreviz's tree CSS.
 #[allow(clippy::too_many_arguments)]
-pub fn tree_action_row_with_guide(
+pub(crate) fn tree_action_row_with_guide(
     ui: &mut egui::Ui,
     id_salt: impl Hash + Copy,
     depth: u32,
@@ -424,78 +429,65 @@ pub fn tree_action_row_with_guide(
     action_tooltip: Option<&str>,
     action_armed: bool,
     branch: Option<&TreeBranchGuide>,
-    accent: egui::Color32,
+    accent: impl Into<MaraColor32> + Copy,
 ) -> TreeActionRowResponse {
+    let accent_mara = accent.into();
     let tree = style::theme().widgets.tree;
-    let w = ui.available_width();
-    let bg_anchor = ui.painter().add(egui::Shape::Noop);
-    let guide_anchor = ui.painter().add(egui::Shape::Noop);
-    let (rect, _) = ui.allocate_exact_size(egui::vec2(w, TREE_ACTION_ROW_H), egui::Sense::hover());
+    let w = crate::backend::egui::ui_available_width(ui);
+    let bg_slot = crate::backend::egui::reserve_deferred_paint_cmd_slot(ui);
 
-    let button_rect = egui::Rect::from_min_max(
-        egui::pos2(rect.min.x + depth as f32 * tree.indent, rect.min.y),
-        rect.max,
-    )
-    .shrink2(egui::vec2(0.0, 1.0));
-    let left_start = button_rect.min.x + tree.row_pad_l;
-    let chevron_rect = expanded.as_ref().map(|_| {
-        egui::Rect::from_min_size(
-            egui::pos2(left_start, rect.min.y),
-            egui::vec2(tree.chevron_w, rect.height()),
-        )
-    });
-    let icon_rect = icon.map(|_| {
-        egui::Rect::from_min_size(
-            egui::pos2(left_start + tree.chevron_w, rect.min.y),
-            egui::vec2(tree.icon_w, rect.height()),
-        )
-    });
-    let action_size = TREE_ACTION_W.min((rect.height() - 10.0).max(18.0));
-    let action_rect = egui::Rect::from_center_size(
-        egui::pos2(
-            button_rect.max.x - tree.right_pad_r - action_size * 0.5,
-            button_rect.center().y,
-        ),
-        egui::vec2(action_size, action_size),
-    );
-    let body_rect = egui::Rect::from_min_max(
-        button_rect.min,
-        egui::pos2(
-            (action_rect.min.x - TREE_ACTION_GAP).max(button_rect.min.x),
-            button_rect.max.y,
-        ),
-    );
+    let row = compute_action_row_rects(ui, w, depth, expanded.is_some(), icon.is_some());
+    let rect = row.rect;
+    let button_rect = row.button_rect;
+    let body_rect = row.body_rect;
+    let chevron_rect = row.chevron_rect;
+    let icon_rect = row.icon_rect;
+    let action_rect = row.action_rect;
+    let action_size = row.action_size;
+    let label_rect = row.label_rect;
 
-    let body = ui.interact(
-        body_rect,
-        ui.id().with(("mara_tree_action_body", id_salt)),
-        egui::Sense::click(),
-    );
-    let chevron = chevron_rect.map(|cr| {
-        ui.interact(
-            cr,
-            ui.id().with(("mara_tree_action_chevron", id_salt)),
-            egui::Sense::click(),
-        )
-    });
-    let mut action = ui.interact(
-        action_rect,
-        ui.id().with(("mara_tree_action_tail", id_salt)),
-        egui::Sense::click(),
-    );
+    let ui_id = crate::backend::egui::ui_id(ui);
+    let body_id = ui_id.with(("mara_tree_action_body", id_salt));
+    let chevron_id = ui_id.with(("mara_tree_action_chevron", id_salt));
+    let action_id = ui_id.with(("mara_tree_action_tail", id_salt));
+    let (body, chevron, action) = {
+        let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
+        let body = crate::layout::UiBackend::interact(
+            &mut backend,
+            body_rect,
+            body_id,
+            crate::layout::Sense::Click,
+        );
+        let chevron = chevron_rect.map(|cr| {
+            crate::layout::UiBackend::interact(
+                &mut backend,
+                cr,
+                chevron_id,
+                crate::layout::Sense::Click,
+            )
+        });
+        let action = crate::layout::UiBackend::interact(
+            &mut backend,
+            action_rect,
+            action_id,
+            crate::layout::Sense::Click,
+        );
+        (body, chevron, action)
+    };
     if let Some(tip) = action_tooltip {
-        action = action.on_hover_text(tip);
+        crate::backend::egui::hover_text_for_ui_response(ui, &action, tip);
     }
 
     let hovered =
         body.hovered() || action.hovered() || chevron.as_ref().is_some_and(|c| c.hovered());
-    let pressed = body.is_pointer_button_down_on() || action.is_pointer_button_down_on();
+    let pressed = body.pointer_button_down() || action.pointer_button_down();
     let active = hovered || pressed;
     let theme = style::theme();
     let button = theme.widgets.button;
     let hover_t = if theme.animations_enabled {
-        ui.ctx().animate_bool_with_time(
-            ui.id().with(("mara_tree_action_button_hover", id_salt)),
+        crate::backend::egui::animate_bool_with_time_for_ui(
+            ui,
+            ui_id.with(("mara_tree_action_button_hover", id_salt)),
             active,
             0.25 * theme.button_anim_scale.max(0.01),
         )
@@ -505,11 +497,11 @@ pub fn tree_action_row_with_guide(
         0.0
     };
     let radius = style::radius_for(style::RadiusRole::Widget);
-    let body_acc = style::body_accent(accent);
+    let body_acc = style::body_accent(accent_mara);
     let base = if style::section_show_frame() {
-        style::section_fill(accent)
+        style::section_fill(accent_mara)
     } else {
-        style::pane_fill(accent)
+        style::pane_fill(accent_mara)
     };
     let target = style::surface_lift_target(body_acc);
     let rest_bg = with_alpha(
@@ -530,43 +522,49 @@ pub fn tree_action_row_with_guide(
     } else {
         lerp_color(rest_bg, target_bg, hover_t)
     };
-    let bg_shape = egui::Shape::rect_filled(button_rect, radius, bg);
-    ui.painter().set(bg_anchor, bg_shape);
-    ui.painter().rect_stroke(
-        button_rect,
-        radius,
-        egui::Stroke::new(
-            theme.border_width,
-            lerp_color_opaque(style::widget_border(accent), accent, hover_t),
-        ),
-        egui::epaint::StrokeKind::Inside,
+    crate::backend::egui::fill_deferred_paint_cmd_slot(
+        ui,
+        bg_slot,
+        Some(PaintCmd::RectFilled {
+            rect: button_rect,
+            corner: radius,
+            fill: bg,
+        }),
+    );
+    crate::backend::egui::paint_cmd_for_ui(
+        ui,
+        PaintCmd::RectStroke {
+            rect: button_rect,
+            corner: radius,
+            stroke: MaraStroke::new(
+                theme.border_width,
+                lerp_color_opaque(style::widget_border(accent_mara), accent_mara, hover_t),
+            ),
+        },
     );
 
     let guide_base = style::theme().border_subtle;
     let guide_color =
-        egui::Color32::from_rgba_unmultiplied(guide_base.r(), guide_base.g(), guide_base.b(), 90);
-    let guides =
-        tree_action_guide_shapes(rect, tree, depth, button_rect.min.x, branch, guide_color);
-    ui.painter().set(
-        guide_anchor,
-        if guides.is_empty() {
-            egui::Shape::Noop
-        } else {
-            egui::Shape::Vec(guides)
-        },
-    );
+        MaraColor32::from_rgba_unmultiplied(guide_base.r(), guide_base.g(), guide_base.b(), 90);
+    for cmd in
+        tree_action_guide_paint_cmds(rect, tree, depth, button_rect.min.x, branch, guide_color)
+    {
+        crate::backend::egui::paint_cmd_for_ui(ui, cmd);
+    }
 
-    let glyph_col = style::section_title_color(accent);
+    let glyph_col = style::section_title_color(accent_mara);
     let mut chevron_shift_clicked = false;
     if let (Some(exp), Some(cr)) = (expanded, chevron_rect) {
-        let how_open = ui
-            .ctx()
-            .animate_bool_responsive(ui.id().with(("mara_tree_action_chev_anim", id_salt)), *exp);
+        let how_open = crate::backend::egui::animate_bool_responsive_for_ui(
+            ui,
+            ui_id.with(("mara_tree_action_chev_anim", id_salt)),
+            *exp,
+        );
         paint_chevron(ui, cr, how_open, glyph_col);
         if let Some(ref cresp) = chevron
             && cresp.clicked()
         {
-            let shift_held = ui.ctx().input(|i| i.modifiers.shift);
+            let shift_held = crate::backend::egui::input_snapshot_for_ui(ui).modifiers_shift;
             if shift_held {
                 chevron_shift_clicked = true;
             } else {
@@ -579,80 +577,106 @@ pub fn tree_action_row_with_guide(
         paint_icon_or_glyph(
             ui,
             ir.center(),
-            egui::Align2::CENTER_CENTER,
+            MaraAlign2::CENTER_CENTER,
             name,
             style::theme().icons.tree_type_icon_size,
             glyph_col,
         );
     }
 
-    let label_left = left_start
-        + tree.chevron_w
-        + if icon.is_some() { tree.icon_w } else { 0.0 }
-        + tree.label_pad_l;
-    let label_rect = egui::Rect::from_min_max(
-        egui::pos2(label_left, rect.min.y + 6.0),
-        egui::pos2(body_rect.max.x, rect.max.y - 6.0),
-    );
     paint_two_line_label(ui, label_rect, title, meta);
 
     let action_hover_t = if style::theme().animations_enabled {
-        ui.ctx().animate_bool_with_time(
-            action.id.with("mara_tree_action_tail_hover"),
-            action.hovered() || action.is_pointer_button_down_on() || action_armed,
+        crate::backend::egui::animate_bool_with_time_for_ui(
+            ui,
+            ui_id.with(("mara_tree_action_tail_hover", id_salt)),
+            action.hovered() || action.pointer_button_down() || action_armed,
             0.18 * style::theme().button_anim_scale.max(0.01),
         )
-    } else if action.hovered() || action.is_pointer_button_down_on() || action_armed {
+    } else if action.hovered() || action.pointer_button_down() || action_armed {
         1.0
     } else {
         0.0
     };
     let action_fill = lerp_color(
-        style::surface_lift_target(style::body_accent(accent)),
-        accent,
+        style::surface_lift_target(style::body_accent(accent_mara)),
+        accent_mara,
         if action_armed {
             0.30
         } else {
             0.18 * action_hover_t
         },
     );
-    let action_fill = egui::Color32::from_rgba_unmultiplied(
-        action_fill.r(),
-        action_fill.g(),
-        action_fill.b(),
-        80,
+    let action_fill =
+        MaraColor32::from_rgba_unmultiplied(action_fill.r(), action_fill.g(), action_fill.b(), 80);
+    let action_radius = CornerRadius::same((action_size * 0.5).round() as u8);
+    crate::backend::egui::paint_cmd_for_ui(
+        ui,
+        PaintCmd::RectFilled {
+            rect: action_rect,
+            corner: action_radius,
+            fill: action_fill,
+        },
     );
-    let action_radius = egui::CornerRadius::same((action_size * 0.5).round() as u8);
-    ui.painter()
-        .rect_filled(action_rect, action_radius, action_fill);
-    ui.painter().rect_stroke(
-        action_rect,
-        action_radius,
-        egui::Stroke::new(
-            style::theme().stroke.border_width,
-            lerp_color_opaque(
-                style::widget_border(accent),
-                accent,
-                action_hover_t.max(if action_armed { 0.75 } else { 0.0 }),
+    crate::backend::egui::paint_cmd_for_ui(
+        ui,
+        PaintCmd::RectStroke {
+            rect: action_rect,
+            corner: action_radius,
+            stroke: MaraStroke::new(
+                style::theme().stroke.border_width,
+                lerp_color_opaque(
+                    style::widget_border(accent_mara),
+                    accent_mara,
+                    action_hover_t.max(if action_armed { 0.75 } else { 0.0 }),
+                ),
             ),
-        ),
-        egui::epaint::StrokeKind::Inside,
+        },
     );
     paint_icon_or_glyph(
         ui,
         action_rect.center(),
-        egui::Align2::CENTER_CENTER,
+        MaraAlign2::CENTER_CENTER,
         action_glyph,
         16.0,
-        accent,
+        accent_mara,
     );
 
     TreeActionRowResponse {
-        body: body.into(),
-        chevron: chevron.map(Into::into),
-        action: action.into(),
+        body,
+        chevron,
+        action,
         chevron_shift_clicked,
     }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct TreeRowGeometry {
+    rect: MaraRect,
+    body_rect: MaraRect,
+    chevron_rect: Option<MaraRect>,
+    icon_rect: Option<MaraRect>,
+    slot_rects: Vec<MaraRect>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct TreeActionRowGeometry {
+    rect: MaraRect,
+    button_rect: MaraRect,
+    body_rect: MaraRect,
+    chevron_rect: Option<MaraRect>,
+    icon_rect: Option<MaraRect>,
+    action_rect: MaraRect,
+    label_rect: MaraRect,
+    action_size: f32,
+}
+
+fn tree_row_size(width: f32, tree: style::TreeTheme) -> MaraVec2 {
+    MaraVec2::new(width, tree.row_h)
+}
+
+fn tree_action_row_size(width: f32) -> MaraVec2 {
+    MaraVec2::new(width, TREE_ACTION_ROW_H)
 }
 
 fn compute_row_rects(
@@ -662,28 +686,51 @@ fn compute_row_rects(
     has_chevron: bool,
     has_icon: bool,
     slot_count: usize,
-) -> (
-    egui::Rect,
-    egui::Rect,
-    Option<egui::Rect>,
-    Option<egui::Rect>,
-    Vec<egui::Rect>,
-) {
+) -> TreeRowGeometry {
     let tree = style::theme().widgets.tree;
-    let (rect, _) = ui.allocate_exact_size(egui::vec2(w, tree.row_h), egui::Sense::hover());
+    let rect = {
+        let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
+        crate::layout::UiBackend::reserve_space(&mut backend, tree_row_size(w, tree))
+    };
+    tree_row_geometry(rect, tree, depth, has_chevron, has_icon, slot_count)
+}
+
+fn compute_action_row_rects(
+    ui: &mut egui::Ui,
+    w: f32,
+    depth: u32,
+    has_chevron: bool,
+    has_icon: bool,
+) -> TreeActionRowGeometry {
+    let tree = style::theme().widgets.tree;
+    let rect = {
+        let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
+        crate::layout::UiBackend::reserve_space(&mut backend, tree_action_row_size(w))
+    };
+    tree_action_row_geometry(rect, tree, depth, has_chevron, has_icon)
+}
+
+fn tree_row_geometry(
+    rect: MaraRect,
+    tree: style::TreeTheme,
+    depth: u32,
+    has_chevron: bool,
+    has_icon: bool,
+    slot_count: usize,
+) -> TreeRowGeometry {
     let left_start = rect.min.x + tree.row_pad_l + depth as f32 * tree.indent;
     let chevron_rect = if has_chevron {
-        Some(egui::Rect::from_min_size(
-            egui::pos2(left_start, rect.min.y),
-            egui::vec2(tree.chevron_w, rect.height()),
+        Some(MaraRect::from_min_size(
+            MaraPos2::new(left_start, rect.min.y),
+            MaraVec2::new(tree.chevron_w, rect.height()),
         ))
     } else {
         None
     };
     let icon_rect = if has_icon {
-        Some(egui::Rect::from_min_size(
-            egui::pos2(left_start + tree.chevron_w, rect.min.y),
-            egui::vec2(tree.icon_w, rect.height()),
+        Some(MaraRect::from_min_size(
+            MaraPos2::new(left_start + tree.chevron_w, rect.min.y),
+            MaraVec2::new(tree.icon_w, rect.height()),
         ))
     } else {
         None
@@ -701,9 +748,9 @@ fn compute_row_rects(
         let mut x_max = rect.max.x - tree.right_pad_r;
         for _ in 0..slot_count {
             let x_min = x_max - tree.slot_w;
-            slot_rects.push(egui::Rect::from_min_max(
-                egui::pos2(x_min, rect.min.y),
-                egui::pos2(x_max, rect.max.y),
+            slot_rects.push(MaraRect::from_min_max(
+                MaraPos2::new(x_min, rect.min.y),
+                MaraPos2::new(x_max, rect.max.y),
             ));
             x_max = x_min - tree.slot_gap;
         }
@@ -711,32 +758,127 @@ fn compute_row_rects(
     }
 
     let body_rect =
-        egui::Rect::from_min_max(rect.min, egui::pos2(rect.max.x - gutter_w, rect.max.y));
-    (rect, body_rect, chevron_rect, icon_rect, slot_rects)
+        MaraRect::from_min_max(rect.min, MaraPos2::new(rect.max.x - gutter_w, rect.max.y));
+    TreeRowGeometry {
+        rect,
+        body_rect,
+        chevron_rect,
+        icon_rect,
+        slot_rects,
+    }
 }
 
-fn tree_action_guide_shapes(
-    rect: egui::Rect,
+fn tree_action_row_geometry(
+    rect: MaraRect,
+    tree: style::TreeTheme,
+    depth: u32,
+    has_chevron: bool,
+    has_icon: bool,
+) -> TreeActionRowGeometry {
+    let button_rect = shrink_rect_xy(
+        MaraRect::from_min_max(
+            MaraPos2::new(rect.min.x + depth as f32 * tree.indent, rect.min.y),
+            rect.max,
+        ),
+        0.0,
+        1.0,
+    );
+    let left_start = button_rect.min.x + tree.row_pad_l;
+    let chevron_rect = if has_chevron {
+        Some(MaraRect::from_min_size(
+            MaraPos2::new(left_start, rect.min.y),
+            MaraVec2::new(tree.chevron_w, rect.height()),
+        ))
+    } else {
+        None
+    };
+    let icon_rect = if has_icon {
+        Some(MaraRect::from_min_size(
+            MaraPos2::new(left_start + tree.chevron_w, rect.min.y),
+            MaraVec2::new(tree.icon_w, rect.height()),
+        ))
+    } else {
+        None
+    };
+    let action_size = TREE_ACTION_W.min((rect.height() - 10.0).max(18.0));
+    let action_rect = MaraRect::from_center_size(
+        MaraPos2::new(
+            button_rect.max.x - tree.right_pad_r - action_size * 0.5,
+            button_rect.center().y,
+        ),
+        MaraVec2::new(action_size, action_size),
+    );
+    let body_rect = MaraRect::from_min_max(
+        button_rect.min,
+        MaraPos2::new(
+            (action_rect.min.x - TREE_ACTION_GAP).max(button_rect.min.x),
+            button_rect.max.y,
+        ),
+    );
+    let label_left =
+        left_start + tree.chevron_w + if has_icon { tree.icon_w } else { 0.0 } + tree.label_pad_l;
+    let label_rect = MaraRect::from_min_max(
+        MaraPos2::new(label_left, rect.min.y + 6.0),
+        MaraPos2::new(body_rect.max.x, rect.max.y - 6.0),
+    );
+
+    TreeActionRowGeometry {
+        rect,
+        button_rect,
+        body_rect,
+        chevron_rect,
+        icon_rect,
+        action_rect,
+        label_rect,
+        action_size,
+    }
+}
+
+fn tree_indent_guide_paint_cmds(
+    rect: MaraRect,
+    tree: style::TreeTheme,
+    depth: u32,
+    color: MaraColor32,
+) -> Vec<PaintCmd> {
+    if tree.guide_width <= 0.0 {
+        return Vec::new();
+    }
+
+    let stroke = MaraStroke::new(tree.guide_width, color);
+    (0..depth)
+        .map(|d| {
+            let x = rect.min.x + tree.row_pad_l + d as f32 * tree.indent + tree.chevron_w * 0.5;
+            PaintCmd::Line {
+                a: MaraPos2::new(x, rect.min.y),
+                b: MaraPos2::new(x, rect.max.y),
+                stroke,
+            }
+        })
+        .collect()
+}
+
+fn tree_action_guide_paint_cmds(
+    rect: MaraRect,
     tree: style::TreeTheme,
     depth: u32,
     button_left: f32,
     branch: Option<&TreeBranchGuide>,
-    color: egui::Color32,
-) -> Vec<egui::Shape> {
-    let stroke = egui::Stroke::new(tree.guide_width, color);
+    color: MaraColor32,
+) -> Vec<PaintCmd> {
+    let stroke = MaraStroke::new(tree.guide_width, color);
     tree_action_guide_segments(rect, tree, depth, button_left, branch)
         .into_iter()
-        .map(|segment| egui::Shape::line_segment(segment, stroke))
+        .map(|[a, b]| PaintCmd::Line { a, b, stroke })
         .collect()
 }
 
 fn tree_action_guide_segments(
-    rect: egui::Rect,
+    rect: MaraRect,
     tree: style::TreeTheme,
     depth: u32,
     button_left: f32,
     branch: Option<&TreeBranchGuide>,
-) -> Vec<[egui::Pos2; 2]> {
+) -> Vec<[MaraPos2; 2]> {
     if depth == 0 || tree.guide_width <= 0.0 {
         return Vec::new();
     }
@@ -754,174 +896,225 @@ fn tree_action_guide_segments(
                 .unwrap_or(false)
             {
                 let x = column_x(level);
-                segments.push([egui::pos2(x, rect.min.y), egui::pos2(x, rect.max.y)]);
+                segments.push([MaraPos2::new(x, rect.min.y), MaraPos2::new(x, rect.max.y)]);
             }
         }
 
         let x = column_x(depth - 1);
         let vertical_bottom = if branch.is_last { joint_y } else { rect.max.y };
-        segments.push([egui::pos2(x, rect.min.y), egui::pos2(x, vertical_bottom)]);
-        segments.push([egui::pos2(x, joint_y), egui::pos2(button_left, joint_y)]);
+        segments.push([
+            MaraPos2::new(x, rect.min.y),
+            MaraPos2::new(x, vertical_bottom),
+        ]);
+        segments.push([
+            MaraPos2::new(x, joint_y),
+            MaraPos2::new(button_left, joint_y),
+        ]);
     } else {
         for level in 0..depth {
             let x = column_x(level);
-            segments.push([egui::pos2(x, rect.min.y), egui::pos2(x, rect.max.y)]);
+            segments.push([MaraPos2::new(x, rect.min.y), MaraPos2::new(x, rect.max.y)]);
         }
 
         let x = column_x(depth - 1);
-        segments.push([egui::pos2(x, joint_y), egui::pos2(button_left, joint_y)]);
+        segments.push([
+            MaraPos2::new(x, joint_y),
+            MaraPos2::new(button_left, joint_y),
+        ]);
     }
 
     segments
 }
 
 /// Thin stroked chevron (`›` rotating to `⌄`) inside `rect`.
-fn paint_chevron(ui: &egui::Ui, rect: egui::Rect, how_open: f32, color: egui::Color32) {
+fn paint_chevron(ui: &egui::Ui, rect: MaraRect, how_open: f32, color: MaraColor32) {
+    crate::backend::egui::paint_cmd_for_ui(ui, chevron_paint_cmd(rect, how_open, color));
+}
+
+fn chevron_paint_cmd(rect: MaraRect, how_open: f32, color: MaraColor32) -> PaintCmd {
     const GLYPH_W: f32 = 5.5;
     const GLYPH_H: f32 = 3.5;
     let cx = rect.center().x;
     let cy = rect.center().y;
     let hw = GLYPH_W * 0.5;
     let hh = GLYPH_H * 0.5;
-    let raw = [
-        egui::vec2(-hw, -hh),
-        egui::vec2(0.0, hh),
-        egui::vec2(hw, -hh),
-    ];
+    let raw = [(-hw, -hh), (0.0, hh), (hw, -hh)];
     use std::f32::consts::TAU;
-    let rot = egui::emath::Rot2::from_angle(egui::lerp(-TAU / 4.0..=0.0, how_open));
-    let pts: Vec<egui::Pos2> = raw
+    let angle = -TAU / 4.0 + (TAU / 4.0) * how_open.clamp(0.0, 1.0);
+    let (sin, cos) = angle.sin_cos();
+    let points: Vec<MaraPos2> = raw
         .iter()
-        .map(|v| {
-            let r = rot * *v;
-            egui::pos2(cx + r.x, cy + r.y)
+        .map(|&(x, y)| {
+            let rx = x * cos - y * sin;
+            let ry = x * sin + y * cos;
+            MaraPos2::new(cx + rx, cy + ry)
         })
         .collect();
-    ui.painter()
-        .add(egui::Shape::line(pts, egui::Stroke::new(1.2, color)));
+    PaintCmd::Polyline {
+        points,
+        stroke: MaraStroke::new(1.2, color),
+    }
 }
 
 fn paint_slot_icon(
     ui: &egui::Ui,
-    rect: egui::Rect,
+    rect: MaraRect,
     kind: &TreeIconKind,
     active: bool,
     hovered: bool,
-    accent: egui::Color32,
+    accent: MaraColor32,
 ) {
-    let color = slot_color(active, hovered, accent);
-    match *kind {
-        TreeIconKind::Eye => paint_eye(ui, rect, active, color),
-        TreeIconKind::Lock => paint_lock(ui, rect, active, color),
-        TreeIconKind::Glyph { on, off } => {
-            let glyph = if active { on } else { off };
-            ui.painter().text(
-                rect.center(),
-                egui::Align2::CENTER_CENTER,
-                glyph,
-                egui::FontId::proportional(style::theme().icons.tree_glyph_icon_size),
-                color,
-            );
-        }
-        TreeIconKind::Color(fill) => paint_color_chip(ui, rect, fill, accent, hovered),
-    }
+    crate::backend::egui::paint_cmds_for_ui(
+        ui,
+        slot_icon_paint_cmds(rect, kind, active, hovered, accent),
+    );
 }
 
 fn paint_icon_or_glyph(
     ui: &egui::Ui,
-    pos: egui::Pos2,
-    align: egui::Align2,
+    pos: MaraPos2,
+    anchor: MaraAlign2,
     name: &str,
-    font_size: f32,
-    color: egui::Color32,
+    size: f32,
+    color: MaraColor32,
 ) {
-    if crate::icons::icon(name).is_some() {
-        crate::icons::paint_icon(ui.painter(), pos, align, name, font_size, color);
-    } else {
-        ui.painter().text(
+    if crate::icons::icon(name).is_some() && !crate::icons::icon_fonts_ready() {
+        return;
+    }
+    crate::backend::egui::paint_cmd_for_ui(
+        ui,
+        icon_or_glyph_paint_cmd(pos, anchor, name, size, color),
+    );
+}
+
+fn icon_or_glyph_paint_cmd(
+    pos: MaraPos2,
+    anchor: MaraAlign2,
+    name: &str,
+    size: f32,
+    color: MaraColor32,
+) -> PaintCmd {
+    if let Some((glyph, family)) = crate::icons::icon_glyph(name) {
+        PaintCmd::TextWithFamily {
             pos,
-            align,
-            name,
-            egui::FontId::proportional(font_size),
+            anchor,
+            text: glyph.to_string(),
+            size,
             color,
-        );
+            family: TextFamily::Named(family),
+        }
+    } else {
+        PaintCmd::Text {
+            pos,
+            anchor,
+            text: name.to_owned(),
+            size,
+            color,
+            mono: false,
+        }
     }
 }
 
-fn paint_two_line_label(ui: &egui::Ui, rect: egui::Rect, title: &str, meta: &str) {
-    let title_galley = elided_galley(
-        ui,
-        title,
-        egui::FontId::proportional(style::theme().widgets.tree.label_font + 1.0),
-        style::on_section(),
-        rect.width(),
-    );
-    let meta_galley = elided_galley(
-        ui,
-        meta,
-        egui::FontId::proportional((style::theme().widgets.tree.label_font - 1.0).max(9.0)),
-        style::on_section_dim(),
-        rect.width(),
-    );
-    ui.painter().galley(
-        egui::pos2(
-            rect.min.x,
-            rect.center().y - 8.0 - title_galley.size().y * 0.5,
-        ),
-        title_galley,
-        style::on_section(),
-    );
-    ui.painter().galley(
-        egui::pos2(
-            rect.min.x,
-            rect.center().y + 8.0 - meta_galley.size().y * 0.5,
-        ),
-        meta_galley,
-        style::on_section_dim(),
-    );
+fn paint_two_line_label(ui: &egui::Ui, rect: MaraRect, title: &str, meta: &str) {
+    crate::backend::egui::paint_cmd_for_ui(ui, two_line_label_paint_cmd(rect, title, meta));
 }
 
-fn elided_galley(
-    ui: &egui::Ui,
+fn clipped_text_paint_cmd(
+    rect: MaraRect,
+    pos: MaraPos2,
+    anchor: MaraAlign2,
     text: &str,
-    font: egui::FontId,
-    color: egui::Color32,
-    max_w: f32,
-) -> std::sync::Arc<egui::Galley> {
-    let mut job = egui::text::LayoutJob::single_section(
-        text.to_string(),
-        egui::TextFormat::simple(font, color),
-    );
-    job.wrap.max_width = max_w.max(0.0);
-    job.wrap.max_rows = 1;
-    job.wrap.break_anywhere = true;
-    job.halign = egui::Align::LEFT;
-    ui.painter().layout_job(job)
+    size: f32,
+    color: MaraColor32,
+) -> PaintCmd {
+    PaintCmd::Clip {
+        rect,
+        children: vec![PaintCmd::Text {
+            pos,
+            anchor,
+            text: text.to_owned(),
+            size,
+            color,
+            mono: false,
+        }],
+    }
 }
 
-fn paint_color_chip(
-    ui: &egui::Ui,
-    rect: egui::Rect,
-    fill: egui::Color32,
-    accent: egui::Color32,
+fn two_line_label_paint_cmd(rect: MaraRect, title: &str, meta: &str) -> PaintCmd {
+    PaintCmd::Clip {
+        rect,
+        children: vec![
+            PaintCmd::Text {
+                pos: MaraPos2::new(rect.min.x, rect.center().y - 8.0),
+                anchor: MaraAlign2::LEFT_CENTER,
+                text: title.to_owned(),
+                size: style::theme().widgets.tree.label_font + 1.0,
+                color: style::on_section(),
+                mono: false,
+            },
+            PaintCmd::Text {
+                pos: MaraPos2::new(rect.min.x, rect.center().y + 8.0),
+                anchor: MaraAlign2::LEFT_CENTER,
+                text: meta.to_owned(),
+                size: (style::theme().widgets.tree.label_font - 1.0).max(9.0),
+                color: style::on_section_dim(),
+                mono: false,
+            },
+        ],
+    }
+}
+
+fn slot_icon_paint_cmds(
+    rect: MaraRect,
+    kind: &TreeIconKind,
+    active: bool,
     hovered: bool,
-) {
-    let inner = rect.shrink(3.0);
+    accent: MaraColor32,
+) -> Vec<PaintCmd> {
+    let color = slot_color(active, hovered, accent);
+    match *kind {
+        TreeIconKind::Eye => eye_paint_cmds(rect, active, color),
+        TreeIconKind::Lock => lock_paint_cmds(rect, active, color),
+        TreeIconKind::Glyph { on, off } => vec![PaintCmd::Text {
+            pos: rect.center(),
+            anchor: MaraAlign2::CENTER_CENTER,
+            text: (if active { on } else { off }).to_owned(),
+            size: style::theme().icons.tree_glyph_icon_size,
+            color,
+            mono: false,
+        }],
+        TreeIconKind::Color(fill) => color_chip_paint_cmds(rect, fill, accent, hovered),
+    }
+}
+
+fn color_chip_paint_cmds(
+    rect: MaraRect,
+    fill: MaraColor32,
+    accent: MaraColor32,
+    hovered: bool,
+) -> Vec<PaintCmd> {
+    let inner = shrink_rect(rect, 3.0);
     let border = if hovered {
-        egui::Stroke::new(style::theme().stroke.border_width, accent)
+        MaraStroke::new(style::theme().stroke.border_width, accent)
     } else {
         style::stroke_for(style::StrokeRole::WidgetBorder, accent)
     };
-    ui.painter().rect(
-        inner,
-        style::radius_for(style::RadiusRole::Compact),
-        fill,
-        border,
-        egui::epaint::StrokeKind::Inside,
-    );
+    let corner: CornerRadius = style::radius_for(style::RadiusRole::Compact);
+    vec![
+        PaintCmd::RectFilled {
+            rect: inner,
+            corner,
+            fill,
+        },
+        PaintCmd::RectStroke {
+            rect: inner,
+            corner,
+            stroke: border,
+        },
+    ]
 }
 
-fn slot_color(active: bool, hovered: bool, accent: egui::Color32) -> egui::Color32 {
+fn slot_color(active: bool, hovered: bool, accent: MaraColor32) -> MaraColor32 {
     match (active, hovered) {
         (true, true) => accent,
         (true, false) => style::on_section(),
@@ -931,11 +1124,12 @@ fn slot_color(active: bool, hovered: bool, accent: egui::Color32) -> egui::Color
 }
 
 /// Eye — almond outline + pupil active, slash when off.
-fn paint_eye(ui: &egui::Ui, rect: egui::Rect, active: bool, color: egui::Color32) {
+fn eye_paint_cmds(rect: MaraRect, active: bool, color: MaraColor32) -> Vec<PaintCmd> {
     let c = rect.center();
     let rx = 5.5_f32;
     let ry = 3.2_f32;
-    let stroke = egui::Stroke::new(1.1, color);
+    let stroke = MaraStroke::new(1.1, color);
+    let mut commands = Vec::with_capacity(3);
 
     let lid = |sign: f32| {
         let mut pts = Vec::with_capacity(11);
@@ -943,43 +1137,51 @@ fn paint_eye(ui: &egui::Ui, rect: egui::Rect, active: bool, color: egui::Color32
             let t = i as f32 / 10.0;
             let x = c.x + (t - 0.5) * 2.0 * rx;
             let y = c.y + sign * ry * (1.0 - ((x - c.x) / rx).powi(2));
-            pts.push(egui::pos2(x, y));
+            pts.push(MaraPos2::new(x, y));
         }
-        egui::Shape::line(pts, stroke)
+        PaintCmd::Polyline {
+            points: pts,
+            stroke,
+        }
     };
-    ui.painter().add(lid(1.0));
-    ui.painter().add(lid(-1.0));
+    commands.push(lid(1.0));
+    commands.push(lid(-1.0));
 
     if active {
-        ui.painter().circle_filled(c, 1.6, color);
+        commands.push(PaintCmd::CircleFilled {
+            center: c,
+            radius: 1.6,
+            fill: color,
+        });
     } else {
-        ui.painter().line_segment(
-            [
-                egui::pos2(c.x - rx - 0.5, c.y + ry + 0.5),
-                egui::pos2(c.x + rx + 0.5, c.y - ry - 0.5),
-            ],
-            egui::Stroke::new(1.3, color),
-        );
+        commands.push(PaintCmd::Line {
+            a: MaraPos2::new(c.x - rx - 0.5, c.y + ry + 0.5),
+            b: MaraPos2::new(c.x + rx + 0.5, c.y - ry - 0.5),
+            stroke: MaraStroke::new(1.3, color),
+        });
     }
+
+    commands
 }
 
 /// Padlock — body + shackle, lifted leg on unlocked.
-fn paint_lock(ui: &egui::Ui, rect: egui::Rect, active: bool, color: egui::Color32) {
+fn lock_paint_cmds(rect: MaraRect, active: bool, color: MaraColor32) -> Vec<PaintCmd> {
     let c = rect.center();
     let body_w = 7.0_f32;
     let body_h = 5.5_f32;
     let body_top_y = c.y + 0.2;
-    let body_rect = egui::Rect::from_min_size(
-        egui::pos2(c.x - body_w * 0.5, body_top_y),
-        egui::vec2(body_w, body_h),
+    let body_rect = MaraRect::from_min_size(
+        MaraPos2::new(c.x - body_w * 0.5, body_top_y),
+        crate::vocab::Vec2::new(body_w, body_h),
     );
-    ui.painter().rect_filled(
-        body_rect,
-        style::radius_for(style::RadiusRole::Compact),
-        color,
-    );
+    let mut commands = Vec::with_capacity(6);
+    commands.push(PaintCmd::RectFilled {
+        rect: body_rect,
+        corner: style::radius_for(style::RadiusRole::Compact),
+        fill: color,
+    });
 
-    let stroke = egui::Stroke::new(1.1, color);
+    let stroke = MaraStroke::new(1.1, color);
     let shackle_top_y = body_top_y - 4.0;
     let legs_x_l = c.x - 2.4;
     let legs_x_r = c.x + 2.4;
@@ -990,48 +1192,61 @@ fn paint_lock(ui: &egui::Ui, rect: egui::Rect, active: bool, color: egui::Color3
         let theta = std::f32::consts::PI - t * std::f32::consts::PI;
         let x = c.x + theta.cos() * 2.4;
         let y = shackle_top_y - theta.sin() * 1.6;
-        arc.push(egui::pos2(x, y));
+        arc.push(MaraPos2::new(x, y));
     }
-    ui.painter().add(egui::Shape::line(arc, stroke));
-
-    ui.painter().line_segment(
-        [
-            egui::pos2(legs_x_l, shackle_top_y),
-            egui::pos2(legs_x_l, body_top_y + 0.3),
-        ],
+    commands.push(PaintCmd::Polyline {
+        points: arc,
         stroke,
-    );
+    });
+
+    commands.push(PaintCmd::Line {
+        a: MaraPos2::new(legs_x_l, shackle_top_y),
+        b: MaraPos2::new(legs_x_l, body_top_y + 0.3),
+        stroke,
+    });
     if active {
-        ui.painter().line_segment(
-            [
-                egui::pos2(legs_x_r, shackle_top_y),
-                egui::pos2(legs_x_r, body_top_y + 0.3),
-            ],
+        commands.push(PaintCmd::Line {
+            a: MaraPos2::new(legs_x_r, shackle_top_y),
+            b: MaraPos2::new(legs_x_r, body_top_y + 0.3),
             stroke,
-        );
+        });
     } else {
-        ui.painter().line_segment(
-            [
-                egui::pos2(legs_x_r, shackle_top_y),
-                egui::pos2(legs_x_r, shackle_top_y + 2.0),
-            ],
+        commands.push(PaintCmd::Line {
+            a: MaraPos2::new(legs_x_r, shackle_top_y),
+            b: MaraPos2::new(legs_x_r, shackle_top_y + 2.0),
             stroke,
-        );
+        });
     }
 
     if active {
-        ui.painter().circle_filled(
-            egui::pos2(c.x, body_rect.center().y),
-            0.7,
-            egui::Color32::from_rgba_unmultiplied(0, 0, 0, 140),
-        );
+        commands.push(PaintCmd::CircleFilled {
+            center: MaraPos2::new(c.x, body_rect.center().y),
+            radius: 0.7,
+            fill: MaraColor32::from_rgba_unmultiplied(0, 0, 0, 140),
+        });
     }
+
+    commands
 }
 
-fn lerp_color(a: egui::Color32, b: egui::Color32, t: f32) -> egui::Color32 {
+fn shrink_rect(rect: MaraRect, amount: f32) -> MaraRect {
+    MaraRect::from_min_max(
+        MaraPos2::new(rect.min.x + amount, rect.min.y + amount),
+        MaraPos2::new(rect.max.x - amount, rect.max.y - amount),
+    )
+}
+
+fn shrink_rect_xy(rect: MaraRect, x: f32, y: f32) -> MaraRect {
+    MaraRect::from_min_max(
+        MaraPos2::new(rect.min.x + x, rect.min.y + y),
+        MaraPos2::new(rect.max.x - x, rect.max.y - y),
+    )
+}
+
+fn lerp_color(a: MaraColor32, b: MaraColor32, t: f32) -> MaraColor32 {
     let t = t.clamp(0.0, 1.0);
     let mix = |x: u8, y: u8| ((x as f32) * (1.0 - t) + (y as f32) * t).round() as u8;
-    egui::Color32::from_rgba_premultiplied(
+    MaraColor32::from_rgba_premultiplied(
         mix(a.r(), b.r()),
         mix(a.g(), b.g()),
         mix(a.b(), b.b()),
@@ -1039,14 +1254,14 @@ fn lerp_color(a: egui::Color32, b: egui::Color32, t: f32) -> egui::Color32 {
     )
 }
 
-fn lerp_color_opaque(a: egui::Color32, b: egui::Color32, t: f32) -> egui::Color32 {
+fn lerp_color_opaque(a: MaraColor32, b: MaraColor32, t: f32) -> MaraColor32 {
     let t = t.clamp(0.0, 1.0);
     let mix = |x: u8, y: u8| ((x as f32) * (1.0 - t) + (y as f32) * t).round() as u8;
-    egui::Color32::from_rgb(mix(a.r(), b.r()), mix(a.g(), b.g()), mix(a.b(), b.b()))
+    MaraColor32::from_rgb(mix(a.r(), b.r()), mix(a.g(), b.g()), mix(a.b(), b.b()))
 }
 
-fn with_alpha(solid: egui::Color32, alpha: u8) -> egui::Color32 {
-    egui::Color32::from_rgba_unmultiplied(solid.r(), solid.g(), solid.b(), alpha)
+fn with_alpha(solid: MaraColor32, alpha: u8) -> MaraColor32 {
+    MaraColor32::from_rgba_unmultiplied(solid.r(), solid.g(), solid.b(), alpha)
 }
 
 // ─── Typed Pod tree builder ─────────────────────────────────────────
@@ -1057,8 +1272,8 @@ fn with_alpha(solid: egui::Color32, alpha: u8) -> egui::Color32 {
 // (no raw egui access).
 
 /// Typed wrapper around a pod's body Ui — only exposes
-/// [`TreeBody::row`] (which forwards to [`tree_row`]) and read-only
-/// access to the egui [`Context`] (for persisted-state lookups).
+/// [`TreeBody::row`] (which forwards to [`tree_row`]) and a Mara
+/// memory facade (for persisted-state lookups).
 /// Used by `Pod::with_tree` to host a recursive tree without
 /// leaking raw [`egui::Ui`] to the caller.
 pub struct TreeBody<'a> {
@@ -1067,66 +1282,53 @@ pub struct TreeBody<'a> {
 
 impl<'a> TreeBody<'a> {
     #[doc(hidden)]
-    pub fn new(ui: &'a mut egui::Ui) -> Self {
+    pub(crate) fn new(ui: &'a mut egui::Ui) -> Self {
         Self { ui }
     }
 
-    /// Read-only egui context, for persisted-state lookups
-    /// (`ctx().data(...)`). Raw-egui escape hatch — sealed
-    /// consumers use the typed persisted-state helpers instead.
-    #[cfg(feature = "raw-egui")]
+    /// Backend-neutral memory facade for persisted and frame-temp
+    /// tree state.
     #[must_use]
-    pub fn ctx(&self) -> &egui::Context {
-        self.ui.ctx()
-    }
-
-    /// Mutable egui context, for persisted-state writes
-    /// (`ctx_mut().data_mut(...)`). Raw-egui escape hatch.
-    #[cfg(feature = "raw-egui")]
-    #[must_use]
-    pub fn ctx_mut(&mut self) -> &egui::Context {
-        // egui's `data_mut` only needs `&Context` even though it
-        // mutates internal state, so this returns `&Context` not
-        // `&mut Context`. The name `ctx_mut` signals intent.
-        self.ui.ctx()
+    pub fn memory(&self) -> crate::MaraMemoryCtx<'_> {
+        crate::backend::egui::memory_ctx_for_ui(self.ui)
     }
 
     /// Read a persisted `bool` (e.g. an expanded/collapsed flag)
     /// keyed by `id`. Typed, sealed replacement for
     /// `ctx().data(...)`.
     #[must_use]
-    pub fn persisted_bool(&self, id: egui::Id) -> Option<bool> {
-        self.ui.ctx().data_mut(|d| d.get_persisted::<bool>(id))
+    pub fn persisted_bool(&self, id: impl Into<crate::vocab::Id>) -> Option<bool> {
+        self.memory().get_persisted::<bool>(id)
     }
 
     /// Write a persisted `bool` keyed by `id`. Typed, sealed
     /// replacement for `ctx_mut().data_mut(...)`.
-    pub fn set_persisted_bool(&mut self, id: egui::Id, value: bool) {
-        self.ui.ctx().data_mut(|d| d.insert_persisted(id, value));
+    pub fn set_persisted_bool(&mut self, id: impl Into<crate::vocab::Id>, value: bool) {
+        self.memory().set_persisted(id, value);
     }
 
     /// Read a persisted `String` (e.g. an "armed item" marker)
     /// keyed by `id`.
     #[must_use]
-    pub fn persisted_string(&self, id: egui::Id) -> Option<String> {
-        self.ui.ctx().data_mut(|d| d.get_persisted::<String>(id))
+    pub fn persisted_string(&self, id: impl Into<crate::vocab::Id>) -> Option<String> {
+        self.memory().get_persisted::<String>(id)
     }
 
     /// Write a persisted `String` keyed by `id`.
-    pub fn set_persisted_string(&mut self, id: egui::Id, value: String) {
-        self.ui.ctx().data_mut(|d| d.insert_persisted(id, value));
+    pub fn set_persisted_string(&mut self, id: impl Into<crate::vocab::Id>, value: String) {
+        self.memory().set_persisted(id, value);
     }
 
     /// Read a frame-temporary `String` (e.g. a selection path
     /// shared with the hosting pane) keyed by `id`.
     #[must_use]
-    pub fn temp_string(&self, id: egui::Id) -> Option<String> {
-        self.ui.ctx().data(|d| d.get_temp::<String>(id))
+    pub fn temp_string(&self, id: impl Into<crate::vocab::Id>) -> Option<String> {
+        self.memory().get_temp::<String>(id)
     }
 
     /// Write a frame-temporary `String` keyed by `id`.
-    pub fn set_temp_string(&mut self, id: egui::Id, value: String) {
-        self.ui.ctx().data_mut(|d| d.insert_temp(id, value));
+    pub fn set_temp_string(&mut self, id: impl Into<crate::vocab::Id>, value: String) {
+        self.memory().set_temp(id, value);
     }
 
     /// Paint a single tree row. Mirrors [`tree_row`] verbatim.
@@ -1139,7 +1341,7 @@ impl<'a> TreeBody<'a> {
         icon: Option<&str>,
         label: &str,
         selected: bool,
-        accent: egui::Color32,
+        accent: impl Into<crate::vocab::Color32> + Copy,
         slots: &mut [TreeIconSlot<'_>],
     ) -> TreeRowResponse {
         tree_row(
@@ -1163,7 +1365,7 @@ impl<'a> TreeBody<'a> {
         action_glyph: &str,
         action_tooltip: Option<&str>,
         action_armed: bool,
-        accent: egui::Color32,
+        accent: impl Into<crate::vocab::Color32> + Copy,
     ) -> TreeActionRowResponse {
         tree_action_row(
             self.ui,
@@ -1197,7 +1399,7 @@ impl<'a> TreeBody<'a> {
         action_tooltip: Option<&str>,
         action_armed: bool,
         branch: &TreeBranchGuide,
-        accent: egui::Color32,
+        accent: impl Into<crate::vocab::Color32> + Copy,
     ) -> TreeActionRowResponse {
         tree_action_row_with_guide(
             self.ui,
@@ -1237,7 +1439,7 @@ mod tests {
         }
     }
 
-    fn assert_pos(actual: egui::Pos2, expected: egui::Pos2) {
+    fn assert_pos(actual: MaraPos2, expected: MaraPos2) {
         let eps = 0.001;
         assert!(
             (actual.x - expected.x).abs() <= eps && (actual.y - expected.y).abs() <= eps,
@@ -1247,7 +1449,7 @@ mod tests {
 
     #[test]
     fn tree_action_guides_last_child_make_l_joint() {
-        let rect = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(200.0, 40.0));
+        let rect = MaraRect::from_min_size(MaraPos2::ZERO, crate::vocab::Vec2::new(200.0, 40.0));
         let segments = tree_action_guide_segments(
             rect,
             tree_theme(),
@@ -1257,15 +1459,15 @@ mod tests {
         );
 
         assert_eq!(segments.len(), 2);
-        assert_pos(segments[0][0], egui::pos2(TREE_ROW_PAD_L, 0.0));
-        assert_pos(segments[0][1], egui::pos2(TREE_ROW_PAD_L, 20.0));
-        assert_pos(segments[1][0], egui::pos2(TREE_ROW_PAD_L, 20.0));
-        assert_pos(segments[1][1], egui::pos2(TREE_INDENT, 20.0));
+        assert_pos(segments[0][0], MaraPos2::new(TREE_ROW_PAD_L, 0.0));
+        assert_pos(segments[0][1], MaraPos2::new(TREE_ROW_PAD_L, 20.0));
+        assert_pos(segments[1][0], MaraPos2::new(TREE_ROW_PAD_L, 20.0));
+        assert_pos(segments[1][1], MaraPos2::new(TREE_INDENT, 20.0));
     }
 
     #[test]
     fn tree_action_guides_non_last_child_make_tee_joint() {
-        let rect = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(200.0, 40.0));
+        let rect = MaraRect::from_min_size(MaraPos2::ZERO, crate::vocab::Vec2::new(200.0, 40.0));
         let segments = tree_action_guide_segments(
             rect,
             tree_theme(),
@@ -1275,15 +1477,29 @@ mod tests {
         );
 
         assert_eq!(segments.len(), 2);
-        assert_pos(segments[0][0], egui::pos2(TREE_ROW_PAD_L, 0.0));
-        assert_pos(segments[0][1], egui::pos2(TREE_ROW_PAD_L, 40.0));
-        assert_pos(segments[1][0], egui::pos2(TREE_ROW_PAD_L, 20.0));
-        assert_pos(segments[1][1], egui::pos2(TREE_INDENT, 20.0));
+        assert_pos(segments[0][0], MaraPos2::new(TREE_ROW_PAD_L, 0.0));
+        assert_pos(segments[0][1], MaraPos2::new(TREE_ROW_PAD_L, 40.0));
+        assert_pos(segments[1][0], MaraPos2::new(TREE_ROW_PAD_L, 20.0));
+        assert_pos(segments[1][1], MaraPos2::new(TREE_INDENT, 20.0));
+    }
+
+    #[test]
+    fn tree_chevron_backend_lowers_to_polyline_command() {
+        let rect = MaraRect::from_min_size(MaraPos2::ZERO, crate::vocab::Vec2::new(12.0, 20.0));
+
+        let cmd = chevron_paint_cmd(rect, 1.0, MaraColor32::WHITE);
+
+        let PaintCmd::Polyline { points, stroke } = cmd else {
+            panic!("tree chevron should lower to a polyline command");
+        };
+        assert_eq!(points.len(), 3);
+        assert_eq!(stroke.width, 1.2);
+        assert!(points.iter().all(|p| rect.contains(*p)));
     }
 
     #[test]
     fn tree_action_guides_keep_multiple_ancestor_columns() {
-        let rect = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(200.0, 40.0));
+        let rect = MaraRect::from_min_size(MaraPos2::ZERO, crate::vocab::Vec2::new(200.0, 40.0));
         let segments = tree_action_guide_segments(
             rect,
             tree_theme(),
@@ -1293,20 +1509,278 @@ mod tests {
         );
 
         assert_eq!(segments.len(), 3);
-        assert_pos(segments[0][0], egui::pos2(TREE_ROW_PAD_L, 0.0));
-        assert_pos(segments[0][1], egui::pos2(TREE_ROW_PAD_L, 40.0));
+        assert_pos(segments[0][0], MaraPos2::new(TREE_ROW_PAD_L, 0.0));
+        assert_pos(segments[0][1], MaraPos2::new(TREE_ROW_PAD_L, 40.0));
         assert_pos(
             segments[1][0],
-            egui::pos2(TREE_ROW_PAD_L + 2.0 * TREE_INDENT, 0.0),
+            MaraPos2::new(TREE_ROW_PAD_L + 2.0 * TREE_INDENT, 0.0),
         );
         assert_pos(
             segments[1][1],
-            egui::pos2(TREE_ROW_PAD_L + 2.0 * TREE_INDENT, 20.0),
+            MaraPos2::new(TREE_ROW_PAD_L + 2.0 * TREE_INDENT, 20.0),
         );
         assert_pos(
             segments[2][0],
-            egui::pos2(TREE_ROW_PAD_L + 2.0 * TREE_INDENT, 20.0),
+            MaraPos2::new(TREE_ROW_PAD_L + 2.0 * TREE_INDENT, 20.0),
         );
-        assert_pos(segments[2][1], egui::pos2(3.0 * TREE_INDENT, 20.0));
+        assert_pos(segments[2][1], MaraPos2::new(3.0 * TREE_INDENT, 20.0));
+    }
+
+    #[test]
+    fn tree_indent_guides_backend_emit_line_commands() {
+        let rect = MaraRect::from_min_size(MaraPos2::ZERO, crate::vocab::Vec2::new(200.0, 20.0));
+
+        let commands =
+            tree_indent_guide_paint_cmds(rect, tree_theme(), 2, MaraColor32::from_gray(120));
+
+        assert_eq!(commands.len(), 2);
+        let PaintCmd::Line { a, b, stroke } = commands[1] else {
+            panic!("tree indent guides should lower to line commands");
+        };
+        assert_pos(
+            a,
+            MaraPos2::new(TREE_ROW_PAD_L + TREE_INDENT + TREE_CHEVRON_W * 0.5, 0.0),
+        );
+        assert_pos(
+            b,
+            MaraPos2::new(TREE_ROW_PAD_L + TREE_INDENT + TREE_CHEVRON_W * 0.5, 20.0),
+        );
+        assert_eq!(stroke.width, 1.0);
+    }
+
+    #[test]
+    fn tree_row_geometry_uses_mara_rects_for_body_chevron_icon_and_slots() {
+        let rect =
+            MaraRect::from_min_size(MaraPos2::new(10.0, 20.0), MaraVec2::new(240.0, TREE_ROW_H));
+        let geom = tree_row_geometry(rect, tree_theme(), 2, true, true, 2);
+
+        assert_eq!(geom.rect, rect);
+        assert_eq!(
+            geom.chevron_rect,
+            Some(MaraRect::from_min_size(
+                MaraPos2::new(10.0 + TREE_ROW_PAD_L + 2.0 * TREE_INDENT, 20.0),
+                MaraVec2::new(TREE_CHEVRON_W, TREE_ROW_H),
+            ))
+        );
+        assert_eq!(
+            geom.icon_rect,
+            Some(MaraRect::from_min_size(
+                MaraPos2::new(
+                    10.0 + TREE_ROW_PAD_L + 2.0 * TREE_INDENT + TREE_CHEVRON_W,
+                    20.0,
+                ),
+                MaraVec2::new(TREE_ICON_W, TREE_ROW_H),
+            ))
+        );
+        assert_eq!(
+            geom.body_rect,
+            MaraRect::from_min_max(
+                MaraPos2::new(10.0, 20.0),
+                MaraPos2::new(
+                    250.0 - (2.0 * TREE_SLOT_W + TREE_SLOT_GAP + TREE_RIGHT_PAD_R),
+                    40.0,
+                ),
+            )
+        );
+        assert_eq!(
+            geom.slot_rects,
+            vec![
+                MaraRect::from_min_max(MaraPos2::new(212.0, 20.0), MaraPos2::new(228.0, 40.0)),
+                MaraRect::from_min_max(MaraPos2::new(230.0, 20.0), MaraPos2::new(246.0, 40.0)),
+            ]
+        );
+    }
+
+    #[test]
+    fn tree_action_row_geometry_uses_mara_rects_for_body_action_and_label() {
+        let rect = MaraRect::from_min_size(
+            MaraPos2::new(10.0, 20.0),
+            MaraVec2::new(260.0, TREE_ACTION_ROW_H),
+        );
+        let geom = tree_action_row_geometry(rect, tree_theme(), 2, true, true);
+
+        assert_eq!(geom.rect, rect);
+        assert_eq!(
+            geom.button_rect,
+            MaraRect::from_min_max(MaraPos2::new(34.0, 21.0), MaraPos2::new(270.0, 58.0))
+        );
+        assert_eq!(
+            geom.chevron_rect,
+            Some(MaraRect::from_min_size(
+                MaraPos2::new(38.0, 20.0),
+                MaraVec2::new(TREE_CHEVRON_W, TREE_ACTION_ROW_H),
+            ))
+        );
+        assert_eq!(
+            geom.icon_rect,
+            Some(MaraRect::from_min_size(
+                MaraPos2::new(50.0, 20.0),
+                MaraVec2::new(TREE_ICON_W, TREE_ACTION_ROW_H),
+            ))
+        );
+        assert_eq!(geom.action_size, TREE_ACTION_W);
+        assert_eq!(
+            geom.action_rect,
+            MaraRect::from_center_size(MaraPos2::new(252.0, 39.5), MaraVec2::new(28.0, 28.0))
+        );
+        assert_eq!(
+            geom.body_rect,
+            MaraRect::from_min_max(MaraPos2::new(34.0, 21.0), MaraPos2::new(232.0, 58.0))
+        );
+        assert_eq!(
+            geom.label_rect,
+            MaraRect::from_min_max(MaraPos2::new(68.0, 26.0), MaraPos2::new(232.0, 53.0))
+        );
+    }
+
+    #[test]
+    fn tree_action_guides_backend_emit_line_commands() {
+        let rect = MaraRect::from_min_size(MaraPos2::ZERO, crate::vocab::Vec2::new(200.0, 40.0));
+
+        let commands = tree_action_guide_paint_cmds(
+            rect,
+            tree_theme(),
+            1,
+            TREE_INDENT,
+            Some(&TreeBranchGuide::last([])),
+            MaraColor32::from_gray(120),
+        );
+
+        assert_eq!(commands.len(), 2);
+        let PaintCmd::Line { a, b, stroke } = commands[1] else {
+            panic!("tree action guides should lower to line commands");
+        };
+        assert_pos(a, MaraPos2::new(TREE_ROW_PAD_L, 20.0));
+        assert_pos(b, MaraPos2::new(TREE_INDENT, 20.0));
+        assert_eq!(stroke.width, 1.0);
+    }
+
+    #[test]
+    fn tree_slot_icons_backend_emit_paint_commands() {
+        let rect = MaraRect::from_min_size(
+            MaraPos2::new(10.0, 20.0),
+            crate::vocab::Vec2::new(16.0, 20.0),
+        );
+
+        let eye = slot_icon_paint_cmds(rect, &TreeIconKind::Eye, true, false, MaraColor32::WHITE);
+        assert!(matches!(eye[0], PaintCmd::Polyline { .. }));
+        assert!(matches!(eye[1], PaintCmd::Polyline { .. }));
+        assert!(matches!(eye[2], PaintCmd::CircleFilled { .. }));
+
+        let hidden_eye =
+            slot_icon_paint_cmds(rect, &TreeIconKind::Eye, false, true, MaraColor32::WHITE);
+        assert!(matches!(hidden_eye[2], PaintCmd::Line { .. }));
+
+        let lock = slot_icon_paint_cmds(rect, &TreeIconKind::Lock, true, false, MaraColor32::WHITE);
+        assert!(matches!(lock[0], PaintCmd::RectFilled { .. }));
+        assert!(matches!(lock[1], PaintCmd::Polyline { .. }));
+        assert!(
+            lock.iter()
+                .any(|cmd| matches!(cmd, PaintCmd::CircleFilled { .. }))
+        );
+
+        let glyph = slot_icon_paint_cmds(
+            rect,
+            &TreeIconKind::Glyph { on: "A", off: "B" },
+            false,
+            false,
+            MaraColor32::WHITE,
+        );
+        let [PaintCmd::Text { text, .. }] = glyph.as_slice() else {
+            panic!("glyph slot should lower to a text command");
+        };
+        assert_eq!(text, "B");
+
+        let color = slot_icon_paint_cmds(
+            rect,
+            &TreeIconKind::Color(MaraColor32::from_rgb(1, 2, 3)),
+            false,
+            true,
+            MaraColor32::WHITE,
+        );
+        assert!(matches!(color[0], PaintCmd::RectFilled { .. }));
+        assert!(matches!(color[1], PaintCmd::RectStroke { .. }));
+    }
+
+    #[test]
+    fn tree_labels_backend_emit_clipped_text_commands() {
+        let rect = MaraRect::from_min_size(
+            MaraPos2::new(10.0, 20.0),
+            crate::vocab::Vec2::new(80.0, 24.0),
+        );
+
+        let cmd = clipped_text_paint_cmd(
+            rect,
+            rect.left_center(),
+            MaraAlign2::LEFT_CENTER,
+            "Robot Arm",
+            11.0,
+            MaraColor32::WHITE,
+        );
+
+        let PaintCmd::Clip {
+            rect: clip,
+            children,
+        } = cmd
+        else {
+            panic!("single-line tree labels should lower to clipped paint commands");
+        };
+        assert_eq!(clip, rect);
+        let [PaintCmd::Text { text, anchor, .. }] = children.as_slice() else {
+            panic!("clipped tree label should contain one text command");
+        };
+        assert_eq!(text, "Robot Arm");
+        assert_eq!(*anchor, MaraAlign2::LEFT_CENTER);
+
+        let cmd = two_line_label_paint_cmd(rect, "Zone A", "12 children");
+        let PaintCmd::Clip {
+            rect: clip,
+            children,
+        } = cmd
+        else {
+            panic!("two-line tree labels should lower to clipped paint commands");
+        };
+        assert_eq!(clip, rect);
+        let [
+            PaintCmd::Text { text: title, .. },
+            PaintCmd::Text { text: meta, .. },
+        ] = children.as_slice()
+        else {
+            panic!("two-line tree label should contain title and metadata text");
+        };
+        assert_eq!(title, "Zone A");
+        assert_eq!(meta, "12 children");
+    }
+
+    #[test]
+    fn tree_type_icons_backend_emit_named_font_or_text_commands() {
+        let icon = icon_or_glyph_paint_cmd(
+            MaraPos2::new(10.0, 20.0),
+            MaraAlign2::CENTER_CENTER,
+            "search",
+            14.0,
+            MaraColor32::WHITE,
+        );
+        let PaintCmd::TextWithFamily { text, family, .. } = icon else {
+            panic!("bundled type icons should lower to named-font text commands");
+        };
+        assert_eq!(text.chars().count(), 1);
+        let TextFamily::Named(family) = family else {
+            panic!("bundled type icons should keep a named text family");
+        };
+        assert!(!family.is_empty());
+
+        let fallback = icon_or_glyph_paint_cmd(
+            MaraPos2::new(10.0, 20.0),
+            MaraAlign2::CENTER_CENTER,
+            "usd",
+            14.0,
+            MaraColor32::WHITE,
+        );
+        let PaintCmd::Text { text, mono, .. } = fallback else {
+            panic!("unknown type icons should lower to plain Mara text commands");
+        };
+        assert_eq!(text, "usd");
+        assert!(!mono);
     }
 }

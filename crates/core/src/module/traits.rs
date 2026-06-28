@@ -1,8 +1,7 @@
-use egui::Id;
-
 use super::{ModuleInlineCtx, ModuleResponse, WorkspaceCtx};
 use crate::RibbonAvoidance;
 use crate::mui::MaraUi;
+use crate::vocab::Id;
 
 /// A recursive Mara module.
 ///
@@ -14,8 +13,8 @@ pub trait MaraModule {
     fn icon(&self) -> &'static str;
 
     /// Render the module's inline (in-pod) body. The surface is a
-    /// sealed [`MaraUi`]; raw egui access requires the `raw-egui`
-    /// feature (`mui.raw_ui_mut()`).
+    /// sealed [`MaraUi`]; modules should compose through Mara
+    /// widgets, painters, pods, and vocab data.
     fn inline(&mut self, mui: &mut MaraUi<'_>, ctx: ModuleInlineCtx<'_>) -> ModuleResponse;
 
     /// Which ribbons the module's fullscreen body should avoid.

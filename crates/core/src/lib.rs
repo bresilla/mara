@@ -19,37 +19,40 @@
 //! * [`pod`] — composable content units; the only thing a
 //!   container's body accepts. Built-ins so far: `SearchPod`.
 //! * [`widget`] — mara-styled widgets (`text_input`, …).
-//! * [`style`] — theme + colour + font runtime. `apply_theme` wires
-//!   the active `Theme` into egui's `Style`; `set_theme` swaps the
-//!   global theme.
+//! * [`style`] — theme + colour + font runtime. Mara host/facade code
+//!   wires the active `Theme` into the current backend; `set_theme`
+//!   swaps the global theme.
 //! * [`ribbon`] — edge button strips.
 //! * [`shelf`] — persistent docked tabbed container regions that
 //!   reserve viewport space.
 //! * [`icons`] — Fluent UI System Icon glyph painter.
 
-// Raw egui escape hatch. Everything in Mara's default surface is
-// typed and sealed; the only way to reach a raw `egui::Ui` /
-// `egui::Context` from consumer code is to enable the `raw-egui`
-// feature, which makes the opt-out explicit and greppable.
-#[cfg(feature = "raw-egui")]
-pub use egui;
-
 pub mod app_shell;
+pub(crate) mod backend;
 pub mod command_palette;
 pub mod container;
-pub mod debug;
+pub(crate) mod debug;
 pub mod embed;
 pub mod extras;
+pub mod focus;
 pub mod icons;
 pub mod layer;
+pub mod layout;
+pub mod memory;
 pub mod module;
 pub mod mui;
+pub mod paint;
 pub mod pane;
 pub mod pod;
+pub mod popup;
+pub mod probe;
 pub mod ribbon;
 pub(crate) mod scroll;
+pub mod scroll_state;
 pub mod shelf;
+pub mod shell;
 pub mod style;
+pub mod text_edit;
 pub mod themes;
 pub mod view;
 pub mod vocab;
@@ -57,7 +60,10 @@ pub mod widget;
 pub mod window_chrome;
 pub mod workspace;
 
-pub use mui::{MaraInput, MaraPainter, MaraResponse, MaraUi};
+pub use layout::{Layer, Sense as MaraSense, UiBackend};
+pub use memory::{MaraMemory, MaraMemoryCtx};
+pub use mui::{MaraInput, MaraKey, MaraPainter, MaraResponse, MaraUi};
+pub use paint::{PaintCmd, PaintList};
 // `vocab` is deliberately NOT glob-re-exported at the root: hosts
 // like Bevy glob-import both their own prelude and `mara_core::*`,
 // and egui's `Vec2`/`Rect` would silently shadow the host's math
@@ -83,11 +89,9 @@ pub use app_shell::{
     WindowControlsPolicy, dispatch_app_shell_action, resolve_app_shell_chrome,
     resolve_app_shell_chrome_with_workspace, resolve_app_shell_ribbons,
     resolve_app_shell_ribbons_with_workspace_chrome,
-    resolve_app_shell_ribbons_with_workspace_layers, show_app_shell,
-    show_app_shell_chrome_with_slot_ribbons, show_app_shell_with_slot_ribbons,
-    show_app_shell_with_workspace_renderer,
+    resolve_app_shell_ribbons_with_workspace_layers,
 };
-pub use command_palette::{CommandPaletteState, PaletteItem, command_palette};
+pub use command_palette::{CommandPaletteState, PaletteItem};
 pub use module::{MaraModule, ModuleInlineCtx, ModuleInlineOptions, ModuleResponse, WorkspaceCtx};
 pub use ribbon::{
     ResolvedSlotRibbon, RibbonAction, RibbonActionError, RibbonActionResult, RibbonAvoidance,
@@ -95,55 +99,49 @@ pub use ribbon::{
     RibbonOverrideLayer, RibbonOverridePolicy, RibbonPlacement, RibbonRole, RibbonScope,
     RibbonSlot, RibbonSlotClick, RibbonSlotDef, RibbonSlotId, RibbonSlotItem, RibbonSlotOverride,
     RibbonWidth, app_menu_command_id, app_menu_slot_id, bottom_shelf_command_id,
-    bottom_shelf_slot_id, dispatch_ribbon_action, draw_slot_ribbons, draw_slot_ribbons_featureful,
-    left_shelf_command_id, left_shelf_slot_id, main_bar_empty_drag_started,
+    bottom_shelf_slot_id, dispatch_ribbon_action, left_shelf_command_id, left_shelf_slot_id,
     permanent_app_menu_slot, permanent_bottom_shelf_slot, permanent_left_shelf_slot,
     permanent_right_shelf_slot, permanent_system_control_slot, permanent_view_switcher_ribbon,
     phone_remapped_ribbon_edge, resolve_slot_item, resolve_slot_items,
-    restore_workspace_slot_override, ribbon_avoiding_rect, ribbon_clearance,
-    right_shelf_command_id, right_shelf_slot_id, system_close_or_restore_slot_id,
+    restore_workspace_slot_override, ribbon_clearance, right_shelf_command_id, right_shelf_slot_id,
+    system_close_or_restore_slot_id,
 };
 pub use shelf::{
     ShelfContainer, ShelfDef, ShelfEdge, ShelfEdgeError, ShelfLayout, ShelfState, layout_shelves,
-    publish_shelf_layout, responsive_shelves, shelf_insets, shelf_layout, show_shelves,
+    responsive_shelves, shelf_insets,
 };
+pub use shell::{ShellBar, ShellEvent, ShellView};
 pub use style::{
     AccentColor, Breakpoint, GlassOpacity, PHONE_MAX_WIDTH, ScreenMetrics, TABLET_MAX_WIDTH,
-    apply_theme, screen_class, screen_metrics, set_glass_opacity, set_screen_metrics,
-    set_touch_density_override, touch_density,
+    screen_class, screen_metrics, set_glass_opacity, set_touch_density_override, touch_density,
 };
 pub use view::{
-    MaraView, SharedSurfaceId, ViewCtx, ViewEntry, ViewId, ViewRouter, ViewRouterError,
+    CellId, Layout, MaraView, MultiView, SharedSurfaceId, SplitAxis, ViewCtx, ViewEntry, ViewId,
+    ViewRouter, ViewRouterError,
 };
 pub use window_chrome::{
     WindowChromeHit, WindowChromeHostCapabilities, WindowChromeInput, WindowChromePolicy,
     WindowChromeRegions, WindowChromeState, WindowChromeUpdate, WindowResizeDirection,
-    claim_window_chrome_input, clear_window_chrome_regions, hit_test_window_chrome,
-    hit_test_window_chrome_regions, hovered_resize_corner, paint_resize_corner_hover,
-    publish_window_chrome_host_capabilities, publish_window_chrome_regions, resize_direction,
-    window_chrome_host_capabilities, window_chrome_input_claimed, window_chrome_regions,
+    hit_test_window_chrome_regions, resize_direction,
 };
 pub use workspace::{
     WorkspaceBar, WorkspaceBarCluster, WorkspaceBarEdge, WorkspaceBarItem, WorkspaceBarItemKind,
     WorkspaceLevelState, WorkspaceOwner, WorkspacePolicy, WorkspaceStack, WorkspaceStackError,
 };
 
-// Surface the canonical widget functions at the crate root so
-// `use bevy_mara::prelude::*;` brings standalone widgets
-// (`button`, `readout`, `chip`, `toggle`, `tree_row`,
-// `keybinding_row`, `badge_row`, `context_menu_mara`, …) into
-// scope. The TYPE-style names (`Button`, `TreeIconSlot`, …) sit
-// here too so trait-shaped widgets compose without a longer path.
+// Surface the remaining transitional widget functions at the crate
+// root so `use bevy_mara::prelude::*;` still brings the widgets that
+// have not been fully sealed yet into scope. Completed simple
+// widgets are exposed through `MaraUi` methods instead of loose
+// `egui::Ui` helpers. The TYPE-style names (`Button`,
+// `TreeIconSlot`, …) sit here too so trait-shaped widgets compose
+// without a longer path.
 pub use widget::{
     BADGE_LABEL_COL_W, BADGE_ROW_H, BUTTON_LABEL_FONT, BUTTON_ROW_H, BUTTON_ROW_H_SUBTITLE, Button,
     CARD_BUTTON_ROW_H, CHIP_H, COLOR_SWATCH_H, DROPDOWN_ROW_H, FillStyle, HYBRID_SELECT_ROW_H,
-    HybridSelectResponse, KEYBINDING_ROW_H, READOUT_ROW_H, SELECT_ROW_H, TREE_INDENT, TREE_ROW_H,
-    TreeBranchGuide, TreeIconKind, TreeIconSlot, TreeRowResponse, badge_row, badge_row_colored,
-    button, button_h, card_button, chip, chip_colored, color_rgb, color_rgba, context_menu_mara,
-    drag_value, drag_value_h, dropdown, dropdown_h, hybrid_select_row, hybrid_select_row_h,
-    keybinding_row, keybinding_row_h, progressbar, progressbar_h, readout, readout_h, select_row,
-    select_row_h, slider, slider_h, text_input, text_input_h, toggle, toggle_h, toggle_track_only,
-    tree_row,
+    HybridSelectResponse, KEYBINDING_ROW_H, PROGRESSBAR_ROW_H, READOUT_ROW_H, SELECT_ROW_H,
+    SLIDER_ROW_H, TOGGLE_ROW_H, TREE_INDENT, TREE_ROW_H, TreeBranchGuide, TreeIconKind,
+    TreeIconSlot, TreeRowResponse,
 };
 
 // Re-export of the bundled `iconflow` crate so consumers can reach

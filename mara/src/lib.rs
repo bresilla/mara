@@ -21,6 +21,6 @@ pub mod prelude {
 
     #[cfg(all(feature = "window", not(target_arch = "wasm32")))]
     pub use crate::window::{
-        App, AppRunner, CreationContext, NativeOptions, Surface, WindowApp, run, run_native,
+        AppRunner, CreationContext, NativeOptions, Surface, WindowApp, run, run_native,
     };
 }

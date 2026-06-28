@@ -1,9 +1,8 @@
 use std::collections::HashSet;
 
-use egui::{Color32, Id};
-
 use crate::{
-    ribbon::{RibbonAvoidance, RibbonOverrideLayer, RibbonScope, RibbonSlotDef},
+    ribbon::{RibbonOverrideLayer, RibbonScope, RibbonSlotDef},
+    vocab::{Color32 as MaraColor32, Id as MaraId},
     workspace::{
         WorkspaceBar, WorkspaceLevelState, WorkspacePolicy, WorkspaceStack,
         validate_workspace_bar_item,
@@ -28,9 +27,9 @@ impl Default for ModuleInlineOptions {
 
 /// Context passed to `MaraModule::inline`.
 pub struct ModuleInlineCtx<'a> {
-    pub pod_id: Id,
+    pub pod_id: MaraId,
     pub slot_index: usize,
-    pub accent: Color32,
+    pub accent: MaraColor32,
     pub options: ModuleInlineOptions,
     pub workspace: Option<&'a mut WorkspaceStack>,
 }
@@ -77,7 +76,7 @@ impl ModuleResponse {
 pub struct WorkspaceCtx<'a> {
     pub level: WorkspaceLevelState,
     pub policy: WorkspacePolicy,
-    pub accent: Color32,
+    pub accent: MaraColor32,
     stack: &'a mut WorkspaceStack,
     bars: Vec<WorkspaceBar>,
     ribbons: Vec<RibbonSlotDef>,
@@ -86,13 +85,13 @@ pub struct WorkspaceCtx<'a> {
 
 impl<'a> WorkspaceCtx<'a> {
     #[must_use]
-    pub fn new(stack: &'a mut WorkspaceStack, accent: Color32) -> Self {
+    pub fn new(stack: &'a mut WorkspaceStack, accent: impl Into<MaraColor32>) -> Self {
         let level = stack.current();
         let policy = stack.current_policy();
         Self {
             level,
             policy,
-            accent,
+            accent: accent.into(),
             stack,
             bars: Vec::new(),
             ribbons: Vec::new(),
@@ -147,7 +146,7 @@ impl<'a> WorkspaceCtx<'a> {
         &self.ribbon_overrides
     }
 
-    pub fn push_module_workspace(&mut self, module_id: Id) -> WorkspaceLevelState {
+    pub fn push_module_workspace(&mut self, module_id: impl Into<MaraId>) -> WorkspaceLevelState {
         self.stack.push_module(module_id)
     }
 
@@ -155,15 +154,6 @@ impl<'a> WorkspaceCtx<'a> {
         &mut self,
     ) -> Result<WorkspaceLevelState, crate::workspace::WorkspaceStackError> {
         self.stack.pop()
-    }
-
-    #[must_use]
-    pub fn ribbon_avoiding_rect(
-        &self,
-        egui_ctx: &egui::Context,
-        avoidance: RibbonAvoidance,
-    ) -> egui::Rect {
-        crate::ribbon_avoiding_rect(egui_ctx, avoidance)
     }
 
     /// Current responsive size class for this frame. Module workspaces
@@ -194,17 +184,17 @@ mod tests {
         ribbon::{RibbonScope, RibbonSlotDef},
     };
 
-    fn module_workspace_ctx() -> (WorkspaceStack, Color32) {
-        let mut stack = WorkspaceStack::new(egui::Id::new("root"));
-        stack.push_module(egui::Id::new("module"));
-        (stack, Color32::WHITE)
+    fn module_workspace_ctx() -> (WorkspaceStack, MaraColor32) {
+        let mut stack = WorkspaceStack::new("root");
+        stack.push_module("module");
+        (stack, MaraColor32::WHITE)
     }
 
     #[test]
     fn workspace_ctx_rejects_duplicate_bar_ids() {
         let (mut stack, accent) = module_workspace_ctx();
         let mut ctx = WorkspaceCtx::new(&mut stack, accent);
-        let id = egui::Id::new("bar");
+        let id = MaraId::new("bar");
         ctx.add_bar(WorkspaceBar::new(
             id,
             crate::WorkspaceBarEdge::Top,
@@ -226,9 +216,9 @@ mod tests {
     fn workspace_ctx_rejects_duplicate_bar_item_ids() {
         let (mut stack, accent) = module_workspace_ctx();
         let mut ctx = WorkspaceCtx::new(&mut stack, accent);
-        let item_id = egui::Id::new("item");
+        let item_id = MaraId::new("item");
         let bar = WorkspaceBar {
-            id: egui::Id::new("bar"),
+            id: "bar".into(),
             edge: crate::WorkspaceBarEdge::Top,
             cluster: crate::WorkspaceBarCluster::Middle,
             items: vec![

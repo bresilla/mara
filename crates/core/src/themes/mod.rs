@@ -112,16 +112,6 @@ pub mod flat;
 pub mod game;
 pub mod pro;
 
-pub use flat::{
-    FLAT_DARK_BG_HOVER, FLAT_DARK_BG_INPUT, FLAT_DARK_BG_PANEL, FLAT_DARK_BG_RAISED,
-    FLAT_DARK_BG_WINDOW, FLAT_LIGHT_BG_HOVER, FLAT_LIGHT_BG_INPUT, FLAT_LIGHT_BG_PANEL,
-    FLAT_LIGHT_BG_RAISED, FLAT_LIGHT_BG_WINDOW, theme_flat,
-};
-pub use game::{
-    GAME_LIGHT_BG_HOVER, GAME_LIGHT_BG_INPUT, GAME_LIGHT_BG_PANEL, GAME_LIGHT_BG_RAISED,
-    GAME_LIGHT_BG_WINDOW, theme_game,
-};
-pub use pro::{
-    PRO_LIGHT_BG_HOVER, PRO_LIGHT_BG_INPUT, PRO_LIGHT_BG_PANEL, PRO_LIGHT_BG_RAISED,
-    PRO_LIGHT_BG_WINDOW, PRO_LIGHT_BORDER_INNER, PRO_LIGHT_BORDER_SUBTLE, theme_pro,
-};
+pub use flat::theme_flat;
+pub use game::theme_game;
+pub use pro::theme_pro;

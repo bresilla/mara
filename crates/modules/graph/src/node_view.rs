@@ -20,8 +20,8 @@
 //! per graph editor and tweaking that context's `pixels_per_point`
 //! to mirror the inverse of the zoom level. We follow the same
 //! recipe here, but generalise the rendering hook into a backend
-//! trait so the same code runs under both `bevy_egui` (Bevy 3D)
-//! and `eframe`'s wgpu backend.
+//! trait so the same code can run under different wgpu-backed
+//! Mara hosts without tying the graph to a specific window owner.
 //!
 //! ## Lifecycle
 //!
@@ -118,9 +118,13 @@ impl NodeViewState {
         }
     }
 
-    /// Direct access to the secondary `egui::Context`. Hosts use
-    /// this to set theme / fonts / styles to match the parent UI.
-    pub fn ctx(&self) -> &egui::Context {
+    /// First-party hook for the secondary `egui::Context`.
+    ///
+    /// The sharp-zoom renderer is still egui-backed internally, but
+    /// ordinary graph consumers should go through Mara's graph
+    /// wrapper instead of configuring the raw sub-context directly.
+    #[doc(hidden)]
+    pub fn __internal_ctx(&self) -> &egui::Context {
         &self.sub_ctx
     }
 
@@ -131,9 +135,9 @@ impl NodeViewState {
     ///
     /// ```ignore
     /// if state.take_first_frame() {
-    ///     maraui::style::install_fonts(state.ctx(), ...);
+    ///     maraui::style::__internal_install_fonts(state.__internal_ctx(), ...);
     /// }
-    /// maraui::style::apply_theme_to(state.ctx(), ...);
+    /// maraui::style::__internal_apply_theme_to(state.__internal_ctx(), ...);
     /// mara_graph::show_with_anchor(...);
     /// ```
     pub fn take_first_frame(&mut self) -> bool {
@@ -307,10 +311,8 @@ pub trait NodeViewBackend {
     /// finishes writing into the mara_core-allocated wgpu texture.
     /// Default impl is a no-op (eframe doesn't need it — the
     /// render pass writes into the same texture egui samples
-    /// directly). Bevy overrides this to queue a copy from the
-    /// mara_core-owned source texture into a Bevy `Image` asset's
-    /// GpuImage in render world (= what `bevy_egui` actually
-    /// samples on the parent UI side).
+    /// directly). Hosts with separate render worlds can override
+    /// this to queue a copy into their own texture asset.
     fn after_render(
         &mut self,
         _texture: &wgpu::Texture,
@@ -376,6 +378,7 @@ fn render_into_target(
                 depth_stencil_attachment: None,
                 timestamp_writes: None,
                 occlusion_query_set: None,
+                multiview_mask: None,
             })
             .forget_lifetime();
         renderer.render(&mut rpass, &primitives, &screen_descriptor);
@@ -426,9 +429,9 @@ pub fn show_with_anchor<R>(
 ) -> egui::Response {
     // Sub-context setup (font install, theme bridging) is the
     // caller's responsibility — see [`NodeViewState::take_first_frame`]
-    // and [`NodeViewState::ctx`]. The mara-themed wrapper in
-    // `maraui::extras::graph` runs `maraui::style::install_fonts`
-    // + `apply_theme_to` against the sub-context before invoking
+    // and [`NodeViewState::__internal_ctx`]. The mara-themed wrapper in
+    // `maraui::extras::graph` runs Mara's internal font install
+    // + theme-visual hooks against the sub-context before invoking
     // this function; standalone consumers can leave the sub-context
     // with egui's default visuals.
 
@@ -623,11 +626,14 @@ pub fn show_with_anchor<R>(
     state.ensure_target(backend, size_pixels);
     let sub_ctx = state.sub_ctx.clone();
     sub_ctx.begin_pass(raw);
-    egui::CentralPanel::default()
-        .frame(egui::Frame::new())
-        .show(&sub_ctx, |ui| {
-            body(ui);
-        });
+    #[allow(deprecated)]
+    {
+        egui::CentralPanel::default()
+            .frame(egui::Frame::new())
+            .show(&sub_ctx, |ui| {
+                body(ui);
+            });
+    }
     let full = sub_ctx.end_pass();
     let primitives = sub_ctx.tessellate(full.shapes, sub_ppp);
     render_into_target(

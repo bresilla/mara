@@ -18,6 +18,9 @@ use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopProxy}
 use winit::window::{ResizeDirection, Window, WindowAttributes, WindowId};
 
 pub use crate::host::{MaraHostCtx, MaraWindowHost};
+pub use mara_core::{ShellBar, ShellEvent, ShellView};
+
+use mara_core::ribbon::{RibbonDrag, RibbonOpen, RibbonPlacement};
 
 /// Surface mode for the Mara-owned runner.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -57,13 +60,6 @@ pub struct CreationContext<'a> {
 }
 
 impl CreationContext<'_> {
-    /// The raw `egui::Context`. Raw-egui escape hatch.
-    #[cfg(feature = "raw-egui")]
-    #[must_use]
-    pub fn egui_ctx(&self) -> &egui::Context {
-        self.egui_ctx
-    }
-
     /// Internal first-party accessor — NOT part of the public API
     /// and not semver-stable.
     #[doc(hidden)]
@@ -77,6 +73,20 @@ impl CreationContext<'_> {
 pub trait WindowApp: Sized + 'static {
     fn new(ctx: CreationContext<'_>) -> Self;
     fn update(&mut self, ctx: &mut MaraHostCtx<'_>);
+
+    /// Configure the enforced permanent top bar for this frame.
+    ///
+    /// The runner renders the [`ShellBar`] itself (it is *enforced*,
+    /// not opt-in), then calls this so the app can set the view
+    /// switcher / active selection. Leave it empty for the default
+    /// bar (app-menu + window controls); set `bar.enabled = false` to
+    /// opt out entirely.
+    fn configure_shell(&mut self, _bar: &mut ShellBar) {}
+
+    /// React to a top-bar interaction the app owns (view switch, menu,
+    /// shelf toggle). The runner handles the window actions
+    /// (close/maximize) itself, so those never reach here.
+    fn on_shell_event(&mut self, _event: ShellEvent, _ctx: &mut MaraHostCtx<'_>) {}
 }
 
 /// Builder for the Mara-owned native window.
@@ -84,9 +94,6 @@ pub trait WindowApp: Sized + 'static {
 pub struct AppRunner {
     options: NativeOptions,
 }
-
-/// Backwards-friendly alias for the window-owning runner.
-pub type App = AppRunner;
 
 impl AppRunner {
     pub fn new() -> Self {
@@ -160,6 +167,12 @@ struct NativeWinitApp<A: WindowApp> {
     last_cursor_pos: Option<egui::Pos2>,
     last_chrome_regions: mara_core::WindowChromeRegions,
     next_repaint: Option<Instant>,
+    // Enforced shell top bar — owned by the runner, not the app, so
+    // every `mara::window` app has it (the app only configures it).
+    shell: ShellBar,
+    shell_open: RibbonOpen,
+    shell_placement: RibbonPlacement,
+    shell_drag: RibbonDrag,
 }
 
 impl<A: WindowApp> NativeWinitApp<A> {
@@ -175,6 +188,10 @@ impl<A: WindowApp> NativeWinitApp<A> {
             last_cursor_pos: None,
             last_chrome_regions: mara_core::WindowChromeRegions::default(),
             next_repaint: Some(Instant::now()),
+            shell: ShellBar::default(),
+            shell_open: RibbonOpen::default(),
+            shell_placement: RibbonPlacement::default(),
+            shell_drag: RibbonDrag::default(),
         }
     }
 
@@ -201,9 +218,19 @@ impl<A: WindowApp> NativeWinitApp<A> {
             let _ = repaint_proxy.send_event(MaraUserEvent::RequestRepaint(when));
         });
 
+        // `paint_and_update_textures` acquires + presents the surface on
+        // the UI thread; with the default `AutoVsync` (Fifo) present mode
+        // that call BLOCKS until the next vsync, stalling the whole UI
+        // (input handling, pane open/animation) behind the GPU. Use a
+        // non-blocking present mode so the UI thread never waits on the
+        // swapchain.
+        let wgpu_config = egui_wgpu::WgpuConfiguration {
+            present_mode: wgpu::PresentMode::AutoNoVsync,
+            ..egui_wgpu::WgpuConfiguration::default()
+        };
         let mut painter = pollster::block_on(Painter::new(
             self.egui_ctx.clone(),
-            egui_wgpu::WgpuConfiguration::default(),
+            wgpu_config,
             false,
             egui_wgpu::RendererOptions::default(),
         ));
@@ -275,8 +302,17 @@ impl<A: WindowApp> NativeWinitApp<A> {
         let Some(pos) = self.last_cursor_pos else {
             return false;
         };
+        // `last_cursor_pos` and the winit window size are in PHYSICAL
+        // pixels, but the published chrome regions (drag + exclusion rects)
+        // are in egui LOGICAL POINTS. The two only coincide at
+        // pixels_per_point == 1.0; Ctrl+/Ctrl- changes egui's zoom factor
+        // (hence `pixels_per_point`), so without this conversion the
+        // exclusion rects drift out from under the cursor as you zoom and
+        // a button press is mis-read as a window drag. Convert to points.
+        let ppp = self.egui_ctx.pixels_per_point().max(f32::EPSILON);
+        let pos = mara_core::vocab::pos2(pos.x / ppp, pos.y / ppp);
         let size = window.inner_size();
-        let window_size = egui::vec2(size.width as f32, size.height as f32);
+        let window_size = mara_core::vocab::vec2(size.width as f32 / ppp, size.height as f32 / ppp);
         let Some(hit) = mara_core::hit_test_window_chrome_regions(
             &self.last_chrome_regions,
             pos,
@@ -304,12 +340,26 @@ impl<A: WindowApp> NativeWinitApp<A> {
     }
 
     fn redraw(&mut self, event_loop: &ActiveEventLoop) {
-        let (Some(window), Some(egui_state), Some(painter), Some(app)) = (
+        let (
+            Some(window),
+            Some(egui_state),
+            Some(painter),
+            Some(app),
+            shell,
+            shell_open,
+            shell_placement,
+            shell_drag,
+        ) = (
             self.window.as_ref(),
             self.egui_state.as_mut(),
             self.painter.as_mut(),
             self.app.as_mut(),
-        ) else {
+            &mut self.shell,
+            &mut self.shell_open,
+            &mut self.shell_placement,
+            &mut self.shell_drag,
+        )
+        else {
             return;
         };
 
@@ -326,12 +376,54 @@ impl<A: WindowApp> NativeWinitApp<A> {
             return;
         };
 
-        let full_output = self.egui_ctx.run(raw_input, |ctx| {
+        // Layout pose probe: when `MARA_SHOW_POSE` is set, capture this
+        // frame's element rects/state and dump them to the terminal
+        // after the pass. Throttled so it doesn't flood the console.
+        let probe_this_frame = std::env::var_os("MARA_SHOW_POSE").is_some()
+            && self.egui_ctx.cumulative_pass_nr().is_multiple_of(120);
+        if probe_this_frame {
+            mara_core::probe::__internal_set_enabled(&self.egui_ctx, true);
+        }
+
+        // Frame timing is opt-in (MARA_FRAME_TIME). Only SLOW frames are
+        // printed (see threshold below) so interaction-triggered spikes
+        // stand out instead of being buried in steady-state noise.
+        let frame_timing = std::env::var_os("MARA_FRAME_TIME").is_some();
+        let frame_t0 = std::time::Instant::now();
+
+        let full_output = self.egui_ctx.run_ui(raw_input, |ui| {
+            let ctx = ui.ctx();
             let mut host = MaraHostCtx::mara_window(ctx, Some(&render_state));
             app.update(&mut host);
+
+            // Enforced permanent top bar — rendered by the runner, not
+            // the app. The app only configures it (views/active) and
+            // reacts to app-level events; the runner owns the window
+            // actions. Drawn after the app body so it reads the live
+            // theme/capabilities/shelf layout the app published.
+            app.configure_shell(shell);
+            for event in shell.show(ctx, shell_open, shell_placement, shell_drag) {
+                match event {
+                    ShellEvent::CloseRequested => {
+                        ctx.send_viewport_cmd(ViewportCommand::Close);
+                    }
+                    ShellEvent::MaximizeToggleRequested => {
+                        let maximized = ctx.input(|i| i.viewport().maximized).unwrap_or(false);
+                        ctx.send_viewport_cmd(ViewportCommand::Maximized(!maximized));
+                    }
+                    other => app.on_shell_event(other, &mut host),
+                }
+            }
         });
 
-        self.last_chrome_regions = mara_core::window_chrome_regions(&self.egui_ctx);
+        if probe_this_frame {
+            let poses = mara_core::probe::__internal_drain(&self.egui_ctx);
+            eprintln!("{}", mara_core::probe::format(&poses));
+            mara_core::probe::__internal_set_enabled(&self.egui_ctx, false);
+        }
+
+        self.last_chrome_regions =
+            mara_core::window_chrome::__internal_window_chrome_regions(&self.egui_ctx);
 
         let egui::FullOutput {
             platform_output,
@@ -358,15 +450,41 @@ impl<A: WindowApp> NativeWinitApp<A> {
             }
         }
 
+        let run_ms = frame_t0.elapsed().as_secs_f32() * 1000.0;
+        let tess_t0 = std::time::Instant::now();
         let clipped_primitives = self.egui_ctx.tessellate(shapes, pixels_per_point);
+        let tess_ms = tess_t0.elapsed().as_secs_f32() * 1000.0;
+        let tex_set = textures_delta.set.len();
+        let tex_free = textures_delta.free.len();
+        let paint_t0 = std::time::Instant::now();
+        // The screen clear is the absolute backdrop behind everything —
+        // it shows through wherever no view/pane paints (e.g. around a
+        // view that shrinks inside the ribbons, or behind the glass top
+        // bar). Drive it from the active theme so it tracks light/dark
+        // instead of being a fixed dark color.
+        let clear_color = {
+            let bg: egui::Color32 = mara_core::style::theme().palette.bg_window.into();
+            egui::Rgba::from(bg).to_array()
+        };
         painter.paint_and_update_textures(
             ViewportId::ROOT,
             pixels_per_point,
-            [0.06, 0.08, 0.12, 1.0],
+            clear_color,
             &clipped_primitives,
             &textures_delta,
             Vec::new(),
         );
+        if frame_timing {
+            let paint_ms = paint_t0.elapsed().as_secs_f32() * 1000.0;
+            let total = run_ms + tess_ms + paint_ms;
+            // Only report laggy frames so interaction spikes are obvious.
+            if total > 10.0 {
+                eprintln!(
+                    "MARA_FRAME[SLOW]: total={total:.1}ms | ui_run={run_ms:.1} tessellate={tess_ms:.1} gpu_paint={paint_ms:.1} | shapes={} tex_uploads={tex_set} tex_frees={tex_free}",
+                    clipped_primitives.len()
+                );
+            }
+        }
     }
 }
 

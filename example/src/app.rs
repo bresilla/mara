@@ -51,10 +51,10 @@ use mara_core::pod::Pod;
 use mara_core::ribbon::{
     ResolvedSlotRibbon, RibbonAction, RibbonCluster, RibbonDrag, RibbonEdge, RibbonGlyph,
     RibbonMode, RibbonOpen, RibbonPlacement, RibbonRole, RibbonSlotClick, RibbonSlotItem,
-    draw_slot_ribbons_featureful,
 };
 use mara_core::shelf::{ShelfContainer, ShelfDef, ShelfEdge, ShelfState};
-use mara_core::style::{AccentColor, GlassOpacity, Mode, srgb_to_egui};
+use mara_core::style::{AccentColor, GlassOpacity, Mode, srgb_to_color};
+use mara_core::vocab::Color32 as MaraColor32;
 use mara_core::widget::{FillStyle, TreeBranchGuide, TreeIconKind, TreeIconSlot};
 use mara_map::{
     DEFAULT_SVG_MARKER, MapAnnotation, MapDocument, MapFeatureGeometry, MapFeatureInfo, MapIcon,
@@ -66,25 +66,28 @@ use mara_map::{
 // offscreen renderer is created from `mara::host::MaraHostCtx`.
 use mara::host::{EframeNodeViewBackend, MaraHostCtx};
 use mara::ui::modules::bevy::MaraBevyViewport;
+use mara::ui::modules::board::{Board, BoardPaint};
+use mara::ui::modules::canvas::{CanvasDocument, CanvasSurface};
+use mara::ui::modules::image::{ImageDocument, ImageSurface};
 use mara::ui::modules::three_d::{Scene3d, TriangleMesh3d, View3d};
 use mara_core::extras::code::Syntax;
 use mara_core::extras::graph::{
     Graph, InPin, InPinId, NodePin, NodeViewState, NodeViewer, OutPin, OutPinId, PinInfo,
 };
-use mara_core::{MaraView, RibbonAvoidance, ViewCtx, WorkspaceStack};
+use mara_core::vocab::Id as MaraId;
+use mara_core::{Layout, MaraView, MultiView, RibbonAvoidance, ViewId, WorkspaceStack};
 
 // ─── Ribbon / pane ids ──────────────────────────────────────────────
 
 const RIBBON_LEFT: &str = "demo_ribbon_left";
 const RIBBON_RIGHT: &str = "demo_ribbon_right";
 const RIBBON_TOP: &str = "demo_ribbon_top";
-const RIBBON_BOTTOM: &str = "demo_ribbon_bottom";
 
 // Fullscreen-only ribbons. Painted only while a maximizable widget
 // (node graph / code editor) is in its fullscreen overlay — driven
-// by `is_any_fullscreen(ctx)` in the per-frame top-level callback
-// below. Uses the SAME ribbon API as the regular rails, so the
-// fullscreen view looks like a fresh canvas built from the same
+// by the host fullscreen snapshot in the per-frame top-level
+// callback below. Uses the SAME ribbon API as the regular rails, so
+// the fullscreen view looks like a fresh canvas built from the same
 // mara UI primitives.
 const RIBBON_FS_LEFT: &str = "demo_ribbon_fs_left";
 
@@ -123,6 +126,8 @@ const ACTION_CANVAS_CLEAR: &str = "demo_action_canvas_clear";
 const ACTION_VIEW_BEVY: &str = "demo_action_view_bevy";
 const ACTION_VIEW_CANVAS: &str = "demo_action_view_canvas";
 const ACTION_VIEW_3D: &str = "demo_action_view_3d";
+const ACTION_VIEW_BOARD: &str = "demo_action_view_board";
+const ACTION_VIEW_MULTI: &str = "demo_action_view_multi";
 const ACTION_COREVIZ_ZONES: &str = "demo_action_coreviz_zones";
 const ACTION_COREVIZ_MANAGEMENT: &str = "demo_action_coreviz_management";
 const ACTION_MAP_SELECT: &str = "demo_action_map_select";
@@ -192,9 +197,9 @@ const PANE_DEFS: &[(&str, &str, PaneAnchor, &str)] = &[
         "About",
     ),
     (
-        RIBBON_BOTTOM,
+        RIBBON_RIGHT,
         PANE_EDITOR,
-        PaneAnchor::BottomRail(RailZone::Start),
+        PaneAnchor::RightRail(RailZone::End),
         "Editor",
     ),
     (
@@ -228,9 +233,9 @@ const PANE_DEFS: &[(&str, &str, PaneAnchor, &str)] = &[
         "History",
     ),
     (
-        RIBBON_BOTTOM,
+        RIBBON_RIGHT,
         PANE_CANVAS_EXPORT,
-        PaneAnchor::BottomRail(RailZone::Start),
+        PaneAnchor::RightRail(RailZone::End),
         "Export",
     ),
     (
@@ -356,80 +361,21 @@ const RIBBONS: &[RibbonSpec] = &[
         edge: RibbonEdge::Left,
         role: RibbonRole::Panel,
         mode: RibbonMode::ThreeSided,
-        accepts: &[RIBBON_RIGHT, RIBBON_BOTTOM],
+        accepts: &[RIBBON_RIGHT],
     },
     RibbonSpec {
         id: RIBBON_RIGHT,
         edge: RibbonEdge::Right,
         role: RibbonRole::Panel,
         mode: RibbonMode::ThreeSided,
-        accepts: &[RIBBON_LEFT, RIBBON_BOTTOM],
-    },
-    RibbonSpec {
-        id: RIBBON_BOTTOM,
-        edge: RibbonEdge::Bottom,
-        role: RibbonRole::Panel,
-        mode: RibbonMode::ThreeSided,
-        accepts: &[RIBBON_LEFT, RIBBON_RIGHT],
+        accepts: &[RIBBON_LEFT],
     },
 ];
 
 const RIBBON_ITEMS_PERSISTENT_TOP: &[RibbonButtonSpec] = &[
-    RibbonButtonSpec {
-        id: ACTION_VIEW_BEVY,
-        ribbon: RIBBON_TOP,
-        cluster: RibbonCluster::Middle,
-        slot: 0,
-        draggable: false,
-        glyph: RibbonGlyph::Icon("cube"),
-        tooltip: "Bevy scene view",
-        child_ribbon: None,
-        role: Some(RibbonRole::Icon),
-    },
-    RibbonButtonSpec {
-        id: ACTION_VIEW_CANVAS,
-        ribbon: RIBBON_TOP,
-        cluster: RibbonCluster::Middle,
-        slot: 1,
-        draggable: false,
-        glyph: RibbonGlyph::Icon("pen"),
-        tooltip: "Canvas / whiteboard view",
-        child_ribbon: None,
-        role: Some(RibbonRole::Icon),
-    },
-    RibbonButtonSpec {
-        id: ACTION_COREVIZ_ZONES,
-        ribbon: RIBBON_TOP,
-        cluster: RibbonCluster::Middle,
-        slot: 2,
-        draggable: false,
-        glyph: RibbonGlyph::Icon("draw-shape"),
-        tooltip: "Map annotation view",
-        child_ribbon: None,
-        role: Some(RibbonRole::Icon),
-    },
-    RibbonButtonSpec {
-        id: ACTION_COREVIZ_MANAGEMENT,
-        ribbon: RIBBON_TOP,
-        cluster: RibbonCluster::Middle,
-        slot: 3,
-        draggable: false,
-        glyph: RibbonGlyph::Icon("location"),
-        tooltip: "Map object selection view",
-        child_ribbon: None,
-        role: Some(RibbonRole::Icon),
-    },
-    RibbonButtonSpec {
-        id: ACTION_VIEW_3D,
-        ribbon: RIBBON_TOP,
-        cluster: RibbonCluster::Middle,
-        slot: 4,
-        draggable: false,
-        glyph: RibbonGlyph::Icon("cube"),
-        tooltip: "Three-d scene view",
-        child_ribbon: None,
-        role: Some(RibbonRole::Icon),
-    },
+    // The root/L0 view switcher now lives in the enforced shell bar
+    // (`mara_core::ShellBar`, rendered by the host adapter), so the
+    // demo no longer hand-rolls it here. See `demo_shell_views`.
 ];
 
 const RIBBON_ITEMS: &[RibbonButtonSpec] = &[
@@ -540,8 +486,8 @@ const RIBBON_ITEMS: &[RibbonButtonSpec] = &[
     // one-shot cube-cycle action buttons in the End cluster.
     RibbonButtonSpec {
         id: PANE_EDITOR,
-        ribbon: RIBBON_BOTTOM,
-        cluster: RibbonCluster::Start,
+        ribbon: RIBBON_RIGHT,
+        cluster: RibbonCluster::End,
         slot: 0,
         draggable: true,
         glyph: RibbonGlyph::Icon("flowchart"),
@@ -551,9 +497,9 @@ const RIBBON_ITEMS: &[RibbonButtonSpec] = &[
     },
     RibbonButtonSpec {
         id: ACTION_PREV_CUBE,
-        ribbon: RIBBON_BOTTOM,
+        ribbon: RIBBON_RIGHT,
         cluster: RibbonCluster::End,
-        slot: 0,
+        slot: 1,
         draggable: true,
         glyph: RibbonGlyph::Icon("arrow-left"),
         tooltip: "Previous cube",
@@ -562,9 +508,9 @@ const RIBBON_ITEMS: &[RibbonButtonSpec] = &[
     },
     RibbonButtonSpec {
         id: ACTION_NEXT_CUBE,
-        ribbon: RIBBON_BOTTOM,
+        ribbon: RIBBON_RIGHT,
         cluster: RibbonCluster::End,
-        slot: 1,
+        slot: 2,
         draggable: true,
         glyph: RibbonGlyph::Icon("arrow-right"),
         tooltip: "Next cube",
@@ -679,8 +625,8 @@ const RIBBON_ITEMS_ROOT_VIEW: &[RibbonButtonSpec] = &[
     // Canvas BOTTOM rail — canvas actions.
     RibbonButtonSpec {
         id: PANE_CANVAS_EXPORT,
-        ribbon: RIBBON_BOTTOM,
-        cluster: RibbonCluster::Start,
+        ribbon: RIBBON_RIGHT,
+        cluster: RibbonCluster::End,
         slot: 0,
         draggable: true,
         glyph: RibbonGlyph::Icon("arrow-download"),
@@ -690,9 +636,9 @@ const RIBBON_ITEMS_ROOT_VIEW: &[RibbonButtonSpec] = &[
     },
     RibbonButtonSpec {
         id: ACTION_CANVAS_CLEAR,
-        ribbon: RIBBON_BOTTOM,
+        ribbon: RIBBON_RIGHT,
         cluster: RibbonCluster::End,
-        slot: 0,
+        slot: 1,
         draggable: true,
         glyph: RibbonGlyph::Icon("delete"),
         tooltip: "Clear canvas strokes",
@@ -1022,7 +968,7 @@ const RIBBON_ITEMS_MAP_MANAGEMENT_VIEW: &[RibbonButtonSpec] = &[
 //
 // Painted by `ribbon renderer` only while the corresponding widget is
 // in its fullscreen overlay — branched in the per-frame paint via
-// `is_graph_fullscreen` / `is_code_fullscreen`. Each set uses the
+// module fullscreen keys compared against `fullscreen_owner`. Each set uses the
 // SAME ribbon API as the regular rails, so the fullscreen view is
 // a fresh canvas built from the same mara UI primitives.
 
@@ -1329,14 +1275,27 @@ mod tests {
     }
 
     #[test]
-    fn three_d_view_stays_on_persistent_bar() {
-        let item = find_item(RIBBON_ITEMS_PERSISTENT_TOP, ACTION_VIEW_3D)
-            .expect("missing three-d view button");
-        assert_eq!(item.ribbon, RIBBON_TOP);
-        assert_eq!(item.cluster, RibbonCluster::Middle);
-        assert_eq!(item.slot, 4);
-        assert!(!item.draggable);
-        assert_eq!(item.role, Some(RibbonRole::Icon));
+    fn view_switcher_lives_in_the_enforced_shell_bar() {
+        // The permanent top bar is now the enforced `mara_core::ShellBar`,
+        // not a hand-rolled persistent-top ribbon — the demo dogfoods it.
+        // So the persistent-top item list is empty and the views come
+        // from `demo_shell_views()` instead.
+        assert!(
+            RIBBON_ITEMS_PERSISTENT_TOP.is_empty(),
+            "the demo must not hand-roll a persistent-top view switcher anymore"
+        );
+        let views = demo_shell_views();
+        let ids: Vec<&'static str> = views.iter().map(|v| v.id).collect();
+        for id in [
+            ACTION_VIEW_BEVY,
+            ACTION_VIEW_CANVAS,
+            ACTION_COREVIZ_ZONES,
+            ACTION_COREVIZ_MANAGEMENT,
+            ACTION_VIEW_3D,
+        ] {
+            assert!(ids.contains(&id), "shell view switcher missing {id}");
+        }
+        assert_eq!(shell_active_view_id(DemoRootView::ThreeD), ACTION_VIEW_3D);
     }
 
     #[test]
@@ -1376,7 +1335,7 @@ fn ribbon_action(id: &'static str) -> RibbonAction {
     match id {
         ACTION_CLOSE_APP => RibbonAction::CloseApp,
         ACTION_RESTORE_FULLSCREEN => RibbonAction::PopWorkspace,
-        _ => RibbonAction::Command(egui::Id::new(id)),
+        _ => RibbonAction::Command(MaraId::new(id)),
     }
 }
 
@@ -1392,8 +1351,8 @@ fn is_persistent_top_item(id: &'static str) -> bool {
 }
 
 fn draw_unified_ribbons(
-    ctx: &egui::Context,
-    accent: egui::Color32,
+    host: &MaraHostCtx<'_>,
+    accent: MaraColor32,
     ribbons: &[RibbonSpec],
     items: &[RibbonButtonSpec],
     open: &mut RibbonOpen,
@@ -1446,7 +1405,7 @@ fn draw_unified_ribbons(
                 continue;
             }
             resolved.push(ResolvedSlotRibbon {
-                id: egui::Id::new((ribbon.id, cluster)),
+                id: MaraId::new((ribbon.id, cluster)),
                 chrome_id: Some(ribbon.id),
                 scope: demo_ribbon_scope(ribbon.id),
                 edge: ribbon.edge,
@@ -1458,11 +1417,11 @@ fn draw_unified_ribbons(
             });
         }
     }
-    draw_slot_ribbons_featureful(ctx, accent, &resolved, open, placement, drag)
+    host.draw_slot_ribbons_featureful(accent, &resolved, open, placement, drag)
 }
 
 fn publish_current_pane_ribbon_buttons(
-    ctx: &egui::Context,
+    host: &MaraHostCtx<'_>,
     items: &[RibbonButtonSpec],
     fullscreen_active: bool,
 ) {
@@ -1474,10 +1433,10 @@ fn publish_current_pane_ribbon_buttons(
             .flatten(),
     ) {
         if item.role.is_none() {
-            pane_ids.push(egui::Id::new(item.id));
+            pane_ids.push(MaraId::new(item.id));
         }
     }
-    mara_core::pane::publish_ribbon_pane_ids(ctx, pane_ids);
+    host.publish_ribbon_pane_ids(pane_ids);
 }
 
 fn demo_ribbon_scope(ribbon_id: &'static str) -> mara_core::RibbonScope {
@@ -1518,6 +1477,8 @@ enum DemoRootView {
     BevyScene,
     Canvas,
     ThreeD,
+    Board,
+    Multi,
     CorevizZones,
     CorevizManagement,
 }
@@ -1530,12 +1491,169 @@ impl DemoRootView {
 
 #[derive(Default)]
 struct CanvasViewState {
-    strokes: Vec<Vec<egui::Pos2>>,
+    strokes: Vec<Vec<mara::ui::vocab::Pos2>>,
 }
 
 struct ThreeDViewState {
     view: View3d,
     workspace: WorkspaceStack,
+}
+
+// The VT soft keys — drawn into the single Board's internal-layout cells.
+const LEFT_KEYS: [&str; 5] = ["L1", "L2", "L3", "L4", "L5"];
+const RIGHT_KEYS: [&str; 5] = ["R1", "R2", "R3", "R4", "R5"];
+
+// "Board" view: ONE full Board with its own internal layout — a whole VT
+// (data-mask cell + soft-key cells) drawn inside a single board.
+struct BoardViewState {
+    view: Board,
+    workspace: WorkspaceStack,
+}
+
+impl Default for BoardViewState {
+    fn default() -> Self {
+        let gap = 12.0;
+        let column = |keys: &[&'static str]| {
+            Layout::col(gap, keys.iter().map(|k| (1.0, Layout::cell(*k))).collect())
+        };
+        let layout = Layout::row(
+            gap,
+            vec![
+                (1.0, column(&LEFT_KEYS)),
+                (4.0, Layout::cell("data_mask")),
+                (1.0, column(&RIGHT_KEYS)),
+            ],
+        );
+        let view = Board::new("demo-board", "Board")
+            .with_icon("square-multiple")
+            .with_layout(layout)
+            .on_draw(|b: BoardPaint| {
+                if let Some(rect) = b.cell("data_mask") {
+                    draw_gauge_at(b.painter, rect, b.accent);
+                }
+                for key in LEFT_KEYS.iter().chain(RIGHT_KEYS.iter()) {
+                    if let Some(rect) = b.cell(key) {
+                        draw_key_at(b.painter, rect, key);
+                    }
+                }
+            });
+        Self {
+            view,
+            workspace: WorkspaceStack::new("demo-board-workspace"),
+        }
+    }
+}
+
+// "Multiview" view: split in half; the right half split again → three
+// different child views (a Canvas, an Image, a Board).
+struct MultiViewState {
+    view: MultiView,
+    workspace: WorkspaceStack,
+}
+
+impl Default for MultiViewState {
+    fn default() -> Self {
+        let gap = 12.0;
+        let layout = Layout::row(
+            gap,
+            vec![
+                (1.0, Layout::cell("left")),
+                (
+                    1.0,
+                    Layout::col(
+                        gap,
+                        vec![(1.0, Layout::cell("rt")), (1.0, Layout::cell("rb"))],
+                    ),
+                ),
+            ],
+        );
+        let view = MultiView::new(ViewId::new("demo-multi"), "Multiview", layout)
+            .with_icon("grid")
+            .with_margin(gap)
+            .with_content_avoidance(RibbonAvoidance::all())
+            .view(
+                "left",
+                Box::new(CanvasSurface::new(
+                    "mv.canvas",
+                    CanvasDocument::new("Sketch"),
+                )),
+            )
+            .view(
+                "rt",
+                Box::new(ImageSurface::new("mv.image", ImageDocument::empty("Image"))),
+            )
+            .view(
+                "rb",
+                Box::new(
+                    Board::new("mv.board", "Gauge")
+                        .on_draw(|b: BoardPaint| draw_gauge_at(b.painter, b.rect, b.accent)),
+                ),
+            );
+        Self {
+            view,
+            workspace: WorkspaceStack::new("demo-multi-workspace"),
+        }
+    }
+}
+
+/// Draw a data-mask gauge (frame + arc gauge + sample ellipse) into `rect`.
+fn draw_gauge_at(p: &mara_core::MaraPainter, rect: mara_core::vocab::Rect, accent: MaraColor32) {
+    use mara_core::vocab::{Align2, Color32, Pos2, Rect, Stroke, Vec2};
+    p.rect_filled(rect, 12, Color32::from_rgb(24, 28, 36));
+    p.rect_stroke(rect, 12, Stroke::new(1.5, Color32::from_gray(80)));
+    p.text(
+        Pos2::new(rect.center().x, rect.top() + 18.0),
+        Align2::CENTER_TOP,
+        "data mask",
+        14.0,
+        Color32::from_gray(160),
+    );
+
+    let c = rect.center();
+    let r = (rect.width().min(rect.height()) * 0.30).max(24.0);
+    let deg = |d: f32| d.to_radians();
+    let (a0, sweep, value) = (deg(135.0), deg(270.0), 0.62_f32);
+    p.arc(
+        c,
+        Vec2::new(r, r),
+        a0,
+        a0 + sweep,
+        Stroke::new(12.0, Color32::from_gray(70)),
+    );
+    p.arc(
+        c,
+        Vec2::new(r, r),
+        a0,
+        a0 + sweep * value,
+        Stroke::new(12.0, accent),
+    );
+    let na = a0 + sweep * value;
+    p.line_segment(
+        c,
+        Pos2::new(c.x + r * 0.82 * na.cos(), c.y + r * 0.82 * na.sin()),
+        Stroke::new(3.5, Color32::WHITE),
+    );
+
+    let er = Rect::from_min_size(
+        Pos2::new(c.x - 60.0, rect.bottom() - 70.0),
+        Vec2::new(120.0, 44.0),
+    );
+    p.ellipse_filled(er, Color32::from_rgb(70, 110, 200));
+    p.ellipse_stroke(er, Stroke::new(2.0, Color32::WHITE));
+}
+
+/// Draw one VT soft key (rounded fill + border + label) into `rect`.
+fn draw_key_at(p: &mara_core::MaraPainter, rect: mara_core::vocab::Rect, label: &str) {
+    use mara_core::vocab::{Align2, Color32, Stroke};
+    p.rect_filled(rect, 12, Color32::from_rgb(40, 46, 58));
+    p.rect_stroke(rect, 12, Stroke::new(1.5, Color32::from_gray(90)));
+    p.text(
+        rect.center(),
+        Align2::CENTER_CENTER,
+        label,
+        16.0,
+        Color32::WHITE,
+    );
 }
 
 impl Default for ThreeDViewState {
@@ -1709,6 +1827,7 @@ struct CanvasShelfState(ShelfState);
 struct MapViewState {
     surface: MapSurface,
     interaction: MapInteraction,
+    workspace: WorkspaceStack,
 }
 
 impl Default for MapViewState {
@@ -1746,6 +1865,7 @@ impl Default for MapViewState {
         Self {
             surface: MapSurface::new("demo-map", document, MapViewport::new(center, 15.0)),
             interaction: MapInteraction::default(),
+            workspace: WorkspaceStack::new("demo-map-workspace"),
         }
     }
 }
@@ -1799,12 +1919,121 @@ pub struct DemoApp {
     root_view: DemoRootView,
     canvas_view: CanvasViewState,
     three_d_view: ThreeDViewState,
+    board_view: BoardViewState,
+    multi_view: MultiViewState,
     canvas_shelves: CanvasShelfState,
     map_view: MapViewState,
     bevy_view: MaraBevyViewport,
+    bevy_workspace: WorkspaceStack,
     bevy_hosted_scene: bool,
     editor_node_view: EditorNodeView,
     editor_graph: EditorGraph,
+    // Enforced shell bar plumbing. The permanent top bar (view
+    // switcher + window controls) is now owned by the host adapter's
+    // shell, not hand-rolled here — this demo dogfoods it. Top-bar
+    // interactions arrive as `ShellEvent`s and are replayed into the
+    // existing ribbon click-dispatch as synthetic clicks, so the
+    // intricate per-view side effects stay in one place.
+    pending_shell_events: Vec<mara_core::ShellEvent>,
+    last_fs_active: bool,
+    // App-side shell state, used only on hosts with no mara adapter to
+    // enforce the bar for us (the eframe/web `eframe::App` path). On
+    // the native `mara::window` runner and the Bevy plugin the host
+    // owns this and renders the bar itself.
+    shell: mara_core::ShellBar,
+    shell_open: RibbonOpen,
+    shell_placement: RibbonPlacement,
+    shell_drag: RibbonDrag,
+}
+
+impl DemoApp {
+    /// Fill a shell bar from current demo state — shared by all hosts.
+    pub fn configure_shell_bar(&self, bar: &mut mara_core::ShellBar) {
+        configure_demo_shell(bar, self.root_view, self.last_fs_active);
+    }
+
+    /// Queue a top-bar event for `ui_system` to replay into the ribbon
+    /// dispatch (used by host adapters that deliver events out-of-band).
+    pub fn queue_shell_event(&mut self, event: mara_core::ShellEvent) {
+        self.pending_shell_events.push(event);
+    }
+}
+
+/// The 5 root views, as the enforced shell bar's switcher entries.
+/// Order mirrors the old hand-rolled persistent-top bar.
+fn demo_shell_views() -> Vec<mara_core::ShellView> {
+    vec![
+        mara_core::ShellView::new(ACTION_VIEW_BEVY, "cube", "Bevy scene view"),
+        mara_core::ShellView::new(ACTION_VIEW_CANVAS, "pen", "Canvas / whiteboard view"),
+        mara_core::ShellView::new(ACTION_COREVIZ_ZONES, "draw-shape", "Map annotation view"),
+        mara_core::ShellView::new(
+            ACTION_COREVIZ_MANAGEMENT,
+            "location",
+            "Map object selection view",
+        ),
+        mara_core::ShellView::new(ACTION_VIEW_3D, "cube", "Three-d scene view"),
+        mara_core::ShellView::new(
+            ACTION_VIEW_BOARD,
+            "square-multiple",
+            "Board view (single board)",
+        ),
+        mara_core::ShellView::new(ACTION_VIEW_MULTI, "grid", "Multiview (split into views)"),
+    ]
+}
+
+/// The shell view id for the active root view (drives the highlight).
+fn shell_active_view_id(root_view: DemoRootView) -> &'static str {
+    match root_view {
+        DemoRootView::BevyScene => ACTION_VIEW_BEVY,
+        DemoRootView::Canvas => ACTION_VIEW_CANVAS,
+        DemoRootView::ThreeD => ACTION_VIEW_3D,
+        DemoRootView::Board => ACTION_VIEW_BOARD,
+        DemoRootView::Multi => ACTION_VIEW_MULTI,
+        DemoRootView::CorevizZones => ACTION_COREVIZ_ZONES,
+        DemoRootView::CorevizManagement => ACTION_COREVIZ_MANAGEMENT,
+    }
+}
+
+/// Populate a [`ShellBar`](mara_core::ShellBar) from demo state. Shared
+/// by both hosts so the bar is identical everywhere. The bar hides
+/// while a widget is fullscreen (the demo shows its own restore rail
+/// then).
+fn configure_demo_shell(bar: &mut mara_core::ShellBar, root_view: DemoRootView, fs_active: bool) {
+    bar.enabled = !fs_active;
+    bar.app_menu = true;
+    bar.views = demo_shell_views();
+    bar.active = Some(shell_active_view_id(root_view));
+}
+
+/// Translate a top-bar [`ShellEvent`](mara_core::ShellEvent) into the
+/// synthetic ribbon click the existing dispatch already understands, so
+/// view switches / shelf toggles reuse the same side-effect code.
+fn shell_event_to_click(event: mara_core::ShellEvent) -> Option<RibbonSlotClick> {
+    let (item, action) = match event {
+        mara_core::ShellEvent::ViewSelected(id) => (MaraId::new(id), ribbon_action(id)),
+        mara_core::ShellEvent::LeftShelfToggled => (
+            MaraId::new("shell.left_shelf"),
+            RibbonAction::Command(mara_core::left_shelf_command_id()),
+        ),
+        mara_core::ShellEvent::RightShelfToggled => (
+            MaraId::new("shell.right_shelf"),
+            RibbonAction::Command(mara_core::right_shelf_command_id()),
+        ),
+        mara_core::ShellEvent::BottomShelfToggled => (
+            MaraId::new("shell.bottom_shelf"),
+            RibbonAction::Command(mara_core::bottom_shelf_command_id()),
+        ),
+        // Menu has no demo behavior yet; close/maximize are handled by
+        // the host adapter and never reach the app.
+        mara_core::ShellEvent::MenuOpened
+        | mara_core::ShellEvent::CloseRequested
+        | mara_core::ShellEvent::MaximizeToggleRequested => return None,
+    };
+    Some(RibbonSlotClick {
+        ribbon: MaraId::new(RIBBON_TOP),
+        item,
+        action,
+    })
 }
 
 impl DemoApp {
@@ -1813,6 +2042,7 @@ impl DemoApp {
     pub fn new(_cc: &eframe::CreationContext<'_>) -> Self {
         Self {
             bevy_view: MaraBevyViewport::with_content(crate::bevy_content::configure_app),
+            bevy_workspace: WorkspaceStack::new("demo-bevy-workspace"),
             ..Self::default()
         }
     }
@@ -1824,22 +2054,36 @@ impl DemoApp {
                 render_state,
                 crate::bevy_content::configure_app,
             ),
+            bevy_workspace: WorkspaceStack::new("demo-bevy-workspace"),
+            // TEMP probe: start on a shelf-bearing view to inspect window-control persistence.
+            root_view: std::env::var("MARA_START_VIEW")
+                .ok()
+                .and_then(|v| match v.as_str() {
+                    "canvas" => Some(DemoRootView::Canvas),
+                    "threed" => Some(DemoRootView::ThreeD),
+                    "zones" => Some(DemoRootView::CorevizZones),
+                    "mgmt" => Some(DemoRootView::CorevizManagement),
+                    _ => None,
+                })
+                .unwrap_or_default(),
             ..Self::default()
         }
     }
 
-    /// Build the same Mara demo state for a Bevy-owned window. In
-    /// this mode the root Bevy scene is the real Bevy world behind
-    /// `bevy_egui`, so the Mara root view must not create a second
-    /// embedded/offscreen Bevy renderer.
+    /// Build the same Mara demo state for a Bevy-owned window.
+    ///
+    /// This is retained for local experiments, but the canonical app
+    /// path is Mara-owned: Mara owns egui and embeds Bevy as a
+    /// viewport instead of routing UI through a Bevy egui bridge.
     pub fn new_bevy_hosted() -> Self {
         Self {
             bevy_hosted_scene: true,
+            bevy_workspace: WorkspaceStack::new("demo-bevy-workspace"),
             ..Self::default()
         }
     }
 
-    pub fn set_accent_color(&mut self, color: egui::Color32) {
+    pub fn set_accent_color(&mut self, color: MaraColor32) {
         self.accent.0 = color;
     }
 
@@ -1855,6 +2099,31 @@ impl DemoApp {
     ) {
         let mut host = MaraHostCtx::ui_only(ctx, Some(render_state));
         ui_system(self, &mut host);
+
+        // Web/eframe has no mara host adapter to enforce the shell bar,
+        // so the demo renders it app-side here. (On native/bevy the
+        // runner/plugin does this for us.) The same `mara_core::ShellBar`
+        // is used everywhere — this is dogfooding, not a fork. `mem::take`
+        // lets the bar render against the sibling `shell_*` fields
+        // without a borrow conflict.
+        let mut bar = std::mem::take(&mut self.shell);
+        configure_demo_shell(&mut bar, self.root_view, self.last_fs_active);
+        let events = bar.show(
+            ctx,
+            &mut self.shell_open,
+            &mut self.shell_placement,
+            &mut self.shell_drag,
+        );
+        self.shell = bar;
+        for event in events {
+            if !matches!(
+                event,
+                mara_core::ShellEvent::CloseRequested
+                    | mara_core::ShellEvent::MaximizeToggleRequested
+            ) {
+                self.pending_shell_events.push(event);
+            }
+        }
     }
 }
 
@@ -1867,11 +2136,11 @@ impl eframe::App for DemoApp {
         [0.0, 0.0, 0.0, 0.0]
     }
 
-    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+    fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         let render_state = frame
             .wgpu_render_state()
             .expect("eframe must run with the wgpu backend (see example/Cargo.toml)");
-        self.update_with_render_state(ctx, render_state);
+        self.update_with_render_state(ui.ctx(), render_state);
     }
 }
 
@@ -1884,6 +2153,15 @@ impl mara::window::WindowApp for DemoApp {
     fn update(&mut self, host: &mut MaraHostCtx<'_>) {
         ui_system(self, host);
     }
+
+    fn configure_shell(&mut self, bar: &mut mara::ui::ShellBar) {
+        configure_demo_shell(bar, self.root_view, self.last_fs_active);
+    }
+
+    fn on_shell_event(&mut self, event: mara::ui::ShellEvent, _host: &mut MaraHostCtx<'_>) {
+        // Queue for ui_system to replay into the ribbon dispatch.
+        self.pending_shell_events.push(event);
+    }
 }
 
 // ─── UI ─────────────────────────────────────────────────────────────
@@ -1892,7 +2170,6 @@ impl mara::window::WindowApp for DemoApp {
 /// eframe/winit. `app` carries the state the Bevy build held as
 /// resources; `host` provides app-level actions and render helpers.
 pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
-    let ctx = host.__internal_egui();
     let DemoApp {
         accent,
         glass,
@@ -1906,12 +2183,20 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
         root_view,
         canvas_view,
         three_d_view,
+        board_view,
+        multi_view,
         canvas_shelves,
         map_view,
         bevy_view,
+        bevy_workspace,
         bevy_hosted_scene,
         editor_node_view,
         editor_graph,
+        pending_shell_events,
+        last_fs_active,
+        // App-side shell state (`shell`, `shell_open`, …) is only used
+        // by the eframe/web path in `update_with_render_state`.
+        ..
     } = app;
     let mut active_theme = match (family.0, mode.0) {
         (0, 0) => mara_core::style::theme_pro(Mode::Dark),
@@ -1927,40 +2212,44 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
     host.apply_theme(*accent, *glass);
 
     let mut accent_col = mara_core::style::active_accent();
-    mara_core::publish_shelf_layout(
-        ctx,
-        mara_core::ShelfLayout {
-            viewport: ctx.content_rect(),
-            left: None,
-            right: None,
-            bottom: None,
-        },
-    );
+    host.publish_full_shelf_layout();
 
     let bevy_view_active = *root_view == DemoRootView::BevyScene && !*bevy_hosted_scene;
     bevy_view.set_active(bevy_view_active);
     if !root_view.is_coreviz() {
-        map_view
-            .surface
-            .prewarm_tiles(ctx, ctx.content_rect().size());
+        let size = host.content_rect().size();
+        let MapViewState {
+            surface, workspace, ..
+        } = map_view;
+        let map_ctx = host.view_ctx(workspace, accent_col, RibbonAvoidance::all());
+        surface.prewarm_tiles(&map_ctx, size);
     }
 
     // Actual root/L0 canvas switch. The app shell is always eframe;
     // Bevy is represented as an embedded viewport surface, not the
     // top-level window owner.
     if bevy_view_active {
-        if let Some(color) = bevy_view.show(host.__internal_egui(), host.render_state(), accent_col)
-        {
+        let mut bevy_ctx = host.view_ctx(bevy_workspace, accent_col, RibbonAvoidance::all());
+        if let Some(color) = bevy_view.show(&mut bevy_ctx, host.render_state(), accent_col) {
             accent.0 = color;
             host.apply_theme(*accent, *glass);
             accent_col = mara_core::style::active_accent();
         }
     } else if *root_view == DemoRootView::Canvas {
-        canvas_root_view(ctx, accent_col, canvas_view, &mut canvas_shelves.0);
+        canvas_root_view(host, accent_col, canvas_view, &mut canvas_shelves.0);
     } else if *root_view == DemoRootView::ThreeD {
         three_d_root_view(host, accent_col, three_d_view);
+    } else if *root_view == DemoRootView::Board {
+        board_root_view(host, accent_col, board_view);
+    } else if *root_view == DemoRootView::Multi {
+        multi_root_view(host, accent_col, multi_view);
     } else if root_view.is_coreviz() {
-        map_root_view(ctx, map_view, *root_view == DemoRootView::CorevizManagement);
+        map_root_view(
+            host,
+            map_view,
+            accent_col,
+            *root_view == DemoRootView::CorevizManagement,
+        );
     }
 
     // Fullscreen-view branch. The fullscreen overlay paints at
@@ -1968,16 +2257,23 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
     // `Order::Middle`) layers over the maximised canvas. Which set
     // of items the rails carry depends on WHICH widget is fullscreen
     // — graph and code get their own toolsets, picked via the
-    // module-supplied `is_graph_fullscreen` / `is_code_fullscreen`
-    // helpers.
-    let fs_active = mara_core::embed::is_any_fullscreen(ctx);
-    let graph_fs = mara_core::extras::graph::is_graph_fullscreen(ctx);
-    let code_fs = mara_core::extras::code::is_code_fullscreen(ctx, cid(PANE_EDITOR, "code_state"));
+    // module-supplied fullscreen keys.
+    let fs_active = host.is_any_fullscreen();
+    // Stash for the host adapter's shell config (hide the enforced bar
+    // while a widget is fullscreen — the demo shows its own restore rail).
+    *last_fs_active = fs_active;
+    let fullscreen_owner = host.fullscreen_owner();
+    let graph_fs = fullscreen_owner == Some(mara_core::extras::graph::graph_fullscreen_key());
+    let code_fs = fullscreen_owner
+        == Some(mara_core::extras::code::code_fullscreen_key(cid(
+            PANE_EDITOR,
+            "code_state",
+        )));
     if fs_active {
         // The persistent main bar owns module restore in L1/fullscreen.
         // Suppress the old floating restore chip so it does not stack
         // above the top-right system-control slot.
-        mara_core::embed::set_fullscreen_minimize_chip_visible(ctx, false);
+        host.set_fullscreen_minimize_chip_visible(false);
     }
     let allow_persistent_panes_over_fullscreen = fs_active
         && open.get(RIBBON_TOP).is_some_and(|id| {
@@ -2013,7 +2309,7 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
         RIBBON_ITEMS
     };
     let current_ribbons: &[RibbonSpec] = if fs_active { RIBBONS_FS } else { RIBBONS };
-    publish_current_pane_ribbon_buttons(ctx, current_ribbon_items, fs_active);
+    publish_current_pane_ribbon_buttons(host, current_ribbon_items, fs_active);
 
     let is_open_in = |items: &[RibbonButtonSpec], id: &'static str| -> bool {
         let Some(item) = find_item(items, id) else {
@@ -2051,15 +2347,16 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
     // it and also lifted to `Foreground`, so they appear on top of
     // the module canvas instead of being hidden behind it.
     if fs_active && is_open_in(RIBBON_ITEMS, PANE_EDITOR) {
-        let anchor = live_anchor(PANE_EDITOR).unwrap_or(PaneAnchor::BottomRail(RailZone::Start));
+        let anchor = live_anchor(PANE_EDITOR).unwrap_or(PaneAnchor::RightRail(RailZone::End));
         let Some(mut backend) = host.node_view_backend() else {
             return;
         };
-        let now = ctx.input(|i| i.time);
+        let now = host.input_time();
         let mut viewer = DemoViewer { time: now };
-        Pane::new(PANE_EDITOR, "Editor", anchor, accent_col)
-            .resize(mara_core::pane::PaneResize::SPAN)
-            .show(ctx, |body| {
+        host.show_pane(
+            Pane::new(PANE_EDITOR, "Editor", anchor, accent_col)
+                .resize(mara_core::pane::PaneResize::SPAN),
+            |body| {
                 editor_pane(
                     body,
                     &mut editor_node_view.0,
@@ -2067,7 +2364,8 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
                     &mut viewer,
                     &mut backend,
                 );
-            });
+            },
+        );
     }
 
     for &(_, button_id, default_anchor, label) in PANE_DEFS {
@@ -2091,7 +2389,7 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
         }
         let anchor = live_anchor(button_id).unwrap_or(default_anchor);
         // Editor pane uses non-`'static` borrows that have to outlive
-        // `Pane::show` — the typed `PaneBody::add_node_graph` stores
+        // host pane rendering — the typed `PaneBody::add_node_graph` stores
         // them in the pending-spec list and the closure runs at
         // `body.finish()` time (after the user closure returns). Lift
         // `viewer` / `backend` to the iteration scope so they live
@@ -2100,11 +2398,12 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
             let Some(mut backend) = host.node_view_backend() else {
                 continue;
             };
-            let now = ctx.input(|i| i.time);
+            let now = host.input_time();
             let mut viewer = DemoViewer { time: now };
-            Pane::new(button_id, label, anchor, accent_col)
-                .resize(mara_core::pane::PaneResize::SPAN)
-                .show(ctx, |body| {
+            host.show_pane(
+                Pane::new(button_id, label, anchor, accent_col)
+                    .resize(mara_core::pane::PaneResize::SPAN),
+                |body| {
                     editor_pane(
                         body,
                         &mut editor_node_view.0,
@@ -2112,17 +2411,19 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
                         &mut viewer,
                         &mut backend,
                     );
-                });
+                },
+            );
             continue;
         }
-        Pane::new(button_id, label, anchor, accent_col)
-            .resize(mara_core::pane::PaneResize::SPAN)
-            .order(if fs_active {
-                egui::Order::Foreground
-            } else {
-                egui::Order::Background
-            })
-            .show(ctx, |body| match button_id {
+        host.show_pane(
+            Pane::new(button_id, label, anchor, accent_col)
+                .resize(mara_core::pane::PaneResize::SPAN)
+                .order(if fs_active {
+                    mara_core::layout::Layer::Foreground
+                } else {
+                    mara_core::layout::Layer::Background
+                }),
+            |body| match button_id {
                 PANE_WIDGETS => widgets_pane(body),
                 PANE_CONTAINERS => containers_pane(body),
                 PANE_SCENE => scene_pane(body),
@@ -2150,14 +2451,15 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
                 PANE_COREVIZ_SCHEDULER => coreviz_scheduler_pane(body),
                 PANE_COREVIZ_TASKS => coreviz_tasks_pane(body),
                 _ => {}
-            });
+            },
+        );
     }
 
     // Ribbon paint, AFTER the panes — registration order within
     // `Order::Foreground` lands the ribbon `Area`s on top of the
     // `embed` fullscreen overlay, so the host's fullscreen rails
     // remain visible.
-    let clicks: Vec<RibbonSlotClick> = if fs_active {
+    let mut clicks: Vec<RibbonSlotClick> = if fs_active {
         let fs_items: &[RibbonButtonSpec] = if graph_fs {
             RIBBON_ITEMS_FS_GRAPH
         } else if code_fs {
@@ -2168,7 +2470,7 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
         let mut fs_placement = mara_core::ribbon::RibbonPlacement::default();
         let mut fs_drag = mara_core::ribbon::RibbonDrag::default();
         draw_unified_ribbons(
-            ctx,
+            host,
             accent_col,
             RIBBONS_FS,
             fs_items,
@@ -2179,7 +2481,7 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
         )
     } else {
         draw_unified_ribbons(
-            ctx,
+            host,
             accent_col,
             RIBBONS,
             current_ribbon_items,
@@ -2190,6 +2492,8 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
                 DemoRootView::BevyScene => id == ACTION_VIEW_BEVY,
                 DemoRootView::Canvas => id == ACTION_VIEW_CANVAS,
                 DemoRootView::ThreeD => id == ACTION_VIEW_3D,
+                DemoRootView::Board => id == ACTION_VIEW_BOARD,
+                DemoRootView::Multi => id == ACTION_VIEW_MULTI,
                 DemoRootView::CorevizZones => {
                     id == ACTION_COREVIZ_ZONES
                         || matches!(
@@ -2210,6 +2514,15 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
             },
         )
     };
+    // Replay the enforced shell bar's interactions (view switch / shelf
+    // toggles, collected from the host adapter) as synthetic clicks, so
+    // the existing dispatch below handles them with the same per-view
+    // side effects as before.
+    clicks.extend(
+        pending_shell_events
+            .drain(..)
+            .filter_map(shell_event_to_click),
+    );
     // PREV / NEXT cube — one-shot icon buttons in the BOTTOM rail's
     // End cluster. Each click rotates the AccentColor through the
     // hardcoded swatch row.
@@ -2222,9 +2535,10 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
         (191, 115, 242),
     ];
     for click in clicks {
+        let item_is = |id: &'static str| click.item == MaraId::new(id);
         if click.action == RibbonAction::Command(mara_core::app_menu_command_id()) {
             open.set(RIBBON_TOP, PANE_ABOUT);
-            ctx.request_repaint();
+            host.request_repaint();
             continue;
         }
         if click.action == RibbonAction::Command(mara_core::left_shelf_command_id()) {
@@ -2250,34 +2564,50 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
             canvas_shelves.0.toggle_edge_visible(ShelfEdge::Bottom);
             continue;
         }
-        if click.item == egui::Id::new(ACTION_VIEW_BEVY) {
+        if item_is(ACTION_VIEW_BEVY) {
             if fs_active {
-                mara_core::embed::restore_fullscreen(ctx);
+                host.restore_fullscreen();
             }
             *root_view = DemoRootView::BevyScene;
-            ctx.request_repaint();
+            host.request_repaint();
             continue;
         }
-        if click.item == egui::Id::new(ACTION_VIEW_CANVAS) {
+        if item_is(ACTION_VIEW_CANVAS) {
             if fs_active {
-                mara_core::embed::restore_fullscreen(ctx);
+                host.restore_fullscreen();
             }
             *root_view = DemoRootView::Canvas;
-            ctx.request_repaint();
+            host.request_repaint();
             continue;
         }
-        if click.item == egui::Id::new(ACTION_VIEW_3D) {
+        if item_is(ACTION_VIEW_3D) {
             if fs_active {
-                mara_core::embed::restore_fullscreen(ctx);
+                host.restore_fullscreen();
             }
             *root_view = DemoRootView::ThreeD;
             open.set(RIBBON_LEFT, PANE_3D_SCENE);
             open.set(RIBBON_RIGHT, PANE_3D_INSPECTOR);
-            ctx.request_repaint();
+            host.request_repaint();
             continue;
         }
-        if click.item == egui::Id::new(ACTION_RESTORE_FULLSCREEN) {
-            mara_core::embed::restore_fullscreen(ctx);
+        if item_is(ACTION_VIEW_BOARD) {
+            if fs_active {
+                host.restore_fullscreen();
+            }
+            *root_view = DemoRootView::Board;
+            host.request_repaint();
+            continue;
+        }
+        if item_is(ACTION_VIEW_MULTI) {
+            if fs_active {
+                host.restore_fullscreen();
+            }
+            *root_view = DemoRootView::Multi;
+            host.request_repaint();
+            continue;
+        }
+        if item_is(ACTION_RESTORE_FULLSCREEN) {
+            host.restore_fullscreen();
             continue;
         }
         if matches!(click.action, RibbonAction::CloseApp) {
@@ -2289,13 +2619,13 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
             host.request_maximize_toggle();
             continue;
         }
-        if click.item == egui::Id::new(ACTION_CANVAS_CLEAR) {
+        if item_is(ACTION_CANVAS_CLEAR) {
             canvas_view.strokes.clear();
             continue;
         }
-        if click.item == egui::Id::new(ACTION_COREVIZ_ZONES) {
+        if item_is(ACTION_COREVIZ_ZONES) {
             if fs_active {
-                mara_core::embed::restore_fullscreen(ctx);
+                host.restore_fullscreen();
             }
             *root_view = DemoRootView::CorevizZones;
             map_view.surface.defer_full_detail();
@@ -2303,12 +2633,12 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
             map_view.interaction.clear_selection();
             open.set(RIBBON_LEFT, PANE_COREVIZ_ZONES);
             open.set(RIBBON_RIGHT, PANE_MAP_OBJECTS);
-            ctx.request_repaint();
+            host.request_repaint();
             continue;
         }
-        if click.item == egui::Id::new(ACTION_COREVIZ_MANAGEMENT) {
+        if item_is(ACTION_COREVIZ_MANAGEMENT) {
             if fs_active {
-                mara_core::embed::restore_fullscreen(ctx);
+                host.restore_fullscreen();
             }
             *root_view = DemoRootView::CorevizManagement;
             map_view.surface.defer_full_detail();
@@ -2316,55 +2646,64 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
             map_view.interaction.clear_selection();
             open.set(RIBBON_LEFT, PANE_COREVIZ_ROBOTS);
             open.set(RIBBON_RIGHT, PANE_MAP_INFO);
-            ctx.request_repaint();
+            host.request_repaint();
             continue;
         }
-        if click.item == egui::Id::new(ACTION_MAP_SELECT) {
+        if item_is(ACTION_MAP_SELECT) {
             map_view.interaction.set_tool(MapTool::Select);
             continue;
         }
-        if click.item == egui::Id::new(ACTION_MAP_POINT) {
+        if item_is(ACTION_MAP_POINT) {
             map_view.interaction.set_tool(MapTool::Point);
             continue;
         }
-        if click.item == egui::Id::new(ACTION_MAP_LINE) {
+        if item_is(ACTION_MAP_LINE) {
             map_view.interaction.set_tool(MapTool::Line);
             continue;
         }
-        if click.item == egui::Id::new(ACTION_MAP_POLYGON) {
+        if item_is(ACTION_MAP_POLYGON) {
             map_view.interaction.set_tool(MapTool::Polygon);
             continue;
         }
-        if click.item == egui::Id::new(ACTION_MAP_CLEAR) {
+        if item_is(ACTION_MAP_CLEAR) {
             map_view.surface.document.annotations.clear();
             map_view.interaction.clear_selection();
             map_view.interaction.clear_draft();
             continue;
         }
-        if click.item == egui::Id::new(ACTION_PREV_CUBE)
-            || click.item == egui::Id::new(ACTION_NEXT_CUBE)
-        {
+        if item_is(ACTION_PREV_CUBE) || item_is(ACTION_NEXT_CUBE) {
             let cur = accent.0;
             let cur_idx = SWATCH_RGB
                 .iter()
-                .position(|&(r, g, b)| egui::Color32::from_rgb(r, g, b) == cur)
+                .position(|&(r, g, b)| MaraColor32::from_rgb(r, g, b) == cur)
                 .unwrap_or(0);
-            let next_idx = if click.item == egui::Id::new(ACTION_PREV_CUBE) {
+            let next_idx = if item_is(ACTION_PREV_CUBE) {
                 (cur_idx + SWATCH_RGB.len() - 1) % SWATCH_RGB.len()
             } else {
                 (cur_idx + 1) % SWATCH_RGB.len()
             };
             let (r, g, b) = SWATCH_RGB[next_idx];
-            accent.0 = egui::Color32::from_rgb(r, g, b);
+            accent.0 = MaraColor32::from_rgb(r, g, b);
         }
     }
 }
 
 // ─── Map root view ─────────────────────────────────────────────────
 
-fn map_root_view(ctx: &egui::Context, map: &mut MapViewState, basemap_selection_enabled: bool) {
+fn map_root_view(
+    host: &MaraHostCtx<'_>,
+    map: &mut MapViewState,
+    accent: MaraColor32,
+    basemap_selection_enabled: bool,
+) {
     map.interaction.basemap_selection_enabled = basemap_selection_enabled;
-    let _ = MaraMap::new(&mut map.surface, &mut map.interaction).show(ctx);
+    let MapViewState {
+        surface,
+        interaction,
+        workspace,
+    } = map;
+    let mut map_ctx = host.view_ctx(workspace, accent, RibbonAvoidance::all());
+    let _ = MaraMap::new(surface, interaction).show(&mut map_ctx);
 }
 
 fn map_info_pane(body: &mut PaneBody, map: &MapViewState) {
@@ -2459,7 +2798,7 @@ fn map_objects_pane(body: &mut PaneBody, map: &mut MapViewState) {
     let Some(id) = selected else {
         return;
     };
-    let picked = srgb_to_egui([color.rgba[0], color.rgba[1], color.rgba[2]]);
+    let picked = srgb_to_color([color.rgba[0], color.rgba[1], color.rgba[2]]);
     if let Some(annotation) = map
         .surface
         .document
@@ -2642,13 +2981,13 @@ fn map_annotation_rgb(annotation: &MapAnnotation) -> [f32; 3] {
     })
 }
 
-fn set_map_annotation_color(annotation: &mut MapAnnotation, color: egui::Color32) {
+fn set_map_annotation_color(annotation: &mut MapAnnotation, color: MaraColor32) {
     match annotation {
         MapAnnotation::Point(point) => point.color = color,
         MapAnnotation::Line(line) => line.color = color,
         MapAnnotation::Polygon(poly) => {
             poly.stroke.color = color;
-            poly.fill = egui::Color32::from_rgba_unmultiplied(
+            poly.fill = MaraColor32::from_rgba_unmultiplied(
                 color.r(),
                 color.g(),
                 color.b(),
@@ -2659,7 +2998,7 @@ fn set_map_annotation_color(annotation: &mut MapAnnotation, color: egui::Color32
     }
 }
 
-fn color32_to_rgb(color: egui::Color32) -> [f32; 3] {
+fn color32_to_rgb(color: MaraColor32) -> [f32; 3] {
     [
         color.r() as f32 / 255.0,
         color.g() as f32 / 255.0,
@@ -2671,53 +3010,52 @@ fn color32_to_rgb(color: egui::Color32) -> [f32; 3] {
 
 fn three_d_root_view(
     host: &mut MaraHostCtx<'_>,
-    accent: egui::Color32,
+    accent: MaraColor32,
     three_d: &mut ThreeDViewState,
 ) {
-    let ctx = host.__internal_egui().clone();
-    let mut view_ctx = ViewCtx::new(
-        &ctx,
-        &mut three_d.workspace,
-        accent,
-        RibbonAvoidance::none(),
-    );
+    // Honor the view's own decision (default: under the ribbons).
+    let avoidance = three_d.view.content_avoidance();
+    let mut view_ctx = host.view_ctx(&mut three_d.workspace, accent, avoidance);
     three_d.view.set_gpu_render_state(host.render_state());
     three_d.view.show(&mut view_ctx);
+}
+
+fn board_root_view(host: &MaraHostCtx<'_>, accent: MaraColor32, board: &mut BoardViewState) {
+    // Honor the view's own avoidance: a Board view declares it shrinks to
+    // sit inside the ribbons rather than painting behind them.
+    let avoidance = board.view.content_avoidance();
+    let mut view_ctx = host.view_ctx(&mut board.workspace, accent, avoidance);
+    board.view.show(&mut view_ctx);
+}
+
+fn multi_root_view(host: &MaraHostCtx<'_>, accent: MaraColor32, multi: &mut MultiViewState) {
+    let avoidance = multi.view.content_avoidance();
+    let mut view_ctx = host.view_ctx(&mut multi.workspace, accent, avoidance);
+    multi.view.show(&mut view_ctx);
 }
 
 // ─── Canvas root view ──────────────────────────────────────────────
 
 fn canvas_root_view(
-    ctx: &egui::Context,
-    accent: egui::Color32,
+    host: &MaraHostCtx<'_>,
+    accent: MaraColor32,
     canvas: &mut CanvasViewState,
     shelf_state: &mut ShelfState,
 ) {
     let shelves = mara_core::responsive_shelves(canvas_shelves(accent));
-    let shelf_theme = *mara_core::style::theme().shelf();
-    let layout = mara_core::layout_shelves(ctx.content_rect(), &shelves, shelf_state, &shelf_theme);
-
-    // Host glue: the CentralPanel belongs to the eframe frame loop.
-    // Everything inside is sealed — the body immediately wraps the
-    // host Ui in `MaraUi` and draws/interacts through it, the same
-    // way external app content would.
-    egui::CentralPanel::default()
-        .frame(egui::Frame::new().fill(egui::Color32::TRANSPARENT))
-        .show(ctx, |ui| {
-            let screen_rect = ui.max_rect();
-            let mut mui = mara_core::MaraUi::__internal_from_raw(ui, accent);
-            canvas_root_body(&mut mui, screen_rect, layout.viewport, canvas);
-        });
-
-    mara_core::show_shelves(ctx, layout, shelves, shelf_state);
+    let layout = host.layout_shelves(&shelves, shelf_state);
+    host.show_root_body(accent, |mui, screen_rect| {
+        canvas_root_body(mui, screen_rect, layout.viewport, canvas);
+    });
+    host.show_shelves(layout, shelves, shelf_state);
 }
 
 /// Sealed whiteboard body: backdrop, grid, drag-to-draw strokes,
 /// empty-state hint — all through `MaraUi`/`MaraPainter`/vocab types.
 fn canvas_root_body(
     mui: &mut mara_core::MaraUi<'_>,
-    screen_rect: egui::Rect,
-    canvas_rect: egui::Rect,
+    screen_rect: mara::ui::vocab::Rect,
+    canvas_rect: mara::ui::vocab::Rect,
     canvas: &mut CanvasViewState,
 ) {
     use mara::ui::vocab::{Align2, Color32, Stroke, pos2};
@@ -2726,8 +3064,11 @@ fn canvas_root_body(
     let (painter, response) = mui.canvas_at(canvas_rect);
     let backdrop = mui.painter();
 
-    backdrop.rect_filled(screen_rect, 0, mara_core::style::theme().palette.bg_panel);
-    painter.rect_filled(canvas_rect, 0, mara_core::style::theme().palette.bg_window);
+    // The whiteboard fills the WHOLE window (full-bleed) so it shows
+    // through the glass top bar and behind the shelves — drawing still
+    // happens only in `canvas_rect` (the open area below the bar, between
+    // shelves), but the surface itself is edge-to-edge.
+    backdrop.rect_filled(screen_rect, 0, mara_core::style::theme().palette.bg_window);
 
     let grid = 32.0;
     let grid_col = Color32::from_rgba_unmultiplied(
@@ -2736,20 +3077,20 @@ fn canvas_root_body(
         mara_core::style::on_panel_dim().b(),
         34,
     );
-    let mut x = canvas_rect.left() + grid;
-    while x < canvas_rect.right() {
-        painter.line_segment(
-            pos2(x, canvas_rect.top()),
-            pos2(x, canvas_rect.bottom()),
+    let mut x = screen_rect.left() + grid;
+    while x < screen_rect.right() {
+        backdrop.line_segment(
+            pos2(x, screen_rect.top()),
+            pos2(x, screen_rect.bottom()),
             Stroke::new(1.0, grid_col),
         );
         x += grid;
     }
-    let mut y = canvas_rect.top() + grid;
-    while y < canvas_rect.bottom() {
-        painter.line_segment(
-            pos2(canvas_rect.left(), y),
-            pos2(canvas_rect.right(), y),
+    let mut y = screen_rect.top() + grid;
+    while y < screen_rect.bottom() {
+        backdrop.line_segment(
+            pos2(screen_rect.left(), y),
+            pos2(screen_rect.right(), y),
             Stroke::new(1.0, grid_col),
         );
         y += grid;
@@ -2788,7 +3129,7 @@ fn canvas_root_body(
     }
 }
 
-fn canvas_shelves(accent: egui::Color32) -> Vec<ShelfDef<'static>> {
+fn canvas_shelves(accent: MaraColor32) -> Vec<ShelfDef<'static>> {
     vec![
         ShelfDef::new(CANVAS_SHELF_LEFT, ShelfEdge::Left, accent)
             .default_size(300.0)
@@ -3705,7 +4046,7 @@ fn theme_pane(
         if let Some(p0) = pr.first() {
             if let Some(c) = p0.colors.first() {
                 if c.changed {
-                    accent_res.0 = srgb_to_egui([c.rgba[0], c.rgba[1], c.rgba[2]]);
+                    accent_res.0 = srgb_to_color([c.rgba[0], c.rgba[1], c.rgba[2]]);
                 }
             }
         }
@@ -3790,13 +4131,10 @@ fn about_pane(body: &mut PaneBody) {
                 .with_readout("version", env!("CARGO_PKG_VERSION")),
             Pod::new(pid(PANE_ABOUT, "info", 1))
                 .with_separator(SeparatorStyle::Line)
-                .with_readout("bevy", "0.18"),
+                .with_readout("bevy", "0.19"),
             Pod::new(pid(PANE_ABOUT, "info", 2))
-                .with_separator(SeparatorStyle::Line)
-                .with_readout("bevy_egui", "0.39"),
-            Pod::new(pid(PANE_ABOUT, "info", 3))
                 .with_separator(SeparatorStyle::None)
-                .with_readout("egui", "0.33"),
+                .with_readout("egui", "0.34"),
         ],
     );
     body.add_normal(
@@ -5622,7 +5960,13 @@ impl NodeViewer<GraphNode> for DemoViewer {
 
             // Icon — large enough to span both text rows so it
             // visually centres against the title+subtitle stack.
-            if let Some(rt) = mara_core::icons::icon_text(n.icon_name(), 22.0, title_color) {
+            if let Some((glyph, family)) = mara_core::icons::icon_glyph(n.icon_name()) {
+                let rt = egui::RichText::new(glyph.to_string())
+                    .font(egui::FontId::new(
+                        22.0,
+                        egui::FontFamily::Name(family.into()),
+                    ))
+                    .color(title_color);
                 ui.add(egui::Label::new(rt).wrap_mode(no_wrap).selectable(false));
             } else {
                 ui.add(
@@ -5754,15 +6098,8 @@ impl NodeViewer<GraphNode> for DemoViewer {
                     egui::vec2(125.0, h),
                     egui::Layout::left_to_right(egui::Align::Center),
                     |ui| {
-                        mara_core::widget::drag_value::drag_value(
-                            ui,
-                            "",
-                            v,
-                            0.05,
-                            f64::MIN..=f64::MAX,
-                            2,
-                            "",
-                        );
+                        let mut mui = mara_core::MaraUi::__internal_from_raw(ui, accent);
+                        mui.drag_value("", v, 0.05, f64::MIN..=f64::MAX, 2, "");
                     },
                 );
             }
@@ -5773,15 +6110,8 @@ impl NodeViewer<GraphNode> for DemoViewer {
                     egui::vec2(125.0, h),
                     egui::Layout::left_to_right(egui::Align::Center),
                     |ui| {
-                        mara_core::widget::drag_value::drag_value(
-                            ui,
-                            "",
-                            &mut tmp,
-                            1.0,
-                            f64::MIN..=f64::MAX,
-                            0,
-                            "",
-                        );
+                        let mut mui = mara_core::MaraUi::__internal_from_raw(ui, accent);
+                        mui.drag_value("", &mut tmp, 1.0, f64::MIN..=f64::MAX, 0, "");
                     },
                 );
                 *i = tmp as i64;
@@ -5793,15 +6123,8 @@ impl NodeViewer<GraphNode> for DemoViewer {
                         egui::vec2(125.0, h),
                         egui::Layout::left_to_right(egui::Align::Center),
                         |ui| {
-                            mara_core::widget::drag_value::drag_value(
-                                ui,
-                                axis,
-                                comp,
-                                0.05,
-                                f64::MIN..=f64::MAX,
-                                2,
-                                "",
-                            );
+                            let mut mui = mara_core::MaraUi::__internal_from_raw(ui, accent);
+                            mui.drag_value(axis, comp, 0.05, f64::MIN..=f64::MAX, 2, "");
                         },
                     );
                 }
@@ -5815,7 +6138,8 @@ impl NodeViewer<GraphNode> for DemoViewer {
                     egui::vec2(125.0, h),
                     egui::Layout::left_to_right(egui::Align::Center),
                     |ui| {
-                        mara_core::widget::toggle::toggle(ui, "", b, accent);
+                        let mut mui = mara_core::MaraUi::__internal_from_raw(ui, accent);
+                        mui.toggle("", b);
                     },
                 );
             }
@@ -5929,15 +6253,8 @@ impl NodeViewer<GraphNode> for DemoViewer {
                     egui::vec2(SLOT_W, drag_h),
                     egui::Layout::left_to_right(egui::Align::Center),
                     |ui| {
-                        mara_core::widget::drag_value::drag_value(
-                            ui,
-                            "seed",
-                            &mut seed_f,
-                            1.0,
-                            0.0..=u32::MAX as f64,
-                            0,
-                            "",
-                        );
+                        let mut mui = mara_core::MaraUi::__internal_from_raw(ui, accent);
+                        mui.drag_value("seed", &mut seed_f, 1.0, 0.0..=u32::MAX as f64, 0, "");
                     },
                 );
                 *seed = seed_f as u32;
@@ -5945,15 +6262,8 @@ impl NodeViewer<GraphNode> for DemoViewer {
                     egui::vec2(SLOT_W, drag_h * 2.0),
                     egui::Layout::left_to_right(egui::Align::Center),
                     |ui| {
-                        mara_core::widget::slider::slider(
-                            ui,
-                            "freq",
-                            frequency,
-                            0.05..=8.0,
-                            2,
-                            "",
-                            accent,
-                        );
+                        let mut mui = mara_core::MaraUi::__internal_from_raw(ui, accent);
+                        mui.slider("freq", frequency, 0.05..=8.0, 2, "");
                     },
                 );
             }
@@ -5965,15 +6275,8 @@ impl NodeViewer<GraphNode> for DemoViewer {
                     egui::vec2(SLOT_W, drag_h),
                     egui::Layout::left_to_right(egui::Align::Center),
                     |ui| {
-                        mara_core::widget::drag_value::drag_value(
-                            ui,
-                            "seed",
-                            &mut seed_f,
-                            1.0,
-                            0.0..=u32::MAX as f64,
-                            0,
-                            "",
-                        );
+                        let mut mui = mara_core::MaraUi::__internal_from_raw(ui, accent);
+                        mui.drag_value("seed", &mut seed_f, 1.0, 0.0..=u32::MAX as f64, 0, "");
                     },
                 );
                 *seed = seed_f as u32;
@@ -6551,12 +6854,11 @@ where
         egui::vec2(SLOT_W, h),
         egui::Layout::left_to_right(egui::Align::Center),
         |ui| {
-            let resp = mara_core::widget::dropdown::dropdown(
-                ui,
+            let mut mui = mara_core::MaraUi::__internal_from_raw(ui, accent);
+            let resp = mui.dropdown(
                 ("mara_demo_op_dropdown", current as *const T as usize),
                 &mut idx,
                 &labels,
-                accent,
             );
             changed = resp.changed();
         },
@@ -7044,7 +7346,7 @@ fn walk_demo_tree(
     let mut slots = [
         TreeIconSlot::new(TreeIconKind::Eye, &mut eye_on).with_tooltip("Toggle visibility"),
         TreeIconSlot::new(TreeIconKind::Lock, &mut lock_on).with_tooltip("Toggle lock"),
-        TreeIconSlot::new(TreeIconKind::Color(*material), &mut swatch_dummy)
+        TreeIconSlot::new(TreeIconKind::Color((*material).into()), &mut swatch_dummy)
             .with_tooltip("Material colour"),
     ];
     let resp = tree.row(

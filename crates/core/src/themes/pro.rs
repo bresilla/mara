@@ -74,24 +74,31 @@ use crate::style::{
 /// GitHub Primer's light-mode tokens. Text colours are NOT defined
 /// here; they come from the shared `TEXT_*_LIGHT` constants so all
 /// light variants pick the same body-text tones.
-pub const PRO_LIGHT_BG_WINDOW: egui::Color32 = egui::Color32::from_rgb(0xF5, 0xF5, 0xF7);
-pub const PRO_LIGHT_BG_PANEL: egui::Color32 = egui::Color32::from_rgb(0xFF, 0xFF, 0xFF);
+pub(crate) const PRO_LIGHT_BG_WINDOW: crate::vocab::Color32 =
+    crate::vocab::Color32::from_rgb(0xF5, 0xF5, 0xF7);
+pub(crate) const PRO_LIGHT_BG_PANEL: crate::vocab::Color32 =
+    crate::vocab::Color32::from_rgb(0xFF, 0xFF, 0xFF);
 // Raised + input tiers tightened — the previous values (`F6F8FA`
 // raised, `FAFAFC` input) sat ~5 units off the white panel, so
 // dropdowns and button surfaces were effectively invisible. Mirrors
 // the Dark tier deltas (panel ± ~12 units) inverted toward darker
 // grey.
-pub const PRO_LIGHT_BG_RAISED: egui::Color32 = egui::Color32::from_rgb(0xF1, 0xF3, 0xF6);
-pub const PRO_LIGHT_BG_HOVER: egui::Color32 = egui::Color32::from_rgb(0xE6, 0xE8, 0xEC);
-pub const PRO_LIGHT_BG_INPUT: egui::Color32 = egui::Color32::from_rgb(0xEF, 0xF1, 0xF4);
-pub const PRO_LIGHT_BORDER_SUBTLE: egui::Color32 = egui::Color32::from_rgb(0xD1, 0xD9, 0xE0);
-pub const PRO_LIGHT_BORDER_INNER: egui::Color32 = egui::Color32::from_rgb(0xC5, 0xCC, 0xD3);
+pub(crate) const PRO_LIGHT_BG_RAISED: crate::vocab::Color32 =
+    crate::vocab::Color32::from_rgb(0xF1, 0xF3, 0xF6);
+pub(crate) const PRO_LIGHT_BG_HOVER: crate::vocab::Color32 =
+    crate::vocab::Color32::from_rgb(0xE6, 0xE8, 0xEC);
+pub(crate) const PRO_LIGHT_BG_INPUT: crate::vocab::Color32 =
+    crate::vocab::Color32::from_rgb(0xEF, 0xF1, 0xF4);
+pub(crate) const PRO_LIGHT_BORDER_SUBTLE: crate::vocab::Color32 =
+    crate::vocab::Color32::from_rgb(0xD1, 0xD9, 0xE0);
+pub(crate) const PRO_LIGHT_BORDER_INNER: crate::vocab::Color32 =
+    crate::vocab::Color32::from_rgb(0xC5, 0xCC, 0xD3);
 
 /// Built-in PRO profile — soft glass, rounded corners, subtle
 /// accent-tinted borders. Pick a [`Mode`] to flip between the
 /// original dark surfaces and a paper-tinted light variant; every
 /// other field (shape / chrome / brackets) is shared across modes.
-pub const fn theme_pro(mode: Mode) -> Theme {
+pub fn theme_pro(mode: Mode) -> Theme {
     let dark = matches!(mode, Mode::Dark);
     Theme {
         id: ThemeId {
@@ -101,44 +108,51 @@ pub const fn theme_pro(mode: Mode) -> Theme {
         name: if dark { "PRO_DARK" } else { "PRO_LIGHT" },
         is_light: !dark,
         palette: PaletteTheme {
-            bg_window: if dark {
+            bg_window: (if dark {
                 BG_0_WINDOW
             } else {
                 PRO_LIGHT_BG_WINDOW
-            },
-            bg_panel: if dark { BG_1_PANEL } else { PRO_LIGHT_BG_PANEL },
-            bg_raised: if dark {
+            })
+            .into(),
+            bg_panel: (if dark { BG_1_PANEL } else { PRO_LIGHT_BG_PANEL }).into(),
+            bg_raised: (if dark {
                 BG_2_RAISED
             } else {
                 PRO_LIGHT_BG_RAISED
-            },
-            bg_hover: if dark { BG_3_HOVER } else { PRO_LIGHT_BG_HOVER },
-            bg_input: if dark { BG_4_INPUT } else { PRO_LIGHT_BG_INPUT },
-            text_primary: if dark {
+            })
+            .into(),
+            bg_hover: (if dark { BG_3_HOVER } else { PRO_LIGHT_BG_HOVER }).into(),
+            bg_input: (if dark { BG_4_INPUT } else { PRO_LIGHT_BG_INPUT }).into(),
+            text_primary: (if dark {
                 TEXT_PRIMARY
             } else {
                 TEXT_PRIMARY_LIGHT
-            },
-            text_secondary: if dark {
+            })
+            .into(),
+            text_secondary: (if dark {
                 TEXT_SECONDARY
             } else {
                 TEXT_SECONDARY_LIGHT
-            },
-            text_disabled: if dark {
+            })
+            .into(),
+            text_disabled: (if dark {
                 TEXT_DISABLED
             } else {
                 TEXT_DISABLED_LIGHT
-            },
-            border_subtle: if dark {
+            })
+            .into(),
+            border_subtle: (if dark {
                 BORDER_SUBTLE
             } else {
                 PRO_LIGHT_BORDER_SUBTLE
-            },
-            border_inner: if dark {
+            })
+            .into(),
+            border_inner: (if dark {
                 BORDER_INNER
             } else {
                 PRO_LIGHT_BORDER_INNER
-            },
+            })
+            .into(),
         },
         stroke: StrokeTheme {
             border_alpha: if dark { 70 } else { 100 },
@@ -193,11 +207,11 @@ pub const fn theme_pro(mode: Mode) -> Theme {
             line_height_factor: 1.2,
             min_rows: 6,
             force_dark: true,
-            functions: AXIS_Y,
-            literals: AXIS_X,
-            numerics: AXIS_X,
-            strings: SUCCESS,
-            types: AXIS_Z,
+            functions: AXIS_Y.into(),
+            literals: AXIS_X.into(),
+            numerics: AXIS_X.into(),
+            strings: SUCCESS.into(),
+            types: AXIS_Z.into(),
         },
         overlay: OverlayTheme {
             inline_chip_size: 24.0,
@@ -225,19 +239,21 @@ pub const fn theme_pro(mode: Mode) -> Theme {
             workspace_restore_label: "Restore",
             inline_workspace_button_label: "Open workspace",
         },
-        bg_window: if dark {
+        bg_window: (if dark {
             BG_0_WINDOW
         } else {
             PRO_LIGHT_BG_WINDOW
-        },
-        bg_panel: if dark { BG_1_PANEL } else { PRO_LIGHT_BG_PANEL },
-        bg_raised: if dark {
+        })
+        .into(),
+        bg_panel: (if dark { BG_1_PANEL } else { PRO_LIGHT_BG_PANEL }).into(),
+        bg_raised: (if dark {
             BG_2_RAISED
         } else {
             PRO_LIGHT_BG_RAISED
-        },
-        bg_hover: if dark { BG_3_HOVER } else { PRO_LIGHT_BG_HOVER },
-        bg_input: if dark { BG_4_INPUT } else { PRO_LIGHT_BG_INPUT },
+        })
+        .into(),
+        bg_hover: (if dark { BG_3_HOVER } else { PRO_LIGHT_BG_HOVER }).into(),
+        bg_input: (if dark { BG_4_INPUT } else { PRO_LIGHT_BG_INPUT }).into(),
         panel_fill_mode: ColorMode::FromBg,
         section_fill_mode: ColorMode::FromBg,
         section_show_frame: true,
@@ -258,21 +274,24 @@ pub const fn theme_pro(mode: Mode) -> Theme {
         pane_fade_scale: 0.5,
         // Text — pulled from the SHARED light/dark tone constants so
         // every variant ends up with the same body-text colours.
-        text_primary: if dark {
+        text_primary: (if dark {
             TEXT_PRIMARY
         } else {
             TEXT_PRIMARY_LIGHT
-        },
-        text_secondary: if dark {
+        })
+        .into(),
+        text_secondary: (if dark {
             TEXT_SECONDARY
         } else {
             TEXT_SECONDARY_LIGHT
-        },
-        text_disabled: if dark {
+        })
+        .into(),
+        text_disabled: (if dark {
             TEXT_DISABLED
         } else {
             TEXT_DISABLED_LIGHT
-        },
+        })
+        .into(),
         title_color_mode: TextColorMode::Accent,
         title_softness: 0.0,
         ribbon_button_accent_fill: false,
@@ -545,16 +564,18 @@ pub const fn theme_pro(mode: Mode) -> Theme {
             separator_alpha: 128,
             body_inner_end_pad: 0.0,
         },
-        border_subtle: if dark {
+        border_subtle: (if dark {
             BORDER_SUBTLE
         } else {
             PRO_LIGHT_BORDER_SUBTLE
-        },
-        border_inner: if dark {
+        })
+        .into(),
+        border_inner: (if dark {
             BORDER_INNER
         } else {
             PRO_LIGHT_BORDER_INNER
-        },
+        })
+        .into(),
         border_alpha: if dark { 70 } else { 100 },
         border_accent_tint: 0.06,
         border_width: 1.0,

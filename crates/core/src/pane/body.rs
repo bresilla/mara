@@ -10,7 +10,7 @@
 //!   callers can only build specs through the typed `normal` /
 //!   `tabbed` constructors.
 //!
-//! * [`PaneBody`] — the typed wrapper the [`super::Pane::show`]
+//! * [`PaneBody`] — the typed wrapper the internal pane renderer's
 //!   closure receives. It collects [`ContainerSpec`]s through
 //!   `add_normal` / `add_tabbed` / `add` and hands them off to
 //!   [`render_containers`] when the closure returns. No raw egui
@@ -22,6 +22,7 @@ use egui::{Color32, Id, Ui};
 
 use crate::container::{Normal, SeparatorOrient, Tab, container_flow, set_container_flow};
 use crate::pod::{Pod, PodResponse};
+use crate::vocab::Id as MaraId;
 
 use super::{PaneAnchor, TitleSide, active_drag, paint_container_dots, section_order_for};
 
@@ -90,7 +91,7 @@ impl TabRoutingScope {
             .insert(spec.id, (spec.title.clone(), spec.icon));
         let mut ids = Vec::with_capacity(tabs.len());
         for tab in std::mem::take(tabs) {
-            let tid = tab.id();
+            let tid = tab.egui_id();
             assert!(
                 self.seen_tab_ids.insert(tid),
                 "tabbed containers in one tab routing scope require globally unique tab ids"
@@ -117,7 +118,7 @@ impl<'a> ContainerSpec<'a> {
     /// Single-body container hosting a pod list.
     #[must_use]
     pub fn normal(
-        id: impl Into<Id>,
+        id: impl Into<MaraId>,
         title: impl Into<String>,
         icon: &'static str,
         pods: Vec<Pod>,
@@ -126,7 +127,7 @@ impl<'a> ContainerSpec<'a> {
         assert_container_title(&title);
         assert_container_icon(icon);
         Self {
-            id: id.into(),
+            id: id.into().into(),
             title,
             icon,
             body: SpecBody::Pods(pods),
@@ -136,7 +137,7 @@ impl<'a> ContainerSpec<'a> {
     /// Folder-tabbed container hosting a tab list.
     #[must_use]
     pub fn tabbed(
-        id: impl Into<Id>,
+        id: impl Into<MaraId>,
         title: impl Into<String>,
         icon: &'static str,
         tabs: Vec<Tab>,
@@ -150,11 +151,11 @@ impl<'a> ContainerSpec<'a> {
         );
         let mut seen = HashSet::with_capacity(tabs.len());
         assert!(
-            tabs.iter().all(|tab| seen.insert(tab.id())),
+            tabs.iter().all(|tab| seen.insert(tab.egui_id())),
             "tabbed containers require unique tab ids"
         );
         Self {
-            id: id.into(),
+            id: id.into().into(),
             title,
             icon,
             body: SpecBody::Tabs(tabs),
@@ -189,7 +190,11 @@ impl<'a> ContainerSpec<'a> {
     /// The stable container id (used by reorder persistence + the
     /// pod response map).
     #[must_use]
-    pub fn container_id(&self) -> Id {
+    pub fn container_id(&self) -> MaraId {
+        self.id.into()
+    }
+
+    pub(crate) fn egui_container_id(&self) -> Id {
         self.id
     }
 }
@@ -211,7 +216,7 @@ fn assert_container_icon(icon: &'static str) {
 /// Typed wrapper around a pane's body Ui. Only exposes operations
 /// that add containers — there is no way to get at the inner
 /// [`egui::Ui`] from outside `mara_core`, so the closure body
-/// passed to [`super::Pane::show`] cannot paint raw egui widgets.
+/// passed to the internal pane renderer cannot paint raw egui widgets.
 ///
 /// Imperative builder: call [`add_normal`](Self::add_normal),
 /// [`add_tabbed`](Self::add_tabbed), or the generic
@@ -251,19 +256,8 @@ impl<'ui, 'spec> PaneBody<'ui, 'spec> {
 
     /// The pane's stable id.
     #[must_use]
-    pub fn pane_id(&self) -> Id {
-        self.pane_id
-    }
-
-    /// Direct access to the underlying egui context — useful for
-    /// reading persisted state or sending viewport commands. There
-    /// is intentionally **no** `ui()` accessor; the typed wrapper
-    /// is the only way to paint into the pane. Raw-egui escape
-    /// hatch: sealed consumers never see an `egui::Context`.
-    #[cfg(feature = "raw-egui")]
-    #[must_use]
-    pub fn ctx(&self) -> &egui::Context {
-        self.ui.ctx()
+    pub fn pane_id(&self) -> MaraId {
+        self.pane_id.into()
     }
 
     /// Current text of the `search_idx`-th search widget inside the
@@ -271,21 +265,23 @@ impl<'ui, 'spec> PaneBody<'ui, 'spec> {
     /// [`Pod::search_query`](crate::pod::Pod::search_query), for
     /// pane bodies that filter their own content by a search pod.
     #[must_use]
-    pub fn search_query(&self, pod_id: Id, search_idx: usize) -> String {
+    pub fn search_query(&self, pod_id: impl Into<MaraId>, search_idx: usize) -> String {
+        let pod_id: Id = pod_id.into().into();
         crate::pod::Pod::search_query(self.ui.ctx(), pod_id, search_idx)
     }
 
     /// Read a frame-temporary `String` (e.g. a selection path a
     /// tree widget published) keyed by `id`.
     #[must_use]
-    pub fn temp_string(&self, id: Id) -> Option<String> {
+    pub fn temp_string(&self, id: impl Into<MaraId>) -> Option<String> {
+        let id: Id = id.into().into();
         self.ui.ctx().data(|d| d.get_temp::<String>(id))
     }
 
     /// Append a normal container (single body, pod list).
     pub fn add_normal(
         &mut self,
-        id: impl Into<Id>,
+        id: impl Into<MaraId>,
         title: impl Into<String>,
         icon: &'static str,
         pods: Vec<Pod>,
@@ -298,7 +294,7 @@ impl<'ui, 'spec> PaneBody<'ui, 'spec> {
     /// Append a folder-tabbed container.
     pub fn add_tabbed(
         &mut self,
-        id: impl Into<Id>,
+        id: impl Into<MaraId>,
         title: impl Into<String>,
         icon: &'static str,
         tabs: Vec<Tab>,
@@ -323,20 +319,27 @@ impl<'ui, 'spec> PaneBody<'ui, 'spec> {
     /// or eframe app state **inside the same closure** (e.g. a
     /// theme picker that updates an `AccentColor` resource from
     /// the colour pod). After the call, the queue is empty and
-    /// further `add_*` calls accumulate again. `Pane::show`
+    /// further `add_*` calls accumulate again. Internal pane rendering
     /// invokes `render` (via the crate-internal `finish`) once
     /// after the closure returns, so an unconsumed queue is
     /// painted automatically.
-    pub fn render(&mut self) -> HashMap<Id, Vec<PodResponse>> {
+    pub fn render(&mut self) -> HashMap<MaraId, Vec<PodResponse>> {
+        self.render_raw()
+            .into_iter()
+            .map(|(id, responses)| (id.into(), responses))
+            .collect()
+    }
+
+    fn render_raw(&mut self) -> HashMap<Id, Vec<PodResponse>> {
         let specs = std::mem::take(&mut self.pending);
         render_containers(self.ui, self.pane_id, self.anchor, self.accent, specs)
     }
 
     /// Crate-internal: drain any remaining containers and return
-    /// their pod-response maps. Called by `Pane::show` once the
+    /// their pod-response maps. Called by internal pane rendering once the
     /// user's body closure returns.
     pub(crate) fn finish(mut self) -> HashMap<Id, Vec<PodResponse>> {
-        self.render()
+        self.render_raw()
     }
 }
 
@@ -456,9 +459,9 @@ pub(crate) fn render_containers_with_tab_scope<'a>(
             if dot_resp.dragged() && body_open {
                 let cur = container_flow(body_ui.ctx(), cid, pane_horizontal_strip);
                 let raw = if containers_stack_horizontally {
-                    dot_resp.drag_delta().x
+                    dot_resp.drag_delta.x
                 } else {
-                    dot_resp.drag_delta().y
+                    dot_resp.drag_delta.y
                 };
                 let delta = if title_at_end { -raw } else { raw };
                 set_container_flow(body_ui.ctx(), cid, cur + delta, pane_horizontal_strip);
@@ -506,9 +509,9 @@ pub(crate) fn render_containers_with_tab_scope<'a>(
         if dot_resp.dragged() && body_open {
             let cur = container_flow(body_ui.ctx(), cid, pane_horizontal_strip);
             let raw = if containers_stack_horizontally {
-                dot_resp.drag_delta().x
+                dot_resp.drag_delta.x
             } else {
-                dot_resp.drag_delta().y
+                dot_resp.drag_delta.y
             };
             let delta = if title_at_end { -raw } else { raw };
             set_container_flow(body_ui.ctx(), cid, cur + delta, pane_horizontal_strip);
@@ -520,6 +523,8 @@ pub(crate) fn render_containers_with_tab_scope<'a>(
 
 #[cfg(test)]
 mod tests {
+    #![allow(deprecated)]
+
     use super::*;
     use crate::pane::{RailZone, active_pane_key, tab_drag};
 
@@ -766,6 +771,21 @@ mod tests {
         scope.absorb_specs(&mut target_specs);
 
         tab_drag::commit_drop(&ctx, routing_id, moved_tab, source, target, 0);
+        assert_eq!(
+            tab_drag::route(
+                &ctx,
+                routing_id,
+                target,
+                scope
+                    .declared_tabs_per_container
+                    .get(&target)
+                    .map(Vec::as_slice)
+                    .unwrap_or(&[]),
+                &scope.all_tabs_in_scope,
+            ),
+            vec![moved_tab, target_own],
+            "shared routing scope should keep moved tabs attached to their new owner before rendering"
+        );
 
         ctx.begin_pass(egui::RawInput {
             screen_rect: Some(egui::Rect::from_min_size(

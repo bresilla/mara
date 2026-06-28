@@ -4,19 +4,17 @@
 //! from Bevy, eframe, web, or any other host that already owns its
 //! window/render loop and only wants Mara UI elements.
 //!
-//! ## Sealed by default
+//! ## Sealed API
 //!
-//! Mara does not re-export `egui` unless the `raw-egui` feature is
-//! enabled. App code builds UI exclusively through Mara's typed
-//! surface (`MaraUi`, `MaraPainter`, pods, panes, shelves, views,
-//! modules) plus the inert data types in [`mara_core::vocab`].
-//! Enabling `raw-egui` is the explicit, greppable escape hatch.
-
-#[cfg(feature = "raw-egui")]
-pub use egui;
+//! Mara does not re-export `egui` from the app-facing UI module.
+//! App code builds UI exclusively through Mara's typed surface
+//! (`MaraUi`, `MaraPainter`, pods, panes, shelves, views, modules)
+//! plus the inert data types in [`mara_core::vocab`].
 
 #[cfg(feature = "three-d")]
 pub use mara_3d;
+#[cfg(feature = "board")]
+pub use mara_board;
 #[cfg(feature = "canvas")]
 pub use mara_canvas;
 #[cfg(feature = "code")]
@@ -35,6 +33,8 @@ pub use crate::host::{MaraHostCtx, MaraWindowHost};
 pub mod modules {
     #[cfg(feature = "three-d")]
     pub use mara_3d as three_d;
+    #[cfg(feature = "board")]
+    pub use mara_board as board;
     #[cfg(feature = "canvas")]
     pub use mara_canvas as canvas;
     #[cfg(feature = "code")]
@@ -52,8 +52,6 @@ pub mod modules {
 
 pub mod prelude {
     pub use crate::host::{MaraHostCtx, MaraWindowHost};
-    #[cfg(feature = "raw-egui")]
-    pub use egui;
     #[cfg(feature = "three-d")]
     pub use mara_3d;
     #[cfg(feature = "canvas")]

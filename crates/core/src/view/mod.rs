@@ -12,10 +12,14 @@
 
 mod context;
 mod id;
+mod layout;
+mod multi;
 mod router;
 mod traits;
 
 pub use context::ViewCtx;
 pub use id::{SharedSurfaceId, ViewId};
+pub use layout::{CellId, Layout, SplitAxis};
+pub use multi::MultiView;
 pub use router::{ViewEntry, ViewRouter, ViewRouterError};
 pub use traits::MaraView;

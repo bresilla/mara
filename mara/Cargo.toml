@@ -8,8 +8,9 @@ repository.workspace = true
 
 [dependencies]
 mara_canvas = { workspace = true, optional = true }
+mara_board = { workspace = true, optional = true }
 mara_code = { workspace = true, optional = true }
-mara_core = { path = "../crates/core", version = "0.2.0", default-features = false }
+mara_core = { path = "../crates/core", version = "0.3.0", default-features = false }
 mara_graph = { workspace = true, optional = true }
 mara_image = { workspace = true, optional = true }
 mara_map = { workspace = true, optional = true }
@@ -20,7 +21,7 @@ egui-wgpu = { workspace = true }
 wgpu = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-egui-winit = { version = "0.33", optional = true }
+egui-winit = { version = "0.34", optional = true }
 pollster = { version = "0.4", optional = true }
 winit = { version = "0.30", default-features = false, features = [
     "x11",
@@ -31,17 +32,13 @@ winit = { version = "0.30", default-features = false, features = [
 [features]
 default = ["canvas", "code", "graph", "image", "map"]
 canvas = ["dep:mara_canvas"]
+board = ["dep:mara_board"]
 code = ["dep:mara_code", "mara_core/code"]
 graph = ["dep:mara_graph", "mara_core/graph"]
 image = ["dep:mara_image"]
 map = ["dep:mara_map"]
 three-d = ["dep:mara_3d", "mara_3d/gpu-preview"]
 bevy = ["dep:mara_bevy"]
-# Raw egui escape hatch: re-exports the `egui` crate from
-# `mara::ui` / the prelude and unlocks the raw accessors on
-# `MaraUi` / `ViewCtx` / `MaraHostCtx`. Off by default so app code
-# can only create GUI elements through Mara's typed surface.
-raw-egui = ["mara_core/raw-egui"]
 window = [
     "egui-wgpu/winit",
     "dep:egui-winit",

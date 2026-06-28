@@ -697,10 +697,6 @@ impl CacheTrait for WiresCache {
     fn len(&self) -> usize {
         self.bezier_3.len() + self.bezier_5.len() + self.axis_aligned.len()
     }
-
-    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
-        self
-    }
 }
 
 impl WiresCache {

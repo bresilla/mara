@@ -18,16 +18,26 @@
 //! if resp[0].buttons.first().map_or(false, |b| b.clicked) { ... }
 //! ```
 
-use egui::{Color32, Id, Ui};
+use egui::{Id, Ui};
 
 use crate::container::SeparatorStyle;
 use crate::module::{MaraModule, ModuleInlineCtx, ModuleInlineOptions};
 use crate::style::{UNIT, theme};
+use crate::vocab::{Color32, Id as MaraId};
 use crate::widget::{
-    badge::badge_row_colored,
+    badge::badge_row_backend,
     button::{Button, FillStyle},
-    chip, chip_colored, color_rgb, color_rgba, drag_value, dropdown, hybrid_select_row,
-    keybinding_row_h, progressbar, readout, select_row, slider, text_input, toggle,
+    chip::{chip_colored_backend, chip_fill},
+    color::{color_rgb, color_rgba},
+    drag_value::drag_value,
+    dropdown::dropdown,
+    keybinding::keybinding_row_backend,
+    progressbar::progressbar_backend,
+    readout::readout_backend,
+    select::{hybrid_select_row, select_row},
+    slider::slider,
+    text_input::text_input,
+    toggle::toggle_backend,
 };
 
 // ─── Per-widget responses ─────────────────────────────────────────
@@ -165,7 +175,7 @@ pub struct BadgesResponse;
 
 #[derive(Clone, Debug)]
 pub struct ModulePodResponse {
-    pub id: Id,
+    pub id: MaraId,
     pub title: String,
     pub icon: &'static str,
     pub enter_workspace_requested: bool,
@@ -318,8 +328,9 @@ impl TagItem {
         assert_non_empty("tag chips", "label", &label);
         Self { label, fill: None }
     }
-    pub fn colored(label: impl Into<String>, fill: Color32) -> Self {
+    pub fn colored(label: impl Into<String>, fill: impl Into<Color32>) -> Self {
         let label = label.into();
+        let fill = fill.into();
         assert_non_empty("tag chips", "label", &label);
         Self {
             label,
@@ -644,9 +655,9 @@ impl Pod {
     /// `id` scopes the per-widget persisted state and the debug-
     /// inspector label. Pass a stable value (e.g. derived from the
     /// container's id) so widget state survives across frames.
-    pub fn new(id: impl Into<Id>) -> Self {
+    pub fn new(id: impl Into<MaraId>) -> Self {
         Self {
-            id: id.into(),
+            id: id.into().into(),
             widgets: Vec::new(),
             separator: SeparatorStyle::Line,
             resizable: false,
@@ -713,8 +724,9 @@ impl Pod {
     /// by the container as `forced_height_key`); fill and resizable
     /// share the same render path, just differ in where the height
     /// comes from.
-    pub fn widget_height_key(id: Id) -> Id {
-        id.with("mara_pod_widget_height")
+    pub fn widget_height_key(id: impl Into<MaraId>) -> MaraId {
+        let id: Id = id.into().into();
+        id.with("mara_pod_widget_height").into()
     }
 
     /// Read the current text in a `with_search` widget without
@@ -724,15 +736,21 @@ impl Pod {
     /// rendered this frame). `search_idx` is the 0-based index of
     /// the search slot within `pod_id` — `0` for the first
     /// `with_search`, `1` for the second, etc.
-    pub fn search_query(ctx: &egui::Context, pod_id: Id, search_idx: usize) -> String {
+    pub fn search_query(
+        ctx: &egui::Context,
+        pod_id: impl Into<MaraId>,
+        search_idx: usize,
+    ) -> String {
+        let pod_id: Id = pod_id.into().into();
         let key = pod_id.with(("mara_pod_search_buf", search_idx));
         ctx.data(|d| d.get_temp::<String>(key)).unwrap_or_default()
     }
 
     /// Ctx-data key the container writes the fill pod's computed
     /// height under. Pod::show reads this when `self.fill` is set.
-    pub fn forced_height_key(id: Id) -> Id {
-        id.with("mara_pod_forced_height")
+    pub fn forced_height_key(id: impl Into<MaraId>) -> MaraId {
+        let id: Id = id.into().into();
+        id.with("mara_pod_forced_height").into()
     }
 
     /// Number of widgets the pod will paint.
@@ -759,7 +777,11 @@ impl Pod {
         self.separator
     }
 
-    pub fn id(&self) -> Id {
+    pub fn id(&self) -> MaraId {
+        self.id.into()
+    }
+
+    pub(crate) fn egui_id(&self) -> Id {
         self.id
     }
 
@@ -767,8 +789,13 @@ impl Pod {
     /// Each search's query buffer is keyed off the pod's id + its
     /// index across the search slots, so multiple searches in the
     /// same pod persist independently.
-    pub fn with_search(mut self, placeholder: impl Into<String>, accent: Color32) -> Self {
+    pub fn with_search(
+        mut self,
+        placeholder: impl Into<String>,
+        accent: impl Into<Color32>,
+    ) -> Self {
         let placeholder = placeholder.into();
+        let accent = accent.into();
         assert_non_empty("search widgets", "placeholder", &placeholder);
         self.widgets.push(WidgetSpec::Search(SearchConfig {
             placeholder,
@@ -779,8 +806,9 @@ impl Pod {
 
     /// Add a plain button widget. `label` is the centred caption.
     /// Click status is reported in `PodResponse::buttons[i]`.
-    pub fn with_button(mut self, label: impl Into<String>, accent: Color32) -> Self {
+    pub fn with_button(mut self, label: impl Into<String>, accent: impl Into<Color32>) -> Self {
         let label = label.into();
+        let accent = accent.into();
         assert_non_empty("buttons", "label", &label);
         self.widgets.push(WidgetSpec::Button(ButtonConfig {
             label,
@@ -800,10 +828,11 @@ impl Pod {
         mut self,
         label: impl Into<String>,
         subtitle: impl Into<String>,
-        accent: Color32,
+        accent: impl Into<Color32>,
     ) -> Self {
         let label = label.into();
         let subtitle = subtitle.into();
+        let accent = accent.into();
         assert_non_empty("buttons", "label", &label);
         assert_non_empty("buttons", "subtitle", &subtitle);
         self.widgets.push(WidgetSpec::Button(ButtonConfig {
@@ -822,10 +851,11 @@ impl Pod {
     pub fn with_button_animated(
         mut self,
         label: impl Into<String>,
-        accent: Color32,
+        accent: impl Into<Color32>,
         style: FillStyle,
     ) -> Self {
         let label = label.into();
+        let accent = accent.into();
         assert_non_empty("buttons", "label", &label);
         self.widgets.push(WidgetSpec::Button(ButtonConfig {
             label,
@@ -846,12 +876,13 @@ impl Pod {
     pub fn with_button_styled(
         mut self,
         label: impl Into<String>,
-        accent: Color32,
+        accent: impl Into<Color32>,
         subtitle: Option<impl Into<String>>,
         glyph: Option<impl Into<String>>,
         animation: Option<FillStyle>,
     ) -> Self {
         let label = label.into();
+        let accent = accent.into();
         let subtitle = subtitle.map(Into::into);
         let glyph = glyph.map(Into::into);
         assert_non_empty("buttons", "label", &label);
@@ -870,8 +901,9 @@ impl Pod {
     /// Add a labelled toggle widget. Label sits left, pill track +
     /// knob sit right on the same row (1U). State persists in
     /// `ctx().data` keyed off the pod's id + toggle slot index.
-    pub fn with_toggle(mut self, label: impl Into<String>, accent: Color32) -> Self {
+    pub fn with_toggle(mut self, label: impl Into<String>, accent: impl Into<Color32>) -> Self {
         let label = label.into();
+        let accent = accent.into();
         assert_non_empty("toggles", "label", &label);
         self.widgets.push(WidgetSpec::Toggle(ToggleConfig {
             label,
@@ -887,10 +919,11 @@ impl Pod {
     pub fn with_toggle_initial(
         mut self,
         label: impl Into<String>,
-        accent: Color32,
+        accent: impl Into<Color32>,
         initial: bool,
     ) -> Self {
         let label = label.into();
+        let accent = accent.into();
         assert_non_empty("toggles", "label", &label);
         self.widgets.push(WidgetSpec::Toggle(ToggleConfig {
             label,
@@ -906,9 +939,10 @@ impl Pod {
         label: impl Into<String>,
         fraction: f32,
         text: impl Into<String>,
-        accent: Color32,
+        accent: impl Into<Color32>,
     ) -> Self {
         let label = label.into();
+        let accent = accent.into();
         assert_non_empty("progress bars", "label", &label);
         assert_fraction("progress bars", "fraction", fraction);
         self.widgets.push(WidgetSpec::Progress(ProgressConfig {
@@ -931,9 +965,10 @@ impl Pod {
         range: std::ops::RangeInclusive<f64>,
         decimals: usize,
         suffix: impl Into<String>,
-        accent: Color32,
+        accent: impl Into<Color32>,
     ) -> Self {
         let label = label.into();
+        let accent = accent.into();
         assert_non_empty("sliders", "label", &label);
         assert_value_in_range("sliders", value, &range);
         self.widgets.push(WidgetSpec::Slider(SliderConfig {
@@ -981,11 +1016,12 @@ impl Pod {
         glyph: impl Into<String>,
         name: impl Into<String>,
         subtitle: impl Into<String>,
-        accent: Color32,
+        accent: impl Into<Color32>,
     ) -> Self {
         let glyph = glyph.into();
         let name = name.into();
         let subtitle = subtitle.into();
+        let accent = accent.into();
         assert_non_empty("card buttons", "glyph", &glyph);
         assert_non_empty("card buttons", "name", &name);
         assert_non_empty("card buttons", "subtitle", &subtitle);
@@ -1012,13 +1048,14 @@ impl Pod {
         action_glyph: impl Into<String>,
         action_tooltip: impl Into<String>,
         action_armed: bool,
-        accent: Color32,
+        accent: impl Into<Color32>,
     ) -> Self {
         let glyph = glyph.into();
         let name = name.into();
         let subtitle = subtitle.into();
         let action_glyph = action_glyph.into();
         let action_tooltip = action_tooltip.into();
+        let accent = accent.into();
         assert_non_empty("action card buttons", "glyph", &glyph);
         assert_non_empty("action card buttons", "name", &name);
         assert_non_empty("action card buttons", "subtitle", &subtitle);
@@ -1045,8 +1082,9 @@ impl Pod {
         mut self,
         options: impl IntoIterator<Item = impl Into<String>>,
         initial: usize,
-        accent: Color32,
+        accent: impl Into<Color32>,
     ) -> Self {
+        let accent = accent.into();
         let options: Vec<String> = options.into_iter().map(Into::into).collect();
         assert_non_empty_items("dropdowns", &options);
         assert!(
@@ -1070,10 +1108,11 @@ impl Pod {
         label: impl Into<String>,
         trailing: Option<impl Into<String>>,
         selected_initial: bool,
-        accent: Color32,
+        accent: impl Into<Color32>,
     ) -> Self {
         let label = label.into();
         let trailing = trailing.map(Into::into);
+        let accent = accent.into();
         assert_non_empty("select rows", "label", &label);
         assert_optional_non_empty("select rows", "trailing", trailing.as_deref());
         self.widgets.push(WidgetSpec::Select(SelectConfig {
@@ -1094,10 +1133,11 @@ impl Pod {
         trailing: Option<impl Into<String>>,
         selected_initial: bool,
         radio_initial: bool,
-        accent: Color32,
+        accent: impl Into<Color32>,
     ) -> Self {
         let label = label.into();
         let trailing = trailing.map(Into::into);
+        let accent = accent.into();
         assert_non_empty("hybrid select rows", "label", &label);
         assert_optional_non_empty("hybrid select rows", "trailing", trailing.as_deref());
         self.widgets
@@ -1118,9 +1158,10 @@ impl Pod {
         mut self,
         label: impl Into<String>,
         initial_rgb: [f32; 3],
-        accent: Color32,
+        accent: impl Into<Color32>,
     ) -> Self {
         let label = label.into();
+        let accent = accent.into();
         assert_non_empty("RGB color widgets", "label", &label);
         assert_color_channels("RGB color widgets", &initial_rgb);
         self.widgets.push(WidgetSpec::Color(ColorConfig {
@@ -1138,9 +1179,10 @@ impl Pod {
         mut self,
         label: impl Into<String>,
         initial_rgba: [f32; 4],
-        accent: Color32,
+        accent: impl Into<Color32>,
     ) -> Self {
         let label = label.into();
+        let accent = accent.into();
         assert_non_empty("RGBA color widgets", "label", &label);
         assert_color_channels("RGBA color widgets", &initial_rgba);
         self.widgets.push(WidgetSpec::Color(ColorConfig {
@@ -1178,8 +1220,9 @@ impl Pod {
         mut self,
         items: impl IntoIterator<Item = impl Into<String>>,
         trailing: Option<Vec<String>>,
-        accent: Color32,
+        accent: impl Into<Color32>,
     ) -> Self {
+        let accent = accent.into();
         let items: Vec<String> = items.into_iter().map(Into::into).collect();
         assert_non_empty_items("select lists", &items);
         let trailing = trailing.filter(|t| t.len() == items.len());
@@ -1200,8 +1243,9 @@ impl Pod {
         mut self,
         items: impl IntoIterator<Item = impl Into<String>>,
         trailing: Option<Vec<String>>,
-        accent: Color32,
+        accent: impl Into<Color32>,
     ) -> Self {
+        let accent = accent.into();
         let items: Vec<String> = items.into_iter().map(Into::into).collect();
         assert_non_empty_items("hybrid select lists", &items);
         let trailing = trailing.filter(|t| t.len() == items.len());
@@ -1226,8 +1270,9 @@ impl Pod {
     pub fn with_tags(
         mut self,
         items: impl IntoIterator<Item = impl Into<String>>,
-        accent: Color32,
+        accent: impl Into<Color32>,
     ) -> Self {
+        let accent = accent.into();
         let items: Vec<TagItem> = items.into_iter().map(|s| TagItem::new(s)).collect();
         self.widgets
             .push(WidgetSpec::Tags(TagsConfig { items, accent }));
@@ -1237,7 +1282,8 @@ impl Pod {
     /// Like [`Pod::with_tags`] but accepts pre-built [`TagItem`]s so
     /// individual chips can override the fill colour for status /
     /// severity categorisation.
-    pub fn with_tag_items(mut self, items: Vec<TagItem>, accent: Color32) -> Self {
+    pub fn with_tag_items(mut self, items: Vec<TagItem>, accent: impl Into<Color32>) -> Self {
+        let accent = accent.into();
         self.widgets
             .push(WidgetSpec::Tags(TagsConfig { items, accent }));
         self
@@ -1274,8 +1320,9 @@ impl Pod {
         mut self,
         label: impl Into<String>,
         badges: impl IntoIterator<Item = impl Into<String>>,
-        accent: Color32,
+        accent: impl Into<Color32>,
     ) -> Self {
+        let accent = accent.into();
         let row = BadgeRowSpec::from_strs(label, badges);
         self.widgets.push(WidgetSpec::Badges(BadgesConfig {
             rows: vec![row],
@@ -1292,8 +1339,9 @@ impl Pod {
         mut self,
         label: impl Into<String>,
         badges: Vec<TagItem>,
-        accent: Color32,
+        accent: impl Into<Color32>,
     ) -> Self {
+        let accent = accent.into();
         let row = BadgeRowSpec::new(label, badges);
         self.widgets.push(WidgetSpec::Badges(BadgesConfig {
             rows: vec![row],
@@ -1308,7 +1356,8 @@ impl Pod {
     /// "one row per pod" layout — where each row carries its own
     /// separator and resize handle — call [`Pod::with_badge_row`]
     /// per pod instead.
-    pub fn with_badges(mut self, rows: Vec<BadgeRowSpec>, accent: Color32) -> Self {
+    pub fn with_badges(mut self, rows: Vec<BadgeRowSpec>, accent: impl Into<Color32>) -> Self {
+        let accent = accent.into();
         self.widgets
             .push(WidgetSpec::Badges(BadgesConfig { rows, accent }));
         self
@@ -1385,9 +1434,10 @@ impl Pod {
         self
     }
 
-    /// Render the pod into `ui`. Returns a [`PodResponse`] with
-    /// per-widget summaries grouped by kind.
-    pub fn show(self, ui: &mut Ui) -> PodResponse {
+    /// Render the pod into the current egui backend. Public app
+    /// code reaches this through [`crate::mui::MaraUi::pod`] or a
+    /// Mara container, not by passing around a raw `egui::Ui`.
+    pub(crate) fn show(self, ui: &mut Ui) -> PodResponse {
         let pod_id = self.id;
         let mut response = PodResponse::default();
         // Two paths share the same ScrollArea-clipped viewport
@@ -1402,7 +1452,7 @@ impl Pod {
             // missing — e.g. caller marked a pod `fill` but the
             // container didn't pre-compute — fall back to natural
             // so the pod still renders.
-            let key = Self::forced_height_key(pod_id);
+            let key: Id = Self::forced_height_key(pod_id).into();
             Some(
                 ui.ctx()
                     .data(|d| d.get_temp::<f32>(key))
@@ -1411,9 +1461,10 @@ impl Pod {
             )
         } else if self.resizable {
             let natural_h = self.natural_h();
+            let key: Id = Self::widget_height_key(pod_id).into();
             Some(
                 ui.ctx()
-                    .data_mut(|d| d.get_persisted::<f32>(Self::widget_height_key(pod_id)))
+                    .data_mut(|d| d.get_persisted::<f32>(key))
                     .unwrap_or(natural_h)
                     .clamp(theme().pod.min_widget_h, theme().pod.max_widget_h),
             )
@@ -1422,18 +1473,24 @@ impl Pod {
         };
         if let Some(viewport_h) = viewport_h {
             let avail_w = ui.available_width().max(1.0);
-            let (slot_rect, _) =
-                ui.allocate_exact_size(egui::vec2(avail_w, viewport_h), egui::Sense::hover());
-            let mut child = ui.new_child(
-                egui::UiBuilder::new()
-                    .max_rect(slot_rect)
-                    .layout(egui::Layout::top_down(egui::Align::Min)),
+            let slot_rect = {
+                let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
+                crate::layout::UiBackend::allocate(
+                    &mut backend,
+                    crate::vocab::Vec2::new(avail_w, viewport_h),
+                    crate::layout::Sense::Hover,
+                )
+                .rect
+            };
+            let mut child = crate::backend::egui::child_ui_for_region(
+                ui,
+                crate::layout::ChildRegion::top_down(slot_rect, crate::layout::StackAlign::Min),
             );
             // `shrink_clip_rect` (= intersect with current clip) so a
             // pod inside an already-clipped container can never grow
             // its own clip. Hierarchy stays intact:
             //   widget rect ⊆ pod slot ⊆ container body ⊆ pane.
-            child.shrink_clip_rect(slot_rect);
+            child.shrink_clip_rect(slot_rect.into());
             let widgets = self.widgets;
             if self.resizable && !self.fill {
                 // Resizable pods get a vertical `ScrollArea` so when
@@ -1533,7 +1590,7 @@ fn paint_widgets(
                 }
                 crate::debug::tag(
                     ui,
-                    resp.rect,
+                    resp.rect.into(),
                     format!("widget[text_input/search #{}]", search_idx),
                 );
                 response.searches.push(SearchResponse {
@@ -1564,11 +1621,11 @@ fn paint_widgets(
                 // button; if the pod's viewport is smaller than
                 // the button's natural size, the button gets
                 // clipped instead.
-                let resp = builder.show(ui, cfg.accent);
+                let resp = builder.show_egui(ui, cfg.accent);
                 if has_subtitle {
                     crate::debug::tag(
                         ui,
-                        resp.rect,
+                        resp.rect.into(),
                         format!("widget[card_button #{}]", card_button_idx),
                     );
                     response.card_buttons.push(ButtonResponse {
@@ -1576,7 +1633,11 @@ fn paint_widgets(
                     });
                     card_button_idx += 1;
                 } else {
-                    crate::debug::tag(ui, resp.rect, format!("widget[button #{}]", button_idx));
+                    crate::debug::tag(
+                        ui,
+                        resp.rect.into(),
+                        format!("widget[button #{}]", button_idx),
+                    );
                     response.buttons.push(ButtonResponse {
                         clicked: resp.clicked(),
                     });
@@ -1595,10 +1656,10 @@ fn paint_widgets(
                 if let Some(tip) = &cfg.action_tooltip {
                     builder = builder.action_tooltip(tip);
                 }
-                let resp = builder.show(ui, cfg.accent);
+                let resp = builder.show_egui(ui, cfg.accent);
                 crate::debug::tag(
                     ui,
-                    resp.body.rect,
+                    resp.body.rect.into(),
                     format!("widget[action_button #{}]", action_button_idx),
                 );
                 response.action_buttons.push(ActionButtonPodResponse {
@@ -1619,14 +1680,21 @@ fn paint_widgets(
                         v
                     }
                 });
-                let resp = toggle(ui, &cfg.label, &mut on, cfg.accent);
+                let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
+                let resp = toggle_backend(
+                    &mut backend,
+                    &cfg.label,
+                    &mut on,
+                    cfg.accent,
+                    theme().widgets.toggle.row_h,
+                );
                 let changed = resp.changed();
                 if changed {
                     ui.ctx().data_mut(|d| d.insert_persisted(state_key, on));
                 }
                 crate::debug::tag(
                     ui,
-                    resp.rect,
+                    resp.rect.into(),
                     format!(
                         "widget[toggle #{}{}]",
                         toggle_idx,
@@ -1641,8 +1709,20 @@ fn paint_widgets(
                 toggle_idx += 1;
             }
             WidgetSpec::Progress(cfg) => {
-                let resp = progressbar(ui, &cfg.label, cfg.fraction, &cfg.text, cfg.accent);
-                crate::debug::tag(ui, resp.rect, format!("widget[progress #{}]", progress_idx));
+                let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
+                let resp = progressbar_backend(
+                    &mut backend,
+                    &cfg.label,
+                    cfg.fraction,
+                    &cfg.text,
+                    cfg.accent,
+                    theme().widgets.progress.row_h,
+                );
+                crate::debug::tag(
+                    ui,
+                    resp.rect.into(),
+                    format!("widget[progress #{}]", progress_idx),
+                );
                 response.progress.push(ProgressResponse);
                 progress_idx += 1;
             }
@@ -1668,7 +1748,11 @@ fn paint_widgets(
                 if changed {
                     ui.ctx().data_mut(|d| d.insert_persisted(val_key, val));
                 }
-                crate::debug::tag(ui, resp.rect, format!("widget[slider #{}]", slider_idx));
+                crate::debug::tag(
+                    ui,
+                    resp.rect.into(),
+                    format!("widget[slider #{}]", slider_idx),
+                );
                 response.sliders.push(SliderResponse {
                     value: val,
                     changed,
@@ -1696,7 +1780,7 @@ fn paint_widgets(
                 }
                 crate::debug::tag(
                     ui,
-                    resp.rect,
+                    resp.rect.into(),
                     format!("widget[drag_value #{}]", drag_value_idx),
                 );
                 response.drag_values.push(DragValueResponse {
@@ -1724,7 +1808,11 @@ fn paint_widgets(
                 if changed {
                     ui.ctx().data_mut(|d| d.insert_persisted(val_key, sel));
                 }
-                crate::debug::tag(ui, resp.rect, format!("widget[dropdown #{}]", dropdown_idx));
+                crate::debug::tag(
+                    ui,
+                    resp.rect.into(),
+                    format!("widget[dropdown #{}]", dropdown_idx),
+                );
                 response.dropdowns.push(DropdownResponse {
                     selected: sel,
                     changed,
@@ -1749,7 +1837,11 @@ fn paint_widgets(
                     selected = !selected;
                     ui.ctx().data_mut(|d| d.insert_persisted(sel_key, selected));
                 }
-                crate::debug::tag(ui, resp.rect, format!("widget[select #{}]", select_idx));
+                crate::debug::tag(
+                    ui,
+                    resp.rect.into(),
+                    format!("widget[select #{}]", select_idx),
+                );
                 response.selects.push(SelectResponse {
                     clicked: resp.clicked(),
                     double_clicked: resp.double_clicked(),
@@ -1788,7 +1880,7 @@ fn paint_widgets(
                 }
                 crate::debug::tag(
                     ui,
-                    resp.body.rect,
+                    resp.body.rect.into(),
                     format!("widget[hybrid_select #{}]", hybrid_select_idx),
                 );
                 response.hybrid_selects.push(HybridSelectPodResponse {
@@ -1808,7 +1900,11 @@ fn paint_widgets(
                     .unwrap_or(cfg.initial);
                 let changed = if cfg.alpha {
                     let resp = color_rgba(ui, &cfg.label, &mut rgba, cfg.accent);
-                    crate::debug::tag(ui, resp.rect, format!("widget[color_rgba #{}]", color_idx));
+                    crate::debug::tag(
+                        ui,
+                        resp.rect.into(),
+                        format!("widget[color_rgba #{}]", color_idx),
+                    );
                     resp.changed()
                 } else {
                     let mut rgb = [rgba[0], rgba[1], rgba[2]];
@@ -1817,7 +1913,11 @@ fn paint_widgets(
                     rgba[1] = rgb[1];
                     rgba[2] = rgb[2];
                     rgba[3] = 1.0;
-                    crate::debug::tag(ui, resp.rect, format!("widget[color_rgb #{}]", color_idx));
+                    crate::debug::tag(
+                        ui,
+                        resp.rect.into(),
+                        format!("widget[color_rgb #{}]", color_idx),
+                    );
                     resp.changed()
                 };
                 if changed {
@@ -1827,8 +1927,18 @@ fn paint_widgets(
                 color_idx += 1;
             }
             WidgetSpec::Readout(cfg) => {
-                let resp = readout(ui, &cfg.label, &cfg.value);
-                crate::debug::tag(ui, resp.rect, format!("widget[readout #{}]", readout_idx));
+                let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
+                let resp = readout_backend(
+                    &mut backend,
+                    &cfg.label,
+                    &cfg.value,
+                    theme().widgets.readout.row_h,
+                );
+                crate::debug::tag(
+                    ui,
+                    resp.rect.into(),
+                    format!("widget[readout #{}]", readout_idx),
+                );
                 response.readouts.push(ReadoutResponse);
                 readout_idx += 1;
             }
@@ -1928,12 +2038,15 @@ fn paint_widgets(
             WidgetSpec::Tags(cfg) => {
                 let mut clicked: Option<usize> = None;
                 ui.horizontal_wrapped(|ui| {
-                    ui.spacing_mut().item_spacing = egui::vec2(3.0, 3.0);
+                    crate::backend::egui::apply_item_spacing_spec(
+                        ui,
+                        crate::layout::ItemSpacingSpec::new(crate::vocab::Vec2::new(3.0, 3.0)),
+                    );
                     for (i, item) in cfg.items.iter().enumerate() {
-                        let resp = match item.fill {
-                            Some(fill) => chip_colored(ui, &item.label, fill, cfg.accent),
-                            None => chip(ui, &item.label, cfg.accent),
-                        };
+                        let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
+                        let fill = item.fill.unwrap_or_else(|| chip_fill(cfg.accent));
+                        let resp =
+                            chip_colored_backend(&mut backend, &item.label, fill, cfg.accent);
                         if resp.clicked() {
                             clicked = Some(i);
                         }
@@ -1945,7 +2058,14 @@ fn paint_widgets(
             }
             WidgetSpec::Keybindings(cfg) => {
                 for (k, a) in cfg.rows.iter() {
-                    keybinding_row_h(ui, k, a, theme().widgets.keybinding.row_h);
+                    let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
+                    keybinding_row_backend(
+                        &mut backend,
+                        k,
+                        a,
+                        theme().widgets.keybinding.row_h,
+                        crate::style::active_accent(),
+                    );
                 }
                 response.keybindings.push(KeybindingsResponse);
                 keybindings_idx += 1;
@@ -1953,12 +2073,10 @@ fn paint_widgets(
             }
             WidgetSpec::Badges(cfg) => {
                 for row in cfg.rows.iter() {
-                    let pairs: Vec<(&str, Option<Color32>)> = row
-                        .badges
-                        .iter()
-                        .map(|t| (t.label.as_str(), t.fill))
-                        .collect();
-                    badge_row_colored(ui, &row.label, &pairs, cfg.accent);
+                    let labels: Vec<&str> = row.badges.iter().map(|t| t.label.as_str()).collect();
+                    let fills: Vec<Option<Color32>> = row.badges.iter().map(|t| t.fill).collect();
+                    let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
+                    badge_row_backend(&mut backend, &row.label, &labels, Some(&fills), cfg.accent);
                 }
                 response.badges.push(BadgesResponse);
             }
@@ -1967,7 +2085,7 @@ fn paint_widgets(
                 let title = cfg.module.title().to_owned();
                 let icon = cfg.module.icon();
                 let ctx = ModuleInlineCtx {
-                    pod_id,
+                    pod_id: pod_id.into(),
                     slot_index: slot_idx,
                     accent: crate::style::active_accent(),
                     options: cfg.options,
@@ -2010,8 +2128,8 @@ mod tests {
     }
 
     impl MaraModule for MockModule {
-        fn id(&self) -> Id {
-            Id::new(("mock-module", self.title, self.icon))
+        fn id(&self) -> crate::vocab::Id {
+            crate::vocab::Id::new(("mock-module", self.title, self.icon))
         }
 
         fn title(&self) -> &str {

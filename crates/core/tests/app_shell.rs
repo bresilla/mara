@@ -4,7 +4,7 @@ use mara_core::{
     RibbonSlotId, RibbonSlotItem, RibbonSlotOverride, ViewCtx, ViewId, ViewRouter,
     WindowControlsPolicy, dispatch_app_shell_action, permanent_system_control_slot,
     resolve_app_shell_ribbons, resolve_app_shell_ribbons_with_workspace_chrome,
-    resolve_app_shell_ribbons_with_workspace_layers,
+    resolve_app_shell_ribbons_with_workspace_layers, vocab::Id as MaraId,
 };
 
 struct ShellView {
@@ -43,14 +43,14 @@ impl MaraView for ShellView {
 
     fn ribbons(&mut self) -> Vec<RibbonSlotDef> {
         let item = RibbonSlotItem::new(
-            egui::Id::new(("view.local.item", self.id.0)),
+            MaraId::new(("view.local.item", self.id.0)),
             "eye",
             "View Tool",
             "View-local tool",
-            RibbonAction::Command(egui::Id::new("view-tool")),
+            RibbonAction::Command(MaraId::new("view-tool")),
         );
         vec![RibbonSlotDef::new(
-            egui::Id::new(("view.local.ribbon", self.id.0)),
+            MaraId::new(("view.local.ribbon", self.id.0)),
             RibbonScope::View(self.id),
             RibbonEdge::Left,
             RibbonCluster::Start,
@@ -222,11 +222,11 @@ fn app_shell_rejects_workspace_ribbons_with_wrong_scope() {
     router
         .active_workspace_mut()
         .unwrap()
-        .push_module(egui::Id::new("canvas-module"));
-    let bad_ribbon_id = egui::Id::new("bad.workspace.ribbon.scope");
+        .push_module("canvas-module");
+    let bad_ribbon_id = MaraId::new("bad.workspace.ribbon.scope");
     let workspace_ribbon = RibbonSlotDef::new(
         bad_ribbon_id,
-        RibbonScope::WorkspaceLevel(egui::Id::new("other-workspace")),
+        RibbonScope::WorkspaceLevel(MaraId::new("other-workspace")),
         RibbonEdge::Right,
         RibbonCluster::Middle,
         Vec::new(),
@@ -261,10 +261,7 @@ fn app_shell_rejects_direct_invalid_ribbon_defs() {
 #[test]
 fn l1_workspace_overrides_permanent_close_slot_with_restore() {
     let mut router = ViewRouter::new(ShellView::new("bevy", "Bevy"));
-    router
-        .active_workspace_mut()
-        .unwrap()
-        .push_module(egui::Id::new("graph"));
+    router.active_workspace_mut().unwrap().push_module("graph");
     let permanent = permanent_main_with_system_control();
 
     let resolved = resolve_app_shell_ribbons(&mut router, &permanent).unwrap();
@@ -278,11 +275,11 @@ fn deepest_workspace_override_beats_active_view_override_in_app_shell() {
     let override_slot = RibbonSlotOverride::new(
         mara_core::system_close_or_restore_slot_id(),
         RibbonSlotItem::new(
-            egui::Id::new("view.close.override"),
+            MaraId::new("view.close.override"),
             "settings",
             "Settings",
             "Settings",
-            RibbonAction::Command(egui::Id::new("settings")),
+            RibbonAction::Command(MaraId::new("settings")),
         ),
     );
     let mut router = ViewRouter::new(ShellView::new("bevy", "Bevy").with_override(override_slot));
@@ -291,10 +288,7 @@ fn deepest_workspace_override_beats_active_view_override_in_app_shell() {
     let l0 = resolve_app_shell_ribbons(&mut router, &permanent).unwrap();
     assert_eq!(l0.ribbons[0].items[0].icon, "settings");
 
-    router
-        .active_workspace_mut()
-        .unwrap()
-        .push_module(egui::Id::new("graph"));
+    router.active_workspace_mut().unwrap().push_module("graph");
     let l1 = resolve_app_shell_ribbons(&mut router, &permanent).unwrap();
     assert_eq!(l1.ribbons[0].items[0].action, RibbonAction::PopWorkspace);
 }
@@ -309,7 +303,7 @@ fn app_shell_dispatch_routes_actions() {
 
     dispatch_app_shell_action(
         &mut router,
-        RibbonAction::PushModuleWorkspace(egui::Id::new("image")),
+        RibbonAction::PushModuleWorkspace(MaraId::new("image")),
     )
     .unwrap();
     assert_eq!(router.active_workspace().unwrap().depth(), 1);
@@ -357,20 +351,20 @@ fn workspace_local_ribbons_participate_in_shell_resolution() {
     let level = router
         .active_workspace_mut()
         .unwrap()
-        .push_module(egui::Id::new("canvas-module"));
+        .push_module("canvas-module");
     let workspace_ribbon = RibbonSlotDef::new(
-        egui::Id::new("workspace.ribbon"),
+        MaraId::new("workspace.ribbon"),
         RibbonScope::WorkspaceLevel(level.id),
         RibbonEdge::Top,
         RibbonCluster::Middle,
         vec![RibbonSlot::new(
             RibbonSlotId::new("workspace.tool"),
             Some(RibbonSlotItem::new(
-                egui::Id::new("workspace.pen"),
+                MaraId::new("workspace.pen"),
                 "pen",
                 "Pen",
                 "Use pen",
-                RibbonAction::Command(egui::Id::new("workspace.pen.command")),
+                RibbonAction::Command(MaraId::new("workspace.pen.command")),
             )),
             RibbonOverridePolicy::Fixed,
         )],
@@ -404,36 +398,37 @@ fn app_shell_calls_workspace_renderer_for_l1() {
     let level = router
         .active_workspace_mut()
         .unwrap()
-        .push_module(egui::Id::new("graph-module"));
+        .push_module("graph-module");
     let mut called = false;
 
-    let (resolved, _) = mara_core::show_app_shell_with_workspace_renderer(
-        &egui_ctx,
-        &mut router,
-        &permanent_main_with_system_control(),
-        egui::Color32::WHITE,
-        |_ctx, ws| {
-            called = true;
-            ws.add_ribbon(RibbonSlotDef::new(
-                egui::Id::new("workspace.rendered.ribbon"),
-                RibbonScope::WorkspaceLevel(level.id),
-                RibbonEdge::Top,
-                RibbonCluster::Middle,
-                vec![RibbonSlot::new(
-                    RibbonSlotId::new("workspace.rendered.tool"),
-                    Some(RibbonSlotItem::new(
-                        egui::Id::new("workspace.rendered.item"),
-                        "flowchart",
-                        "Graph",
-                        "Graph tool",
-                        RibbonAction::Command(egui::Id::new("workspace.rendered.command")),
-                    )),
-                    RibbonOverridePolicy::Fixed,
-                )],
-            ));
-        },
-    )
-    .unwrap();
+    let (resolved, _) =
+        mara_core::app_shell::__internal_show_app_shell_with_workspace_renderer_egui(
+            &egui_ctx,
+            &mut router,
+            &permanent_main_with_system_control(),
+            egui::Color32::WHITE,
+            |_ctx, ws| {
+                called = true;
+                ws.add_ribbon(RibbonSlotDef::new(
+                    MaraId::new("workspace.rendered.ribbon"),
+                    RibbonScope::WorkspaceLevel(level.id),
+                    RibbonEdge::Top,
+                    RibbonCluster::Middle,
+                    vec![RibbonSlot::new(
+                        RibbonSlotId::new("workspace.rendered.tool"),
+                        Some(RibbonSlotItem::new(
+                            MaraId::new("workspace.rendered.item"),
+                            "flowchart",
+                            "Graph",
+                            "Graph tool",
+                            RibbonAction::Command(MaraId::new("workspace.rendered.command")),
+                        )),
+                        RibbonOverridePolicy::Fixed,
+                    )],
+                ));
+            },
+        )
+        .unwrap();
 
     assert!(called);
     assert!(resolved.ribbons.iter().any(
@@ -510,11 +505,11 @@ fn persistent_main_bar_slot_requires_explicit_hide_override() {
     let slot = RibbonSlot::new(
         slot_id,
         Some(RibbonSlotItem::new(
-            egui::Id::new("global.about.item"),
+            MaraId::new("global.about.item"),
             "info",
             "About",
             "About",
-            RibbonAction::Command(egui::Id::new("about")),
+            RibbonAction::Command(MaraId::new("about")),
         )),
         RibbonOverridePolicy::LayerOverride,
     );

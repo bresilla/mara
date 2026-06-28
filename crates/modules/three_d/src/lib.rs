@@ -10,6 +10,7 @@ use mara_core::{
     MaraModule, MaraView, ModuleInlineCtx, ModuleResponse, RibbonAction, RibbonCluster, RibbonEdge,
     RibbonOverridePolicy, RibbonScope, RibbonSlot, RibbonSlotDef, RibbonSlotId, RibbonSlotItem,
     ViewCtx, ViewId, WorkspaceBar, WorkspaceBarCluster, WorkspaceBarEdge, WorkspaceCtx,
+    vocab::{Color32 as MaraColor32, Pos2 as MaraPos2, Vec2 as MaraVec2},
 };
 
 const WORLD_UP: Vec3 = [0.0, 1.0, 0.0];
@@ -70,7 +71,7 @@ pub use three_d as backend;
 
 pub type Vec3 = [f32; 3];
 pub type Quat = [f32; 4];
-pub type Color = egui::Color32;
+pub type Color = MaraColor32;
 
 /// Stable object id inside a retained 3D scene.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -213,24 +214,9 @@ impl TriangleMesh3d {
             out_n.push(n);
             out_n.push(n);
             out_n.push(n);
-            out_c.push(
-                vertex_colors
-                    .get(i0)
-                    .copied()
-                    .unwrap_or(egui::Color32::WHITE),
-            );
-            out_c.push(
-                vertex_colors
-                    .get(i1)
-                    .copied()
-                    .unwrap_or(egui::Color32::WHITE),
-            );
-            out_c.push(
-                vertex_colors
-                    .get(i2)
-                    .copied()
-                    .unwrap_or(egui::Color32::WHITE),
-            );
+            out_c.push(vertex_colors.get(i0).copied().unwrap_or(MaraColor32::WHITE));
+            out_c.push(vertex_colors.get(i1).copied().unwrap_or(MaraColor32::WHITE));
+            out_c.push(vertex_colors.get(i2).copied().unwrap_or(MaraColor32::WHITE));
             out_i.push([base, base + 1, base + 2]);
         }
         Self {
@@ -1452,11 +1438,11 @@ pub struct Material3d {
 
 impl Material3d {
     #[must_use]
-    pub fn new(id: MaterialId, name: impl Into<String>, base_color: Color) -> Self {
+    pub fn new(id: MaterialId, name: impl Into<String>, base_color: impl Into<Color>) -> Self {
         Self {
             id,
             name: name.into(),
-            base_color,
+            base_color: base_color.into(),
             albedo_texture: None,
             roughness: 0.65,
             metallic: 0.0,
@@ -1512,7 +1498,7 @@ impl Texture3d {
             for x in 0..width {
                 let cx = x * cells / width;
                 let cy = y * cells / height;
-                pixels.push(if (cx + cy) % 2 == 0 { a } else { b });
+                pixels.push(if (cx + cy).is_multiple_of(2) { a } else { b });
             }
         }
         Self::new(id, name, [width, height], pixels)
@@ -1523,7 +1509,7 @@ impl Texture3d {
         let width = self.size[0].max(1);
         let height = self.size[1].max(1);
         if self.pixels.is_empty() {
-            return egui::Color32::WHITE;
+            return MaraColor32::WHITE;
         }
         let u = uv[0].rem_euclid(1.0);
         let v = uv[1].rem_euclid(1.0);
@@ -1534,7 +1520,7 @@ impl Texture3d {
         self.pixels
             .get(y * width + x)
             .copied()
-            .unwrap_or(egui::Color32::WHITE)
+            .unwrap_or(MaraColor32::WHITE)
     }
 }
 
@@ -1668,9 +1654,9 @@ pub struct Gizmo3dStyle {
 
 impl Gizmo3dStyle {
     #[must_use]
-    pub const fn new(color: Color) -> Self {
+    pub fn new(color: impl Into<Color>) -> Self {
         Self {
-            color,
+            color: color.into(),
             width: 2.0,
             radius: 4.0,
         }
@@ -1691,7 +1677,7 @@ impl Gizmo3dStyle {
 
 impl Default for Gizmo3dStyle {
     fn default() -> Self {
-        Self::new(egui::Color32::WHITE)
+        Self::new(MaraColor32::WHITE)
     }
 }
 
@@ -1751,7 +1737,7 @@ pub struct Scene3d {
 impl Scene3d {
     #[must_use]
     pub fn new(title: impl Into<String>) -> Self {
-        let accent = mara_core::style::active_accent();
+        let accent: egui::Color32 = mara_core::style::active_accent().into();
         Self {
             title: title.into(),
             camera: Camera3d::default(),
@@ -1764,14 +1750,14 @@ impl Scene3d {
                 Light3d::Ambient {
                     id: LightId(1),
                     name: "Ambient".to_owned(),
-                    color: egui::Color32::WHITE,
+                    color: MaraColor32::WHITE,
                     intensity: 0.35,
                 },
                 Light3d::Directional {
                     id: LightId(2),
                     name: "Key".to_owned(),
                     direction: [-0.6, -1.0, -0.45],
-                    color: egui::Color32::WHITE,
+                    color: MaraColor32::WHITE,
                     intensity: 1.4,
                 },
             ],
@@ -1786,7 +1772,7 @@ impl Scene3d {
     #[must_use]
     pub fn demo(title: impl Into<String>) -> Self {
         let mut scene = Self::new(title);
-        let accent = mara_core::style::active_accent();
+        let accent: egui::Color32 = mara_core::style::active_accent().into();
         let mint = scene.add_material(
             "Mint",
             tint_color(egui::Color32::from_rgb(68, 230, 160), accent, 0.14),
@@ -2018,11 +2004,11 @@ impl Scene3d {
                     [0, 1, 2],
                 ],
                 vec![
-                    egui::Color32::from_rgb(255, 80, 120),
-                    egui::Color32::from_rgb(255, 220, 80),
-                    egui::Color32::from_rgb(80, 235, 170),
-                    egui::Color32::from_rgb(80, 170, 255),
-                    egui::Color32::from_rgb(240, 120, 255),
+                    MaraColor32::from_rgb(255, 80, 120),
+                    MaraColor32::from_rgb(255, 220, 80),
+                    MaraColor32::from_rgb(80, 235, 170),
+                    MaraColor32::from_rgb(80, 170, 255),
+                    MaraColor32::from_rgb(240, 120, 255),
                 ],
             ),
             MaterialId(1),
@@ -2218,7 +2204,11 @@ impl Scene3d {
     }
 
     #[must_use]
-    pub fn add_material(&mut self, name: impl Into<String>, base_color: Color) -> MaterialId {
+    pub fn add_material(
+        &mut self,
+        name: impl Into<String>,
+        base_color: impl Into<Color>,
+    ) -> MaterialId {
         let id = MaterialId(self.next_material_id);
         self.next_material_id += 1;
         self.materials.push(Material3d::new(id, name, base_color));
@@ -2229,7 +2219,7 @@ impl Scene3d {
     pub fn add_material_with_texture(
         &mut self,
         name: impl Into<String>,
-        base_color: Color,
+        base_color: impl Into<Color>,
         texture: TextureId,
     ) -> MaterialId {
         let id = MaterialId(self.next_material_id);
@@ -2257,14 +2247,20 @@ impl Scene3d {
         &mut self,
         name: impl Into<String>,
         size: [usize; 2],
-        a: Color,
-        b: Color,
+        a: impl Into<Color>,
+        b: impl Into<Color>,
         cells: usize,
     ) -> TextureId {
         let id = TextureId(self.next_texture_id);
         self.next_texture_id += 1;
-        self.textures
-            .push(Texture3d::checker(id, name, size, a, b, cells));
+        self.textures.push(Texture3d::checker(
+            id,
+            name,
+            size,
+            a.into(),
+            b.into(),
+            cells,
+        ));
         id
     }
 
@@ -2775,15 +2771,20 @@ pub struct Viewport3d {
     pub pixels: [u32; 2],
     pub scale_factor: f32,
     pub hovered: bool,
-    pub pointer_pos: Option<egui::Pos2>,
+    pub pointer_pos: Option<MaraPos2>,
     pub primary_down: bool,
     pub middle_down: bool,
-    pub scroll_delta: egui::Vec2,
+    pub scroll_delta: MaraVec2,
 }
 
 impl Viewport3d {
     #[must_use]
-    pub fn from_response(response: &egui::Response, pixels: [u32; 2], ui: &egui::Ui) -> Self {
+    #[doc(hidden)]
+    pub(crate) fn __internal_from_backend_response(
+        response: &egui::Response,
+        pixels: [u32; 2],
+        ui: &egui::Ui,
+    ) -> Self {
         let input = ui.input(|input| {
             (
                 input.pointer.primary_down(),
@@ -2795,10 +2796,10 @@ impl Viewport3d {
             pixels,
             scale_factor: ui.ctx().pixels_per_point(),
             hovered: response.hovered(),
-            pointer_pos: response.hover_pos(),
+            pointer_pos: response.hover_pos().map(Into::into),
             primary_down: input.0,
             middle_down: input.1,
-            scroll_delta: input.2,
+            scroll_delta: input.2.into(),
         }
     }
 }
@@ -2815,7 +2816,7 @@ pub trait Renderer3d {
         &mut self,
         _scene: &Scene3d,
         _viewport: &Viewport3d,
-        _position: egui::Pos2,
+        _position: MaraPos2,
     ) -> Result<Option<ObjectId>, Self::Error> {
         Ok(None)
     }
@@ -3102,7 +3103,11 @@ impl View3d {
     /// This is intentionally only allocation/input plumbing. Actual `three-d`
     /// rendering must happen in a backend that owns or receives a GL/WebGL
     /// context for this rectangle.
-    pub fn allocate_viewport(&mut self, ui: &mut egui::Ui) -> (egui::Response, Viewport3d) {
+    #[doc(hidden)]
+    pub(crate) fn __internal_allocate_viewport(
+        &mut self,
+        ui: &mut egui::Ui,
+    ) -> (egui::Response, Viewport3d) {
         let available = ui.available_size_before_wrap();
         let size = egui::vec2(available.x.max(180.0), available.y.max(140.0));
         let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click_and_drag());
@@ -3111,27 +3116,30 @@ impl View3d {
             (rect.width() * ppp).ceil().max(1.0) as u32,
             (rect.height() * ppp).ceil().max(1.0) as u32,
         ];
-        let viewport = Viewport3d::from_response(&response, pixels, ui);
+        let viewport = Viewport3d::__internal_from_backend_response(&response, pixels, ui);
         (response, viewport)
     }
 
     fn view_ribbon(&self, scope: RibbonScope) -> RibbonSlotDef {
         let orbit = RibbonSlotItem::new(
-            egui::Id::new(("three_d.orbit", self.id)),
+            mara_core::vocab::Id::new(("three_d.orbit", self.id)),
             "orbit",
             "Orbit",
             "Orbit camera",
-            RibbonAction::Command(egui::Id::new(("three_d.orbit.command", self.id))),
+            RibbonAction::Command(mara_core::vocab::Id::new((
+                "three_d.orbit.command",
+                self.id,
+            ))),
         );
         let fit = RibbonSlotItem::new(
-            egui::Id::new(("three_d.fit", self.id)),
+            mara_core::vocab::Id::new(("three_d.fit", self.id)),
             "fit",
             "Fit",
             "Frame selected objects",
-            RibbonAction::Command(egui::Id::new(("three_d.fit.command", self.id))),
+            RibbonAction::Command(mara_core::vocab::Id::new(("three_d.fit.command", self.id))),
         );
         RibbonSlotDef::new(
-            egui::Id::new(("three_d.ribbon", self.id)),
+            mara_core::vocab::Id::new(("three_d.ribbon", self.id)),
             scope,
             RibbonEdge::Top,
             RibbonCluster::Middle,
@@ -3165,8 +3173,9 @@ impl View3d {
         }
 
         let painter = ui.painter_at(rect);
-        let accent = mara_core::style::active_accent();
-        let background = mara_core::style::fill_for(mara_core::style::FillRole::Pane, accent);
+        let accent: egui::Color32 = mara_core::style::active_accent().into();
+        let background: egui::Color32 =
+            mara_core::style::fill_for(mara_core::style::FillRole::Pane, accent).into();
         painter.rect_filled(rect, 0.0, background);
         let interactive_preview = gizmo_used
             || self.gizmo_drag.is_some()
@@ -3576,11 +3585,10 @@ impl View3d {
     }
 
     fn material_color(&self, material: MaterialId) -> egui::Color32 {
-        self.scene
-            .material(material)
-            .map_or_else(mara_core::style::active_accent, |material| {
-                material.base_color
-            })
+        self.scene.material(material).map_or_else(
+            || mara_core::style::active_accent().into(),
+            |material| material.base_color.into(),
+        )
     }
 
     fn paint_scene_gizmos(
@@ -4534,7 +4542,7 @@ impl View3d {
 
 impl MaraView for View3d {
     fn id(&self) -> ViewId {
-        ViewId(self.id)
+        ViewId::from(self.id)
     }
 
     fn title(&self) -> &str {
@@ -4546,28 +4554,32 @@ impl MaraView for View3d {
     }
 
     fn ribbons(&mut self) -> Vec<RibbonSlotDef> {
-        vec![self.view_ribbon(RibbonScope::View(ViewId(self.id)))]
+        vec![self.view_ribbon(RibbonScope::View(ViewId::from(self.id)))]
     }
 
     fn show(&mut self, ctx: &mut ViewCtx<'_>) {
-        egui::CentralPanel::default()
-            .frame(
-                egui::Frame::new()
-                    .fill(egui::Color32::TRANSPARENT)
-                    .inner_margin(0.0)
-                    .outer_margin(0.0),
-            )
-            .show(ctx.__internal_egui_ctx(), |ui| {
-                let rect = ctx.content_rect().intersect(ui.max_rect());
-                let response = ui.allocate_rect(rect, egui::Sense::click_and_drag());
-                self.paint_preview(ui, response.rect, &response);
-            });
+        #[allow(deprecated)]
+        {
+            egui::CentralPanel::default()
+                .frame(
+                    egui::Frame::new()
+                        .fill(egui::Color32::TRANSPARENT)
+                        .inner_margin(0.0)
+                        .outer_margin(0.0),
+                )
+                .show(ctx.__internal_egui_ctx(), |ui| {
+                    let rect = ctx.content_rect().intersect(ui.max_rect().into());
+                    let rect: egui::Rect = rect.into();
+                    let response = ui.allocate_rect(rect, egui::Sense::click_and_drag());
+                    self.paint_preview(ui, response.rect, &response);
+                });
+        }
     }
 }
 
 impl MaraModule for View3d {
-    fn id(&self) -> egui::Id {
-        self.id
+    fn id(&self) -> mara_core::vocab::Id {
+        self.id.into()
     }
 
     fn title(&self) -> &str {
@@ -4583,17 +4595,13 @@ impl MaraModule for View3d {
         mui: &mut mara_core::MaraUi<'_>,
         ctx: ModuleInlineCtx<'_>,
     ) -> ModuleResponse {
-        let ui = mui.__internal_raw_ui();
-        ui.group(|ui| {
-            ui.label(format!("3D scene: {}", self.scene.title));
-            ui.label(format!("{} objects", self.scene.objects.len()));
-            if ctx.can_enter_workspace() && ui.button("Open 3D workspace").clicked() {
-                ModuleResponse::enter_workspace()
-            } else {
-                ModuleResponse::none()
-            }
-        })
-        .inner
+        mui.label(&format!("3D scene: {}", self.scene.title));
+        mui.label(&format!("{} objects", self.scene.objects.len()));
+        if ctx.can_enter_workspace() && mui.button("Open 3D workspace").clicked() {
+            ModuleResponse::enter_workspace()
+        } else {
+            ModuleResponse::none()
+        }
     }
 
     fn workspace(&mut self, ws: &mut WorkspaceCtx<'_>) {
@@ -4788,7 +4796,7 @@ impl GpuPreviewCallback {
                     .or_insert_with(|| GpuPreviewTextureSource {
                         id: texture.id,
                         size: [texture.size[0].max(1) as u32, texture.size[1].max(1) as u32],
-                        pixels: texture.pixels.clone(),
+                        pixels: texture.pixels.iter().copied().map(Into::into).collect(),
                     });
             }
 
@@ -4893,7 +4901,7 @@ fn build_gpu_scene_geometry(scene: &Scene3d, signature: u64) -> GpuSceneGeometry
                 .or_insert_with(|| GpuPreviewTextureSource {
                     id: texture.id,
                     size: [texture.size[0].max(1) as u32, texture.size[1].max(1) as u32],
-                    pixels: texture.pixels.clone(),
+                    pixels: texture.pixels.iter().copied().map(Into::into).collect(),
                 });
         }
         append_gpu_scene_mesh(&mut vertices, scene, object, &object.transform, mesh);
@@ -4946,7 +4954,7 @@ fn append_gpu_scene_mesh(
     }
     let base = scene
         .material(object.material)
-        .map_or(egui::Color32::WHITE, |material| material.base_color);
+        .map_or(egui::Color32::WHITE, |material| material.base_color.into());
     for triangle in &mesh.indices {
         let triangle = triangle.map(|index| index as usize);
         if triangle.iter().any(|index| *index >= mesh.vertices.len()) {
@@ -4968,7 +4976,7 @@ fn append_gpu_scene_mesh(
                 .vertex_colors
                 .get(index)
                 .copied()
-                .map_or(base, |vertex| multiply_color(base, vertex));
+                .map_or(base, |vertex| multiply_color(base, vertex.into()));
             out.push(GpuSceneVertex {
                 position: transform_point(transform, mesh.vertices[index]),
                 normal,
@@ -5112,7 +5120,7 @@ fn hash_f32(hasher: &mut impl std::hash::Hasher, value: f32) {
 
 #[cfg(feature = "gpu-preview")]
 fn hash_color(hasher: &mut impl std::hash::Hasher, value: Color) {
-    std::hash::Hash::hash(&value.to_array(), hasher);
+    std::hash::Hash::hash(&value.to_srgba_unmultiplied(), hasher);
 }
 
 #[cfg(feature = "gpu-preview")]
@@ -5165,6 +5173,7 @@ impl egui_wgpu::CallbackTrait for GpuPreviewCallback {
                     }),
                     timestamp_writes: None,
                     occlusion_query_set: None,
+                    multiview_mask: None,
                 })
                 .forget_lifetime();
 
@@ -5313,6 +5322,7 @@ impl egui_wgpu::CallbackTrait for GpuSceneCallback {
                     }),
                     timestamp_writes: None,
                     occlusion_query_set: None,
+                    multiview_mask: None,
                 })
                 .forget_lifetime();
 
@@ -5462,14 +5472,14 @@ impl GpuPreviewResources {
             });
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("mara_3d_gpu_preview_pipeline_layout"),
-            bind_group_layouts: &[&bind_group_layout],
-            push_constant_ranges: &[],
+            bind_group_layouts: &[Some(&bind_group_layout)],
+            immediate_size: 0,
         });
         let scene_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("mara_3d_gpu_scene_pipeline_layout"),
-                bind_group_layouts: &[&bind_group_layout, &scene_uniform_layout],
-                push_constant_ranges: &[],
+                bind_group_layouts: &[Some(&bind_group_layout), Some(&scene_uniform_layout)],
+                immediate_size: 0,
             });
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("mara_3d_gpu_preview_shader"),
@@ -5503,8 +5513,8 @@ impl GpuPreviewResources {
             },
             depth_stencil: Some(wgpu::DepthStencilState {
                 format: wgpu::TextureFormat::Depth32Float,
-                depth_write_enabled: true,
-                depth_compare: wgpu::CompareFunction::Less,
+                depth_write_enabled: Some(true),
+                depth_compare: Some(wgpu::CompareFunction::Less),
                 stencil: wgpu::StencilState::default(),
                 bias: wgpu::DepthBiasState::default(),
             }),
@@ -5530,7 +5540,7 @@ impl GpuPreviewResources {
                 })],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
             }),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         });
         let scene_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -5562,8 +5572,8 @@ impl GpuPreviewResources {
             },
             depth_stencil: Some(wgpu::DepthStencilState {
                 format: wgpu::TextureFormat::Depth32Float,
-                depth_write_enabled: true,
-                depth_compare: wgpu::CompareFunction::Less,
+                depth_write_enabled: Some(true),
+                depth_compare: Some(wgpu::CompareFunction::Less),
                 stencil: wgpu::StencilState::default(),
                 bias: wgpu::DepthBiasState::default(),
             }),
@@ -5589,7 +5599,7 @@ impl GpuPreviewResources {
                 })],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
             }),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         });
         let quad_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -5637,7 +5647,7 @@ impl GpuPreviewResources {
                 })],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
             }),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         });
 
@@ -5654,7 +5664,7 @@ impl GpuPreviewResources {
             address_mode_w: wgpu::AddressMode::Repeat,
             mag_filter: wgpu::FilterMode::Nearest,
             min_filter: wgpu::FilterMode::Nearest,
-            mipmap_filter: wgpu::FilterMode::Nearest,
+            mipmap_filter: wgpu::MipmapFilterMode::Nearest,
             ..Default::default()
         }));
         self.white_bind_group = None;
@@ -5703,7 +5713,7 @@ fn create_vertex_buffer(device: &wgpu::Device, label: &str, bytes: &[u8]) -> wgp
     });
     {
         let mut mapped = buffer.slice(..).get_mapped_range_mut();
-        mapped[..bytes.len()].copy_from_slice(bytes);
+        mapped.slice(..bytes.len()).copy_from_slice(bytes);
     }
     buffer.unmap();
     buffer
@@ -5719,7 +5729,7 @@ fn create_uniform_buffer(device: &wgpu::Device, label: &str, bytes: &[u8]) -> wg
     });
     {
         let mut mapped = buffer.slice(..).get_mapped_range_mut();
-        mapped[..bytes.len()].copy_from_slice(bytes);
+        mapped.slice(..bytes.len()).copy_from_slice(bytes);
     }
     buffer.unmap();
     buffer
@@ -6254,7 +6264,7 @@ fn rasterize_face(
                     uvs[0][0] * b0 + uvs[1][0] * b1 + uvs[2][0] * b2,
                     uvs[0][1] * b0 + uvs[1][1] * b1 + uvs[2][1] * b2,
                 ];
-                multiply_color(shaded, texture.sample(uv))
+                multiply_color(shaded, texture.sample(uv).into())
             } else {
                 shaded
             };
@@ -6701,7 +6711,11 @@ fn glacial_level_fade(cam_dist: f32, step: f32, close_falloff: f32) -> f32 {
 }
 
 fn grid_tint(accent: egui::Color32) -> egui::Color32 {
-    tint_color(mara_core::style::on_panel_dim(), accent, GRID_ACCENT_MIX)
+    tint_color(
+        mara_core::style::on_panel_dim().into(),
+        accent,
+        GRID_ACCENT_MIX,
+    )
 }
 
 fn face_normal(points: [Vec3; 3]) -> Vec3 {
@@ -6779,7 +6793,7 @@ fn shade_color(base: egui::Color32, normal: Vec3, camera: &PreviewCamera) -> egu
 
 fn shade_vertex_color(
     base: egui::Color32,
-    vertex_colors: &[egui::Color32],
+    vertex_colors: &[Color],
     index: usize,
     normal: Vec3,
     camera: &PreviewCamera,
@@ -6787,19 +6801,21 @@ fn shade_vertex_color(
     let base = vertex_colors
         .get(index)
         .copied()
-        .map_or(base, |vertex| multiply_color(base, vertex));
+        .map_or(base, |vertex| multiply_color(base, vertex.into()));
     shade_color(base, normal, camera)
 }
 
 fn vertex_color_or_base(
     shaded_base: egui::Color32,
-    vertex_colors: &[egui::Color32],
+    vertex_colors: &[Color],
     index: usize,
 ) -> egui::Color32 {
     vertex_colors
         .get(index)
         .copied()
-        .map_or(shaded_base, |vertex| multiply_color(shaded_base, vertex))
+        .map_or(shaded_base, |vertex| {
+            multiply_color(shaded_base, vertex.into())
+        })
 }
 
 fn shade_scalar(base: egui::Color32, value: f32) -> egui::Color32 {

@@ -22,7 +22,7 @@
 //!     GraphWidget::new()
 //!         .id_salt("my_graph")
 //!         .style(mara_node_graph_style(accent))
-//!         .min_size(egui::vec2(320.0, 260.0))
+//!         .min_size(mara::ui::vocab::Vec2::new(320.0, 260.0).into())
 //!         .show(&mut state.graph, &mut state.viewer, ui);
 //! });
 //! ```
@@ -44,6 +44,7 @@ use crate::style::{
     FrameRole, GraphCanvasPattern, RadiusRole, StrokeRole, frame_for, glass_alpha_window,
     glass_fill, radius_for, stroke_for,
 };
+use crate::vocab::{Color32 as MaraColor32, Vec2 as MaraVec2};
 
 /// Build a [`GraphStyle`] that inherits the mara palette + border
 /// language. Call per-frame with the current accent so the graph
@@ -64,7 +65,8 @@ use crate::style::{
 ///
 /// Everything else stays at the library default so scroll / zoom /
 /// selection interactions remain familiar to upstream users.
-pub fn mara_node_graph_style(accent: egui::Color32) -> GraphStyle {
+pub fn mara_node_graph_style(accent: impl Into<MaraColor32>) -> GraphStyle {
+    let accent = crate::backend::egui::color32_for_backend(accent.into());
     // ── Blender-style geometry ──
     // Blender (4.x) measures all node geometry off `widget_unit = 20 px`:
     //   * NODE_DY (header height, row height) = widget_unit = 20 px
@@ -93,8 +95,10 @@ pub fn mara_node_graph_style(accent: egui::Color32) -> GraphStyle {
     //     button / dropdown / search input renders.
     //   * `theme().radius_md` matches the container corner radius
     //     (PRO 6 px, GAME 0 px square).
-    let node_frame = frame_for(FrameRole::Section, accent)
-        .inner_margin(egui::Margin::symmetric(graph.node_pad_x, graph.node_pad_y));
+    let node_frame = crate::backend::egui::egui_frame_for_style_spec(
+        frame_for(FrameRole::Section, accent)
+            .with_inner_margin([graph.node_pad_x, graph.node_pad_y]),
+    );
     let body_radius = crate::style::theme().shape.radius_md;
 
     // Header — TRANSPARENT here. The category-coloured band is
@@ -156,7 +160,7 @@ pub fn mara_node_graph_style(accent: egui::Color32) -> GraphStyle {
         header_frame: Some(header_frame),
         bg_frame: Some(
             egui::Frame::new()
-                .fill(bg_fill)
+                .fill(bg_fill.into())
                 .stroke(stroke_for(StrokeRole::WidgetBorder, accent))
                 .corner_radius(radius_for(RadiusRole::Pane))
                 .inner_margin(egui::Margin::same(graph.bg_inner_margin)),
@@ -172,7 +176,7 @@ pub fn mara_node_graph_style(accent: egui::Color32) -> GraphStyle {
         // Pin defaults — overridden per-node-type by the demo's
         // `PinType::pin()` builder. Blender uses a 1-px black
         // outline on every socket; mirrored here.
-        pin_fill: Some(crate::style::on_section()),
+        pin_fill: Some(crate::style::on_section().into()),
         pin_stroke: Some(egui::Stroke::new(
             graph.pin_stroke_width,
             egui::Color32::from_black_alpha(graph.pin_stroke_alpha),
@@ -288,8 +292,8 @@ pub fn mara_node_graph<T, V: NodeViewer<T>>(
     backend: &mut dyn NodeViewBackend,
     graph: &mut Graph<T>,
     viewer: &mut V,
-    accent: egui::Color32,
-    desired_size: egui::Vec2,
+    accent: impl Into<MaraColor32>,
+    desired_size: impl Into<MaraVec2>,
 ) {
     mara_node_graph_with_opts(
         ui,
@@ -306,22 +310,15 @@ pub fn mara_node_graph<T, V: NodeViewer<T>>(
 /// Like [`mara_node_graph`] but accepts [`OverlayOpts`] so the caller
 /// The maximise-state key the node-graph wrapper registers with
 /// [`crate::embed`]. Compare against
-/// [`crate::embed::fullscreen_owner`] to detect "is the graph the
-/// one currently in fullscreen?" — useful when the host wants to
+/// [`crate::ViewCtx::fullscreen_owner`] or the facade host context
+/// to detect "is the graph the one currently in fullscreen?" —
+/// useful when the host wants to
 /// paint graph-specific chrome (toolbar / category sidebar /
 /// status line) on top of the maximised canvas using its normal
 /// ribbon assembly.
 #[must_use]
-pub fn graph_fullscreen_key() -> egui::Id {
-    crate::embed::maximize_state_key(egui::Id::new("mara_node_graph_widget"))
-}
-
-/// `true` while the node-graph widget is currently in its
-/// fullscreen overlay. Shorthand for
-/// `fullscreen_owner(ctx) == Some(graph_fullscreen_key())`.
-#[must_use]
-pub fn is_graph_fullscreen(ctx: &egui::Context) -> bool {
-    crate::embed::fullscreen_owner(ctx) == Some(graph_fullscreen_key())
+pub fn graph_fullscreen_key() -> crate::vocab::Id {
+    crate::embed::maximize_state_key("mara_node_graph_widget")
 }
 
 /// picks where the fullscreen / minimize chip lands on the overlay
@@ -333,10 +330,12 @@ pub fn mara_node_graph_with_opts<T, V: NodeViewer<T>>(
     backend: &mut dyn NodeViewBackend,
     graph: &mut Graph<T>,
     viewer: &mut V,
-    accent: egui::Color32,
-    desired_size: egui::Vec2,
+    accent: impl Into<MaraColor32>,
+    desired_size: impl Into<MaraVec2>,
     fs_opts: OverlayOpts,
 ) {
+    let accent = accent.into();
+    let desired_size = desired_size.into();
     let id_for_graph_base = egui::Id::new("mara_node_graph_widget");
     // Auto-recentre bookkeeping. The `version` is folded into the
     // GraphWidget's id below; bumping it invalidates egui-graph's
@@ -370,29 +369,29 @@ pub fn mara_node_graph_with_opts<T, V: NodeViewer<T>>(
         desired_size,
         fs_opts,
         |inner_ui| {
-            let size = inner_ui.available_size();
+            let size: MaraVec2 = inner_ui.available_size().into();
+            let size_egui: egui::Vec2 = size.into();
             // Sub-context theme bridge — `mara_graph::show_with_anchor`
             // is theme-neutral, so we install fonts + apply the active
             // mara theme onto the secondary context here. First-frame
             // install is one-shot; theme apply runs each frame so a
             // mid-session theme swap re-tints the sub-context too.
             if state.take_first_frame() {
-                crate::style::install_fonts(
-                    state.ctx(),
+                crate::style::__internal_install_fonts(
+                    state.__internal_ctx(),
                     crate::style::font_weight(),
                     crate::style::title_weight(),
                 );
             }
-            crate::style::apply_theme_to(
-                state.ctx(),
+            crate::style::__internal_apply_theme_to(
+                state.__internal_ctx(),
                 crate::style::AccentColor(crate::style::active_accent()),
                 crate::style::glass_opacity(),
             );
 
             let parent_ctx = inner_ui.ctx().clone();
             let mut version: u32 = parent_ctx.data(|d| d.get_temp(version_id)).unwrap_or(0);
-            let last_sz: Option<egui::Vec2> =
-                parent_ctx.data(|d| d.get_temp::<egui::Vec2>(last_sz_id));
+            let last_sz: Option<MaraVec2> = parent_ctx.data(|d| d.get_temp::<MaraVec2>(last_sz_id));
             let settle_left: u32 = parent_ctx
                 .data(|d| d.get_temp::<u32>(settle_id))
                 .unwrap_or(0);
@@ -419,7 +418,7 @@ pub fn mara_node_graph_with_opts<T, V: NodeViewer<T>>(
             if size_usable {
                 parent_ctx.data_mut(|d| {
                     d.insert_temp::<u32>(version_id, version);
-                    d.insert_temp::<egui::Vec2>(last_sz_id, size);
+                    d.insert_temp::<MaraVec2>(last_sz_id, size);
                     d.insert_temp::<u32>(settle_id, new_settle);
                 });
                 if should_bump || new_settle > 0 {
@@ -444,7 +443,7 @@ pub fn mara_node_graph_with_opts<T, V: NodeViewer<T>>(
                 inner_ui,
                 state,
                 backend,
-                size,
+                size_egui,
                 // Cursor-anchor the wheel zoom by nudging graph's
                 // saved `TSTransform.translation` by the same
                 // sub-points delta `node_view::show_with_anchor`
@@ -460,7 +459,7 @@ pub fn mara_node_graph_with_opts<T, V: NodeViewer<T>>(
                     GraphWidget::new()
                         .id(id_for_graph)
                         .style(mara_node_graph_style(accent))
-                        .min_size(size)
+                        .min_size(size_egui)
                         .show(graph, viewer, sub_ui);
                 },
             );
@@ -514,10 +513,10 @@ impl<'ui, 'spec> crate::pane::PaneBody<'ui, 'spec> {
         // / `add_tabbed` (snapshot push, inline ghost gap, section
         // order persistence). The non-`'static` borrows are tied to
         // `'spec` — the lifetime of the `PaneBody`, bounded by the
-        // surrounding `Pane::show` call — so the host MUST keep
+        // surrounding pane render call — so the host MUST keep
         // `state` / `graph` / `viewer` / `backend` alive at least
         // that long. The Bevy demo does this by lifting them above
-        // the `Pane::show` call (see `editor_pane`'s call site).
+        // the pane render call (see `editor_pane`'s call site).
         self.add(crate::pane::ContainerSpec::raw_internal(
             id,
             title,
@@ -610,7 +609,10 @@ where
             "add",
             "Add Node",
             "Add a graph node",
-            crate::RibbonAction::Command(egui::Id::new(("graph.add_node.command", self.id))),
+            crate::RibbonAction::Command(crate::vocab::Id::new((
+                "graph.add_node.command",
+                self.id,
+            ))),
         );
         crate::RibbonSlotDef::new(
             egui::Id::new(("graph.ribbon", self.id)),
@@ -631,7 +633,7 @@ where
     V: NodeViewer<T>,
 {
     fn id(&self) -> crate::ViewId {
-        crate::ViewId(self.id)
+        crate::ViewId::from(self.id)
     }
 
     fn title(&self) -> &str {
@@ -643,13 +645,16 @@ where
     }
 
     fn ribbons(&mut self) -> Vec<crate::RibbonSlotDef> {
-        vec![self.toolbar(crate::RibbonScope::View(crate::ViewId(self.id)))]
+        vec![self.toolbar(crate::RibbonScope::View(crate::ViewId::from(self.id)))]
     }
 
     fn show(&mut self, ctx: &mut crate::ViewCtx<'_>) {
-        egui::CentralPanel::default().show(ctx.egui_ctx, |ui| {
-            self.show_graph(ui);
-        });
+        #[allow(deprecated)]
+        {
+            egui::CentralPanel::default().show(ctx.egui_ctx, |ui| {
+                self.show_graph(ui);
+            });
+        }
     }
 }
 
@@ -657,8 +662,8 @@ impl<T, V> crate::MaraModule for GraphSurface<T, V>
 where
     V: NodeViewer<T>,
 {
-    fn id(&self) -> egui::Id {
-        self.id
+    fn id(&self) -> crate::vocab::Id {
+        self.id.into()
     }
 
     fn title(&self) -> &str {
@@ -674,7 +679,7 @@ where
         mui: &mut crate::mui::MaraUi<'_>,
         ctx: crate::ModuleInlineCtx<'_>,
     ) -> crate::ModuleResponse {
-        let ui = &mut *mui.ui;
+        let ui = mui.__internal_raw_ui();
         ui.group(|ui| {
             ui.horizontal(|ui| {
                 ui.label(format!("Graph: {}", self.title));

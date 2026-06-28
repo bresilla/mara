@@ -8,6 +8,7 @@ members = [
     "crates/modules/graph",
     "crates/modules/image",
     "crates/modules/canvas",
+    "crates/modules/board",
     "crates/modules/map",
     "crates/modules/three_d",
     "crates/modules/bevy",
@@ -17,7 +18,7 @@ members = [
 
 
 [workspace.package]
-version = "0.3.0"
+version = "0.3.1"
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/bresilla/bevy_mara"
@@ -26,20 +27,17 @@ repository = "https://github.com/bresilla/bevy_mara"
 # Shared egui / egui-ecosystem dependency versions — every member
 # crate pulls egui through `workspace = true` so the workspace
 # compiles against a single resolved egui.
-egui = { version = "0.33", default-features = false }
+egui = { version = "0.34", default-features = false }
 # egui-wgpu — used by `mara_graph::node_view` to render a
 # secondary egui::Context into an offscreen wgpu texture, so node
 # graph editors stay sharp at any zoom level (sub-context's
-# pixels_per_point compensates for zoom). Both `bevy_egui` and
-# eframe's wgpu backend ultimately use egui-wgpu under the hood,
-# so making mara_core depend on it directly keeps the rendering
-# code host-agnostic.
-egui-wgpu = { version = "0.33", default-features = false }
-wgpu = { version = "27", default-features = false }
-# bevy + bevy_egui are only used by `bevy_mara`; listed here so
-# the version is managed in one place.
-bevy = { version = "0.18", default-features = false }
-bevy_egui = { version = "0.39", default-features = false }
+# pixels_per_point compensates for zoom). Mara owns egui, so this
+# stays in the Mara/egui stack instead of routing through a Bevy
+# egui bridge.
+egui-wgpu = { version = "0.34", default-features = false }
+wgpu = { version = "29", default-features = false }
+# Bevy is used as embedded viewport/content, not as Mara's egui host.
+bevy = { version = "0.19", default-features = false }
 
 # Internal crates.
 #
@@ -48,32 +46,35 @@ bevy_egui = { version = "0.39", default-features = false }
 #   mara/        ← public facade with two modes:
 #                    `mara::ui` for UI-only consumers, and
 #                    `mara::window` for Mara-owned native windows
-#   mara/plugin/ ← host-specific integration plugins such as Bevy
+#   crates/modules/bevy ← embedded Bevy viewport/content helpers
+#   mara/plugin/        ← optional compatibility/helper crates; no Bevy-owned egui
 #
 # `mara_core` — UI core (panes, ribbons, containers, pods, widgets,
 # theme, embed mechanism). Package id is `mara_core`, which avoids
 # shadowing Rust's std `core` in derive expansions.
-mara_core = { path = "crates/core", version = "0.2.0" }
+mara_core = { path = "crates/core", version = "0.3.0" }
 # `mara_graph` — standalone vendored node-graph crate (forked from
 # `egui-snarl`, see `crates/modules/graph/ACKNOWLEDGEMENTS.md`
 # for upstream attribution). Usable in any egui app; ships
 # sensible defaults, no mara-theming dep.
-mara_graph = { path = "crates/modules/graph", version = "0.2.0" }
+mara_graph = { path = "crates/modules/graph", version = "0.3.0" }
 # `mara_code` — standalone vendored egui_code_editor. Usable in
 # any egui app; ships sensible defaults, no mara-theming dep.
-mara_code = { path = "crates/modules/code", version = "0.2.0" }
+mara_code = { path = "crates/modules/code", version = "0.3.0" }
 # `mara_image` — lightweight image viewer/editor proof module for
 # the new View + Module architecture.
-mara_image = { path = "crates/modules/image", version = "0.2.0" }
+mara_image = { path = "crates/modules/image", version = "0.3.0" }
 # `mara_canvas` — retained-stroke whiteboard proof module for
 # recursive View + Module workspaces.
-mara_canvas = { path = "crates/modules/canvas", version = "0.2.0" }
+mara_canvas = { path = "crates/modules/canvas", version = "0.3.0" }
+# `mara_board` — pixel-drawing Board surface/view for the multiview layer.
+mara_board = { path = "crates/modules/board", version = "0.3.0" }
 # `mara_map` — retained f64 map annotations and a Mara map component.
-mara_map = { path = "crates/modules/map", version = "0.2.0" }
+mara_map = { path = "crates/modules/map", version = "0.3.0" }
 # `mara_3d` — retained scene/camera/object 3D module surface backed by three-d.
-mara_3d = { path = "crates/modules/three_d", version = "0.2.0" }
+mara_3d = { path = "crates/modules/three_d", version = "0.3.0" }
 # `mara_bevy` — embedded Bevy viewport module for egui/Mara hosts.
-mara_bevy = { path = "crates/modules/bevy", version = "0.2.0" }
+mara_bevy = { path = "crates/modules/bevy", version = "0.3.0" }
 
 # ── Build profile tuning ────────────────────────────────────────────
 #

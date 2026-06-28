@@ -4,8 +4,8 @@
 //! parent pane's title strip, so nested chrome chords with the pane
 //! chrome.
 //!
-//! Layout is plain egui (no flex). Title strip is allocated with
-//! `allocate_exact_size`; the body is rendered into a child UI
+//! Layout is plain egui (no flex). Title strip hit-testing goes
+//! through the Mara backend contract; the body is rendered into a child UI
 //! whose `max_rect` is the FULL body extent and whose `clip_rect`
 //! lerps with `ctx.animate_bool(...)` — same recipe egui's
 //! `CollapsingState::show_body_unindented` uses.
@@ -16,15 +16,17 @@
 //! });
 //! ```
 
-use egui::{
-    Align, Color32, CornerRadius, FontId, Frame, Id, Layout, Rect, Sense, Stroke, Ui, UiBuilder,
-    epaint::TextShape, pos2, vec2,
-};
+use egui::{Color32, Frame, Id, Rect, Ui};
 
 use super::body::Body;
 use crate::icons::Icon;
+use crate::paint::{PaintCmd, TextFamily, TextRun};
 use crate::pane::{self, PaneAnchor, TitleSide};
 use crate::style;
+use crate::vocab::{
+    Align2 as MaraAlign2, Color32 as MaraColor32, CornerRadius as MaraCornerRadius, Id as MaraId,
+    Pos2 as MaraPos2, Rect as MaraRect, Stroke as MaraStroke, Vec2 as MaraVec2,
+};
 
 /// Title-bar thickness (perpendicular to the strip's long axis).
 pub const TITLE_ZONE_THICKNESS: f32 = 22.0;
@@ -82,7 +84,7 @@ pub struct Normal {
     pane_id: Id,
     /// Optional title icon. Either a Fluent name or raw SVG markup.
     /// In PRO theme (`section_icon_at_end = false`) the icon is
-    /// inlined into the title `LayoutJob` at the reading-start. In
+    /// inlined into the title paint runs at the reading-start. In
     /// GAME theme (`section_icon_at_end = true`) it floats at the
     /// strip's far end and grows when the body unfolds.
     icon: Option<Icon<'static>>,
@@ -243,7 +245,7 @@ impl Normal {
     /// one [`crate::pod::PodResponse`] per pod, in declaration
     /// order. Pass via `vec![pod1, pod2, ...]` or any
     /// `IntoIterator<Item = Pod>`.
-    pub fn show(
+    pub(crate) fn show(
         self,
         ui: &mut Ui,
         pods: impl IntoIterator<Item = crate::pod::Pod>,
@@ -284,7 +286,11 @@ impl Normal {
     /// v1 supports top-title containers (strip projects upward).
     /// Other anchors fall back to plain [`Normal::show`] of the
     /// active tab; full strip support per anchor will land later.
-    pub fn show_tabs(self, ui: &mut Ui, tabs: Vec<super::Tab>) -> Vec<crate::pod::PodResponse> {
+    pub(crate) fn show_tabs(
+        self,
+        ui: &mut Ui,
+        tabs: Vec<super::Tab>,
+    ) -> Vec<crate::pod::PodResponse> {
         if tabs.is_empty() {
             return Vec::new();
         }
@@ -321,7 +327,7 @@ impl Normal {
 
         let tab_meta: Vec<(String, Icon<'static>)> =
             tabs.iter().map(|t| (t.title.clone(), t.icon)).collect();
-        let tab_ids: Vec<Id> = tabs.iter().map(|t| t.id).collect();
+        let tab_ids: Vec<Id> = tabs.iter().map(|t| t.egui_id()).collect();
         let active_idx_key = self.pane_id.with("mara_normal_active_tab");
         let active_idx = resolve_active_tab_idx(ui.ctx(), active_idx_key, &tab_ids);
         let active_pods = std::mem::take(&mut tabs[active_idx].pods);
@@ -375,8 +381,7 @@ impl Normal {
         // body inner padding here makes left/right shelf containers
         // visibly off-centre (right shelves look shifted left and
         // left shelves look shifted right).
-        let parent_layout = *ui.layout();
-        let avail = ui.available_rect_before_wrap();
+        let avail = crate::backend::egui::ui_available_rect(ui);
         let strip_outer_inset = tabbed_strip_outer_inset(tab_theme, &theme_now);
         let container_max_rect =
             tabbed_container_max_rect(avail, strip_side, strip_thickness, strip_outer_inset);
@@ -384,11 +389,8 @@ impl Normal {
             let key = pane::active_container_frame_rect_key();
             d.remove::<egui::Rect>(key);
         });
-        let mut child = ui.new_child(
-            UiBuilder::new()
-                .max_rect(container_max_rect)
-                .layout(parent_layout),
-        );
+        let mut child =
+            crate::backend::egui::child_ui_with_current_layout_for_rect(ui, container_max_rect);
         let out = me.show(&mut child, active_pods);
         if pane::active_drag(ui.ctx())
             .and_then(|(_, state)| state.item)
@@ -414,35 +416,13 @@ impl Normal {
         // strip sitting flush against the container regardless of
         // anchor. The strip's title-facing END pulls back by
         // `title_offset` so it doesn't overlap the title row.
-        let strip_rect = match (strip_side, title_side) {
-            (TitleSide::Left, TitleSide::Top) => egui::Rect::from_min_max(
-                pos2(used.left() - strip_thickness, used.top() + title_offset),
-                pos2(used.left(), used.bottom()),
-            ),
-            (TitleSide::Left, TitleSide::Bottom) => egui::Rect::from_min_max(
-                pos2(used.left() - strip_thickness, used.top()),
-                pos2(used.left(), used.bottom() - title_offset),
-            ),
-            (TitleSide::Right, TitleSide::Top) => egui::Rect::from_min_max(
-                pos2(used.right(), used.top() + title_offset),
-                pos2(used.right() + strip_thickness, used.bottom()),
-            ),
-            (TitleSide::Right, TitleSide::Bottom) => egui::Rect::from_min_max(
-                pos2(used.right(), used.top()),
-                pos2(used.right() + strip_thickness, used.bottom() - title_offset),
-            ),
-            (TitleSide::Top, TitleSide::Left) => egui::Rect::from_min_max(
-                pos2(used.left() + title_offset, used.top() - strip_thickness),
-                pos2(used.right(), used.top()),
-            ),
-            (TitleSide::Top, TitleSide::Right) => egui::Rect::from_min_max(
-                pos2(used.left(), used.top() - strip_thickness),
-                pos2(used.right() - title_offset, used.top()),
-            ),
-            // Other (strip_side, title_side) pairings can't occur
-            // given the strip_side derivation above.
-            _ => egui::Rect::from_min_size(used.left_top(), vec2(0.0, 0.0)),
-        };
+        let strip_rect = folder_tab_strip_rect(
+            used.into(),
+            strip_side,
+            title_side,
+            strip_thickness,
+            title_offset,
+        );
         paint_folder_tabs(
             ui,
             strip_rect,
@@ -463,9 +443,12 @@ impl Normal {
         // and updates the parent's used-rect / cursor accordingly,
         // which works for any layout direction (TopDown advances
         // downward, BottomUp upward, etc.).
-        let union_rect = strip_rect.union(used);
+        let union_rect = strip_rect.union(used.into());
         ui.ctx().data_mut(|d| {
-            d.insert_temp(pane::active_tabbed_container_rect_key(), union_rect);
+            d.insert_temp::<egui::Rect>(
+                pane::active_tabbed_container_rect_key(),
+                union_rect.into(),
+            );
         });
         // Overwrite the drag snapshot entry: `me.show()` already
         // pushed the body-only frame rect to the parent pane's
@@ -490,10 +473,21 @@ impl Normal {
             && let Some(parent_pane_id) =
                 ui.ctx().data(|d| d.get_temp::<Id>(pane::active_pane_key()))
         {
-            pane::push_rect_with_frame(ui.ctx(), parent_pane_id, pane_id, union_rect, Some(used));
+            pane::push_rect_with_frame(
+                ui.ctx(),
+                parent_pane_id,
+                pane_id,
+                union_rect.into(),
+                Some(used),
+            );
         }
         if reserve_tab_strip_in_parent {
-            ui.allocate_rect(union_rect, Sense::hover());
+            let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
+            crate::layout::UiBackend::reserve_rect(
+                &mut backend,
+                union_rect,
+                crate::layout::Sense::Hover,
+            );
         }
         out
     }
@@ -515,7 +509,7 @@ impl Normal {
         let max_tab_body_h = max_tab_natural_body_h(&tabs);
         let tab_meta: Vec<(String, Icon<'static>)> =
             tabs.iter().map(|t| (t.title.clone(), t.icon)).collect();
-        let tab_ids: Vec<Id> = tabs.iter().map(|t| t.id).collect();
+        let tab_ids: Vec<Id> = tabs.iter().map(|t| t.egui_id()).collect();
         let active_idx_key = self.pane_id.with("mara_normal_active_tab");
         let active_idx = resolve_active_tab_idx(ui.ctx(), active_idx_key, &tab_ids);
         let active_pods = std::mem::take(&mut tabs[active_idx].pods);
@@ -556,14 +550,11 @@ impl Normal {
         let theme = style::theme();
         let inner_x = theme.section_pad_x as f32;
         let inner_y = theme.section_pad_y as f32;
-        let title_rect = egui::Rect::from_min_max(
-            pos2(title_rect.left() - inner_x, title_rect.top() - inner_y),
-            pos2(title_rect.right() + inner_x, title_rect.bottom()),
-        );
+        let title_rect = top_tab_title_rect(title_rect.into(), inner_x, inner_y);
 
         paint_top_tabs(
             ui,
-            title_rect,
+            title_rect.into(),
             &tab_meta,
             &tab_ids,
             active_idx,
@@ -623,7 +614,7 @@ impl Normal {
                 others_h += p.natural_h() + pod_chrome_each;
             }
             others_h += separator_total_h;
-            (pods[fi].id(), others_h)
+            (pods[fi].egui_id(), others_h)
         });
         // When a fill pod is present, stash the natural total for
         // `record_container_intrinsic` to pick up — it'll record THAT
@@ -674,12 +665,13 @@ impl Normal {
                 let fill_h =
                     (body_avail - others_h - pod_chrome_each).max(style::theme().pod.min_widget_h);
                 body_ui.ctx().data_mut(|d| {
-                    d.insert_temp(crate::pod::Pod::forced_height_key(fill_id), fill_h);
+                    let key: egui::Id = crate::pod::Pod::forced_height_key(fill_id).into();
+                    d.insert_temp(key, fill_h);
                 });
             }
             for (i, pod) in pods.into_iter().enumerate() {
                 // Capture metadata BEFORE the pod is consumed by `show`.
-                let pod_id = pod.id();
+                let pod_id = pod.egui_id();
                 let pod_is_resizable = pod.is_resizable();
                 let _pod_widget_count = pod.widget_count();
                 let separator_after = if i + 1 < pods_total {
@@ -740,12 +732,12 @@ impl Normal {
                             // pixel height (clipping content beyond)
                             // rather than scaling individual
                             // widgets.
-                            let key = crate::pod::Pod::widget_height_key(pod_id);
+                            let key: egui::Id = crate::pod::Pod::widget_height_key(pod_id).into();
                             let cur = body_ui
                                 .ctx()
                                 .data_mut(|d| d.get_persisted::<f32>(key))
                                 .unwrap_or(crate::style::UNIT);
-                            let new = (cur + resp.drag_delta().y).clamp(
+                            let new = (cur + resp.drag_delta.y).clamp(
                                 style::theme().pod.min_widget_h,
                                 style::theme().pod.max_widget_h,
                             );
@@ -763,13 +755,11 @@ impl Normal {
                     // so the user can see which boundary owns
                     // which style. Use the cursor delta since the
                     // separator paint functions don't return rects.
-                    let strip_rect = egui::Rect::from_min_max(
-                        sep_rect_before.min,
-                        egui::pos2(sep_rect_before.max.x, sep_rect_after.min.y),
-                    );
+                    let strip_rect =
+                        separator_debug_rect(sep_rect_before.into(), sep_rect_after.into());
                     crate::debug::tag(
                         body_ui,
-                        strip_rect,
+                        strip_rect.into(),
                         format!("separator[{:?}]", separator_after),
                     );
                 }
@@ -796,7 +786,7 @@ impl Normal {
         // so the pane's resize handles can refuse to shrink the
         // pane below the union of its containers' bounds. Keyed
         // on the active pane id (`pane::active_pane_key`) which
-        // `Pane::show` writes at the top of every frame, then
+        // internal pane rendering writes at the top of every frame, then
         // clears the accumulator before running the body callback.
         // First-frame fallback: if no active pane is set yet,
         // register against the container's own pane_id so the
@@ -923,11 +913,7 @@ impl Normal {
         let title_thickness = self
             .title_thickness_override
             .unwrap_or(container_theme.title_zone_thickness);
-        let title_size = if horizontal_strip {
-            vec2(span_inner, title_thickness)
-        } else {
-            vec2(title_thickness, span_inner)
-        };
+        let title_size = title_slot_size(horizontal_strip, span_inner, title_thickness);
 
         // Shared body recipe — applies the span-axis clamp so child
         // widgets see a stable `ui.available_*` regardless of the
@@ -946,7 +932,7 @@ impl Normal {
         let banner_filled = style::theme().title_strip_filled && !self.suppress_banner;
 
         // Open state + animation are stored on the parent pane's
-        // id (NOT `ui.id()`) so `Pane::show` and `Normal::show`
+        // id (NOT `ui.id()`) so pane rendering and `Normal::show`
         // both compute the SAME `openness` from the same
         // `animate_bool` call within a frame. That synchronises the
         // pane's outer size and the container's body slot — no
@@ -975,7 +961,7 @@ impl Normal {
             crate::container::container_flow(ui.ctx(), pane_id, horizontal_strip)
         });
         // Publish this container's cid to the parent pane so
-        // `Pane::show` can sum each container's LIVE persisted
+        // pane rendering can sum each container's LIVE persisted
         // flow when it auto-sizes (`PaneResize::flow` off).
         pane::publish_container_cid(ui.ctx(), parent_pane_id, pane_id);
         // Body slot size LERPS with `openness` to match Pane's
@@ -990,7 +976,7 @@ impl Normal {
         // Look up the parent Pane's id via the global "active
         // pane" pointer (Normal's own `pane_id` field is the
         // container's body-open id, NOT Pane's id, so we can't
-        // use it for the stagger lookup). Pane::show populates
+        // use it for the stagger lookup). Pane rendering populates
         // `mara_pane_open_elapsed` and resets
         // `mara_pane_section_idx` to 0 on every frame; we
         // post-increment to claim THIS container's index.
@@ -1057,269 +1043,246 @@ impl Normal {
 
         let frame = self.theme_frame();
         let frame_response = frame.show(ui, |ui| {
-            // GAME-style banner placeholder, set AFTER the layout is
-            // measured so we know where the title strip ended up.
-            let banner_idx = if banner_filled {
-                Some(ui.painter().add(egui::Shape::Noop))
-            } else {
-                None
-            };
-
-            // ── Manual layout (no flex) ──
-            // egui's `CollapsingState` recipe: title is allocated at
-            // its exact size, the body is rendered at FULL size into
-            // a clipped child UI, and only the VISIBLE portion is
-            // allocated to the parent ui (`force_set_min_rect` /
-            // `allocate_rect`). So:
-            //   • body's content widgets keep their natural
-            //     `available_*` width — no per-frame text_input
-            //     shrinking,
-            //   • the parent's min_rect lerps smoothly with
-            //     `openness`, which animates the container chrome
-            //     and the parent pane's `fixed_pos` together,
-            //   • no flex item state changes, no `request_discard`
-            //     storm, no PERF WARNING overlay.
-            // Inherit the parent's layout direction directly into
-            // the Frame's content_ui — DON'T create a child with a
-            // forced `top_down`. Frame computes its outer rect from
-            // `content_ui.min_rect()`, so the inner allocations
-            // determine where the Frame lands inside the pane body.
-            // Forcing `top_down` made the container always appear
-            // at the TOP of available area (since cursor starts at
-            // max_rect.min for top_down), which in a `bottom_up`
-            // pane parent left every container at the FAR edge from
-            // the rail instead of stacking against the title strip.
-            // Inheriting the parent layout makes:
-            //   • TopDown    → first allocation at top  (TopRail).
-            //   • BottomUp   → first allocation at bottom (BottomRail).
-            //   • LeftToRight→ first allocation at left  (LeftRail).
-            //   • RightToLeft→ first allocation at right (RightRail).
-            // Always render TITLE first then BODY: layout direction
-            // does the visual placement work, no `if title_at_end`
-            // swap needed at this level.
-            ui.spacing_mut().item_spacing = egui::vec2(0.0, 0.0);
-
-            let render_title = |ui: &mut Ui| {
-                // Title strip is also the drag handle: `click_and_drag`
-                // sense reports both — `clicked()` toggles the body
-                // open state, `drag_started()` lifts this container
-                // for reorder via the parent pane's drag machine.
-                let (rect, resp) = ui.allocate_exact_size(title_size, Sense::click_and_drag());
-                if resp.hovered() {
-                    ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-                }
-                if resp.clicked() {
-                    pane::toggle_body(ui.ctx(), pane_id);
-                }
-                if resp.drag_started()
-                    && let Some(active_pane_id) =
-                        ui.ctx().data(|d| d.get_temp::<Id>(pane::active_pane_key()))
-                {
-                    pane::set_drag(
-                        ui.ctx(),
-                        active_pane_id,
-                        pane::DragState {
-                            item: Some(pane_id),
-                            cursor: ui.ctx().pointer_interact_pos(),
-                        },
+            crate::backend::egui::show_with_deferred_paint_cmd_slots(
+                ui,
+                usize::from(banner_filled),
+                |ui| {
+                    // ── Manual layout (no flex) ──
+                    // egui's `CollapsingState` recipe: title is allocated at
+                    // its exact size, the body is rendered at FULL size into
+                    // a clipped child UI, and only the VISIBLE portion is
+                    // allocated to the parent ui (`force_set_min_rect` /
+                    // `allocate_rect`). So:
+                    //   • body's content widgets keep their natural
+                    //     `available_*` width — no per-frame text_input
+                    //     shrinking,
+                    //   • the parent's min_rect lerps smoothly with
+                    //     `openness`, which animates the container chrome
+                    //     and the parent pane's `fixed_pos` together,
+                    //   • no flex item state changes, no `request_discard`
+                    //     storm, no PERF WARNING overlay.
+                    // Inherit the parent's layout direction directly into
+                    // the Frame's content_ui — DON'T create a child with a
+                    // forced `top_down`. Frame computes its outer rect from
+                    // `content_ui.min_rect()`, so the inner allocations
+                    // determine where the Frame lands inside the pane body.
+                    // Forcing `top_down` made the container always appear
+                    // at the TOP of available area (since cursor starts at
+                    // max_rect.min for top_down), which in a `bottom_up`
+                    // pane parent left every container at the FAR edge from
+                    // the rail instead of stacking against the title strip.
+                    // Inheriting the parent layout makes:
+                    //   • TopDown    → first allocation at top  (TopRail).
+                    //   • BottomUp   → first allocation at bottom (BottomRail).
+                    //   • LeftToRight→ first allocation at left  (LeftRail).
+                    //   • RightToLeft→ first allocation at right (RightRail).
+                    // Always render TITLE first then BODY: layout direction
+                    // does the visual placement work, no `if title_at_end`
+                    // swap needed at this level.
+                    crate::backend::egui::apply_item_spacing_spec(
+                        ui,
+                        crate::layout::ItemSpacingSpec::zero(),
                     );
-                }
-                paint_title(
-                    ui,
-                    rect,
-                    &title_text,
-                    anchor,
-                    accent,
-                    open,
-                    openness,
-                    icon,
-                    pane_id,
-                );
-            };
 
-            let render_body = |ui: &mut Ui, body: Box<dyn FnOnce(&mut Ui)>| {
-                if !body_visible || full_body_flow <= 0.0 {
-                    return;
-                }
-                let visible_size = if horizontal_strip {
-                    vec2(span_inner, visible_body_flow)
-                } else {
-                    vec2(visible_body_flow, span_inner)
-                };
-                let full_size = if horizontal_strip {
-                    vec2(span_inner, full_body_flow)
-                } else {
-                    vec2(full_body_flow, span_inner)
-                };
-                // `allocate_space` respects the parent's layout
-                // direction, so `visible_rect` lands at the correct
-                // edge (bottom for BottomUp, right for RightToLeft).
-                let (_, visible_rect) = ui.allocate_space(visible_size);
-                // `full_rect` extends the visible slot to the full
-                // body size in the layout direction (so body
-                // widgets render at natural size and only the clip
-                // mask animates). For reversed layouts we anchor
-                // `full_rect`'s FAR edge to `visible_rect`'s far
-                // edge — the body grows AWAY from the title strip
-                // direction.
-                let full_rect = match ui.layout().main_dir() {
-                    egui::Direction::BottomUp => Rect::from_min_size(
-                        egui::pos2(visible_rect.min.x, visible_rect.max.y - full_size.y),
-                        full_size,
-                    ),
-                    egui::Direction::RightToLeft => Rect::from_min_size(
-                        egui::pos2(visible_rect.max.x - full_size.x, visible_rect.min.y),
-                        full_size,
-                    ),
-                    _ => Rect::from_min_size(visible_rect.min, full_size),
-                };
-                // Body's child layout matches parent direction so
-                // body widgets anchor against the title strip side
-                // (BottomRail body → widgets stack from bottom up).
-                let body_layout = match ui.layout().main_dir() {
-                    egui::Direction::TopDown => Layout::top_down(Align::Min),
-                    egui::Direction::BottomUp => Layout::bottom_up(Align::Min),
-                    egui::Direction::LeftToRight => Layout::left_to_right(Align::Min),
-                    egui::Direction::RightToLeft => Layout::right_to_left(Align::Min),
-                };
-                let mut child =
-                    ui.new_child(UiBuilder::new().max_rect(full_rect).layout(body_layout));
-                let parent_clip = ui.clip_rect();
-                child.set_clip_rect(parent_clip.intersect(visible_rect));
-                // Inner top-pad on the title-facing edge of the
-                // body (theme-driven). Allocated FIRST in the body
-                // layout so the cursor advances past it before the
-                // user's body callback runs — pushes the first
-                // widget away from the title strip without changing
-                // the title's own thickness or the inter-container
-                // gap. PRO = 0 (no-op); GAME ≈ 8.
-                let body_top_pad = style::theme().section_body_inner_top_pad;
-                if body_top_pad > 0.0 {
-                    child.add_space(body_top_pad);
-                }
-                let (_, content_h) = body_cfg.paint(&mut child, body);
-                // Record the body's intrinsic content height so
-                // next frame's `container_flow` auto-fit path can
-                // size the container. Two cases:
-                //
-                // * Fill pod present → `intrinsic_override_key` was
-                //   stashed earlier with the natural sum of all pods
-                //   + chrome + separators. Use THAT instead of the
-                //   measured `content_h` — otherwise the fill pod's
-                //   stretched height feeds back into the intrinsic
-                //   and the container grows monotonically each frame.
-                // * No fill pod → `content_h` IS the natural sum
-                //   (each pod allocates its own natural height), so
-                //   use the measurement directly. Lets expandable
-                //   widgets (color picker, etc.) still grow the
-                //   container.
-                let recorded_h = child.ctx().data(|d| {
-                    if let Some(exact) =
-                        d.get_temp::<f32>(pane_id.with("mara_container_intrinsic_natural_override"))
-                    {
-                        exact
+                    let render_title = |ui: &mut Ui| {
+                        // Title strip is also the drag handle: `click_and_drag`
+                        // sense reports both — `clicked()` toggles the body
+                        // open state, `drag_started()` lifts this container
+                        // for reorder via the parent pane's drag machine.
+                        let resp = {
+                            let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
+                            crate::layout::UiBackend::allocate(
+                                &mut backend,
+                                title_size,
+                                crate::layout::Sense::ClickAndDrag,
+                            )
+                        };
+                        let rect: Rect = resp.rect.into();
+                        if resp.hovered() {
+                            crate::backend::egui::set_cursor_icon_for_ui(
+                                ui,
+                                crate::layout::CursorIcon::PointingHand,
+                            );
+                        }
+                        if resp.clicked() {
+                            pane::toggle_body(ui.ctx(), pane_id);
+                        }
+                        if resp.drag_started()
+                            && let Some(active_pane_id) =
+                                ui.ctx().data(|d| d.get_temp::<Id>(pane::active_pane_key()))
+                        {
+                            pane::set_drag(
+                                ui.ctx(),
+                                active_pane_id,
+                                pane::DragState {
+                                    item: Some(pane_id),
+                                    cursor: crate::backend::egui::pointer_interact_pos(ui.ctx())
+                                        .map(Into::into),
+                                },
+                            );
+                        }
+                        paint_title(
+                            ui,
+                            rect,
+                            &title_text,
+                            anchor,
+                            accent,
+                            open,
+                            openness,
+                            icon,
+                            pane_id,
+                        );
+                    };
+
+                    let render_body = |ui: &mut Ui, body: Box<dyn FnOnce(&mut Ui)>| {
+                        if !body_visible || full_body_flow <= 0.0 {
+                            return;
+                        }
+                        let body_slots = body_slot_sizes(
+                            horizontal_strip,
+                            span_inner,
+                            visible_body_flow,
+                            full_body_flow,
+                        );
+                        // `allocate_space` respects the parent's layout
+                        // direction, so `visible_rect` lands at the correct
+                        // edge (bottom for BottomUp, right for RightToLeft).
+                        let visible_rect = {
+                            let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
+                            crate::layout::UiBackend::reserve_space(
+                                &mut backend,
+                                body_slots.visible,
+                            )
+                        };
+                        let visible_rect: MaraRect = visible_rect;
+                        // `full_rect` extends the visible slot to the full
+                        // body size in the layout direction (so body
+                        // widgets render at natural size and only the clip
+                        // mask animates). For reversed layouts we anchor
+                        // `full_rect`'s FAR edge to `visible_rect`'s far
+                        // edge — the body grows AWAY from the title strip
+                        // direction.
+                        let body_direction = crate::backend::egui::stack_direction_for_ui(ui);
+                        let full_rect =
+                            body_full_rect(visible_rect, body_slots.full, body_direction);
+                        // Body's child layout matches parent direction so
+                        // body widgets anchor against the title strip side
+                        // (BottomRail body → widgets stack from bottom up).
+                        let body_region = crate::layout::ChildRegion::new(
+                            full_rect,
+                            body_direction,
+                            crate::layout::StackAlign::Min,
+                        );
+                        let mut child = crate::backend::egui::child_ui_for_region(ui, body_region);
+                        let parent_clip = ui.clip_rect();
+                        child.set_clip_rect(parent_clip.intersect(visible_rect.into()));
+                        // Inner top-pad on the title-facing edge of the
+                        // body (theme-driven). Allocated FIRST in the body
+                        // layout so the cursor advances past it before the
+                        // user's body callback runs — pushes the first
+                        // widget away from the title strip without changing
+                        // the title's own thickness or the inter-container
+                        // gap. PRO = 0 (no-op); GAME ≈ 8.
+                        let body_top_pad = style::theme().section_body_inner_top_pad;
+                        if body_top_pad > 0.0 {
+                            crate::backend::egui::add_space_for_spec(
+                                &mut child,
+                                crate::layout::SpaceSpec::vertical(body_top_pad),
+                            );
+                        }
+                        let (_, content_h) = body_cfg.paint(&mut child, body);
+                        // Record the body's intrinsic content height so
+                        // next frame's `container_flow` auto-fit path can
+                        // size the container. Two cases:
+                        //
+                        // * Fill pod present → `intrinsic_override_key` was
+                        //   stashed earlier with the natural sum of all pods
+                        //   + chrome + separators. Use THAT instead of the
+                        //   measured `content_h` — otherwise the fill pod's
+                        //   stretched height feeds back into the intrinsic
+                        //   and the container grows monotonically each frame.
+                        // * No fill pod → `content_h` IS the natural sum
+                        //   (each pod allocates its own natural height), so
+                        //   use the measurement directly. Lets expandable
+                        //   widgets (color picker, etc.) still grow the
+                        //   container.
+                        let recorded_h = child.ctx().data(|d| {
+                            if let Some(exact) = d.get_temp::<f32>(
+                                pane_id.with("mara_container_intrinsic_natural_override"),
+                            ) {
+                                exact
+                            } else {
+                                let floor = d
+                                    .get_temp::<f32>(
+                                        pane_id.with("mara_container_intrinsic_natural_floor"),
+                                    )
+                                    .unwrap_or(0.0);
+                                content_h.max(floor)
+                            }
+                        });
+                        crate::container::record_container_intrinsic(
+                            child.ctx(),
+                            pane_id,
+                            recorded_h + body_top_pad,
+                        );
+                    };
+
+                    // ALWAYS title FIRST, body SECOND. Layout direction
+                    // (inherited from pane parent) handles which edge the
+                    // title lands at.
+                    render_title(ui);
+                    if total_gap > 0.0 {
+                        crate::backend::egui::add_space_for_spec(
+                            ui,
+                            crate::layout::SpaceSpec::vertical(total_gap),
+                        );
+                    }
+                    let body_box: Box<dyn FnOnce(&mut Ui)> = Box::new(body);
+                    render_body(ui, body_box);
+
+                    // After flex is laid out, paint the GAME banner into
+                    // the deferred shape index. Banner extends from the
+                    // frame's painted edge (= ui.min_rect() expanded by
+                    // section_padding) through the title strip and into
+                    // half the flex gap. Equivalent to `foldable.rs`'s
+                    // banner trick — the painted accent zone covers the
+                    // title slot AND the inner_margin around it.
+                    let banner_cmd = if banner_filled {
+                        let pad = style::section_padding();
+                        let banner = title_banner_rect(
+                            ui.min_rect().into(),
+                            pad,
+                            title_side,
+                            title_thickness,
+                            container_theme.title_body_gap_half,
+                            open,
+                        );
+                        Some(PaintCmd::RectFilled {
+                            rect: banner,
+                            corner: MaraCornerRadius::ZERO,
+                            fill: accent.into(),
+                        })
                     } else {
-                        let floor = d
-                            .get_temp::<f32>(pane_id.with("mara_container_intrinsic_natural_floor"))
-                            .unwrap_or(0.0);
-                        content_h.max(floor)
-                    }
-                });
-                crate::container::record_container_intrinsic(
-                    child.ctx(),
-                    pane_id,
-                    recorded_h + body_top_pad,
-                );
-            };
+                        None
+                    };
 
-            // ALWAYS title FIRST, body SECOND. Layout direction
-            // (inherited from pane parent) handles which edge the
-            // title lands at.
-            render_title(ui);
-            if total_gap > 0.0 {
-                ui.add_space(total_gap);
-            }
-            let body_box: Box<dyn FnOnce(&mut Ui)> = Box::new(body);
-            render_body(ui, body_box);
-
-            // After flex is laid out, paint the GAME banner into
-            // the deferred shape index. Banner extends from the
-            // frame's painted edge (= ui.min_rect() expanded by
-            // section_padding) through the title strip and into
-            // half the flex gap. Equivalent to `foldable.rs`'s
-            // banner trick — the painted accent zone covers the
-            // title slot AND the inner_margin around it.
-            if let Some(idx) = banner_idx {
-                let used = ui.min_rect();
-                let pad = style::section_padding();
-                let painted_l = used.left() - pad.left as f32;
-                let painted_r = used.right() + pad.right as f32;
-                let painted_t = used.top() - pad.top as f32;
-                let painted_b = used.bottom() + pad.bottom as f32;
-                // When collapsed, banner covers the entire painted
-                // frame (no body, no gap to extend into). Otherwise
-                // the banner stops at the gap midpoint.
-                let banner = if !open {
-                    egui::Rect::from_min_max(
-                        egui::pos2(painted_l, painted_t),
-                        egui::pos2(painted_r, painted_b),
-                    )
-                } else {
-                    match title_side {
-                        TitleSide::Top => egui::Rect::from_min_max(
-                            egui::pos2(painted_l, painted_t),
-                            egui::pos2(
-                                painted_r,
-                                used.top() + title_thickness + container_theme.title_body_gap_half,
-                            ),
-                        ),
-                        TitleSide::Bottom => egui::Rect::from_min_max(
-                            egui::pos2(
-                                painted_l,
-                                used.bottom()
-                                    - title_thickness
-                                    - container_theme.title_body_gap_half,
-                            ),
-                            egui::pos2(painted_r, painted_b),
-                        ),
-                        TitleSide::Left => egui::Rect::from_min_max(
-                            egui::pos2(painted_l, painted_t),
-                            egui::pos2(
-                                used.left() + title_thickness + container_theme.title_body_gap_half,
-                                painted_b,
-                            ),
-                        ),
-                        TitleSide::Right => egui::Rect::from_min_max(
-                            egui::pos2(
-                                used.right()
-                                    - title_thickness
-                                    - container_theme.title_body_gap_half,
-                                painted_t,
-                            ),
-                            egui::pos2(painted_r, painted_b),
-                        ),
-                    }
-                };
-                let p = ui.painter().clone().with_clip_rect(banner.expand(2.0));
-                p.set(
-                    idx,
-                    egui::Shape::rect_filled(banner, egui::CornerRadius::ZERO, accent),
-                );
-            }
-
-            // Corner ticks (GAME): L-shaped marks at each corner of
-            // the container's outer rect, with a slow breathing
-            // pulse. PRO has `section_corner_ticks = 0` so this is
-            // a no-op there.
-            let used_outer = {
-                let pad = style::section_padding();
-                let r = ui.min_rect();
-                egui::Rect::from_min_max(
-                    egui::pos2(r.left() - pad.left as f32, r.top() - pad.top as f32),
-                    egui::pos2(r.right() + pad.right as f32, r.bottom() + pad.bottom as f32),
-                )
-            };
-            paint_corner_ticks(ui, used_outer, accent, title_side, openness, pane_id);
+                    // Corner ticks (GAME): L-shaped marks at each corner of
+                    // the container's outer rect, with a slow breathing
+                    // pulse. PRO has `section_corner_ticks = 0` so this is
+                    // a no-op there.
+                    let used_outer =
+                        rect_expanded_by_margin(ui.min_rect().into(), style::section_padding());
+                    paint_corner_ticks(
+                        ui,
+                        used_outer.into(),
+                        accent,
+                        title_side,
+                        openness,
+                        pane_id,
+                    );
+                    ((), banner_cmd)
+                },
+            );
         });
         // Restore the parent ui's opacity so subsequent containers
         // in the same body callback start from a clean baseline.
@@ -1430,7 +1393,7 @@ impl Normal {
         }
         if style::section_show_frame() {
             Frame::new()
-                .fill(style::fill_for(style::FillRole::Section, self.accent))
+                .fill(style::fill_for(style::FillRole::Section, self.accent).into())
                 .corner_radius(corners)
                 .stroke(style::stroke_for(
                     style::StrokeRole::SectionBorder,
@@ -1447,29 +1410,210 @@ impl Normal {
 }
 
 fn tabbed_container_max_rect(
-    avail: egui::Rect,
+    avail: MaraRect,
     strip_side: TitleSide,
     strip_thickness: f32,
     strip_outer_inset: f32,
-) -> egui::Rect {
+) -> MaraRect {
     let reserved = strip_outer_inset + strip_thickness;
     match strip_side {
-        TitleSide::Left => egui::Rect::from_min_max(
-            pos2((avail.left() + reserved).min(avail.right()), avail.top()),
-            avail.right_bottom(),
+        TitleSide::Left => MaraRect::from_min_max(
+            MaraPos2::new((avail.left() + reserved).min(avail.right()), avail.top()),
+            avail.max,
         ),
-        TitleSide::Right => egui::Rect::from_min_max(
-            avail.left_top(),
-            pos2((avail.right() - reserved).max(avail.left()), avail.bottom()),
+        TitleSide::Right => MaraRect::from_min_max(
+            avail.min,
+            MaraPos2::new((avail.right() - reserved).max(avail.left()), avail.bottom()),
         ),
-        TitleSide::Top => egui::Rect::from_min_max(
-            pos2(avail.left(), (avail.top() + reserved).min(avail.bottom())),
-            avail.right_bottom(),
+        TitleSide::Top => MaraRect::from_min_max(
+            MaraPos2::new(avail.left(), (avail.top() + reserved).min(avail.bottom())),
+            avail.max,
         ),
-        TitleSide::Bottom => egui::Rect::from_min_max(
-            avail.left_top(),
-            pos2(avail.right(), (avail.bottom() - reserved).max(avail.top())),
+        TitleSide::Bottom => MaraRect::from_min_max(
+            avail.min,
+            MaraPos2::new(avail.right(), (avail.bottom() - reserved).max(avail.top())),
         ),
+    }
+}
+
+fn folder_tab_strip_rect(
+    used: MaraRect,
+    strip_side: TitleSide,
+    title_side: TitleSide,
+    strip_thickness: f32,
+    title_offset: f32,
+) -> MaraRect {
+    match (strip_side, title_side) {
+        (TitleSide::Left, TitleSide::Top) => MaraRect::from_min_max(
+            MaraPos2::new(used.left() - strip_thickness, used.top() + title_offset),
+            MaraPos2::new(used.left(), used.bottom()),
+        ),
+        (TitleSide::Left, TitleSide::Bottom) => MaraRect::from_min_max(
+            MaraPos2::new(used.left() - strip_thickness, used.top()),
+            MaraPos2::new(used.left(), used.bottom() - title_offset),
+        ),
+        (TitleSide::Right, TitleSide::Top) => MaraRect::from_min_max(
+            MaraPos2::new(used.right(), used.top() + title_offset),
+            MaraPos2::new(used.right() + strip_thickness, used.bottom()),
+        ),
+        (TitleSide::Right, TitleSide::Bottom) => MaraRect::from_min_max(
+            MaraPos2::new(used.right(), used.top()),
+            MaraPos2::new(used.right() + strip_thickness, used.bottom() - title_offset),
+        ),
+        (TitleSide::Top, TitleSide::Left) => MaraRect::from_min_max(
+            MaraPos2::new(used.left() + title_offset, used.top() - strip_thickness),
+            MaraPos2::new(used.right(), used.top()),
+        ),
+        (TitleSide::Top, TitleSide::Right) => MaraRect::from_min_max(
+            MaraPos2::new(used.left(), used.top() - strip_thickness),
+            MaraPos2::new(used.right() - title_offset, used.top()),
+        ),
+        _ => MaraRect::from_min_size(used.min, MaraVec2::ZERO),
+    }
+}
+
+fn top_tab_title_rect(title_rect: MaraRect, inner_x: f32, inner_y: f32) -> MaraRect {
+    MaraRect::from_min_max(
+        MaraPos2::new(title_rect.left() - inner_x, title_rect.top() - inner_y),
+        MaraPos2::new(title_rect.right() + inner_x, title_rect.bottom()),
+    )
+}
+
+fn separator_debug_rect(before: MaraRect, after: MaraRect) -> MaraRect {
+    MaraRect::from_min_max(before.min, MaraPos2::new(before.right(), after.top()))
+}
+
+fn rect_expanded_by_margin(rect: MaraRect, margin: style::MarginSpec) -> MaraRect {
+    MaraRect::from_min_max(
+        MaraPos2::new(
+            rect.left() - margin.left as f32,
+            rect.top() - margin.top as f32,
+        ),
+        MaraPos2::new(
+            rect.right() + margin.right as f32,
+            rect.bottom() + margin.bottom as f32,
+        ),
+    )
+}
+
+fn title_banner_rect(
+    used: MaraRect,
+    padding: style::MarginSpec,
+    title_side: TitleSide,
+    title_thickness: f32,
+    title_body_gap_half: f32,
+    open: bool,
+) -> MaraRect {
+    let painted = rect_expanded_by_margin(used, padding);
+    if !open {
+        return painted;
+    }
+
+    let title_span = title_thickness + title_body_gap_half;
+    match title_side {
+        TitleSide::Top => MaraRect::from_min_max(
+            painted.min,
+            MaraPos2::new(painted.right(), used.top() + title_span),
+        ),
+        TitleSide::Bottom => MaraRect::from_min_max(
+            MaraPos2::new(painted.left(), used.bottom() - title_span),
+            painted.max,
+        ),
+        TitleSide::Left => MaraRect::from_min_max(
+            painted.min,
+            MaraPos2::new(used.left() + title_span, painted.bottom()),
+        ),
+        TitleSide::Right => MaraRect::from_min_max(
+            MaraPos2::new(used.right() - title_span, painted.top()),
+            painted.max,
+        ),
+    }
+}
+
+fn floating_icon_geometry(
+    strip_rect: MaraRect,
+    anchor: PaneAnchor,
+    size: f32,
+    offset: f32,
+    openness_t: f32,
+) -> FloatingIconGeometry {
+    let title_side = anchor.title_side();
+    let reversed = anchor.title_reversed();
+    let icon_size = MaraVec2::new(size, size);
+
+    match title_side {
+        TitleSide::Top | TitleSide::Bottom => {
+            let cy = if title_side == TitleSide::Top {
+                (strip_rect.center().y - offset).round()
+            } else {
+                const BIAS: f32 = 6.0;
+                (strip_rect.center().y + offset + BIAS * openness_t).round()
+            };
+            let on_far_end_left = reversed;
+            if on_far_end_left {
+                let pos = MaraPos2::new((strip_rect.left() + 6.0).round(), cy);
+                let rect = if title_side == TitleSide::Top {
+                    MaraRect::from_min_size(pos, icon_size)
+                } else {
+                    MaraRect::from_min_size(MaraPos2::new(pos.x, pos.y - size), icon_size)
+                };
+                let align = if title_side == TitleSide::Top {
+                    MaraAlign2::LEFT_TOP
+                } else {
+                    MaraAlign2::LEFT_BOTTOM
+                };
+                FloatingIconGeometry { pos, align, rect }
+            } else {
+                let pos = MaraPos2::new((strip_rect.right() - 6.0).round(), cy);
+                let rect = if title_side == TitleSide::Top {
+                    MaraRect::from_min_size(MaraPos2::new(pos.x - size, pos.y), icon_size)
+                } else {
+                    MaraRect::from_min_size(MaraPos2::new(pos.x - size, pos.y - size), icon_size)
+                };
+                let align = if title_side == TitleSide::Top {
+                    MaraAlign2::RIGHT_TOP
+                } else {
+                    MaraAlign2::RIGHT_BOTTOM
+                };
+                FloatingIconGeometry { pos, align, rect }
+            }
+        }
+        TitleSide::Left | TitleSide::Right => {
+            let cx = if title_side == TitleSide::Left {
+                (strip_rect.center().x - offset).round()
+            } else {
+                (strip_rect.center().x + offset).round()
+            };
+            let on_right_side = title_side == TitleSide::Right;
+            let top_to_bottom = on_right_side ^ reversed;
+            if top_to_bottom {
+                let pos = MaraPos2::new(cx, (strip_rect.bottom() - 6.0).round());
+                let rect = if title_side == TitleSide::Left {
+                    MaraRect::from_min_size(MaraPos2::new(pos.x, pos.y - size), icon_size)
+                } else {
+                    MaraRect::from_min_size(MaraPos2::new(pos.x - size, pos.y - size), icon_size)
+                };
+                let align = if title_side == TitleSide::Left {
+                    MaraAlign2::LEFT_BOTTOM
+                } else {
+                    MaraAlign2::RIGHT_BOTTOM
+                };
+                FloatingIconGeometry { pos, align, rect }
+            } else {
+                let pos = MaraPos2::new(cx, (strip_rect.top() + 6.0).round());
+                let rect = if title_side == TitleSide::Left {
+                    MaraRect::from_min_size(pos, icon_size)
+                } else {
+                    MaraRect::from_min_size(MaraPos2::new(pos.x - size, pos.y), icon_size)
+                };
+                let align = if title_side == TitleSide::Left {
+                    MaraAlign2::LEFT_TOP
+                } else {
+                    MaraAlign2::RIGHT_TOP
+                };
+                FloatingIconGeometry { pos, align, rect }
+            }
+        }
     }
 }
 
@@ -1504,6 +1648,191 @@ fn resolve_active_tab_idx(ctx: &egui::Context, active_idx_key: Id, tab_ids: &[Id
     })
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct FolderTabCellGeometry {
+    base: MaraRect,
+    active: MaraRect,
+    corners: MaraCornerRadius,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct TopTabCellGeometry {
+    rect: MaraRect,
+    icon_center: MaraPos2,
+    label_center_base: MaraPos2,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct FloatingIconGeometry {
+    pos: MaraPos2,
+    align: MaraAlign2,
+    rect: MaraRect,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct BodySlotSizes {
+    visible: MaraVec2,
+    full: MaraVec2,
+}
+
+fn title_slot_size(horizontal_strip: bool, span_inner: f32, title_thickness: f32) -> MaraVec2 {
+    if horizontal_strip {
+        MaraVec2::new(span_inner, title_thickness)
+    } else {
+        MaraVec2::new(title_thickness, span_inner)
+    }
+}
+
+fn body_slot_sizes(
+    horizontal_strip: bool,
+    span_inner: f32,
+    visible_body_flow: f32,
+    full_body_flow: f32,
+) -> BodySlotSizes {
+    if horizontal_strip {
+        BodySlotSizes {
+            visible: MaraVec2::new(span_inner, visible_body_flow),
+            full: MaraVec2::new(span_inner, full_body_flow),
+        }
+    } else {
+        BodySlotSizes {
+            visible: MaraVec2::new(visible_body_flow, span_inner),
+            full: MaraVec2::new(full_body_flow, span_inner),
+        }
+    }
+}
+
+fn body_full_rect(
+    visible_rect: MaraRect,
+    full_size: MaraVec2,
+    body_direction: crate::layout::StackDirection,
+) -> MaraRect {
+    match body_direction {
+        crate::layout::StackDirection::BottomUp => MaraRect::from_min_size(
+            MaraPos2::new(visible_rect.left(), visible_rect.bottom() - full_size.y),
+            full_size,
+        ),
+        crate::layout::StackDirection::RightToLeft => MaraRect::from_min_size(
+            MaraPos2::new(visible_rect.right() - full_size.x, visible_rect.top()),
+            full_size,
+        ),
+        _ => MaraRect::from_min_size(visible_rect.min, full_size),
+    }
+}
+
+fn folder_tab_cell_geometry(
+    strip_rect: MaraRect,
+    strip_side: TitleSide,
+    cell_idx: usize,
+    tab_len: f32,
+    tab_gap: f32,
+    tab_overlap: f32,
+    tab_radius: u8,
+) -> Option<FolderTabCellGeometry> {
+    let advance = (cell_idx as f32) * (tab_len + tab_gap);
+    match strip_side {
+        TitleSide::Left => {
+            let cell_top = strip_rect.top() + advance;
+            if cell_top + tab_len > strip_rect.bottom() + 0.5 {
+                return None;
+            }
+            let base = MaraRect::from_min_size(
+                MaraPos2::new(strip_rect.left(), cell_top),
+                MaraVec2::new(strip_rect.width(), tab_len),
+            );
+            Some(FolderTabCellGeometry {
+                base,
+                active: MaraRect::from_min_max(
+                    base.min,
+                    MaraPos2::new(base.max.x + tab_overlap, base.max.y),
+                ),
+                corners: MaraCornerRadius::from_corners(tab_radius, 0, tab_radius, 0),
+            })
+        }
+        TitleSide::Right => {
+            let cell_top = strip_rect.top() + advance;
+            if cell_top + tab_len > strip_rect.bottom() + 0.5 {
+                return None;
+            }
+            let base = MaraRect::from_min_size(
+                MaraPos2::new(strip_rect.left(), cell_top),
+                MaraVec2::new(strip_rect.width(), tab_len),
+            );
+            Some(FolderTabCellGeometry {
+                base,
+                active: MaraRect::from_min_max(
+                    MaraPos2::new(base.min.x - tab_overlap, base.min.y),
+                    base.max,
+                ),
+                corners: MaraCornerRadius::from_corners(0, tab_radius, 0, tab_radius),
+            })
+        }
+        TitleSide::Top => {
+            let cell_left = strip_rect.left() + advance;
+            if cell_left + tab_len > strip_rect.right() + 0.5 {
+                return None;
+            }
+            let base = MaraRect::from_min_size(
+                MaraPos2::new(cell_left, strip_rect.top()),
+                MaraVec2::new(tab_len, strip_rect.height()),
+            );
+            Some(FolderTabCellGeometry {
+                base,
+                active: MaraRect::from_min_max(
+                    base.min,
+                    MaraPos2::new(base.max.x, base.max.y + tab_overlap),
+                ),
+                corners: MaraCornerRadius::from_corners(tab_radius, tab_radius, 0, 0),
+            })
+        }
+        TitleSide::Bottom => {
+            let cell_left = strip_rect.left() + advance;
+            if cell_left + tab_len > strip_rect.right() + 0.5 {
+                return None;
+            }
+            let base = MaraRect::from_min_size(
+                MaraPos2::new(cell_left, strip_rect.top()),
+                MaraVec2::new(tab_len, strip_rect.height()),
+            );
+            Some(FolderTabCellGeometry {
+                base,
+                active: MaraRect::from_min_max(
+                    MaraPos2::new(base.min.x, base.min.y - tab_overlap),
+                    base.max,
+                ),
+                corners: MaraCornerRadius::from_corners(0, 0, tab_radius, tab_radius),
+            })
+        }
+    }
+}
+
+fn top_tab_cell_geometry(
+    title_rect: MaraRect,
+    cell_idx: usize,
+    cell_count: usize,
+) -> Option<TopTabCellGeometry> {
+    if cell_count == 0 {
+        return None;
+    }
+    let cell_w = (title_rect.width() / cell_count as f32).max(0.0);
+    if cell_w <= 0.0 {
+        return None;
+    }
+
+    let cell_left = title_rect.left() + (cell_idx as f32) * cell_w;
+    let rect = MaraRect::from_min_size(
+        MaraPos2::new(cell_left, title_rect.top()),
+        MaraVec2::new(cell_w, title_rect.height()),
+    );
+    let cx = rect.center().x;
+
+    Some(TopTabCellGeometry {
+        rect,
+        icon_center: MaraPos2::new(cx, rect.top() + rect.height() * 0.32),
+        label_center_base: MaraPos2::new(cx, rect.top() + rect.height() * 0.74),
+    })
+}
+
 /// Paint folder-style tabs into `strip_rect`, projecting from
 /// `strip_side` of the container.
 ///
@@ -1522,7 +1851,7 @@ fn resolve_active_tab_idx(ctx: &egui::Context, active_idx_key: Id, tab_ids: &[Id
 #[allow(clippy::too_many_arguments)]
 fn paint_folder_tabs(
     ui: &mut Ui,
-    strip_rect: egui::Rect,
+    strip_rect: MaraRect,
     tab_meta: &[(String, Icon<'static>)],
     tab_ids: &[Id],
     active_idx: usize,
@@ -1574,7 +1903,7 @@ fn paint_folder_tabs(
         .data(|d| d.get_temp(pane::active_pane_key()))
         .unwrap_or(pane_id);
     let drag = pane::tab_drag::drag_state(ui.ctx(), parent_pane_id);
-    let cursor_pos = ui.ctx().pointer_latest_pos();
+    let cursor_pos = crate::backend::egui::pointer_latest_pos(ui.ctx()).map(Into::into);
     let drop_target = match (drag, cursor_pos) {
         (Some(drag), Some(p)) => {
             pane::tab_drag::find_drop_target_for_drag(ui.ctx(), parent_pane_id, p, drag)
@@ -1616,106 +1945,43 @@ fn paint_folder_tabs(
     };
 
     for (cell_idx, slot) in visible.iter().enumerate() {
-        let (base_rect, active_rect, corners) = match strip_side {
-            TitleSide::Left => {
-                let cell_top = strip_rect.top() + (cell_idx as f32) * (tab_len + tab_gap);
-                if cell_top + tab_len > strip_rect.bottom() + 0.5 {
-                    break;
-                }
-                let base = egui::Rect::from_min_size(
-                    pos2(strip_rect.left(), cell_top),
-                    vec2(strip_rect.width(), tab_len),
-                );
-                // Active extends RIGHTWARD into the container.
-                let active =
-                    egui::Rect::from_min_max(base.min, pos2(base.max.x + tab_overlap, base.max.y));
-                let corners = CornerRadius {
-                    nw: tab_radius,
-                    sw: tab_radius,
-                    ne: 0,
-                    se: 0,
-                };
-                (base, active, corners)
-            }
-            TitleSide::Right => {
-                let cell_top = strip_rect.top() + (cell_idx as f32) * (tab_len + tab_gap);
-                if cell_top + tab_len > strip_rect.bottom() + 0.5 {
-                    break;
-                }
-                let base = egui::Rect::from_min_size(
-                    pos2(strip_rect.left(), cell_top),
-                    vec2(strip_rect.width(), tab_len),
-                );
-                let active =
-                    egui::Rect::from_min_max(pos2(base.min.x - tab_overlap, base.min.y), base.max);
-                let corners = CornerRadius {
-                    ne: tab_radius,
-                    se: tab_radius,
-                    nw: 0,
-                    sw: 0,
-                };
-                (base, active, corners)
-            }
-            TitleSide::Top => {
-                let cell_left = strip_rect.left() + (cell_idx as f32) * (tab_len + tab_gap);
-                if cell_left + tab_len > strip_rect.right() + 0.5 {
-                    break;
-                }
-                let base = egui::Rect::from_min_size(
-                    pos2(cell_left, strip_rect.top()),
-                    vec2(tab_len, strip_rect.height()),
-                );
-                let active =
-                    egui::Rect::from_min_max(base.min, pos2(base.max.x, base.max.y + tab_overlap));
-                let corners = CornerRadius {
-                    nw: tab_radius,
-                    ne: tab_radius,
-                    sw: 0,
-                    se: 0,
-                };
-                (base, active, corners)
-            }
-            TitleSide::Bottom => {
-                let cell_left = strip_rect.left() + (cell_idx as f32) * (tab_len + tab_gap);
-                if cell_left + tab_len > strip_rect.right() + 0.5 {
-                    break;
-                }
-                let base = egui::Rect::from_min_size(
-                    pos2(cell_left, strip_rect.top()),
-                    vec2(tab_len, strip_rect.height()),
-                );
-                let active =
-                    egui::Rect::from_min_max(pos2(base.min.x, base.min.y - tab_overlap), base.max);
-                let corners = CornerRadius {
-                    sw: tab_radius,
-                    se: tab_radius,
-                    nw: 0,
-                    ne: 0,
-                };
-                (base, active, corners)
-            }
+        let Some(cell) = folder_tab_cell_geometry(
+            strip_rect,
+            strip_side,
+            cell_idx,
+            tab_len,
+            tab_gap,
+            tab_overlap,
+            tab_radius,
+        ) else {
+            break;
         };
+        let base_rect: Rect = cell.base.into();
         let Some(&i) = slot.as_ref() else {
             // Drop-slot ghost gap — translucent accent fill so the
             // user sees exactly where the tab will land.
-            ui.painter().rect(
-                base_rect,
-                corners,
-                Color32::from_rgba_unmultiplied(accent.r(), accent.g(), accent.b(), 36),
-                egui::Stroke::new(1.5, accent),
-                egui::StrokeKind::Inside,
+            paint_tab_rect_chrome(
+                ui,
+                cell.base,
+                cell.corners,
+                MaraColor32::from_rgba_unmultiplied(accent.r(), accent.g(), accent.b(), 36),
+                Some(MaraStroke::new(1.5, accent.into())),
             );
             continue;
         };
         let icn = &tab_meta[i].1;
         let tab_id = tab_ids[i];
         let is_active = i == active_idx;
-        let paint_rect = if is_active { active_rect } else { base_rect };
-        let resp = ui.interact(
-            base_rect,
-            pane_id.with("mara_tab_btn").with(tab_id),
-            Sense::click_and_drag(),
-        );
+        let paint_rect = if is_active { cell.active } else { cell.base };
+        let resp = {
+            let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
+            crate::layout::UiBackend::interact(
+                &mut backend,
+                cell.base,
+                pane_id.with("mara_tab_btn").with(tab_id).into(),
+                crate::layout::Sense::ClickAndDrag,
+            )
+        };
         pane::tab_drag::push_button(
             ui.ctx(),
             parent_pane_id,
@@ -1726,7 +1992,10 @@ fn paint_folder_tabs(
             },
         );
         if resp.hovered() && drag.is_none() {
-            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+            crate::backend::egui::set_cursor_icon_for_ui(
+                ui,
+                crate::layout::CursorIcon::PointingHand,
+            );
         }
         if resp.clicked() && drag.is_none() {
             ui.ctx().data_mut(|d| {
@@ -1741,7 +2010,7 @@ fn paint_folder_tabs(
                 pane::tab_drag::TabDragState {
                     tab_id,
                     source_container: pane_id,
-                    cursor: ui.ctx().pointer_latest_pos(),
+                    cursor: crate::backend::egui::pointer_latest_pos(ui.ctx()).map(Into::into),
                     icon: Some(*icn),
                 },
             );
@@ -1752,21 +2021,36 @@ fn paint_folder_tabs(
             // body-facing edges, extending `tab_overlap` past the
             // body's edge so the fill overpaints the container's
             // adjacent stroke at this tab's range).
-            ui.painter().rect_filled(paint_rect, corners, active_fill);
-            crate::icons::paint_section_icon(
+            paint_tab_rect_chrome(ui, paint_rect, cell.corners, active_fill, None);
+            // Only the SELECTED tab gets a border, and only on its three
+            // OUTER sides — the body-facing side stays open so the tab's
+            // outline flows straight into the body's border (folder tab).
+            // The fill above already erased the body's border under the
+            // tab, so the open ends meet the body border seamlessly.
+            let border = style::stroke_for(style::StrokeRole::SectionBorder, accent);
+            let points = active_tab_border_points(cell.base, f32::from(tab_radius), strip_side);
+            let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
+            crate::layout::UiBackend::paint(
+                &mut backend,
+                PaintCmd::Polyline {
+                    points,
+                    stroke: border,
+                },
+            );
+            paint_icon_or_svg(
                 ui,
-                base_rect.center(),
+                cell.base.center().into(),
                 egui::Align2::CENTER_CENTER,
                 *icn,
                 icon_size,
-                style::contrast_text_for(active_fill),
+                style::contrast_text_for(active_fill).into(),
             );
         } else {
             // Inactive tabs paint NO background — bare icon at
             // reduced alpha so the active tab dominates the strip.
-            crate::icons::paint_section_icon(
+            paint_icon_or_svg(
                 ui,
-                base_rect.center(),
+                cell.base.center().into(),
                 egui::Align2::CENTER_CENTER,
                 *icn,
                 icon_size,
@@ -1784,11 +2068,11 @@ fn paint_folder_tabs(
         parent_pane_id,
         pane::tab_drag::TabStripEntry {
             container_id: pane_id,
-            rect: strip_rect,
+            rect: strip_rect.into(),
             axis_horizontal: strip_horizontal,
         },
     );
-    crate::debug::tag(ui, strip_rect, "TabStrip".to_string());
+    crate::debug::tag(ui, strip_rect.into(), "TabStrip".to_string());
 }
 
 /// Paint GAME-theme tab buttons over the container's title rect,
@@ -1818,7 +2102,7 @@ fn paint_top_tabs(
         .data(|d| d.get_temp(pane::active_pane_key()))
         .unwrap_or(pane_id);
     let drag = pane::tab_drag::drag_state(ui.ctx(), parent_pane_id);
-    let cursor_pos = ui.ctx().pointer_latest_pos();
+    let cursor_pos = crate::backend::egui::pointer_latest_pos(ui.ctx()).map(Into::into);
     let drop_target = match (drag, cursor_pos) {
         (Some(drag), Some(p)) => {
             pane::tab_drag::find_drop_target_for_drag(ui.ctx(), parent_pane_id, p, drag)
@@ -1878,45 +2162,48 @@ fn paint_top_tabs(
     let openness_t = smoothstep(openness);
     let active_icon_size = egui::lerp(active_folded..=active_unfolded, openness_t);
     let label_font_size: f32 = 11.0;
-    let n = visible.len() as f32;
-    let cell_w = (title_rect.width() / n).max(0.0);
-    if cell_w <= 0.0 {
-        return;
-    }
+    let title_rect: MaraRect = title_rect.into();
     for (cell_idx, slot) in visible.iter().enumerate() {
-        let cell_left = title_rect.left() + (cell_idx as f32) * cell_w;
-        let cell_rect = egui::Rect::from_min_size(
-            pos2(cell_left, title_rect.top()),
-            vec2(cell_w, title_rect.height()),
-        );
+        let Some(cell) = top_tab_cell_geometry(title_rect, cell_idx, visible.len()) else {
+            return;
+        };
+        let cell_rect = cell.rect;
+        let cell_rect_egui: Rect = cell_rect.into();
         let Some(&i) = slot.as_ref() else {
-            ui.painter().rect(
+            paint_tab_rect_chrome(
+                ui,
                 cell_rect,
-                CornerRadius::ZERO,
-                Color32::from_rgba_unmultiplied(accent.r(), accent.g(), accent.b(), 56),
-                egui::Stroke::new(1.5, accent),
-                egui::StrokeKind::Inside,
+                MaraCornerRadius::ZERO,
+                MaraColor32::from_rgba_unmultiplied(accent.r(), accent.g(), accent.b(), 56),
+                Some(MaraStroke::new(1.5, accent.into())),
             );
             continue;
         };
         let (title, icn) = (&tab_meta[i].0, &tab_meta[i].1);
         let tab_id = tab_ids[i];
-        let resp = ui.interact(
-            cell_rect,
-            pane_id.with("mara_top_tab").with(tab_id),
-            Sense::click_and_drag(),
-        );
+        let resp = {
+            let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
+            crate::layout::UiBackend::interact(
+                &mut backend,
+                cell_rect,
+                pane_id.with("mara_top_tab").with(tab_id).into(),
+                crate::layout::Sense::ClickAndDrag,
+            )
+        };
         pane::tab_drag::push_button(
             ui.ctx(),
             parent_pane_id,
             pane::tab_drag::TabButtonEntry {
                 container_id: pane_id,
                 tab_id,
-                rect: cell_rect,
+                rect: cell_rect_egui,
             },
         );
         if resp.hovered() && drag.is_none() {
-            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+            crate::backend::egui::set_cursor_icon_for_ui(
+                ui,
+                crate::layout::CursorIcon::PointingHand,
+            );
         }
         if resp.clicked() && drag.is_none() {
             ui.ctx().data_mut(|d| {
@@ -1931,7 +2218,7 @@ fn paint_top_tabs(
                 pane::tab_drag::TabDragState {
                     tab_id,
                     source_container: pane_id,
-                    cursor: ui.ctx().pointer_latest_pos(),
+                    cursor: crate::backend::egui::pointer_latest_pos(ui.ctx()).map(Into::into),
                     icon: Some(*icn),
                 },
             );
@@ -1943,8 +2230,13 @@ fn paint_top_tabs(
             inactive_text_col
         };
         if !is_active {
-            ui.painter()
-                .rect_filled(cell_rect, CornerRadius::ZERO, inactive_fill);
+            paint_tab_rect_chrome(
+                ui,
+                cell_rect,
+                MaraCornerRadius::ZERO,
+                inactive_fill.into(),
+                None,
+            );
         }
         // Stack the icon and label vertically inside the cell.
         // Icon centred in the upper half, label in the lower half.
@@ -1954,43 +2246,43 @@ fn paint_top_tabs(
         // value, so when a different tab is clicked the previously-
         // active icon SHRINKS and the newly-active icon GROWS at
         // the same time, smoothly, instead of popping in/out.
-        let cx = cell_rect.center().x;
         let active_target = if is_active { 1.0 } else { 0.0 };
-        let active_t = ui.ctx().animate_value_with_time(
+        let active_t = crate::backend::egui::animate_value_with_time(
+            ui.ctx(),
             pane_id.with("mara_top_tab_active").with(i),
             active_target,
             0.2,
         );
         let icon_size = egui::lerp(inactive_icon_size..=active_icon_size, active_t);
-        let icon_centre_y = cell_rect.top() + cell_rect.height() * 0.32;
-        crate::icons::paint_section_icon(
+        paint_icon_or_svg(
             ui,
-            pos2(cx, icon_centre_y),
+            cell.icon_center.into(),
             egui::Align2::CENTER_CENTER,
             *icn,
             icon_size,
-            glyph_col,
+            glyph_col.into(),
         );
         // Active label slides DOWN by one font-size on click —
         // egui's `animate_value_with_time` smooths the shift so
         // the move reads as an animation, not a teleport.
         let shift_target = if is_active { label_font_size } else { 0.0 };
-        let label_shift = ui.ctx().animate_value_with_time(
+        let label_shift = crate::backend::egui::animate_value_with_time(
+            ui.ctx(),
             pane_id.with("mara_top_tab_label_shift").with(i),
             shift_target,
             0.2,
         );
-        let label_centre_y = cell_rect.top() + cell_rect.height() * 0.74 + label_shift;
-        ui.painter().text(
-            pos2(cx, label_centre_y),
-            egui::Align2::CENTER_CENTER,
-            title.to_uppercase(),
-            egui::FontId::proportional(label_font_size),
-            glyph_col,
+        let label_center = MaraPos2::new(
+            cell.label_center_base.x,
+            cell.label_center_base.y + label_shift,
+        );
+        paint_cmd(
+            ui,
+            top_tab_label_paint_cmd(label_center, title, label_font_size, glyph_col),
         );
         crate::debug::tag(
             ui,
-            cell_rect,
+            cell_rect_egui,
             format!("TopTab[{}]{}", i, if is_active { "*" } else { "" }),
         );
     }
@@ -1999,11 +2291,183 @@ fn paint_top_tabs(
         parent_pane_id,
         pane::tab_drag::TabStripEntry {
             container_id: pane_id,
-            rect: title_rect,
+            rect: title_rect.into(),
             axis_horizontal: true,
         },
     );
-    crate::debug::tag(ui, title_rect, "TopTabStrip".to_string());
+    crate::debug::tag(ui, title_rect.into(), "TopTabStrip".to_string());
+}
+
+/// Outline points for the SELECTED folder tab: a path along the tab's
+/// three OUTER sides with rounded corners on the strip-outer edges, left
+/// OPEN on the body-facing edge so it flows into the body's border.
+fn active_tab_border_points(base: MaraRect, radius: f32, strip_side: TitleSide) -> Vec<MaraPos2> {
+    let r = radius.clamp(0.0, base.width().min(base.height()) * 0.5);
+    let (l, rt, t, bm) = (base.left(), base.right(), base.top(), base.bottom());
+    let arc = |cx: f32, cy: f32, a0: f32, a1: f32| -> Vec<MaraPos2> {
+        let steps = 8;
+        (0..=steps)
+            .map(|i| {
+                let f = i as f32 / steps as f32;
+                let a = (a0 + (a1 - a0) * f).to_radians();
+                MaraPos2::new(cx + r * a.cos(), cy + r * a.sin())
+            })
+            .collect()
+    };
+    let mut p = Vec::new();
+    match strip_side {
+        // strip on top → body below → open bottom, round top corners.
+        TitleSide::Top => {
+            p.push(MaraPos2::new(l, bm));
+            p.extend(arc(l + r, t + r, 180.0, 270.0));
+            p.extend(arc(rt - r, t + r, 270.0, 360.0));
+            p.push(MaraPos2::new(rt, bm));
+        }
+        // strip on bottom → body above → open top, round bottom corners.
+        TitleSide::Bottom => {
+            p.push(MaraPos2::new(l, t));
+            p.extend(arc(l + r, bm - r, 180.0, 90.0));
+            p.extend(arc(rt - r, bm - r, 90.0, 0.0));
+            p.push(MaraPos2::new(rt, t));
+        }
+        // strip on left → body right → open right, round left corners.
+        TitleSide::Left => {
+            p.push(MaraPos2::new(rt, t));
+            p.extend(arc(l + r, t + r, 270.0, 180.0));
+            p.extend(arc(l + r, bm - r, 180.0, 90.0));
+            p.push(MaraPos2::new(rt, bm));
+        }
+        // strip on right → body left → open left, round right corners.
+        TitleSide::Right => {
+            p.push(MaraPos2::new(l, t));
+            p.extend(arc(rt - r, t + r, 270.0, 360.0));
+            p.extend(arc(rt - r, bm - r, 0.0, 90.0));
+            p.push(MaraPos2::new(l, bm));
+        }
+    }
+    p
+}
+
+fn paint_tab_rect_chrome(
+    ui: &mut Ui,
+    rect: MaraRect,
+    corner: MaraCornerRadius,
+    fill: MaraColor32,
+    stroke: Option<MaraStroke>,
+) {
+    let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
+    for cmd in tab_rect_chrome_paint_cmds(rect, corner, fill, stroke) {
+        crate::layout::UiBackend::paint(&mut backend, cmd);
+    }
+}
+
+fn tab_rect_chrome_paint_cmds(
+    rect: MaraRect,
+    corner: MaraCornerRadius,
+    fill: MaraColor32,
+    stroke: Option<MaraStroke>,
+) -> Vec<PaintCmd> {
+    let mut commands = vec![PaintCmd::RectFilled { rect, corner, fill }];
+    if let Some(stroke) = stroke {
+        commands.push(PaintCmd::RectStroke {
+            rect,
+            corner,
+            stroke,
+        });
+    }
+    commands
+}
+
+fn top_tab_label_paint_cmd(pos: MaraPos2, title: &str, size: f32, color: MaraColor32) -> PaintCmd {
+    PaintCmd::Text {
+        pos,
+        anchor: MaraAlign2::CENTER_CENTER,
+        text: title.to_uppercase(),
+        size,
+        color,
+        mono: false,
+    }
+}
+
+fn paint_icon_or_svg(
+    ui: &mut Ui,
+    pos: egui::Pos2,
+    align: egui::Align2,
+    icon: Icon<'_>,
+    size: f32,
+    color: Color32,
+) {
+    match icon {
+        Icon::Name(name) => {
+            if let Some(cmd) =
+                icon_name_paint_cmd(pos.into(), align.into(), name, size, color.into())
+            {
+                let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
+                crate::layout::UiBackend::paint(&mut backend, cmd);
+            }
+        }
+        Icon::Svg(svg) => {
+            let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
+            crate::layout::UiBackend::paint(
+                &mut backend,
+                icon_svg_paint_cmd(pos.into(), align.into(), svg, size, color.into()),
+            );
+        }
+    }
+}
+
+fn icon_name_paint_cmd(
+    pos: MaraPos2,
+    anchor: MaraAlign2,
+    name: &str,
+    size: f32,
+    color: MaraColor32,
+) -> Option<PaintCmd> {
+    crate::icons::icon_paint_cmd(Icon::Name(name), pos, anchor, size, color)
+}
+
+fn icon_svg_paint_cmd(
+    pos: MaraPos2,
+    anchor: MaraAlign2,
+    svg: &str,
+    size: f32,
+    tint: MaraColor32,
+) -> PaintCmd {
+    crate::icons::icon_paint_cmd(Icon::Svg(svg), pos, anchor, size, tint)
+        .expect("SVG icon payloads always lower to Mara paint commands")
+}
+
+fn title_divider_paint_cmd(
+    rect: MaraRect,
+    title_side: TitleSide,
+    gap_half: f32,
+    inset: f32,
+    color: MaraColor32,
+) -> PaintCmd {
+    match title_side {
+        TitleSide::Top | TitleSide::Bottom => {
+            let y = match title_side {
+                TitleSide::Top => (rect.bottom() + gap_half).round() + 0.5,
+                _ => (rect.top() - gap_half).round() - 0.5,
+            };
+            PaintCmd::Line {
+                a: MaraPos2::new(rect.left() + inset, y),
+                b: MaraPos2::new(rect.right() - inset, y),
+                stroke: MaraStroke::new(1.0, color),
+            }
+        }
+        TitleSide::Left | TitleSide::Right => {
+            let x = match title_side {
+                TitleSide::Left => (rect.right() + gap_half).round() + 0.5,
+                _ => (rect.left() - gap_half).round() - 0.5,
+            };
+            PaintCmd::Line {
+                a: MaraPos2::new(x, rect.top() + inset),
+                b: MaraPos2::new(x, rect.bottom() - inset),
+                stroke: MaraStroke::new(1.0, color),
+            }
+        }
+    }
 }
 
 /// Paint the title strip into `rect`. Theme-aware:
@@ -2040,34 +2504,26 @@ fn paint_title(
     let container_theme = theme.container;
     let title_side = anchor.title_side();
     let filled = theme.title_strip_filled;
-    let title_col = if filled {
-        style::contrast_text_for(accent)
+    let title_col: Color32 = if filled {
+        style::contrast_text_for(accent).into()
     } else {
-        style::section_title_color(accent)
+        style::section_title_color(accent).into()
     };
 
-    let title_painter = ui.painter_at(rect);
-    let painter = ui.painter();
-
-    let title_family = style::title_font_family();
-    let title_family = if ui.fonts(|fonts| fonts.families().contains(&title_family)) {
-        title_family
-    } else {
-        egui::FontFamily::Proportional
-    };
-    let title_font = FontId::new(theme.section_title_size, title_family);
+    let title_family =
+        crate::backend::egui::available_text_family_for_ui(ui, style::title_font_family());
     let bracket_visible = theme.section_title_brackets && !open;
     let any_brackets = theme.section_title_brackets;
     let title_uc = title.to_uppercase();
     // Inline icon dispatch:
     //   PRO (`section_icon_at_end = false`): icon glyph is prepended
-    //     to the title `LayoutJob` so it tracks the same scramble /
+    //     to the title text runs so it tracks the same scramble /
     //     glitch / rotation pipeline as the title.
     //   GAME (`section_icon_at_end = true`): icon floats at the
     //     strip's far end after the title text is painted, with a
     //     smoothstep-eased size lerp keyed off `openness` (small when
     //     folded → large overflowing the strip when open).
-    // SVG icons can't be inlined into a `LayoutJob`, so they fall
+    // SVG icons can't be inlined into title text runs, so they fall
     // through to the floating-paint path even in PRO.
     let inline_icon = !theme.section_icon_at_end;
     // GAME theme: scramble-decode the title each time the container
@@ -2096,30 +2552,53 @@ fn paint_title(
         title_uc
     };
 
-    let default_format = egui::TextFormat {
-        font_id: title_font.clone(),
-        color: title_col,
-        extra_letter_spacing: theme.section_title_letter_spacing,
-        ..Default::default()
+    let title_color: MaraColor32 = title_col.into();
+    let bracket_color = if bracket_visible {
+        title_color
+    } else {
+        MaraColor32::TRANSPARENT
     };
-    let bracket_format = egui::TextFormat {
-        color: if bracket_visible {
-            title_col
-        } else {
-            Color32::TRANSPARENT
-        },
-        ..default_format.clone()
-    };
+    let mut title_runs = Vec::new();
+    let mut push_title_run =
+        |text: String, leading_space: f32, size: f32, family: TextFamily, color: MaraColor32| {
+            if !text.is_empty() {
+                title_runs.push(TextRun {
+                    text,
+                    size,
+                    color,
+                    family,
+                    extra_letter_spacing: theme.section_title_letter_spacing,
+                    leading_space,
+                });
+            }
+        };
 
-    let mut job = egui::text::LayoutJob::default();
     // Optional theme prefix (PRO only — drops when bracket framing
     // is on so `▸ [ … ]` doesn't read as cluttered).
     if let (Some(prefix), false) = (theme.section_title_prefix, any_brackets) {
-        job.append(prefix, 0.0, default_format.clone());
-        job.append(" ", 0.0, default_format.clone());
+        push_title_run(
+            prefix.to_owned(),
+            0.0,
+            theme.section_title_size,
+            title_family.clone(),
+            title_color,
+        );
+        push_title_run(
+            " ".to_owned(),
+            0.0,
+            theme.section_title_size,
+            title_family.clone(),
+            title_color,
+        );
     }
     if any_brackets {
-        job.append("[ ", 0.0, bracket_format.clone());
+        push_title_run(
+            "[ ".to_owned(),
+            0.0,
+            theme.section_title_size,
+            title_family.clone(),
+            bracket_color,
+        );
     }
     // Resolve the inline-icon glyph + family ONCE, then decide
     // whether it appears before or after the title text. The chevron
@@ -2127,29 +2606,28 @@ fn paint_title(
     // wants to sit BETWEEN the chevron and the title text:
     //   • horizontal non-reversed (TM, BM, BS-as-Left? actually just
     //     anchors with `title_reversed = false`): chevron on LEFT,
-    //     LayoutJob renders LTR, so `icon, title` is correct.
+    //     title run renders LTR, so `icon, title` is correct.
     //   • horizontal reversed (RS = RightRail Start → Top, RE =
-    //     RightRail End → Bottom): chevron on RIGHT, LayoutJob still
+    //     RightRail End → Bottom): chevron on RIGHT, title runs still
     //     renders LTR, so `title, icon` puts icon adjacent to the
     //     chevron. Without this swap the icon ended up on the FAR
     //     left of the strip — opposite the chevron — and the user's
     //     chevron→icon→title reading order broke.
-    //   • vertical strips: TextShape rotation places LayoutJob's
+    //   • vertical strips: rotated title runs place the
     //     first character closest to the chevron regardless of
     //     direction (CW for top_to_bottom, CCW otherwise), so
     //     `icon, title` is always correct.
     let icon_after_title = title_side.is_horizontal_strip() && anchor.title_reversed();
-    let inline_glyph: Option<(String, egui::FontFamily)> = if inline_icon {
-        match icon {
-            Some(Icon::Name(name)) => crate::icons::icon(name).and_then(|(g, family)| {
-                ui.fonts(|fonts| fonts.families().contains(&family))
-                    .then(|| (g.to_string(), family))
-            }),
-            _ => None,
-        }
-    } else {
-        None
-    };
+    let inline_glyph: Option<(String, String)> =
+        if inline_icon && crate::icons::icon_fonts_ready() {
+            match icon {
+                Some(Icon::Name(name)) => crate::icons::icon_glyph(name)
+                    .map(|(glyph, family)| (glyph.to_string(), family)),
+                _ => None,
+            }
+        } else {
+            None
+        };
     // Inline-icon glyph is rendered 20 % larger than the title text
     // — Fluent glyphs are designed at a square optical size and
     // visually feel small next to a same-pt UPPERCASE caption, so a
@@ -2159,32 +2637,46 @@ fn paint_title(
     // Px gap between the icon and the title — applied via egui's
     // `leading_space` on the next segment, which produces a clean
     // horizontal gap independent of the chosen separator character.
-    let icon_format_for = |family: egui::FontFamily| egui::TextFormat {
-        font_id: FontId::new(inline_icon_size, family),
-        color: title_col,
-        ..Default::default()
-    };
     if !icon_after_title && let Some((glyph, family)) = &inline_glyph {
-        job.append(glyph, 0.0, icon_format_for(family.clone()));
+        push_title_run(
+            glyph.clone(),
+            0.0,
+            inline_icon_size,
+            TextFamily::Named(family.clone()),
+            title_color,
+        );
     }
     let title_lead = if !icon_after_title && inline_glyph.is_some() {
         icon_theme.section_icon_title_gap
     } else {
         0.0
     };
-    job.append(&displayed, title_lead, default_format.clone());
+    push_title_run(
+        displayed,
+        title_lead,
+        theme.section_title_size,
+        title_family.clone(),
+        title_color,
+    );
     if icon_after_title && let Some((glyph, family)) = &inline_glyph {
-        job.append(
-            glyph,
+        push_title_run(
+            glyph.clone(),
             icon_theme.section_icon_title_gap,
-            icon_format_for(family.clone()),
+            inline_icon_size,
+            TextFamily::Named(family.clone()),
+            title_color,
         );
     }
     if any_brackets {
-        job.append(" ]", 0.0, bracket_format);
+        push_title_run(
+            " ]".to_owned(),
+            0.0,
+            theme.section_title_size,
+            title_family,
+            bracket_color,
+        );
     }
-    let galley = title_painter.layout_job(job);
-    let g_size = galley.size();
+    let title_size = crate::backend::egui::measure_text_runs_for_ui(ui, &title_runs);
 
     match title_side {
         TitleSide::Top | TitleSide::Bottom => {
@@ -2197,38 +2689,52 @@ fn paint_title(
                     rect.left() + container_theme.title_inset + icon_theme.section_chevron_w * 0.5
                 };
                 paint_chevron_h(
-                    &title_painter,
-                    egui::pos2(chevron_x, rect.center().y),
+                    ui,
+                    rect.into(),
+                    MaraPos2::new(chevron_x, rect.center().y),
                     title_side,
                     if open { 1.0 } else { 0.0 },
-                    title_col,
+                    title_col.into(),
                 );
                 text_inset = container_theme.title_inset
                     + icon_theme.section_chevron_w
                     + icon_theme.section_chevron_gap;
             }
 
-            let text_pos = if anchor.title_reversed() {
-                pos2(
-                    rect.right() - text_inset - g_size.x,
-                    rect.center().y - g_size.y * 0.5,
+            let (text_pos, text_anchor) = if anchor.title_reversed() {
+                (
+                    MaraPos2::new(rect.right() - text_inset, rect.center().y),
+                    MaraAlign2::RIGHT_CENTER,
                 )
             } else {
-                pos2(rect.left() + text_inset, rect.center().y - g_size.y * 0.5)
+                (
+                    MaraPos2::new(rect.left() + text_inset, rect.center().y),
+                    MaraAlign2::LEFT_CENTER,
+                )
             };
-            title_painter.galley(text_pos, galley, title_col);
+            paint_cmd_clipped(
+                ui,
+                rect.into(),
+                PaintCmd::TextRuns {
+                    pos: text_pos,
+                    anchor: text_anchor,
+                    angle: 0.0,
+                    runs: title_runs.clone(),
+                },
+            );
 
             // Body-facing divider — PRO only, when expanded.
             if !filled && open {
-                let y = match title_side {
-                    TitleSide::Top => {
-                        (rect.bottom() + container_theme.title_body_gap_half).round() + 0.5
-                    }
-                    _ => (rect.top() - container_theme.title_body_gap_half).round() - 0.5,
-                };
-                let x_range = (rect.left() + container_theme.divider_inset)
-                    ..=(rect.right() - container_theme.divider_inset);
-                painter.hline(x_range, y, Stroke::new(1.0, theme.border_subtle));
+                paint_cmd(
+                    ui,
+                    title_divider_paint_cmd(
+                        rect.into(),
+                        title_side,
+                        container_theme.title_body_gap_half,
+                        container_theme.divider_inset,
+                        theme.border_subtle.into(),
+                    ),
+                );
             }
         }
         TitleSide::Left | TitleSide::Right => {
@@ -2245,11 +2751,12 @@ fn paint_title(
                     rect.bottom() - container_theme.title_inset - icon_theme.section_chevron_w * 0.5
                 };
                 paint_chevron_h(
-                    &title_painter,
-                    egui::pos2(cx, chevron_y),
+                    ui,
+                    rect.into(),
+                    MaraPos2::new(cx, chevron_y),
                     title_side,
                     if open { 1.0 } else { 0.0 },
-                    title_col,
+                    title_col.into(),
                 );
                 text_inset = container_theme.title_inset
                     + icon_theme.section_chevron_w
@@ -2258,35 +2765,43 @@ fn paint_title(
 
             let (text_pos, angle) = if top_to_bottom {
                 (
-                    pos2(
-                        (cx + g_size.y * 0.5).round(),
+                    MaraPos2::new(
+                        (cx + title_size.y * 0.5).round(),
                         (rect.min.y + text_inset).round(),
                     ),
                     std::f32::consts::FRAC_PI_2,
                 )
             } else {
                 (
-                    pos2(
-                        (cx - g_size.y * 0.5).round(),
+                    MaraPos2::new(
+                        (cx - title_size.y * 0.5).round(),
                         (rect.max.y - text_inset).round(),
                     ),
                     -std::f32::consts::FRAC_PI_2,
                 )
             };
-            let mut shape = TextShape::new(text_pos, galley, title_col);
-            shape.angle = angle;
-            title_painter.add(shape);
+            paint_cmd_clipped(
+                ui,
+                rect.into(),
+                PaintCmd::TextRuns {
+                    pos: text_pos,
+                    anchor: MaraAlign2::LEFT_TOP,
+                    angle,
+                    runs: title_runs.clone(),
+                },
+            );
 
             if !filled && open {
-                let x = match title_side {
-                    TitleSide::Left => {
-                        (rect.right() + container_theme.title_body_gap_half).round() + 0.5
-                    }
-                    _ => (rect.left() - container_theme.title_body_gap_half).round() - 0.5,
-                };
-                let y_range = (rect.top() + container_theme.divider_inset)
-                    ..=(rect.bottom() - container_theme.divider_inset);
-                painter.vline(x, y_range, Stroke::new(1.0, theme.border_subtle));
+                paint_cmd(
+                    ui,
+                    title_divider_paint_cmd(
+                        rect.into(),
+                        title_side,
+                        container_theme.title_body_gap_half,
+                        container_theme.divider_inset,
+                        theme.border_subtle.into(),
+                    ),
+                );
             }
         }
     }
@@ -2306,7 +2821,7 @@ fn paint_title(
 /// when fully open, framed by clipping +8 px around the painted
 /// rect. Vertical strips paint the icon centred (no rotation —
 /// Fluent glyphs read fine in either orientation, and rotating
-/// would require a `TextShape` round-trip just for a decoration).
+/// would require rotated rich text just for a decoration).
 ///
 /// Painted on `Order::Foreground` so the icon sits ABOVE the ribbon
 /// buttons (`Order::Middle`) and the pane chrome (`Order::Background`).
@@ -2333,95 +2848,7 @@ fn paint_floating_icon(
     let size = egui::lerp(folded_size..=unfolded_size, t);
     let offset = egui::lerp(folded_offset..=UNFOLDED_OFFSET, t);
 
-    let title_side = anchor.title_side();
-    let reversed = anchor.title_reversed();
-    let (icon_pos, icon_align, icon_rect) = match title_side {
-        TitleSide::Top | TitleSide::Bottom => {
-            // Icon overflows UP for top-side / DOWN for bottom-side
-            // so it grows AWAY from the body. `cy` anchors the
-            // icon's top (or bottom for bottom-anchored) at
-            // `center.y ∓ offset`.
-            let cy = if title_side == TitleSide::Top {
-                (strip_rect.center().y - offset).round()
-            } else {
-                // Bottom strip: a small openness-scaled downward
-                // bias so the icon doesn't read as "pushed up" into
-                // the body above. `BIAS` is the extra pixels of
-                // downward shift at full open; folded keeps the
-                // existing centred position.
-                const BIAS: f32 = 6.0;
-                (strip_rect.center().y + offset + BIAS * t).round()
-            };
-            let on_far_end_left = reversed;
-            if on_far_end_left {
-                let pos = pos2((strip_rect.min.x + 6.0).round(), cy);
-                let rect = if title_side == TitleSide::Top {
-                    Rect::from_min_size(pos, vec2(size, size))
-                } else {
-                    Rect::from_min_size(pos2(pos.x, pos.y - size), vec2(size, size))
-                };
-                let align = if title_side == TitleSide::Top {
-                    egui::Align2::LEFT_TOP
-                } else {
-                    egui::Align2::LEFT_BOTTOM
-                };
-                (pos, align, rect)
-            } else {
-                let pos = pos2((strip_rect.max.x - 6.0).round(), cy);
-                let rect = if title_side == TitleSide::Top {
-                    Rect::from_min_size(pos2(pos.x - size, pos.y), vec2(size, size))
-                } else {
-                    Rect::from_min_size(pos2(pos.x - size, pos.y - size), vec2(size, size))
-                };
-                let align = if title_side == TitleSide::Top {
-                    egui::Align2::RIGHT_TOP
-                } else {
-                    egui::Align2::RIGHT_BOTTOM
-                };
-                (pos, align, rect)
-            }
-        }
-        TitleSide::Left | TitleSide::Right => {
-            // Vertical strip: icon overflows AWAY from the body
-            // (LEFT for Left-anchored, RIGHT for Right-anchored).
-            let cx = if title_side == TitleSide::Left {
-                (strip_rect.center().x - offset).round()
-            } else {
-                (strip_rect.center().x + offset).round()
-            };
-            let on_right_side = title_side == TitleSide::Right;
-            let top_to_bottom = on_right_side ^ reversed;
-            if top_to_bottom {
-                let pos = pos2(cx, (strip_rect.max.y - 6.0).round());
-                let rect = if title_side == TitleSide::Left {
-                    Rect::from_min_size(pos2(pos.x, pos.y - size), vec2(size, size))
-                } else {
-                    Rect::from_min_size(pos2(pos.x - size, pos.y - size), vec2(size, size))
-                };
-                let align = if title_side == TitleSide::Left {
-                    egui::Align2::LEFT_BOTTOM
-                } else {
-                    egui::Align2::RIGHT_BOTTOM
-                };
-                (pos, align, rect)
-            } else {
-                let pos = pos2(cx, (strip_rect.min.y + 6.0).round());
-                let rect = if title_side == TitleSide::Left {
-                    Rect::from_min_size(pos, vec2(size, size))
-                } else {
-                    Rect::from_min_size(pos2(pos.x - size, pos.y), vec2(size, size))
-                };
-                let align = if title_side == TitleSide::Left {
-                    egui::Align2::LEFT_TOP
-                } else {
-                    egui::Align2::RIGHT_TOP
-                };
-                (pos, align, rect)
-            }
-        }
-    };
-
-    let _ = icon_rect;
+    let icon = floating_icon_geometry(strip_rect.into(), anchor, size, offset, t);
     // Floating icon paints at the `CONTAINER_FLOATING_ICON` tier —
     // above container chrome and corner ticks, below any
     // fullscreen / maximize overlay so the icon doesn't bleed
@@ -2431,30 +2858,46 @@ fn paint_floating_icon(
     // pop in at full alpha while the container chrome was still
     // fading. Mirror the parent's opacity onto this layer's
     // painter so the icon fades with its container.
-    let layer_id = crate::layer::layer_id(
-        ui.id().with("mara_floating_icon_layer"),
-        crate::layer::z::CONTAINER_FLOATING_ICON,
-    );
+    let layer_id: MaraId = ui.id().with("mara_floating_icon_layer").into();
     let parent_opacity = ui.opacity();
     match icon_src {
         Icon::Name(name) => {
-            let mut p = ui.ctx().layer_painter(layer_id);
-            p.set_opacity(parent_opacity);
-            crate::icons::paint_icon(&p, icon_pos, icon_align, name, size, title_col);
+            if let Some(cmd) =
+                icon_name_paint_cmd(icon.pos, icon.align, name, size, title_col.into())
+            {
+                crate::backend::egui::render_paint_cmd_on_z_layer(
+                    ui,
+                    layer_id,
+                    crate::layer::z::CONTAINER_FLOATING_ICON,
+                    icon.rect,
+                    parent_opacity,
+                    cmd,
+                );
+            }
         }
-        Icon::Svg(_) => {
-            let mut child = ui.new_child(
-                UiBuilder::new()
-                    .layer_id(layer_id)
-                    .max_rect(icon_rect)
-                    .layout(Layout::default()),
-            );
-            child.set_opacity(parent_opacity);
-            crate::icons::paint_section_icon(
-                &mut child, icon_pos, icon_align, icon_src, size, title_col,
+        Icon::Svg(svg) => {
+            crate::backend::egui::render_paint_cmd_on_z_layer(
+                ui,
+                layer_id,
+                crate::layer::z::CONTAINER_FLOATING_ICON,
+                icon.rect,
+                parent_opacity,
+                icon_svg_paint_cmd(icon.pos, icon.align, svg, size, title_col.into()),
             );
         }
     }
+}
+
+fn paint_cmd(ui: &mut Ui, cmd: PaintCmd) {
+    let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
+    crate::layout::UiBackend::paint(&mut backend, cmd);
+}
+
+fn paint_cmd_clipped(ui: &mut Ui, clip: MaraRect, cmd: PaintCmd) {
+    let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
+    crate::layout::UiBackend::push_clip(&mut backend, clip);
+    crate::layout::UiBackend::paint(&mut backend, cmd);
+    crate::layout::UiBackend::pop_clip(&mut backend);
 }
 
 /// Polynomial smoothstep, `t * t * (3 - 2t)`. Approximates
@@ -2490,22 +2933,32 @@ fn ease_out_elastic(t: f32) -> f32 {
 /// `openness` 0..=1. Glyph reads `›` (closed) → `⌄` (open) for a
 /// Top title; mirrored / rotated for the other three sides.
 fn paint_chevron_h(
-    painter: &egui::Painter,
-    center: egui::Pos2,
+    ui: &mut Ui,
+    clip: MaraRect,
+    center: MaraPos2,
     title_side: TitleSide,
     openness: f32,
-    tint: Color32,
+    tint: MaraColor32,
 ) {
+    paint_cmd_clipped(
+        ui,
+        clip,
+        chevron_h_paint_cmd(center, title_side, openness, tint),
+    );
+}
+
+fn chevron_h_paint_cmd(
+    center: MaraPos2,
+    title_side: TitleSide,
+    openness: f32,
+    tint: MaraColor32,
+) -> PaintCmd {
     const GLYPH_W: f32 = 8.0;
     const GLYPH_H: f32 = 5.0;
     let hw = GLYPH_W * 0.5;
     let hh = GLYPH_H * 0.5;
     // Base shape `⌄`: arms at top corners, apex at bottom centre.
-    let raw = [
-        egui::vec2(-hw, -hh),
-        egui::vec2(0.0, hh),
-        egui::vec2(hw, -hh),
-    ];
+    let raw = [(-hw, -hh), (0.0, hh), (hw, -hh)];
     use std::f32::consts::TAU;
     // Closed → open angle ranges per side:
     //   Top:    -90° → 0°   (›  → ⌄)
@@ -2518,15 +2971,20 @@ fn paint_chevron_h(
         TitleSide::Left => (0.0, -TAU / 4.0),
         TitleSide::Right => (0.0, TAU / 4.0),
     };
-    let rot = egui::emath::Rot2::from_angle(egui::lerp(closed..=open, openness));
-    let pts: Vec<egui::Pos2> = raw
+    let angle = closed + (open - closed) * openness.clamp(0.0, 1.0);
+    let (sin, cos) = angle.sin_cos();
+    let points: Vec<MaraPos2> = raw
         .iter()
-        .map(|v| {
-            let r = rot * *v;
-            egui::pos2(center.x + r.x, center.y + r.y)
+        .map(|&(x, y)| {
+            let rx = x * cos - y * sin;
+            let ry = x * sin + y * cos;
+            MaraPos2::new(center.x + rx, center.y + ry)
         })
         .collect();
-    painter.add(egui::Shape::line(pts, Stroke::new(1.6, tint)));
+    PaintCmd::Polyline {
+        points,
+        stroke: MaraStroke::new(1.6, tint),
+    }
 }
 
 /// Paint L-shaped corner ticks around `outer_rect`. Gated on
@@ -2597,7 +3055,7 @@ fn paint_corner_ticks(
     let prev_active_id = snap_id.with("prev_active");
     let prev_body_open_id = snap_id.with("prev_body_open");
     let first_seen_id = snap_id.with("first_seen");
-    let now = ui.ctx().input(|i| i.time);
+    let now = crate::backend::egui::input_time(ui.ctx());
     let opacity_active = ui.opacity() >= OPACITY_GATE;
     let body_open_now: bool = ui.ctx().data_mut(|d| {
         d.get_persisted::<bool>(container_id.with("body_open"))
@@ -2655,7 +3113,7 @@ fn paint_corner_ticks(
         None => 0.0,
     };
     if appear < 1.0 {
-        ui.ctx().request_repaint();
+        crate::backend::egui::request_repaint(ui.ctx());
     }
     // Snap progress is driven by `appear` ALONE — re-arming events
     // (pane launch, single-container unfold) drop `first_seen`,
@@ -2749,34 +3207,88 @@ fn paint_corner_ticks(
         TitleSide::Left => (contrast_col, body_side_col, contrast_col, body_side_col),
         TitleSide::Right => (body_side_col, contrast_col, body_side_col, contrast_col),
     };
-    // Doubled-thickness stroke (was 1.0) so the corner ticks read
-    // as bold marks rather than hairlines — easier to spot and
-    // gives the GAME chrome more visual weight.
-    let stroke = |c: Color32| Stroke::new(2.0, c);
-
-    let shapes: [egui::Shape; 8] = [
-        // ┌ top-left
-        egui::Shape::line_segment([egui::pos2(lx, ty), egui::pos2(lx + len, ty)], stroke(tl)),
-        egui::Shape::line_segment([egui::pos2(lx, ty), egui::pos2(lx, ty + len)], stroke(tl)),
-        // ┐ top-right
-        egui::Shape::line_segment([egui::pos2(rx - len, ty), egui::pos2(rx, ty)], stroke(tr)),
-        egui::Shape::line_segment([egui::pos2(rx, ty), egui::pos2(rx, ty + len)], stroke(tr)),
-        // └ bottom-left
-        egui::Shape::line_segment([egui::pos2(lx, by - len), egui::pos2(lx, by)], stroke(bl)),
-        egui::Shape::line_segment([egui::pos2(lx, by), egui::pos2(lx + len, by)], stroke(bl)),
-        // ┘ bottom-right
-        egui::Shape::line_segment([egui::pos2(rx - len, by), egui::pos2(rx, by)], stroke(br)),
-        egui::Shape::line_segment([egui::pos2(rx, by - len), egui::pos2(rx, by)], stroke(br)),
-    ];
     // L-brackets paint at the `CONTAINER_TICKS` tier — above the
     // pane content / container chrome, below any fullscreen
     // overlay (`FULLSCREEN` tier) and above tab-cell fills.
-    let p = crate::layer::painter(
-        ui,
-        container_id.with("mara_corner_ticks"),
-        crate::layer::z::CONTAINER_TICKS,
-    );
-    p.extend(shapes);
+    let layer_id: MaraId = container_id.with("mara_corner_ticks").into();
+    for cmd in corner_tick_paint_cmds(
+        lx,
+        ty,
+        rx,
+        by,
+        len,
+        [tl.into(), tr.into(), bl.into(), br.into()],
+    ) {
+        crate::backend::egui::render_paint_cmd_on_z_layer(
+            ui,
+            layer_id,
+            crate::layer::z::CONTAINER_TICKS,
+            outer_rect.into(),
+            ui.opacity(),
+            cmd,
+        );
+    }
+}
+
+fn corner_tick_paint_cmds(
+    lx: f32,
+    ty: f32,
+    rx: f32,
+    by: f32,
+    len: f32,
+    colors: [MaraColor32; 4],
+) -> Vec<PaintCmd> {
+    // Doubled-thickness stroke (was 1.0) so the corner ticks read
+    // as bold marks rather than hairlines — easier to spot and
+    // gives the GAME chrome more visual weight.
+    let stroke = |c: MaraColor32| MaraStroke::new(2.0, c);
+    let [tl, tr, bl, br] = colors;
+    vec![
+        // ┌ top-left
+        PaintCmd::Line {
+            a: MaraPos2::new(lx, ty),
+            b: MaraPos2::new(lx + len, ty),
+            stroke: stroke(tl),
+        },
+        PaintCmd::Line {
+            a: MaraPos2::new(lx, ty),
+            b: MaraPos2::new(lx, ty + len),
+            stroke: stroke(tl),
+        },
+        // ┐ top-right
+        PaintCmd::Line {
+            a: MaraPos2::new(rx - len, ty),
+            b: MaraPos2::new(rx, ty),
+            stroke: stroke(tr),
+        },
+        PaintCmd::Line {
+            a: MaraPos2::new(rx, ty),
+            b: MaraPos2::new(rx, ty + len),
+            stroke: stroke(tr),
+        },
+        // └ bottom-left
+        PaintCmd::Line {
+            a: MaraPos2::new(lx, by - len),
+            b: MaraPos2::new(lx, by),
+            stroke: stroke(bl),
+        },
+        PaintCmd::Line {
+            a: MaraPos2::new(lx, by),
+            b: MaraPos2::new(lx + len, by),
+            stroke: stroke(bl),
+        },
+        // ┘ bottom-right
+        PaintCmd::Line {
+            a: MaraPos2::new(rx - len, by),
+            b: MaraPos2::new(rx, by),
+            stroke: stroke(br),
+        },
+        PaintCmd::Line {
+            a: MaraPos2::new(rx, by - len),
+            b: MaraPos2::new(rx, by),
+            stroke: stroke(br),
+        },
+    ]
 }
 
 /// Compute the maximum natural body height across a tabbed
@@ -2803,11 +3315,13 @@ fn max_tab_natural_body_h(tabs: &[super::Tab]) -> f32 {
 
 #[cfg(test)]
 mod active_tab_tests {
+    use crate::paint::TextFamily;
+
     use super::*;
 
     #[test]
     fn tabbed_container_max_rect_reserves_right_strip_inside_available_rect() {
-        let avail = egui::Rect::from_min_max(pos2(10.0, 20.0), pos2(310.0, 620.0));
+        let avail = MaraRect::from_min_max(MaraPos2::new(10.0, 20.0), MaraPos2::new(310.0, 620.0));
         let rect = tabbed_container_max_rect(avail, TitleSide::Right, 26.0, 14.0);
 
         assert_eq!(rect.left(), avail.left());
@@ -2818,13 +3332,219 @@ mod active_tab_tests {
 
     #[test]
     fn tabbed_container_max_rect_mirrors_left_and_right_strip_reservation() {
-        let avail = egui::Rect::from_min_max(pos2(10.0, 20.0), pos2(310.0, 620.0));
+        let avail = MaraRect::from_min_max(MaraPos2::new(10.0, 20.0), MaraPos2::new(310.0, 620.0));
         let left = tabbed_container_max_rect(avail, TitleSide::Left, 26.0, 14.0);
         let right = tabbed_container_max_rect(avail, TitleSide::Right, 26.0, 14.0);
 
         assert_eq!(left.width(), right.width());
         assert_eq!(left.left(), avail.left() + 40.0);
         assert_eq!(right.right(), avail.right() - 40.0);
+    }
+
+    #[test]
+    fn title_and_body_slot_sizes_use_mara_vectors_for_both_orientations() {
+        assert_eq!(
+            title_slot_size(true, 280.0, 22.0),
+            MaraVec2::new(280.0, 22.0)
+        );
+        assert_eq!(
+            title_slot_size(false, 280.0, 22.0),
+            MaraVec2::new(22.0, 280.0)
+        );
+
+        assert_eq!(
+            body_slot_sizes(true, 280.0, 120.0, 200.0),
+            BodySlotSizes {
+                visible: MaraVec2::new(280.0, 120.0),
+                full: MaraVec2::new(280.0, 200.0),
+            }
+        );
+        assert_eq!(
+            body_slot_sizes(false, 280.0, 120.0, 200.0),
+            BodySlotSizes {
+                visible: MaraVec2::new(120.0, 280.0),
+                full: MaraVec2::new(200.0, 280.0),
+            }
+        );
+    }
+
+    #[test]
+    fn body_full_rect_anchors_to_reversed_layout_edges() {
+        let visible =
+            MaraRect::from_min_max(MaraPos2::new(100.0, 200.0), MaraPos2::new(220.0, 260.0));
+        let full_size = MaraVec2::new(120.0, 180.0);
+
+        assert_eq!(
+            body_full_rect(visible, full_size, crate::layout::StackDirection::BottomUp,),
+            MaraRect::from_min_size(MaraPos2::new(100.0, 80.0), full_size)
+        );
+        assert_eq!(
+            body_full_rect(
+                visible,
+                full_size,
+                crate::layout::StackDirection::RightToLeft,
+            ),
+            MaraRect::from_min_size(MaraPos2::new(100.0, 200.0), full_size)
+        );
+        assert_eq!(
+            body_full_rect(visible, full_size, crate::layout::StackDirection::TopDown),
+            MaraRect::from_min_size(MaraPos2::new(100.0, 200.0), full_size)
+        );
+    }
+
+    #[test]
+    fn folder_tab_strip_rect_offsets_title_facing_end_with_mara_geometry() {
+        let used = MaraRect::from_min_max(MaraPos2::new(100.0, 200.0), MaraPos2::new(380.0, 500.0));
+
+        let left_top = folder_tab_strip_rect(used, TitleSide::Left, TitleSide::Top, 26.0, 34.0);
+        let top_right = folder_tab_strip_rect(used, TitleSide::Top, TitleSide::Right, 26.0, 34.0);
+
+        assert_eq!(
+            left_top,
+            MaraRect::from_min_max(MaraPos2::new(74.0, 234.0), MaraPos2::new(100.0, 500.0))
+        );
+        assert_eq!(
+            top_right,
+            MaraRect::from_min_max(MaraPos2::new(100.0, 174.0), MaraPos2::new(346.0, 200.0))
+        );
+    }
+
+    #[test]
+    fn top_tab_title_rect_expands_to_frame_edge_with_mara_geometry() {
+        let title =
+            MaraRect::from_min_max(MaraPos2::new(100.0, 200.0), MaraPos2::new(380.0, 224.0));
+
+        let expanded = top_tab_title_rect(title, 8.0, 5.0);
+
+        assert_eq!(
+            expanded,
+            MaraRect::from_min_max(MaraPos2::new(92.0, 195.0), MaraPos2::new(388.0, 224.0))
+        );
+    }
+
+    #[test]
+    fn separator_debug_rect_uses_cursor_delta_as_mara_geometry() {
+        let before = MaraRect::from_min_max(MaraPos2::new(15.0, 30.0), MaraPos2::new(115.0, 42.0));
+        let after = MaraRect::from_min_max(MaraPos2::new(15.0, 48.0), MaraPos2::new(115.0, 60.0));
+
+        let strip = separator_debug_rect(before, after);
+
+        assert_eq!(
+            strip,
+            MaraRect::from_min_max(MaraPos2::new(15.0, 30.0), MaraPos2::new(115.0, 48.0))
+        );
+    }
+
+    #[test]
+    fn title_banner_rect_uses_mara_geometry_for_open_and_collapsed_states() {
+        let used = MaraRect::from_min_max(MaraPos2::new(100.0, 200.0), MaraPos2::new(380.0, 500.0));
+        let pad = style::MarginSpec {
+            left: 2,
+            right: 3,
+            top: 4,
+            bottom: 5,
+        };
+
+        assert_eq!(
+            title_banner_rect(used, pad, TitleSide::Top, 20.0, 6.0, false),
+            MaraRect::from_min_max(MaraPos2::new(98.0, 196.0), MaraPos2::new(383.0, 505.0))
+        );
+        assert_eq!(
+            title_banner_rect(used, pad, TitleSide::Right, 20.0, 6.0, true),
+            MaraRect::from_min_max(MaraPos2::new(354.0, 196.0), MaraPos2::new(383.0, 505.0))
+        );
+    }
+
+    #[test]
+    fn floating_icon_geometry_uses_mara_rects_for_horizontal_title() {
+        let strip =
+            MaraRect::from_min_max(MaraPos2::new(100.0, 200.0), MaraPos2::new(380.0, 224.0));
+
+        let icon = floating_icon_geometry(
+            strip,
+            PaneAnchor::TopRail(crate::pane::RailZone::Middle),
+            40.0,
+            10.0,
+            0.0,
+        );
+
+        assert_eq!(icon.pos, MaraPos2::new(374.0, 202.0));
+        assert_eq!(icon.align, MaraAlign2::RIGHT_TOP);
+        assert_eq!(
+            icon.rect,
+            MaraRect::from_min_size(MaraPos2::new(334.0, 202.0), MaraVec2::new(40.0, 40.0))
+        );
+    }
+
+    #[test]
+    fn floating_icon_geometry_uses_mara_rects_for_reversed_vertical_title() {
+        let strip =
+            MaraRect::from_min_max(MaraPos2::new(100.0, 200.0), MaraPos2::new(124.0, 500.0));
+
+        let icon = floating_icon_geometry(
+            strip,
+            PaneAnchor::BottomRail(crate::pane::RailZone::End),
+            40.0,
+            10.0,
+            0.0,
+        );
+
+        assert_eq!(icon.pos, MaraPos2::new(122.0, 206.0));
+        assert_eq!(icon.align, MaraAlign2::RIGHT_TOP);
+        assert_eq!(
+            icon.rect,
+            MaraRect::from_min_size(MaraPos2::new(82.0, 206.0), MaraVec2::new(40.0, 40.0))
+        );
+    }
+
+    #[test]
+    fn folder_tab_cell_geometry_uses_mara_rects_for_left_projection() {
+        let strip = MaraRect::from_min_size(MaraPos2::new(10.0, 20.0), MaraVec2::new(26.0, 90.0));
+
+        let cell = folder_tab_cell_geometry(strip, TitleSide::Left, 1, 30.0, 4.0, 3.0, 6)
+            .expect("second cell should fit");
+
+        assert_eq!(
+            cell.base,
+            MaraRect::from_min_size(MaraPos2::new(10.0, 54.0), MaraVec2::new(26.0, 30.0))
+        );
+        assert_eq!(
+            cell.active,
+            MaraRect::from_min_max(MaraPos2::new(10.0, 54.0), MaraPos2::new(39.0, 84.0))
+        );
+        assert_eq!(cell.corners, MaraCornerRadius::from_corners(6, 0, 6, 0));
+    }
+
+    #[test]
+    fn folder_tab_cell_geometry_clips_when_cell_overflows_strip() {
+        let strip = MaraRect::from_min_size(MaraPos2::new(10.0, 20.0), MaraVec2::new(90.0, 26.0));
+
+        assert!(folder_tab_cell_geometry(strip, TitleSide::Top, 3, 30.0, 4.0, 3.0, 6).is_none());
+    }
+
+    #[test]
+    fn top_tab_cell_geometry_uses_mara_rects_and_centers() {
+        let title = MaraRect::from_min_size(MaraPos2::new(20.0, 30.0), MaraVec2::new(120.0, 50.0));
+
+        let cell = top_tab_cell_geometry(title, 2, 3).expect("third cell should exist");
+
+        assert_eq!(
+            cell.rect,
+            MaraRect::from_min_size(MaraPos2::new(100.0, 30.0), MaraVec2::new(40.0, 50.0))
+        );
+        assert_eq!(cell.icon_center, MaraPos2::new(120.0, 46.0));
+        assert_eq!(cell.label_center_base, MaraPos2::new(120.0, 67.0));
+    }
+
+    #[test]
+    fn top_tab_cell_geometry_rejects_empty_or_zero_width_rows() {
+        let zero_count =
+            MaraRect::from_min_size(MaraPos2::new(20.0, 30.0), MaraVec2::new(120.0, 50.0));
+        let zero_width =
+            MaraRect::from_min_size(MaraPos2::new(20.0, 30.0), MaraVec2::new(0.0, 50.0));
+
+        assert!(top_tab_cell_geometry(zero_count, 0, 0).is_none());
+        assert!(top_tab_cell_geometry(zero_width, 0, 3).is_none());
     }
 
     #[test]
@@ -2840,6 +3560,149 @@ mod active_tab_tests {
             (pro.section_outer_margin_span + pro.section_pad_x) as f32,
             "side shelf tab strips must not include body inner padding in the outer inset"
         );
+    }
+
+    #[test]
+    fn tab_rect_chrome_backend_lowers_to_mara_paint_commands() {
+        let rect = MaraRect::from_min_size(MaraPos2::ZERO, crate::vocab::Vec2::new(24.0, 12.0));
+
+        let commands = tab_rect_chrome_paint_cmds(
+            rect,
+            MaraCornerRadius::same(3),
+            MaraColor32::from_rgb(1, 2, 3),
+            Some(MaraStroke::new(1.5, MaraColor32::WHITE)),
+        );
+
+        assert!(matches!(commands[0], PaintCmd::RectFilled { .. }));
+        assert!(matches!(commands[1], PaintCmd::RectStroke { .. }));
+    }
+
+    #[test]
+    fn top_tab_label_backend_lowers_to_mara_text_command() {
+        let cmd =
+            top_tab_label_paint_cmd(MaraPos2::new(5.0, 6.0), "layers", 11.0, MaraColor32::WHITE);
+
+        let PaintCmd::Text {
+            text, anchor, mono, ..
+        } = cmd
+        else {
+            panic!("top tab labels should lower to Mara text commands");
+        };
+        assert_eq!(text, "LAYERS");
+        assert_eq!(anchor, MaraAlign2::CENTER_CENTER);
+        assert!(!mono);
+    }
+
+    #[test]
+    fn container_icon_backend_lowers_named_icons_to_mara_text_family() {
+        let cmd = icon_name_paint_cmd(
+            MaraPos2::new(5.0, 6.0),
+            MaraAlign2::CENTER_CENTER,
+            "search",
+            16.0,
+            MaraColor32::WHITE,
+        )
+        .expect("search icon should be bundled");
+
+        let PaintCmd::TextWithFamily {
+            text,
+            family,
+            anchor,
+            ..
+        } = cmd
+        else {
+            panic!("named container icons should lower to Mara named-font text commands");
+        };
+        assert_eq!(text.chars().count(), 1);
+        assert_eq!(anchor, MaraAlign2::CENTER_CENTER);
+        let TextFamily::Named(family) = family else {
+            panic!("named container icons should keep a named text family");
+        };
+        assert!(!family.is_empty());
+    }
+
+    #[test]
+    fn container_svg_icon_backend_lowers_to_mara_svg_command() {
+        let svg = "<svg viewBox='0 0 8 8'></svg>";
+        let cmd = icon_svg_paint_cmd(
+            MaraPos2::new(10.0, 20.0),
+            MaraAlign2::CENTER_CENTER,
+            svg,
+            16.0,
+            MaraColor32::WHITE,
+        );
+
+        let PaintCmd::Svg {
+            svg: retained,
+            rect,
+            tint,
+        } = cmd
+        else {
+            panic!("svg container icons should lower to Mara SVG paint commands");
+        };
+        assert_eq!(retained, svg);
+        assert_eq!(
+            rect,
+            MaraRect::from_min_max(MaraPos2::new(2.0, 12.0), MaraPos2::new(18.0, 28.0))
+        );
+        assert_eq!(tint, MaraColor32::WHITE);
+    }
+
+    #[test]
+    fn container_chevron_backend_lowers_to_polyline_command() {
+        let cmd = chevron_h_paint_cmd(
+            MaraPos2::new(10.0, 20.0),
+            TitleSide::Top,
+            1.0,
+            MaraColor32::WHITE,
+        );
+
+        let PaintCmd::Polyline { points, stroke } = cmd else {
+            panic!("container chevron should lower to a polyline command");
+        };
+        assert_eq!(points.len(), 3);
+        assert_eq!(stroke.width, 1.6);
+    }
+
+    #[test]
+    fn title_divider_backend_lowers_to_line_command() {
+        let rect = MaraRect::from_min_size(
+            MaraPos2::new(10.0, 20.0),
+            crate::vocab::Vec2::new(100.0, 22.0),
+        );
+
+        let top = title_divider_paint_cmd(rect, TitleSide::Top, 4.0, 6.0, MaraColor32::WHITE);
+        let PaintCmd::Line { a, b, stroke } = top else {
+            panic!("horizontal title dividers should lower to line commands");
+        };
+        assert_eq!(a, MaraPos2::new(16.0, 46.5));
+        assert_eq!(b, MaraPos2::new(104.0, 46.5));
+        assert_eq!(stroke.width, 1.0);
+
+        let left = title_divider_paint_cmd(rect, TitleSide::Left, 4.0, 6.0, MaraColor32::WHITE);
+        let PaintCmd::Line { a, b, .. } = left else {
+            panic!("vertical title dividers should lower to line commands");
+        };
+        assert_eq!(a, MaraPos2::new(114.5, 26.0));
+        assert_eq!(b, MaraPos2::new(114.5, 36.0));
+    }
+
+    #[test]
+    fn corner_ticks_backend_lower_to_line_commands() {
+        let commands = corner_tick_paint_cmds(1.0, 2.0, 21.0, 22.0, 5.0, [MaraColor32::WHITE; 4]);
+
+        assert_eq!(commands.len(), 8);
+        assert!(
+            commands
+                .iter()
+                .all(|cmd| matches!(cmd, PaintCmd::Line { .. }))
+        );
+        let PaintCmd::Line { a, b, stroke } = commands[0] else {
+            panic!("corner ticks should lower to line commands");
+        };
+        assert_eq!(a, MaraPos2::new(1.0, 2.0));
+        assert_eq!(b, MaraPos2::new(6.0, 2.0));
+        assert_eq!(stroke.width, 2.0);
     }
 
     #[test]

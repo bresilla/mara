@@ -10,10 +10,10 @@ use bevy::light::{CascadeShadowConfigBuilder, NotShadowCaster, NotShadowReceiver
 use bevy::pbr::{DistanceFog, FogFalloff};
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
-use bevy_glacial::prelude::*;
 use eframe::egui;
 use mara::ui::modules::bevy::{
     BevyViewportInput, BevyViewportPickedColor, BevyViewportRenderTarget, BevyViewportSet,
+    ChaseCamera, GroundGrid, apply_rig, apply_viewport_camera_input_system,
 };
 
 const PLANET_RADIUS: f32 = 6_371_000.0;
@@ -34,7 +34,8 @@ pub fn configure_app(app: &mut App) {
 /// Configure the same demo Bevy scene when Bevy owns the top-level
 /// app/window. This path does not use the offscreen
 /// `BevyViewportRenderTarget`; the camera renders into Bevy's normal
-/// frame while Mara UI is drawn by `bevy_egui` on top.
+/// frame. The canonical Mara app path embeds this scene as viewport
+/// content instead of drawing Mara UI through a Bevy egui bridge.
 pub fn configure_bevy_host_app(app: &mut App) {
     app.insert_resource(ClearColor(Color::srgb_u8(10, 12, 16)))
         .insert_resource(BevyHostSceneProfile)
@@ -51,6 +52,7 @@ pub fn configure_bevy_host_app(app: &mut App) {
             Update,
             (
                 sync_bevy_host_viewport_input,
+                apply_viewport_camera_input_system,
                 apply_bevy_host_scene_visibility,
                 pick_cube,
                 update_swatch_selection,
@@ -245,7 +247,7 @@ fn setup_scene(
         Transform::from_xyz(5.0, 50.0, 5.0).looking_at(Vec3::ZERO, Vec3::Y),
         DirectionalLight {
             illuminance: 10_000.0,
-            shadows_enabled: !bevy_host,
+            shadow_maps_enabled: !bevy_host,
             ..default()
         },
         sun_shadow,
@@ -325,7 +327,7 @@ fn pick_cube(
         }
     }
     if let Some((_, entity, color)) = best {
-        picked.0 = Some(color);
+        picked.0 = Some(color.into());
         selected.0 = Some(entity);
     }
 }
@@ -349,7 +351,7 @@ fn update_swatch_selection(
         let is_sel = selected.0 == Some(entity);
         let target_y = if is_sel { LIFT_Y } else { REST_Y };
         tr.translation.y += (target_y - tr.translation.y) * k;
-        if let Some(mat) = materials.get_mut(&mat_handle.0) {
+        if let Some(mut mat) = materials.get_mut(&mat_handle.0) {
             mat.base_color = cube.base_color;
             let base = cube.base_color.to_linear();
             let gain = if is_sel { 1.8 } else { 0.0 };

@@ -4,50 +4,265 @@
 //! (e.g. nested variant browsers, debug overlays).
 //!
 //! The pane/container path uses [`crate::container::Normal`]
-//! instead — this helper is a thin shim for callers that just want
-//! "an egui collapsible with mara paint".
+//! instead. The body is still hosted by the current egui `Ui`, but
+//! disclosure state and header chrome now go through Mara memory and
+//! backend contracts so future non-egui backends have the same row
+//! vocabulary/state model to implement.
 
-use egui::collapsing_header::CollapsingState;
-
-use crate::style::{FrameRole, frame_for, on_section, section_caps};
+use crate::{
+    layout::{IndentedBodySpec, Sense, UiBackend},
+    memory::MaraMemory,
+    mui::MaraResponse,
+    paint::PaintCmd,
+    style::{FrameRole, frame_for, on_section, theme},
+    vocab::{Align2, Color32, Id, Pos2, Vec2},
+};
 
 /// Render a mara-styled collapsible section. `id_salt` makes the
 /// section's open/closed state distinct from siblings; `title` is
 /// the header label; `default_open` is the initial state on first
 /// paint.
-pub fn section(
+pub(crate) fn section(
     ui: &mut egui::Ui,
     id_salt: &str,
     title: &str,
-    accent: egui::Color32,
+    accent: impl Into<Color32>,
     default_open: bool,
     body: impl FnOnce(&mut egui::Ui),
 ) {
-    let id = ui.id().with(("mara_section", id_salt));
-    let mut state = CollapsingState::load_with_default_open(ui.ctx(), id, default_open);
+    let accent = accent.into();
+    let id = section_memory_id(crate::backend::egui::ui_id(ui), id_salt);
 
     let frame = frame_for(FrameRole::Section, accent);
 
-    frame.show(ui, |ui| {
-        // Header — chevron + UPPERCASE title, click-toggles open.
-        let header_resp = ui
-            .horizontal(|ui| {
-                let openness = state.openness(ui.ctx());
-                let chevron = if openness > 0.5 { "▾" } else { "▸" };
-                let chevron_resp = ui.add(
-                    egui::Label::new(egui::RichText::new(chevron).color(on_section()).size(11.0))
-                        .sense(egui::Sense::click()),
-                );
-                let title_resp = ui
-                    .add(egui::Label::new(section_caps(title, accent)).sense(egui::Sense::click()));
-                chevron_resp.union(title_resp)
-            })
-            .inner;
-        if header_resp.clicked() {
-            state.toggle(ui);
+    crate::backend::egui::egui_frame_for_style_spec(frame).show(ui, |ui| {
+        let mut open = {
+            let memory = crate::backend::egui::memory_ctx_for_ui(ui);
+            section_open(&memory, id, default_open)
+        };
+        let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
+        let header_resp = section_header_backend(&mut backend, title, open, accent);
+
+        if apply_section_toggle(&mut open, &header_resp) {
+            let mut memory = crate::backend::egui::memory_ctx_for_ui(ui);
+            set_section_open(&mut memory, id, open);
         }
-        state.show_body_indented(&header_resp, ui, |ui| {
-            body(ui);
-        });
+
+        if let Some(spec) = section_body_spec(id, open) {
+            crate::backend::egui::show_indented_body_for_spec(ui, spec, |ui| body(ui));
+        }
     });
+}
+
+/// Backend-neutral foldable-section header. It intentionally covers
+/// only the interactive header row; [`section`] owns the disclosure
+/// state through Mara memory while the body is still hosted by the
+/// current egui backend.
+pub fn section_header_backend(
+    backend: &mut impl UiBackend,
+    title: &str,
+    open: bool,
+    accent: Color32,
+) -> MaraResponse {
+    let th = theme();
+    let available = backend.available_rect();
+    let height = th
+        .container
+        .title_zone_thickness
+        .max(th.container.title_size + 4.0);
+    let response = backend.allocate(Vec2::new(available.width().max(0.0), height), Sense::Click);
+    let chevron = if open { "▾" } else { "▸" };
+    let chevron_x = response.rect.min.x;
+    let text_x = chevron_x + 14.0;
+    let center_y = response.rect.center().y;
+
+    backend.paint(PaintCmd::Text {
+        pos: Pos2::new(chevron_x, center_y),
+        anchor: Align2::LEFT_CENTER,
+        text: chevron.to_owned(),
+        size: th.container.title_size,
+        color: on_section(),
+        mono: false,
+    });
+    backend.paint(PaintCmd::Text {
+        pos: Pos2::new(text_x, center_y),
+        anchor: Align2::LEFT_CENTER,
+        text: title.to_uppercase(),
+        size: th.container.title_size,
+        color: accent,
+        mono: false,
+    });
+    response
+}
+
+fn section_memory_id(scope: Id, id_salt: &str) -> Id {
+    scope.with(("mara_section", id_salt))
+}
+
+fn section_open(memory: &impl MaraMemory, id: Id, default_open: bool) -> bool {
+    memory.get_persisted::<bool>(id).unwrap_or(default_open)
+}
+
+fn set_section_open(memory: &mut impl MaraMemory, id: Id, open: bool) {
+    memory.set_persisted(id, open);
+}
+
+fn apply_section_toggle(open: &mut bool, response: &MaraResponse) -> bool {
+    if response.clicked() {
+        *open = !*open;
+        true
+    } else {
+        false
+    }
+}
+
+fn section_body_spec(id: Id, open: bool) -> Option<IndentedBodySpec> {
+    open.then(|| IndentedBodySpec::new(id.with("body")))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::{any::Any, collections::HashMap};
+
+    use crate::vocab::Rect;
+
+    #[derive(Default)]
+    struct RecordingBackend {
+        available: Rect,
+        paints: Vec<PaintCmd>,
+    }
+
+    #[derive(Default)]
+    struct RecordingMemory {
+        temp: HashMap<Id, Box<dyn Any + Send + Sync>>,
+        persisted: HashMap<Id, Box<dyn Any + Send + Sync>>,
+    }
+
+    impl MaraMemory for RecordingMemory {
+        fn get_persisted<T>(&self, id: Id) -> Option<T>
+        where
+            T: Clone + Send + Sync + 'static,
+        {
+            self.persisted
+                .get(&id)
+                .and_then(|value| value.downcast_ref::<T>())
+                .cloned()
+        }
+
+        fn set_persisted<T>(&mut self, id: Id, value: T)
+        where
+            T: Clone + Send + Sync + 'static,
+        {
+            self.persisted.insert(id, Box::new(value));
+        }
+
+        fn get_temp<T>(&self, id: Id) -> Option<T>
+        where
+            T: Clone + Send + Sync + 'static,
+        {
+            self.temp
+                .get(&id)
+                .and_then(|value| value.downcast_ref::<T>())
+                .cloned()
+        }
+
+        fn set_temp<T>(&mut self, id: Id, value: T)
+        where
+            T: Clone + Send + Sync + 'static,
+        {
+            self.temp.insert(id, Box::new(value));
+        }
+    }
+
+    impl UiBackend for RecordingBackend {
+        fn begin_area(&mut self, _host: crate::layout::AreaHost, rect: Rect) {
+            self.available = rect;
+        }
+
+        fn allocate(&mut self, size: Vec2, _sense: Sense) -> MaraResponse {
+            MaraResponse::synthetic(Rect::from_min_size(self.available.min, size))
+        }
+
+        fn interact(&mut self, rect: Rect, _id: Id, _sense: Sense) -> MaraResponse {
+            MaraResponse::synthetic(rect)
+        }
+
+        fn available_rect(&self) -> Rect {
+            self.available
+        }
+
+        fn push_clip(&mut self, _rect: Rect) {}
+
+        fn pop_clip(&mut self) {}
+
+        fn measure_text(&self, text: &str, size: f32, _mono: bool) -> Vec2 {
+            Vec2::new(text.len() as f32 * size * 0.5, size)
+        }
+
+        fn paint(&mut self, cmd: PaintCmd) {
+            self.paints.push(cmd);
+        }
+    }
+
+    #[test]
+    fn section_header_backend_emits_chevron_and_caps_title() {
+        let mut backend = RecordingBackend {
+            available: Rect::from_min_size(Pos2::ZERO, Vec2::new(160.0, 24.0)),
+            paints: Vec::new(),
+        };
+
+        let response =
+            section_header_backend(&mut backend, "backend agnostic", true, Color32::WHITE);
+
+        assert_eq!(response.rect.width(), 160.0);
+        let [
+            PaintCmd::Text { text: chevron, .. },
+            PaintCmd::Text { text: title, .. },
+        ] = backend.paints.as_slice()
+        else {
+            panic!("section header should emit chevron and title text commands");
+        };
+        assert_eq!(chevron, "▾");
+        assert_eq!(title, "BACKEND AGNOSTIC");
+    }
+
+    #[test]
+    fn section_open_state_uses_mara_memory_with_default_fallback() {
+        let mut memory = RecordingMemory::default();
+        let id = section_memory_id(Id::new("scope"), "details");
+
+        assert!(section_open(&memory, id, true));
+        assert!(!section_open(&memory, id, false));
+
+        set_section_open(&mut memory, id, false);
+
+        assert!(!section_open(&memory, id, true));
+        assert_eq!(memory.get_persisted::<bool>(id), Some(false));
+    }
+
+    #[test]
+    fn section_toggle_flips_only_when_header_clicked() {
+        let mut open = false;
+        let mut clicked =
+            MaraResponse::synthetic(Rect::from_min_size(Pos2::ZERO, Vec2::new(10.0, 10.0)));
+        clicked.clicked = true;
+        let idle = MaraResponse::synthetic(Rect::from_min_size(Pos2::ZERO, Vec2::new(10.0, 10.0)));
+
+        assert!(apply_section_toggle(&mut open, &clicked));
+        assert!(open);
+        assert!(!apply_section_toggle(&mut open, &idle));
+        assert!(open);
+    }
+
+    #[test]
+    fn section_body_spec_exists_only_when_open() {
+        let id = section_memory_id(Id::new("scope"), "details");
+
+        assert_eq!(section_body_spec(id, false), None);
+        assert_eq!(
+            section_body_spec(id, true),
+            Some(IndentedBodySpec::new(id.with("body")))
+        );
+    }
 }

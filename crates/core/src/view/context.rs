@@ -1,53 +1,76 @@
-use egui::Color32;
-
+use crate::backend;
+use crate::layout::{AreaHost, Layer};
+use crate::memory::MaraMemoryCtx;
 use crate::mui::{MaraInput, MaraPainter, MaraUi};
 use crate::pane::{Pane, PaneBody};
 use crate::ribbon::{RibbonAvoidance, ribbon_avoiding_rect};
-use crate::shelf::{ShelfDef, ShelfLayout, ShelfState, show_shelves};
+use crate::shelf::{__internal_show_shelves_egui, ShelfDef, ShelfLayout, ShelfState};
+use crate::vocab::{Color32 as MaraColor32, Id as MaraId, Rect as MaraRect};
 use crate::workspace::WorkspaceStack;
 
 /// Rendering context for the active L0 view.
 ///
 /// This is a sealed surface: views compose Mara panes, shelves,
 /// pods, and the typed painter/body helpers below. The underlying
-/// `egui::Context` is only reachable behind the `raw-egui` feature.
+/// backend context is hidden behind first-party adapter hooks.
 pub struct ViewCtx<'a> {
     pub(crate) egui_ctx: &'a egui::Context,
     pub workspace: &'a mut WorkspaceStack,
-    pub accent: Color32,
+    pub accent: MaraColor32,
     pub content_avoidance: RibbonAvoidance,
+    /// When set, this view is scoped to a fixed rect (a cell of a parent
+    /// [`MultiView`](crate::MultiView)) instead of the ribbon-avoiding
+    /// window area.
+    explicit_content: Option<MaraRect>,
 }
 
 impl<'a> ViewCtx<'a> {
-    /// Build a view context. Hosts own the egui pass, so calling
-    /// this requires already holding an `egui::Context` — sealed
-    /// consumers receive a ready-made `ViewCtx` from the app shell
-    /// instead.
+    /// Build a view context from the current egui backend.
+    ///
+    /// Hidden first-party hook: hosts/app code should use
+    /// `MaraHostCtx::view_ctx` instead of passing raw backend context handles
+    /// around. Sealed consumers receive a ready-made `ViewCtx` from the app
+    /// shell / host facade.
     #[must_use]
-    pub fn new(
+    #[doc(hidden)]
+    pub fn __internal_new(
         egui_ctx: &'a egui::Context,
         workspace: &'a mut WorkspaceStack,
-        accent: Color32,
+        accent: impl Into<MaraColor32>,
         content_avoidance: RibbonAvoidance,
     ) -> Self {
         Self {
             egui_ctx,
             workspace,
-            accent,
+            accent: accent.into(),
             content_avoidance,
+            explicit_content: None,
         }
     }
 
-    /// The raw `egui::Context`. Raw-egui escape hatch.
-    #[cfg(feature = "raw-egui")]
+    /// Build a child context scoped to a fixed `rect` (one cell of a
+    /// [`MultiView`](crate::MultiView)), with its own `workspace`. Its
+    /// `content_rect`/`screen_rect` report that rect, so the hosted view
+    /// lays out inside the cell. First-party hook.
     #[must_use]
-    pub fn egui_ctx(&self) -> &egui::Context {
-        self.egui_ctx
+    #[doc(hidden)]
+    pub fn __internal_scoped<'b>(
+        &'b self,
+        rect: MaraRect,
+        workspace: &'b mut WorkspaceStack,
+        accent: impl Into<MaraColor32>,
+    ) -> ViewCtx<'b> {
+        ViewCtx {
+            egui_ctx: self.egui_ctx,
+            workspace,
+            accent: accent.into(),
+            content_avoidance: RibbonAvoidance::none(),
+            explicit_content: Some(rect),
+        }
     }
 
     /// Internal first-party accessor — NOT part of the public API
-    /// and not semver-stable. See `MaraUi::__internal_raw_ui` for
-    /// why first-party crates use this instead of `raw-egui`.
+    /// and not semver-stable.
     #[doc(hidden)]
     #[must_use]
     pub fn __internal_egui_ctx(&self) -> &egui::Context {
@@ -55,36 +78,75 @@ impl<'a> ViewCtx<'a> {
     }
 
     #[must_use]
-    pub fn content_rect(&self) -> egui::Rect {
-        ribbon_avoiding_rect(self.egui_ctx, self.content_avoidance)
+    pub fn content_rect(&self) -> MaraRect {
+        self.explicit_content
+            .unwrap_or_else(|| ribbon_avoiding_rect(self.egui_ctx, self.content_avoidance))
     }
 
     /// The full window/screen rect — for views that paint an
-    /// edge-to-edge backdrop behind the ribbons.
+    /// edge-to-edge backdrop behind the ribbons. For a scoped (cell)
+    /// view this is the cell rect.
     #[must_use]
-    pub fn screen_rect(&self) -> egui::Rect {
-        self.egui_ctx.content_rect()
+    pub fn screen_rect(&self) -> MaraRect {
+        self.explicit_content
+            .unwrap_or_else(|| backend::egui::context_content_rect(self.egui_ctx))
     }
 
     #[must_use]
-    pub fn ribbon_avoiding_rect(&self, avoidance: RibbonAvoidance) -> egui::Rect {
+    pub fn ribbon_avoiding_rect(&self, avoidance: RibbonAvoidance) -> MaraRect {
         ribbon_avoiding_rect(self.egui_ctx, avoidance)
     }
 
     /// Per-frame input snapshot for custom view interaction.
     #[must_use]
     pub fn input(&self) -> MaraInput {
-        MaraInput::snapshot(self.egui_ctx)
+        backend::egui::input_snapshot(self.egui_ctx)
+    }
+
+    /// Backend-neutral memory facade for view-level UI state.
+    #[must_use]
+    pub fn memory(&self) -> MaraMemoryCtx<'_> {
+        MaraMemoryCtx::new(self.egui_ctx)
+    }
+
+    /// Current maximized-widget owner, if a maximizable Mara surface
+    /// owns the full host content area this frame.
+    #[must_use]
+    pub fn fullscreen_owner(&self) -> Option<MaraId> {
+        crate::embed::__internal_fullscreen_owner(self.egui_ctx)
+    }
+
+    /// `true` when any maximizable Mara surface owns the full host
+    /// content area this frame.
+    #[must_use]
+    pub fn is_any_fullscreen(&self) -> bool {
+        self.fullscreen_owner().is_some()
+    }
+
+    /// Hide/show the built-in fullscreen restore chip for this
+    /// frame. Host shells that provide their own persistent
+    /// app/module bar can hide the floating chip and route restore
+    /// through their normal chrome.
+    pub fn set_fullscreen_minimize_chip_visible(&self, visible: bool) {
+        crate::embed::__internal_set_fullscreen_minimize_chip_visible(self.egui_ctx, visible);
+    }
+
+    /// Restore the active full-window maximizable widget, if one
+    /// exists. Returns `true` when a fullscreen owner was found and
+    /// toggled off.
+    pub fn restore_fullscreen(&self) -> bool {
+        crate::embed::__internal_restore_fullscreen(self.egui_ctx)
     }
 
     /// Typed painter over the full screen on the background layer —
     /// the view backdrop surface.
     #[must_use]
     pub fn painter(&self) -> MaraPainter {
-        let rect = self.egui_ctx.content_rect();
-        MaraPainter::new(egui::Painter::new(
-            self.egui_ctx.clone(),
-            egui::LayerId::background(),
+        let rect = backend::egui::context_content_rect(self.egui_ctx);
+        MaraPainter::new(backend::egui::context_painter_for_layer(
+            self.egui_ctx,
+            Layer::Background,
+            MaraId::new("mara_view_background"),
             rect,
         ))
     }
@@ -93,10 +155,11 @@ impl<'a> ViewCtx<'a> {
     /// for overlays above panes and shelves.
     #[must_use]
     pub fn overlay_painter(&self) -> MaraPainter {
-        let rect = self.egui_ctx.content_rect();
-        MaraPainter::new(egui::Painter::new(
-            self.egui_ctx.clone(),
-            egui::LayerId::new(egui::Order::Foreground, egui::Id::new("mara_view_overlay")),
+        let rect = backend::egui::context_content_rect(self.egui_ctx);
+        MaraPainter::new(backend::egui::context_painter_for_layer(
+            self.egui_ctx,
+            Layer::Foreground,
+            MaraId::new("mara_view_overlay"),
             rect,
         ))
     }
@@ -107,22 +170,21 @@ impl<'a> ViewCtx<'a> {
         let rect = self.content_rect();
         let id = self.workspace.current().id.with("mara_view_body");
         let accent = self.accent;
-        egui::Area::new(id)
-            .order(egui::Order::Background)
-            .fixed_pos(rect.min)
-            .show(self.egui_ctx, |ui| {
-                ui.set_clip_rect(rect);
-                ui.set_min_size(rect.size());
-                ui.set_max_size(rect.size());
+        backend::egui::show_area_for_host(
+            self.egui_ctx,
+            AreaHost::new(id, rect.min, Layer::Background),
+            |ui| {
+                backend::egui::constrain_ui_to_rect(ui, rect);
                 body(&mut MaraUi::new(ui, accent))
-            })
-            .inner
+            },
+        )
+        .inner
     }
 
     /// Show a floating/anchored pane. The closure receives the
     /// typed [`PaneBody`] — containers and pods only.
     pub fn show_pane<'spec>(&self, pane: Pane, body: impl FnOnce(&mut PaneBody<'_, 'spec>)) {
-        pane.show(self.egui_ctx, body);
+        pane.__internal_show(self.egui_ctx, body);
     }
 
     /// Paint all shelves and their typed containers.
@@ -132,7 +194,7 @@ impl<'a> ViewCtx<'a> {
         shelves: Vec<ShelfDef<'_>>,
         state: &mut ShelfState,
     ) {
-        show_shelves(self.egui_ctx, layout, shelves, state);
+        __internal_show_shelves_egui(self.egui_ctx, layout, shelves, state);
     }
 
     /// Upload an image as a managed texture. Returns the retained
@@ -142,10 +204,13 @@ impl<'a> ViewCtx<'a> {
     pub fn load_texture(
         &self,
         name: &str,
-        image: egui::ColorImage,
-        options: egui::TextureOptions,
-    ) -> egui::TextureHandle {
-        self.egui_ctx.load_texture(name, image, options)
+        image: crate::vocab::ColorImage,
+        options: crate::vocab::TextureOptions,
+    ) -> crate::vocab::TextureHandle {
+        let image: egui::ColorImage = image.into();
+        self.egui_ctx
+            .load_texture(name, image, options.into())
+            .into()
     }
 
     /// Current responsive size class for this frame. Views consult

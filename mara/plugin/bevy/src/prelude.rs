@@ -1,31 +1,20 @@
-//! Glob-import for apps building on top of `bevy_mara`.
+//! Glob-import for Bevy content embedded by Mara.
 //!
 //! ```ignore
 //! use bevy::prelude::*;
 //! use bevy_mara::prelude::*;
 //! ```
 //!
-//! Brings in everything `mara_core` exports (panes, ribbons,
-//! containers, pods, widgets, theme primitives) plus the
-//! Bevy-specific additions from this crate — `MaraPlugin`,
-//! `ThemePlugin`, `RibbonPlugin`, `RibbonGhostSet`, and
-//! `GizmoMaterial`.
+//! Mara owns egui. This prelude contains the Bevy viewport helpers and
+//! scene utilities, but no Bevy-owned egui bridge.
 
 pub use mara_core::*;
 
 pub use crate::{
     BevyEmbeddedView, BevyViewportAppConfigure, BevyViewportBridge, BevyViewportInput,
     BevyViewportPickedColor, BevyViewportRenderTarget, BevyViewportSet, BevyViewportTexture,
-    BevyViewportWgpuResources, CapturedBevyFrame, EguiInputAbsorbPlugin, EmbeddedBevyViewport,
-    MaraBevyViewport, MaraPlugin, RibbonGhostSet, RibbonPlugin, ThemePlugin,
-    gizmo_material::GizmoMaterial,
-    make_viewport_render_target,
-    node_view_backend::{
-        BevyNodeViewBackend, NodeViewCopy, NodeViewPlugin, NodeViewSlots, PendingNodeViewCopies,
-    },
+    BevyViewportWgpuResources, CapturedBevyFrame, ChaseCamera, GroundGrid, GroundGridPlugin,
+    MaraBevySceneHelpersPlugin, MaraBevyViewport, MaraPlugin, apply_rig,
+    apply_viewport_camera_input_system, gizmo_material::GizmoMaterial, make_viewport_render_target,
     spawn_viewport_camera,
-    window_chrome::{
-        MaraWindowChromeInputClaim, MaraWindowChromePlugin, MaraWindowChromeSet,
-        MaraWindowChromeSettings,
-    },
 };
