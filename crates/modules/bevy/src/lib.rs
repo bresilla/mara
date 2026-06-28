@@ -20,27 +20,24 @@ use std::sync::{
 use bevy::app::TerminalCtrlCHandlerPlugin;
 use bevy::asset::RenderAssetUsages;
 use bevy::camera::{ManualTextureViewHandle, RenderTarget};
-use bevy::image::BevyDefault;
 use bevy::log::LogPlugin;
 use bevy::prelude::*;
 use bevy::render::{
     Extract, Render, RenderApp, RenderPlugin, RenderSystems,
-    render_graph::{self, NodeRunError, RenderGraph, RenderGraphContext, RenderLabel},
     render_resource::{
         Buffer, BufferDescriptor, BufferUsages, Extent3d, MapMode, PollType, TexelCopyBufferInfo,
         TexelCopyBufferLayout, Texture, TextureDimension, TextureFormat, TextureUsages,
         TextureView,
     },
     renderer::{
-        RenderAdapter, RenderAdapterInfo, RenderContext, RenderDevice, RenderInstance, RenderQueue,
-        WgpuWrapper,
+        PendingCommandBuffers, RenderAdapter, RenderAdapterInfo, RenderDevice, RenderGraph,
+        RenderGraphSystems, RenderInstance, RenderQueue, WgpuWrapper,
     },
     settings::RenderCreation,
     texture::{ManualTextureView, ManualTextureViews},
 };
 use bevy::window::ExitCondition;
 use bevy::winit::WinitPlugin;
-use bevy_glacial::prelude::*;
 use crossbeam_channel::{Receiver, Sender};
 use mara_core::vocab::Color32 as MaraColor32;
 
@@ -102,6 +99,182 @@ pub struct BevyViewportInput {
     pub pan_delta: [f32; 2],
     pub scroll_delta: f32,
     pub primary_clicked: bool,
+}
+
+/// Small orbit camera component used by Mara's embedded Bevy demo
+/// scene and by Bevy-hosted examples.
+///
+/// This deliberately lives in `mara_bevy` so the Bevy integration
+/// resolves exactly one Bevy version and Mara owns the thin viewport
+/// logic it needs.
+#[derive(Component, Clone, Copy, Debug)]
+pub struct ChaseCamera {
+    pub focus: Vec3,
+    pub yaw: f32,
+    pub elevation: f32,
+    pub distance: f32,
+    pub min_distance: f32,
+    pub max_distance: f32,
+    pub min_elevation: f32,
+    pub max_elevation: f32,
+    pub orbit_speed: f32,
+    pub pan_sensitivity: f32,
+    pub zoom_step: f64,
+}
+
+impl Default for ChaseCamera {
+    fn default() -> Self {
+        Self {
+            focus: Vec3::ZERO,
+            yaw: 0.45,
+            elevation: 0.35,
+            distance: 12.0,
+            min_distance: 1.0,
+            max_distance: 10_000_000.0,
+            min_elevation: -1.45,
+            max_elevation: 1.45,
+            orbit_speed: 0.005,
+            pan_sensitivity: 0.002,
+            zoom_step: 0.08,
+        }
+    }
+}
+
+/// Recompute a Bevy transform from a [`ChaseCamera`].
+pub fn apply_rig(camera: &ChaseCamera, transform: &mut Transform) {
+    let horizontal = camera.elevation.cos();
+    let offset = Vec3::new(
+        camera.yaw.sin() * horizontal,
+        camera.elevation.sin(),
+        camera.yaw.cos() * horizontal,
+    )
+    .normalize_or_zero()
+        * camera.distance.max(camera.min_distance);
+    transform.translation = camera.focus + offset;
+    transform.look_at(camera.focus, Vec3::Y);
+}
+
+/// System form of the embedded viewport camera controls. Bevy-owned
+/// host apps can run this after they publish [`BevyViewportInput`].
+pub fn apply_viewport_camera_input_system(
+    input: Res<BevyViewportInput>,
+    mut cameras: Query<(&mut ChaseCamera, &mut Transform)>,
+) {
+    for (mut camera, mut transform) in &mut cameras {
+        apply_viewport_input_to_camera(*input, &mut camera, &mut transform);
+    }
+}
+
+fn apply_viewport_input_to_camera(
+    input: BevyViewportInput,
+    camera: &mut ChaseCamera,
+    transform: &mut Transform,
+) {
+    let drag = Vec2::new(input.drag_delta[0], input.drag_delta[1]);
+    let pan = Vec2::new(input.pan_delta[0], input.pan_delta[1]);
+    if drag == Vec2::ZERO && pan == Vec2::ZERO && input.scroll_delta == 0.0 {
+        return;
+    }
+    if drag != Vec2::ZERO {
+        camera.yaw -= drag.x * camera.orbit_speed;
+        camera.elevation += drag.y * camera.orbit_speed;
+        camera.elevation = camera
+            .elevation
+            .clamp(camera.min_elevation, camera.max_elevation);
+    }
+    if pan != Vec2::ZERO {
+        let pan_speed = camera.distance * camera.pan_sensitivity;
+        let forward = Vec3::new(camera.yaw.sin(), 0.0, camera.yaw.cos());
+        let right = Vec3::new(forward.z, 0.0, -forward.x);
+        camera.focus += (-right * pan.x - forward * pan.y) * pan_speed;
+    }
+    if input.scroll_delta != 0.0 {
+        let log_distance = (camera.distance as f64).max(0.1).log10();
+        let target = 10f64.powf(log_distance - input.scroll_delta as f64 * camera.zoom_step);
+        camera.distance =
+            target.clamp(camera.min_distance as f64, camera.max_distance as f64) as f32;
+    }
+    apply_rig(camera, transform);
+}
+
+/// Lightweight X/Z ground grid used by the demo scene.
+#[derive(Resource, Clone, Copy, Debug)]
+pub struct GroundGrid {
+    pub visible: bool,
+    pub color: Color,
+}
+
+impl Default for GroundGrid {
+    fn default() -> Self {
+        Self {
+            visible: false,
+            color: Color::srgba(0.30, 0.38, 0.50, 0.42),
+        }
+    }
+}
+
+/// Draws [`GroundGrid`] with Bevy gizmos when the resource is visible.
+pub struct GroundGridPlugin;
+
+impl Plugin for GroundGridPlugin {
+    fn build(&self, app: &mut App) {
+        app.init_resource::<GroundGrid>()
+            .add_systems(Update, draw_ground_grid_system);
+    }
+}
+
+/// Small scene-helper bundle for examples and embedded viewports.
+///
+/// Camera input is opt-in via [`apply_viewport_camera_input_system`]
+/// because embedded viewports apply input manually before ticking the
+/// offscreen Bevy app.
+pub struct MaraBevySceneHelpersPlugin;
+
+impl Plugin for MaraBevySceneHelpersPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_plugins(GroundGridPlugin);
+    }
+}
+
+fn draw_ground_grid_system(
+    grid: Option<Res<GroundGrid>>,
+    cameras: Query<&ChaseCamera>,
+    mut gizmos: Gizmos,
+) {
+    let Some(grid) = grid else {
+        return;
+    };
+    if !grid.visible {
+        return;
+    }
+    let focus = cameras
+        .iter()
+        .next()
+        .map(|camera| camera.focus)
+        .unwrap_or(Vec3::ZERO);
+    let step = 1.0;
+    let half_lines = 32;
+    let half_extent = half_lines as f32 * step;
+    let center_x = (focus.x / step).round() * step;
+    let center_z = (focus.z / step).round() * step;
+    let min_x = center_x - half_extent;
+    let max_x = center_x + half_extent;
+    let min_z = center_z - half_extent;
+    let max_z = center_z + half_extent;
+    for i in -half_lines..=half_lines {
+        let x = center_x + i as f32 * step;
+        let z = center_z + i as f32 * step;
+        gizmos.line(
+            Vec3::new(x, 0.0, min_z),
+            Vec3::new(x, 0.0, max_z),
+            grid.color,
+        );
+        gizmos.line(
+            Vec3::new(min_x, 0.0, z),
+            Vec3::new(max_x, 0.0, z),
+            grid.color,
+        );
+    }
 }
 
 /// Bevy image target created by the viewport infrastructure.
@@ -470,7 +643,7 @@ fn make_embedded_viewport_render_target(width: u32, height: u32) -> Image {
     // BevyViewportRenderTarget image. Embedded cameras are redirected
     // to a manual GPU texture view after content setup, so the fast
     // path does not render into this image or copy from it.
-    let mut image = Image::new_target_texture(width, height, TextureFormat::bevy_default(), None);
+    let mut image = Image::new_target_texture(width, height, TextureFormat::Rgba8UnormSrgb, None);
     image.texture_descriptor.usage |= TextureUsages::COPY_SRC | TextureUsages::TEXTURE_BINDING;
     image
 }
@@ -550,12 +723,9 @@ impl BevyViewportRenderer {
             .add_plugins(default_plugins)
             // The embedded viewport receives pointer/scroll input
             // from egui and applies it manually before each Bevy
-            // tick. Do not also run bevy_glacial's native
-            // `ChaseCameraPlugin`: its smoothed local zoom target has
-            // no corresponding Bevy `MouseWheel` events here, so after
-            // an egui-driven zoom it eases the camera back to the old
-            // distance and looks like a bounce/reset.
-            .add_plugins(GlacialPlugins.build().disable::<ChaseCameraPlugin>())
+            // tick, so the helper plugin only contributes visual
+            // scene helpers such as the optional ground grid.
+            .add_plugins(MaraBevySceneHelpersPlugin)
             .configure_sets(Startup, BevyViewportSet::SetupTarget)
             .add_systems(
                 Startup,
@@ -741,30 +911,9 @@ impl BevyViewportRenderer {
 }
 
 fn apply_embedded_viewport_input(world: &mut World, input: BevyViewportInput) {
-    let drag = Vec2::new(input.drag_delta[0], input.drag_delta[1]);
-    let pan = Vec2::new(input.pan_delta[0], input.pan_delta[1]);
-    if drag != Vec2::ZERO || pan != Vec2::ZERO || input.scroll_delta != 0.0 {
-        let mut cameras = world.query::<(&mut ChaseCamera, &mut Transform)>();
-        for (mut cam, mut tr) in cameras.iter_mut(world) {
-            if drag != Vec2::ZERO {
-                cam.yaw -= drag.x * cam.orbit_speed;
-                cam.elevation += drag.y * cam.orbit_speed;
-                cam.elevation = cam.elevation.clamp(cam.min_elevation, cam.max_elevation);
-            }
-            if pan != Vec2::ZERO {
-                let pan_speed = cam.distance * cam.pan_sensitivity;
-                let forward = Vec3::new(cam.yaw.sin(), 0.0, cam.yaw.cos());
-                let right = Vec3::new(forward.z, 0.0, -forward.x);
-                cam.focus += (-right * pan.x - forward * pan.y) * pan_speed;
-            }
-            if input.scroll_delta != 0.0 {
-                let log_distance = (cam.distance as f64).max(0.1).log10();
-                let target = 10f64.powf(log_distance - input.scroll_delta as f64 * cam.zoom_step);
-                cam.distance =
-                    target.clamp(cam.min_distance as f64, cam.max_distance as f64) as f32;
-            }
-            apply_rig(&cam, &mut tr);
-        }
+    let mut cameras = world.query::<(&mut ChaseCamera, &mut Transform)>();
+    for (mut camera, mut transform) in cameras.iter_mut(world) {
+        apply_viewport_input_to_camera(input, &mut camera, &mut transform);
     }
 }
 
@@ -909,15 +1058,17 @@ impl Plugin for EmbeddedViewportCopyPlugin {
         render_app.insert_resource(EmbeddedViewportMappedSender(mapped_sender));
         render_app.insert_resource(EmbeddedViewportMappedReceiver(mapped_receiver));
 
-        let mut graph = render_app.world_mut().resource_mut::<RenderGraph>();
-        graph.add_node(EmbeddedViewportCopy, EmbeddedViewportCopyDriver);
-        graph.add_node_edge(bevy::render::graph::CameraDriverLabel, EmbeddedViewportCopy);
-
         render_app
             .add_systems(ExtractSchedule, extract_embedded_viewport_copiers)
             .add_systems(
                 Render,
                 receive_embedded_viewport_frames.after(RenderSystems::Render),
+            )
+            .add_systems(
+                RenderGraph,
+                copy_embedded_viewport_textures_system
+                    .after(RenderGraphSystems::Render)
+                    .before(RenderGraphSystems::Submit),
             );
     }
 }
@@ -1017,83 +1168,69 @@ fn extract_embedded_viewport_copiers(
     ));
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Hash, RenderLabel)]
-struct EmbeddedViewportCopy;
+fn copy_embedded_viewport_textures_system(
+    image_copiers: Res<EmbeddedViewportCopiers>,
+    mapped_sender: Res<EmbeddedViewportMappedSender>,
+    render_device: Res<RenderDevice>,
+    mut pending_buffers: ResMut<PendingCommandBuffers>,
+) {
+    let mut encoder =
+        render_device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+    let mut any = false;
 
-#[derive(Default)]
-struct EmbeddedViewportCopyDriver;
+    for image_copier in &image_copiers.0 {
+        image_copier.copied_frame.fetch_add(1, Ordering::Release);
 
-impl render_graph::Node for EmbeddedViewportCopyDriver {
-    fn run(
-        &self,
-        _graph: &mut RenderGraphContext,
-        render_context: &mut RenderContext,
-        world: &World,
-    ) -> Result<(), NodeRunError> {
-        let Some(image_copiers) = world.get_resource::<EmbeddedViewportCopiers>() else {
-            return Ok(());
-        };
-        let Some(mapped_sender) = world.get_resource::<EmbeddedViewportMappedSender>() else {
-            return Ok(());
-        };
+        if image_copier.ready_for_copy() && image_copier.mark_pending_map() {
+            let width = image_copier.size.width;
+            let height = image_copier.size.height;
+            let row_bytes = width as usize * 4;
+            let padded_bytes_per_row = RenderDevice::align_copy_bytes_per_row(row_bytes);
 
-        for image_copier in &image_copiers.0 {
-            let encoder = render_context.command_encoder();
-            image_copier.copied_frame.fetch_add(1, Ordering::Release);
-
-            if image_copier.ready_for_copy() && image_copier.mark_pending_map() {
-                let width = image_copier.size.width;
-                let height = image_copier.size.height;
-                let row_bytes = width as usize * 4;
-                let padded_bytes_per_row = RenderDevice::align_copy_bytes_per_row(row_bytes);
-
-                encoder.copy_texture_to_buffer(
-                    image_copier.egui_texture.as_image_copy(),
-                    TexelCopyBufferInfo {
-                        buffer: &image_copier.buffer,
-                        layout: TexelCopyBufferLayout {
-                            offset: 0,
-                            bytes_per_row: Some(
-                                std::num::NonZero::<u32>::new(padded_bytes_per_row as u32)
-                                    .expect("non-zero row bytes")
-                                    .into(),
-                            ),
-                            rows_per_image: None,
-                        },
+            encoder.copy_texture_to_buffer(
+                image_copier.egui_texture.as_image_copy(),
+                TexelCopyBufferInfo {
+                    buffer: &image_copier.buffer,
+                    layout: TexelCopyBufferLayout {
+                        offset: 0,
+                        bytes_per_row: Some(
+                            std::num::NonZero::<u32>::new(padded_bytes_per_row as u32)
+                                .expect("non-zero row bytes")
+                                .into(),
+                        ),
+                        rows_per_image: None,
                     },
-                    image_copier.size,
-                );
+                },
+                image_copier.size,
+            );
 
-                let buffer_for_callback = image_copier.buffer.clone();
-                let pending_map = image_copier.pending_map.clone();
-                let mapped_sender = mapped_sender.0.clone();
-                encoder.map_buffer_on_submit(
-                    &image_copier.buffer,
-                    MapMode::Read,
-                    ..,
-                    move |result| {
-                        if result.is_ok() {
-                            let mapped_frame = MappedBevyFrame {
-                                buffer: buffer_for_callback.clone(),
-                                pending_map: pending_map.clone(),
-                                width,
-                                height,
-                                row_bytes,
-                                padded_row_bytes: padded_bytes_per_row,
-                            };
-                            if mapped_sender.send(mapped_frame).is_err() {
-                                buffer_for_callback.unmap();
-                                pending_map.store(false, Ordering::Release);
-                            }
-                        } else {
-                            pending_map.store(false, Ordering::Release);
-                        }
-                    },
-                );
-            }
+            let buffer_for_callback = image_copier.buffer.clone();
+            let pending_map = image_copier.pending_map.clone();
+            let mapped_sender = mapped_sender.0.clone();
+            encoder.map_buffer_on_submit(&image_copier.buffer, MapMode::Read, .., move |result| {
+                if result.is_ok() {
+                    let mapped_frame = MappedBevyFrame {
+                        buffer: buffer_for_callback.clone(),
+                        pending_map: pending_map.clone(),
+                        width,
+                        height,
+                        row_bytes,
+                        padded_row_bytes: padded_bytes_per_row,
+                    };
+                    if mapped_sender.send(mapped_frame).is_err() {
+                        buffer_for_callback.unmap();
+                        pending_map.store(false, Ordering::Release);
+                    }
+                } else {
+                    pending_map.store(false, Ordering::Release);
+                }
+            });
+            any = true;
         }
+    }
 
-        Ok(())
+    if any {
+        pending_buffers.push_encoder(encoder);
     }
 }
 fn receive_embedded_viewport_frames(

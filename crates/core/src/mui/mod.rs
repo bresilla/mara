@@ -380,6 +380,64 @@ impl MaraPainter {
         });
     }
 
+    /// Filled axis-aligned ellipse bounded by `rect`.
+    pub fn ellipse_filled(&self, rect: impl Into<vocab::Rect>, fill: impl Into<vocab::Color32>) {
+        self.paint_cmd(PaintCmd::Ellipse {
+            rect: rect.into(),
+            fill: fill.into(),
+            stroke: vocab::Stroke::NONE,
+        });
+    }
+
+    /// Outlined axis-aligned ellipse bounded by `rect`.
+    pub fn ellipse_stroke(&self, rect: impl Into<vocab::Rect>, stroke: impl Into<vocab::Stroke>) {
+        self.paint_cmd(PaintCmd::Ellipse {
+            rect: rect.into(),
+            fill: vocab::Color32::TRANSPARENT,
+            stroke: stroke.into(),
+        });
+    }
+
+    /// Open (elliptical) arc — a curved line. Angles in radians, `0` at
+    /// the +x axis, increasing clockwise (screen y-down).
+    pub fn arc(
+        &self,
+        center: impl Into<vocab::Pos2>,
+        radius: impl Into<vocab::Vec2>,
+        start_angle: f32,
+        end_angle: f32,
+        stroke: impl Into<vocab::Stroke>,
+    ) {
+        self.paint_cmd(PaintCmd::Arc {
+            center: center.into(),
+            radius: radius.into(),
+            start_angle,
+            end_angle,
+            stroke: stroke.into(),
+        });
+    }
+
+    /// Filled pie sector from `center` across the arc (angles as in
+    /// [`MaraPainter::arc`]).
+    pub fn sector(
+        &self,
+        center: impl Into<vocab::Pos2>,
+        radius: impl Into<vocab::Vec2>,
+        start_angle: f32,
+        end_angle: f32,
+        fill: impl Into<vocab::Color32>,
+        stroke: impl Into<vocab::Stroke>,
+    ) {
+        self.paint_cmd(PaintCmd::Sector {
+            center: center.into(),
+            radius: radius.into(),
+            start_angle,
+            end_angle,
+            fill: fill.into(),
+            stroke: stroke.into(),
+        });
+    }
+
     pub fn arrow(
         &self,
         origin: impl Into<vocab::Pos2>,

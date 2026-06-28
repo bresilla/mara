@@ -299,7 +299,7 @@ impl CodeEditor {
                 .id_source(format!("{}_numlines", self.id))
                 .font(egui::TextStyle::Monospace)
                 .interactive(false)
-                .frame(false)
+                .frame(egui::Frame::NONE)
                 .desired_rows(self.rows)
                 .desired_width(width)
                 .layouter(&mut layouter),
@@ -342,7 +342,7 @@ impl CodeEditor {
                             .id_source(&self.id)
                             .lock_focus(true)
                             .desired_rows(self.rows)
-                            .frame(false)
+                            .frame(egui::Frame::NONE)
                             .desired_width(self.desired_width)
                             .layouter(&mut layouter)
                             .show(ui);

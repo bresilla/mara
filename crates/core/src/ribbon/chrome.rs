@@ -129,7 +129,19 @@ pub const fn ribbon_clearance() -> f32 {
 
 #[must_use]
 pub(crate) fn ribbon_avoiding_rect(ctx: &egui::Context, avoidance: RibbonAvoidance) -> MaraRect {
-    avoidance.apply_to_rect(crate::backend::egui::context_content_rect(ctx))
+    // Top + the two side ribbons reserve space exactly as requested. The
+    // bottom is gated on whether a bottom ribbon actually exists — with
+    // none (the usual case), avoiding the bottom reserves nothing, so the
+    // view runs to the bottom window edge. (Only the bottom is gated, so
+    // the side avoidance never regresses.)
+    let [_, _, _, has_bottom] = crate::pane::published_ribbon_edges(ctx);
+    let effective = RibbonAvoidance {
+        left: avoidance.left,
+        right: avoidance.right,
+        top: avoidance.top,
+        bottom: avoidance.bottom && has_bottom,
+    };
+    effective.apply_to_rect(crate::backend::egui::context_content_rect(ctx))
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]

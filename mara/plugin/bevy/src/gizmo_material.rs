@@ -29,8 +29,8 @@ impl MaterialExtension for GizmoOnTop {
         _key: MaterialExtensionKey<Self>,
     ) -> Result<(), SpecializedMeshPipelineError> {
         if let Some(ds) = descriptor.depth_stencil.as_mut() {
-            ds.depth_compare = CompareFunction::Always;
-            ds.depth_write_enabled = false;
+            ds.depth_compare = Some(CompareFunction::Always);
+            ds.depth_write_enabled = Some(false);
         }
         Ok(())
     }

@@ -18,6 +18,10 @@ pub struct ViewCtx<'a> {
     pub workspace: &'a mut WorkspaceStack,
     pub accent: MaraColor32,
     pub content_avoidance: RibbonAvoidance,
+    /// When set, this view is scoped to a fixed rect (a cell of a parent
+    /// [`MultiView`](crate::MultiView)) instead of the ribbon-avoiding
+    /// window area.
+    explicit_content: Option<MaraRect>,
 }
 
 impl<'a> ViewCtx<'a> {
@@ -40,6 +44,28 @@ impl<'a> ViewCtx<'a> {
             workspace,
             accent: accent.into(),
             content_avoidance,
+            explicit_content: None,
+        }
+    }
+
+    /// Build a child context scoped to a fixed `rect` (one cell of a
+    /// [`MultiView`](crate::MultiView)), with its own `workspace`. Its
+    /// `content_rect`/`screen_rect` report that rect, so the hosted view
+    /// lays out inside the cell. First-party hook.
+    #[must_use]
+    #[doc(hidden)]
+    pub fn __internal_scoped<'b>(
+        &'b self,
+        rect: MaraRect,
+        workspace: &'b mut WorkspaceStack,
+        accent: impl Into<MaraColor32>,
+    ) -> ViewCtx<'b> {
+        ViewCtx {
+            egui_ctx: self.egui_ctx,
+            workspace,
+            accent: accent.into(),
+            content_avoidance: RibbonAvoidance::none(),
+            explicit_content: Some(rect),
         }
     }
 
@@ -53,14 +79,17 @@ impl<'a> ViewCtx<'a> {
 
     #[must_use]
     pub fn content_rect(&self) -> MaraRect {
-        ribbon_avoiding_rect(self.egui_ctx, self.content_avoidance)
+        self.explicit_content
+            .unwrap_or_else(|| ribbon_avoiding_rect(self.egui_ctx, self.content_avoidance))
     }
 
     /// The full window/screen rect — for views that paint an
-    /// edge-to-edge backdrop behind the ribbons.
+    /// edge-to-edge backdrop behind the ribbons. For a scoped (cell)
+    /// view this is the cell rect.
     #[must_use]
     pub fn screen_rect(&self) -> MaraRect {
-        backend::egui::context_content_rect(self.egui_ctx)
+        self.explicit_content
+            .unwrap_or_else(|| backend::egui::context_content_rect(self.egui_ctx))
     }
 
     #[must_use]

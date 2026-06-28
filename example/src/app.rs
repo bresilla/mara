@@ -66,20 +66,22 @@ use mara_map::{
 // offscreen renderer is created from `mara::host::MaraHostCtx`.
 use mara::host::{EframeNodeViewBackend, MaraHostCtx};
 use mara::ui::modules::bevy::MaraBevyViewport;
+use mara::ui::modules::board::{Board, BoardPaint};
+use mara::ui::modules::canvas::{CanvasDocument, CanvasSurface};
+use mara::ui::modules::image::{ImageDocument, ImageSurface};
 use mara::ui::modules::three_d::{Scene3d, TriangleMesh3d, View3d};
 use mara_core::extras::code::Syntax;
 use mara_core::extras::graph::{
     Graph, InPin, InPinId, NodePin, NodeViewState, NodeViewer, OutPin, OutPinId, PinInfo,
 };
 use mara_core::vocab::Id as MaraId;
-use mara_core::{MaraView, RibbonAvoidance, WorkspaceStack};
+use mara_core::{Layout, MaraView, MultiView, RibbonAvoidance, ViewId, WorkspaceStack};
 
 // ─── Ribbon / pane ids ──────────────────────────────────────────────
 
 const RIBBON_LEFT: &str = "demo_ribbon_left";
 const RIBBON_RIGHT: &str = "demo_ribbon_right";
 const RIBBON_TOP: &str = "demo_ribbon_top";
-const RIBBON_BOTTOM: &str = "demo_ribbon_bottom";
 
 // Fullscreen-only ribbons. Painted only while a maximizable widget
 // (node graph / code editor) is in its fullscreen overlay — driven
@@ -124,6 +126,8 @@ const ACTION_CANVAS_CLEAR: &str = "demo_action_canvas_clear";
 const ACTION_VIEW_BEVY: &str = "demo_action_view_bevy";
 const ACTION_VIEW_CANVAS: &str = "demo_action_view_canvas";
 const ACTION_VIEW_3D: &str = "demo_action_view_3d";
+const ACTION_VIEW_BOARD: &str = "demo_action_view_board";
+const ACTION_VIEW_MULTI: &str = "demo_action_view_multi";
 const ACTION_COREVIZ_ZONES: &str = "demo_action_coreviz_zones";
 const ACTION_COREVIZ_MANAGEMENT: &str = "demo_action_coreviz_management";
 const ACTION_MAP_SELECT: &str = "demo_action_map_select";
@@ -193,9 +197,9 @@ const PANE_DEFS: &[(&str, &str, PaneAnchor, &str)] = &[
         "About",
     ),
     (
-        RIBBON_BOTTOM,
+        RIBBON_RIGHT,
         PANE_EDITOR,
-        PaneAnchor::BottomRail(RailZone::Start),
+        PaneAnchor::RightRail(RailZone::End),
         "Editor",
     ),
     (
@@ -229,9 +233,9 @@ const PANE_DEFS: &[(&str, &str, PaneAnchor, &str)] = &[
         "History",
     ),
     (
-        RIBBON_BOTTOM,
+        RIBBON_RIGHT,
         PANE_CANVAS_EXPORT,
-        PaneAnchor::BottomRail(RailZone::Start),
+        PaneAnchor::RightRail(RailZone::End),
         "Export",
     ),
     (
@@ -357,21 +361,14 @@ const RIBBONS: &[RibbonSpec] = &[
         edge: RibbonEdge::Left,
         role: RibbonRole::Panel,
         mode: RibbonMode::ThreeSided,
-        accepts: &[RIBBON_RIGHT, RIBBON_BOTTOM],
+        accepts: &[RIBBON_RIGHT],
     },
     RibbonSpec {
         id: RIBBON_RIGHT,
         edge: RibbonEdge::Right,
         role: RibbonRole::Panel,
         mode: RibbonMode::ThreeSided,
-        accepts: &[RIBBON_LEFT, RIBBON_BOTTOM],
-    },
-    RibbonSpec {
-        id: RIBBON_BOTTOM,
-        edge: RibbonEdge::Bottom,
-        role: RibbonRole::Panel,
-        mode: RibbonMode::ThreeSided,
-        accepts: &[RIBBON_LEFT, RIBBON_RIGHT],
+        accepts: &[RIBBON_LEFT],
     },
 ];
 
@@ -489,8 +486,8 @@ const RIBBON_ITEMS: &[RibbonButtonSpec] = &[
     // one-shot cube-cycle action buttons in the End cluster.
     RibbonButtonSpec {
         id: PANE_EDITOR,
-        ribbon: RIBBON_BOTTOM,
-        cluster: RibbonCluster::Start,
+        ribbon: RIBBON_RIGHT,
+        cluster: RibbonCluster::End,
         slot: 0,
         draggable: true,
         glyph: RibbonGlyph::Icon("flowchart"),
@@ -500,9 +497,9 @@ const RIBBON_ITEMS: &[RibbonButtonSpec] = &[
     },
     RibbonButtonSpec {
         id: ACTION_PREV_CUBE,
-        ribbon: RIBBON_BOTTOM,
+        ribbon: RIBBON_RIGHT,
         cluster: RibbonCluster::End,
-        slot: 0,
+        slot: 1,
         draggable: true,
         glyph: RibbonGlyph::Icon("arrow-left"),
         tooltip: "Previous cube",
@@ -511,9 +508,9 @@ const RIBBON_ITEMS: &[RibbonButtonSpec] = &[
     },
     RibbonButtonSpec {
         id: ACTION_NEXT_CUBE,
-        ribbon: RIBBON_BOTTOM,
+        ribbon: RIBBON_RIGHT,
         cluster: RibbonCluster::End,
-        slot: 1,
+        slot: 2,
         draggable: true,
         glyph: RibbonGlyph::Icon("arrow-right"),
         tooltip: "Next cube",
@@ -628,8 +625,8 @@ const RIBBON_ITEMS_ROOT_VIEW: &[RibbonButtonSpec] = &[
     // Canvas BOTTOM rail — canvas actions.
     RibbonButtonSpec {
         id: PANE_CANVAS_EXPORT,
-        ribbon: RIBBON_BOTTOM,
-        cluster: RibbonCluster::Start,
+        ribbon: RIBBON_RIGHT,
+        cluster: RibbonCluster::End,
         slot: 0,
         draggable: true,
         glyph: RibbonGlyph::Icon("arrow-download"),
@@ -639,9 +636,9 @@ const RIBBON_ITEMS_ROOT_VIEW: &[RibbonButtonSpec] = &[
     },
     RibbonButtonSpec {
         id: ACTION_CANVAS_CLEAR,
-        ribbon: RIBBON_BOTTOM,
+        ribbon: RIBBON_RIGHT,
         cluster: RibbonCluster::End,
-        slot: 0,
+        slot: 1,
         draggable: true,
         glyph: RibbonGlyph::Icon("delete"),
         tooltip: "Clear canvas strokes",
@@ -1480,6 +1477,8 @@ enum DemoRootView {
     BevyScene,
     Canvas,
     ThreeD,
+    Board,
+    Multi,
     CorevizZones,
     CorevizManagement,
 }
@@ -1498,6 +1497,163 @@ struct CanvasViewState {
 struct ThreeDViewState {
     view: View3d,
     workspace: WorkspaceStack,
+}
+
+// The VT soft keys — drawn into the single Board's internal-layout cells.
+const LEFT_KEYS: [&str; 5] = ["L1", "L2", "L3", "L4", "L5"];
+const RIGHT_KEYS: [&str; 5] = ["R1", "R2", "R3", "R4", "R5"];
+
+// "Board" view: ONE full Board with its own internal layout — a whole VT
+// (data-mask cell + soft-key cells) drawn inside a single board.
+struct BoardViewState {
+    view: Board,
+    workspace: WorkspaceStack,
+}
+
+impl Default for BoardViewState {
+    fn default() -> Self {
+        let gap = 12.0;
+        let column = |keys: &[&'static str]| {
+            Layout::col(gap, keys.iter().map(|k| (1.0, Layout::cell(*k))).collect())
+        };
+        let layout = Layout::row(
+            gap,
+            vec![
+                (1.0, column(&LEFT_KEYS)),
+                (4.0, Layout::cell("data_mask")),
+                (1.0, column(&RIGHT_KEYS)),
+            ],
+        );
+        let view = Board::new("demo-board", "Board")
+            .with_icon("square-multiple")
+            .with_layout(layout)
+            .on_draw(|b: BoardPaint| {
+                if let Some(rect) = b.cell("data_mask") {
+                    draw_gauge_at(b.painter, rect, b.accent);
+                }
+                for key in LEFT_KEYS.iter().chain(RIGHT_KEYS.iter()) {
+                    if let Some(rect) = b.cell(key) {
+                        draw_key_at(b.painter, rect, key);
+                    }
+                }
+            });
+        Self {
+            view,
+            workspace: WorkspaceStack::new("demo-board-workspace"),
+        }
+    }
+}
+
+// "Multiview" view: split in half; the right half split again → three
+// different child views (a Canvas, an Image, a Board).
+struct MultiViewState {
+    view: MultiView,
+    workspace: WorkspaceStack,
+}
+
+impl Default for MultiViewState {
+    fn default() -> Self {
+        let gap = 12.0;
+        let layout = Layout::row(
+            gap,
+            vec![
+                (1.0, Layout::cell("left")),
+                (
+                    1.0,
+                    Layout::col(
+                        gap,
+                        vec![(1.0, Layout::cell("rt")), (1.0, Layout::cell("rb"))],
+                    ),
+                ),
+            ],
+        );
+        let view = MultiView::new(ViewId::new("demo-multi"), "Multiview", layout)
+            .with_icon("grid")
+            .with_margin(gap)
+            .with_content_avoidance(RibbonAvoidance::all())
+            .view(
+                "left",
+                Box::new(CanvasSurface::new(
+                    "mv.canvas",
+                    CanvasDocument::new("Sketch"),
+                )),
+            )
+            .view(
+                "rt",
+                Box::new(ImageSurface::new("mv.image", ImageDocument::empty("Image"))),
+            )
+            .view(
+                "rb",
+                Box::new(
+                    Board::new("mv.board", "Gauge")
+                        .on_draw(|b: BoardPaint| draw_gauge_at(b.painter, b.rect, b.accent)),
+                ),
+            );
+        Self {
+            view,
+            workspace: WorkspaceStack::new("demo-multi-workspace"),
+        }
+    }
+}
+
+/// Draw a data-mask gauge (frame + arc gauge + sample ellipse) into `rect`.
+fn draw_gauge_at(p: &mara_core::MaraPainter, rect: mara_core::vocab::Rect, accent: MaraColor32) {
+    use mara_core::vocab::{Align2, Color32, Pos2, Rect, Stroke, Vec2};
+    p.rect_filled(rect, 12, Color32::from_rgb(24, 28, 36));
+    p.rect_stroke(rect, 12, Stroke::new(1.5, Color32::from_gray(80)));
+    p.text(
+        Pos2::new(rect.center().x, rect.top() + 18.0),
+        Align2::CENTER_TOP,
+        "data mask",
+        14.0,
+        Color32::from_gray(160),
+    );
+
+    let c = rect.center();
+    let r = (rect.width().min(rect.height()) * 0.30).max(24.0);
+    let deg = |d: f32| d.to_radians();
+    let (a0, sweep, value) = (deg(135.0), deg(270.0), 0.62_f32);
+    p.arc(
+        c,
+        Vec2::new(r, r),
+        a0,
+        a0 + sweep,
+        Stroke::new(12.0, Color32::from_gray(70)),
+    );
+    p.arc(
+        c,
+        Vec2::new(r, r),
+        a0,
+        a0 + sweep * value,
+        Stroke::new(12.0, accent),
+    );
+    let na = a0 + sweep * value;
+    p.line_segment(
+        c,
+        Pos2::new(c.x + r * 0.82 * na.cos(), c.y + r * 0.82 * na.sin()),
+        Stroke::new(3.5, Color32::WHITE),
+    );
+
+    let er = Rect::from_min_size(
+        Pos2::new(c.x - 60.0, rect.bottom() - 70.0),
+        Vec2::new(120.0, 44.0),
+    );
+    p.ellipse_filled(er, Color32::from_rgb(70, 110, 200));
+    p.ellipse_stroke(er, Stroke::new(2.0, Color32::WHITE));
+}
+
+/// Draw one VT soft key (rounded fill + border + label) into `rect`.
+fn draw_key_at(p: &mara_core::MaraPainter, rect: mara_core::vocab::Rect, label: &str) {
+    use mara_core::vocab::{Align2, Color32, Stroke};
+    p.rect_filled(rect, 12, Color32::from_rgb(40, 46, 58));
+    p.rect_stroke(rect, 12, Stroke::new(1.5, Color32::from_gray(90)));
+    p.text(
+        rect.center(),
+        Align2::CENTER_CENTER,
+        label,
+        16.0,
+        Color32::WHITE,
+    );
 }
 
 impl Default for ThreeDViewState {
@@ -1763,6 +1919,8 @@ pub struct DemoApp {
     root_view: DemoRootView,
     canvas_view: CanvasViewState,
     three_d_view: ThreeDViewState,
+    board_view: BoardViewState,
+    multi_view: MultiViewState,
     canvas_shelves: CanvasShelfState,
     map_view: MapViewState,
     bevy_view: MaraBevyViewport,
@@ -1814,6 +1972,12 @@ fn demo_shell_views() -> Vec<mara_core::ShellView> {
             "Map object selection view",
         ),
         mara_core::ShellView::new(ACTION_VIEW_3D, "cube", "Three-d scene view"),
+        mara_core::ShellView::new(
+            ACTION_VIEW_BOARD,
+            "square-multiple",
+            "Board view (single board)",
+        ),
+        mara_core::ShellView::new(ACTION_VIEW_MULTI, "grid", "Multiview (split into views)"),
     ]
 }
 
@@ -1823,6 +1987,8 @@ fn shell_active_view_id(root_view: DemoRootView) -> &'static str {
         DemoRootView::BevyScene => ACTION_VIEW_BEVY,
         DemoRootView::Canvas => ACTION_VIEW_CANVAS,
         DemoRootView::ThreeD => ACTION_VIEW_3D,
+        DemoRootView::Board => ACTION_VIEW_BOARD,
+        DemoRootView::Multi => ACTION_VIEW_MULTI,
         DemoRootView::CorevizZones => ACTION_COREVIZ_ZONES,
         DemoRootView::CorevizManagement => ACTION_COREVIZ_MANAGEMENT,
     }
@@ -1904,10 +2070,11 @@ impl DemoApp {
         }
     }
 
-    /// Build the same Mara demo state for a Bevy-owned window. In
-    /// this mode the root Bevy scene is the real Bevy world behind
-    /// `bevy_egui`, so the Mara root view must not create a second
-    /// embedded/offscreen Bevy renderer.
+    /// Build the same Mara demo state for a Bevy-owned window.
+    ///
+    /// This is retained for local experiments, but the canonical app
+    /// path is Mara-owned: Mara owns egui and embeds Bevy as a
+    /// viewport instead of routing UI through a Bevy egui bridge.
     pub fn new_bevy_hosted() -> Self {
         Self {
             bevy_hosted_scene: true,
@@ -1969,11 +2136,11 @@ impl eframe::App for DemoApp {
         [0.0, 0.0, 0.0, 0.0]
     }
 
-    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+    fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         let render_state = frame
             .wgpu_render_state()
             .expect("eframe must run with the wgpu backend (see example/Cargo.toml)");
-        self.update_with_render_state(ctx, render_state);
+        self.update_with_render_state(ui.ctx(), render_state);
     }
 }
 
@@ -2016,6 +2183,8 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
         root_view,
         canvas_view,
         three_d_view,
+        board_view,
+        multi_view,
         canvas_shelves,
         map_view,
         bevy_view,
@@ -2070,6 +2239,10 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
         canvas_root_view(host, accent_col, canvas_view, &mut canvas_shelves.0);
     } else if *root_view == DemoRootView::ThreeD {
         three_d_root_view(host, accent_col, three_d_view);
+    } else if *root_view == DemoRootView::Board {
+        board_root_view(host, accent_col, board_view);
+    } else if *root_view == DemoRootView::Multi {
+        multi_root_view(host, accent_col, multi_view);
     } else if root_view.is_coreviz() {
         map_root_view(
             host,
@@ -2174,7 +2347,7 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
     // it and also lifted to `Foreground`, so they appear on top of
     // the module canvas instead of being hidden behind it.
     if fs_active && is_open_in(RIBBON_ITEMS, PANE_EDITOR) {
-        let anchor = live_anchor(PANE_EDITOR).unwrap_or(PaneAnchor::BottomRail(RailZone::Start));
+        let anchor = live_anchor(PANE_EDITOR).unwrap_or(PaneAnchor::RightRail(RailZone::End));
         let Some(mut backend) = host.node_view_backend() else {
             return;
         };
@@ -2319,6 +2492,8 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
                 DemoRootView::BevyScene => id == ACTION_VIEW_BEVY,
                 DemoRootView::Canvas => id == ACTION_VIEW_CANVAS,
                 DemoRootView::ThreeD => id == ACTION_VIEW_3D,
+                DemoRootView::Board => id == ACTION_VIEW_BOARD,
+                DemoRootView::Multi => id == ACTION_VIEW_MULTI,
                 DemoRootView::CorevizZones => {
                     id == ACTION_COREVIZ_ZONES
                         || matches!(
@@ -2412,6 +2587,22 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
             *root_view = DemoRootView::ThreeD;
             open.set(RIBBON_LEFT, PANE_3D_SCENE);
             open.set(RIBBON_RIGHT, PANE_3D_INSPECTOR);
+            host.request_repaint();
+            continue;
+        }
+        if item_is(ACTION_VIEW_BOARD) {
+            if fs_active {
+                host.restore_fullscreen();
+            }
+            *root_view = DemoRootView::Board;
+            host.request_repaint();
+            continue;
+        }
+        if item_is(ACTION_VIEW_MULTI) {
+            if fs_active {
+                host.restore_fullscreen();
+            }
+            *root_view = DemoRootView::Multi;
             host.request_repaint();
             continue;
         }
@@ -2822,9 +3013,25 @@ fn three_d_root_view(
     accent: MaraColor32,
     three_d: &mut ThreeDViewState,
 ) {
-    let mut view_ctx = host.view_ctx(&mut three_d.workspace, accent, RibbonAvoidance::none());
+    // Honor the view's own decision (default: under the ribbons).
+    let avoidance = three_d.view.content_avoidance();
+    let mut view_ctx = host.view_ctx(&mut three_d.workspace, accent, avoidance);
     three_d.view.set_gpu_render_state(host.render_state());
     three_d.view.show(&mut view_ctx);
+}
+
+fn board_root_view(host: &MaraHostCtx<'_>, accent: MaraColor32, board: &mut BoardViewState) {
+    // Honor the view's own avoidance: a Board view declares it shrinks to
+    // sit inside the ribbons rather than painting behind them.
+    let avoidance = board.view.content_avoidance();
+    let mut view_ctx = host.view_ctx(&mut board.workspace, accent, avoidance);
+    board.view.show(&mut view_ctx);
+}
+
+fn multi_root_view(host: &MaraHostCtx<'_>, accent: MaraColor32, multi: &mut MultiViewState) {
+    let avoidance = multi.view.content_avoidance();
+    let mut view_ctx = host.view_ctx(&mut multi.workspace, accent, avoidance);
+    multi.view.show(&mut view_ctx);
 }
 
 // ─── Canvas root view ──────────────────────────────────────────────
@@ -3924,13 +4131,10 @@ fn about_pane(body: &mut PaneBody) {
                 .with_readout("version", env!("CARGO_PKG_VERSION")),
             Pod::new(pid(PANE_ABOUT, "info", 1))
                 .with_separator(SeparatorStyle::Line)
-                .with_readout("bevy", "0.18"),
+                .with_readout("bevy", "0.19"),
             Pod::new(pid(PANE_ABOUT, "info", 2))
-                .with_separator(SeparatorStyle::Line)
-                .with_readout("bevy_egui", "0.39"),
-            Pod::new(pid(PANE_ABOUT, "info", 3))
                 .with_separator(SeparatorStyle::None)
-                .with_readout("egui", "0.33"),
+                .with_readout("egui", "0.34"),
         ],
     );
     body.add_normal(

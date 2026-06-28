@@ -13,6 +13,8 @@
 
 #[cfg(feature = "three-d")]
 pub use mara_3d;
+#[cfg(feature = "board")]
+pub use mara_board;
 #[cfg(feature = "canvas")]
 pub use mara_canvas;
 #[cfg(feature = "code")]
@@ -31,6 +33,8 @@ pub use crate::host::{MaraHostCtx, MaraWindowHost};
 pub mod modules {
     #[cfg(feature = "three-d")]
     pub use mara_3d as three_d;
+    #[cfg(feature = "board")]
+    pub use mara_board as board;
     #[cfg(feature = "canvas")]
     pub use mara_canvas as canvas;
     #[cfg(feature = "code")]

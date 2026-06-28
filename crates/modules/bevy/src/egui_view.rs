@@ -147,14 +147,279 @@ impl MaraBevyViewport {
         let accent = accent.into();
         self.set_active(true);
         let mut picked_color = None;
-        egui::CentralPanel::default()
-            .frame(egui::Frame::new().fill(egui::Color32::TRANSPARENT))
-            .show(ctx.__internal_egui_ctx(), |ui| {
-                let rect = ui.max_rect();
-                let painter = ui.painter_at(rect);
-                let theme = mara_core::style::theme();
-                painter.rect_filled(rect, 0.0, theme.palette.bg_panel);
-                if rect.width() < 16.0 || rect.height() < 16.0 {
+        #[allow(deprecated)]
+        {
+            egui::CentralPanel::default()
+                .frame(egui::Frame::new().fill(egui::Color32::TRANSPARENT))
+                .show(ctx.__internal_egui_ctx(), |ui| {
+                    let rect = ui.max_rect();
+                    let painter = ui.painter_at(rect);
+                    let theme = mara_core::style::theme();
+                    painter.rect_filled(rect, 0.0, theme.palette.bg_panel);
+                    if rect.width() < 16.0 || rect.height() < 16.0 {
+                        if let Some(texture_id) = self.native_texture {
+                            paint_texture_id_cover(
+                                &painter,
+                                texture_id,
+                                self.native_texture_size,
+                                rect,
+                            );
+                        } else if let Some(texture) = &self.texture {
+                            paint_texture_cover(&painter, texture, rect);
+                        }
+                        ui.ctx()
+                            .request_repaint_after(Duration::from_secs_f64(1.0 / 12.0));
+                        return;
+                    }
+
+                    if let Some(render_state) = render_state {
+                        self.bevy
+                            .attach_wgpu_resources(BevyViewportWgpuResources::new(
+                                render_state.device.clone(),
+                                render_state.queue.clone(),
+                                render_state.adapter.clone(),
+                            ));
+                    }
+                    let use_native_gpu_texture = render_state.is_some();
+
+                    let response = ui.interact(
+                        rect,
+                        egui::Id::new("mara_embedded_bevy_viewport_interact"),
+                        egui::Sense::click_and_drag(),
+                    );
+                    let ppp = ui.ctx().pixels_per_point();
+                    let now = ui.ctx().input(|i| i.time);
+                    let target_pixels = internal_render_pixels(rect.size(), ppp);
+                    if self.resize_target_pixels != target_pixels {
+                        self.resize_target_pixels = target_pixels;
+                        self.resize_settle_until = now + resize_settle_seconds();
+                    }
+                    let has_committed_texture =
+                        self.native_texture.is_some() || self.texture.is_some();
+                    let waiting_for_resize_settle = has_committed_texture
+                        && self.last_pixels != [0, 0]
+                        && self.last_pixels != target_pixels
+                        && now < self.resize_settle_until;
+                    let pixels = if waiting_for_resize_settle {
+                        self.last_pixels
+                    } else {
+                        target_pixels
+                    };
+                    let resize_pending = self.last_pixels != [0, 0] && self.last_pixels != pixels;
+                    let render_scale = egui::vec2(
+                        pixels[0] as f32 / rect.width().max(1.0),
+                        pixels[1] as f32 / rect.height().max(1.0),
+                    );
+
+                    // Only the viewport's own egui `Response` may start
+                    // Bevy interaction. Do NOT use raw/global pointer
+                    // containment as the start condition: floating menus,
+                    // panes and container-dot handles can sit above this
+                    // rect, so `rect.contains(pointer)` would leak those
+                    // UI clicks into the Bevy camera/picker below.
+                    let viewport_hovered = response.hovered();
+                    let pointer_pos = if viewport_hovered || self.primary_drag_active {
+                        ui.ctx().input(|i| i.pointer.interact_pos())
+                    } else {
+                        response.hover_pos()
+                    };
+                    let (primary_down, primary_pressed, middle_down, middle_pressed, scroll_delta) =
+                        ui.ctx().input(|i| {
+                            (
+                                i.pointer.primary_down(),
+                                i.pointer.button_pressed(egui::PointerButton::Primary),
+                                i.pointer.middle_down(),
+                                i.pointer.button_pressed(egui::PointerButton::Middle),
+                                if viewport_hovered {
+                                    i.smooth_scroll_delta.y / 120.0
+                                } else {
+                                    0.0
+                                },
+                            )
+                        });
+                    let viewport_drag_started =
+                        viewport_hovered && (primary_pressed || middle_pressed);
+                    if viewport_drag_started {
+                        self.primary_drag_active = true;
+                        self.last_pointer_pos = pointer_pos;
+                    }
+                    let viewport_drag_down = primary_down || middle_down;
+                    let viewport_dragged = viewport_drag_down && self.primary_drag_active;
+                    let pointer_delta = if viewport_dragged {
+                        if let Some(pos) = pointer_pos {
+                            let delta = self
+                                .last_pointer_pos
+                                .map(|last| pos - last)
+                                .unwrap_or_default()
+                                * render_scale;
+                            self.last_pointer_pos = Some(pos);
+                            [delta.x, delta.y]
+                        } else {
+                            [0.0, 0.0]
+                        }
+                    } else {
+                        if !viewport_drag_down {
+                            self.primary_drag_active = false;
+                            self.last_pointer_pos = None;
+                        }
+                        [0.0, 0.0]
+                    };
+                    let middle_dragged = viewport_dragged && middle_down;
+                    let primary_dragged = viewport_dragged && primary_down && !middle_dragged;
+                    let drag_delta = if primary_dragged {
+                        pointer_delta
+                    } else {
+                        [0.0, 0.0]
+                    };
+                    let pan_delta = if middle_dragged {
+                        pointer_delta
+                    } else {
+                        [0.0, 0.0]
+                    };
+                    let primary_clicked = primary_pressed && viewport_hovered;
+
+                    let viewport_input = BevyViewportInput {
+                        pointer_pos: pointer_pos.map(|pos| {
+                            [
+                                ((pos.x - rect.left()) * render_scale.x)
+                                    .clamp(0.0, pixels[0] as f32),
+                                ((pos.y - rect.top()) * render_scale.y)
+                                    .clamp(0.0, pixels[1] as f32),
+                            ]
+                        }),
+                        drag_delta,
+                        pan_delta,
+                        scroll_delta,
+                        primary_clicked,
+                    };
+
+                    let input_active = viewport_dragged
+                        || primary_clicked
+                        || response.hovered() && viewport_input.scroll_delta.abs() > f32::EPSILON
+                        || response.hovered() && ui.ctx().input(|i| i.pointer.any_down());
+                    let target_size = [pixels[0] as usize, pixels[1] as usize];
+                    let native_texture_needs_committed_frame =
+                        self.native_texture.is_some() && self.native_texture_size != target_size;
+                    let cpu_texture_needs_committed_frame = self
+                        .texture
+                        .as_ref()
+                        .is_some_and(|texture| texture.size() != target_size);
+                    let texture_needs_committed_frame =
+                        native_texture_needs_committed_frame || cpu_texture_needs_committed_frame;
+                    let has_texture = has_committed_texture;
+                    #[cfg(target_arch = "wasm32")]
+                    let idle_interval = 1.0 / 12.0;
+                    #[cfg(not(target_arch = "wasm32"))]
+                    let idle_interval = 1.0 / 24.0;
+                    #[cfg(target_arch = "wasm32")]
+                    let active_interval = 1.0 / 30.0;
+                    #[cfg(not(target_arch = "wasm32"))]
+                    let active_interval = 1.0 / 60.0;
+                    let target_interval = if input_active
+                        || resize_pending
+                        || texture_needs_committed_frame
+                        || !has_texture
+                    {
+                        active_interval
+                    } else {
+                        idle_interval
+                    };
+                    let elapsed = now - self.last_render_time;
+                    let should_render = resize_pending
+                        || !has_texture
+                        || texture_needs_committed_frame
+                        || input_active
+                        || elapsed >= target_interval;
+
+                    if should_render {
+                        self.last_render_time = now;
+                        let dt = ui.ctx().input(|i| i.stable_dt);
+                        let render_attempts = 1;
+                        for attempt in 0..render_attempts {
+                            let input = if attempt == 0 {
+                                viewport_input
+                            } else {
+                                BevyViewportInput {
+                                    pointer_pos: viewport_input.pointer_pos,
+                                    ..Default::default()
+                                }
+                            };
+                            let dt = if attempt == 0 { dt } else { 0.0 };
+                            if use_native_gpu_texture
+                                && let Some(render_state) = render_state
+                                && let Some(frame) = self
+                                    .bevy
+                                    .render_texture_with_input(pixels[0], pixels[1], dt, input)
+                            {
+                                let size = [frame.width as usize, frame.height as usize];
+                                if size == target_size {
+                                    let texture_id = {
+                                        let mut renderer = render_state.renderer.write();
+                                        match self.native_texture {
+                                            Some(texture_id)
+                                                if self.native_texture_size == size =>
+                                            {
+                                                // The egui texture id already points at the
+                                                // Bevy render target. Bevy updates the GPU
+                                                // texture contents in-place, so avoid rebuilding
+                                                // the egui bind group every frame.
+                                                texture_id
+                                            }
+                                            Some(texture_id) => {
+                                                renderer.free_texture(&texture_id);
+                                                renderer.register_native_texture(
+                                                    &render_state.device,
+                                                    &frame.view,
+                                                    wgpu::FilterMode::Linear,
+                                                )
+                                            }
+                                            None => renderer.register_native_texture(
+                                                &render_state.device,
+                                                &frame.view,
+                                                wgpu::FilterMode::Linear,
+                                            ),
+                                        }
+                                    };
+                                    self.native_texture = Some(texture_id);
+                                    self.native_texture_size = size;
+                                    self.last_pixels = pixels;
+                                    break;
+                                }
+                            }
+
+                            if !use_native_gpu_texture
+                                && let Some(frame) = self
+                                    .bevy
+                                    .render_frame_with_input(pixels[0], pixels[1], dt, input)
+                            {
+                                let size = [frame.width as usize, frame.height as usize];
+                                let rgba = if size == target_size {
+                                    Some(frame.rgba.clone())
+                                } else {
+                                    None
+                                };
+                                if let Some(rgba) = rgba {
+                                    self.last_pixels = pixels;
+                                    let image =
+                                        egui::ColorImage::from_rgba_unmultiplied(size, &rgba);
+                                    match &mut self.texture {
+                                        Some(texture) if texture.size() == size => {
+                                            texture.set(image, egui::TextureOptions::LINEAR);
+                                        }
+                                        _ => {
+                                            self.texture = Some(ui.ctx().load_texture(
+                                                "mara_embedded_bevy_viewport",
+                                                image,
+                                                egui::TextureOptions::LINEAR,
+                                            ));
+                                        }
+                                    }
+                                    break;
+                                }
+                            }
+                        }
+                    }
+
                     if let Some(texture_id) = self.native_texture {
                         paint_texture_id_cover(
                             &painter,
@@ -164,276 +429,26 @@ impl MaraBevyViewport {
                         );
                     } else if let Some(texture) = &self.texture {
                         paint_texture_cover(&painter, texture, rect);
+                    } else if self.texture.is_none() {
+                        self.paint_warmup(ui, rect, accent);
+                    }
+
+                    picked_color = self.bevy.picked_color();
+                    let mut next = if should_render {
+                        target_interval
+                    } else {
+                        (target_interval - elapsed).max(active_interval)
+                    };
+                    if resize_pending || texture_needs_committed_frame {
+                        next = next.min(active_interval);
+                    }
+                    if waiting_for_resize_settle {
+                        next = next.min((self.resize_settle_until - now).max(0.0));
                     }
                     ui.ctx()
-                        .request_repaint_after(Duration::from_secs_f64(1.0 / 12.0));
-                    return;
-                }
-
-                if let Some(render_state) = render_state {
-                    self.bevy
-                        .attach_wgpu_resources(BevyViewportWgpuResources::new(
-                            render_state.device.clone(),
-                            render_state.queue.clone(),
-                            render_state.adapter.clone(),
-                        ));
-                }
-                let use_native_gpu_texture = render_state.is_some();
-
-                let response = ui.interact(
-                    rect,
-                    egui::Id::new("mara_embedded_bevy_viewport_interact"),
-                    egui::Sense::click_and_drag(),
-                );
-                let ppp = ui.ctx().pixels_per_point();
-                let now = ui.ctx().input(|i| i.time);
-                let target_pixels = internal_render_pixels(rect.size(), ppp);
-                if self.resize_target_pixels != target_pixels {
-                    self.resize_target_pixels = target_pixels;
-                    self.resize_settle_until = now + resize_settle_seconds();
-                }
-                let has_committed_texture = self.native_texture.is_some() || self.texture.is_some();
-                let waiting_for_resize_settle = has_committed_texture
-                    && self.last_pixels != [0, 0]
-                    && self.last_pixels != target_pixels
-                    && now < self.resize_settle_until;
-                let pixels = if waiting_for_resize_settle {
-                    self.last_pixels
-                } else {
-                    target_pixels
-                };
-                let resize_pending = self.last_pixels != [0, 0] && self.last_pixels != pixels;
-                let render_scale = egui::vec2(
-                    pixels[0] as f32 / rect.width().max(1.0),
-                    pixels[1] as f32 / rect.height().max(1.0),
-                );
-
-                // Only the viewport's own egui `Response` may start
-                // Bevy interaction. Do NOT use raw/global pointer
-                // containment as the start condition: floating menus,
-                // panes and container-dot handles can sit above this
-                // rect, so `rect.contains(pointer)` would leak those
-                // UI clicks into the Bevy camera/picker below.
-                let viewport_hovered = response.hovered();
-                let pointer_pos = if viewport_hovered || self.primary_drag_active {
-                    ui.ctx().input(|i| i.pointer.interact_pos())
-                } else {
-                    response.hover_pos()
-                };
-                let (primary_down, primary_pressed, middle_down, middle_pressed, scroll_delta) =
-                    ui.ctx().input(|i| {
-                        (
-                            i.pointer.primary_down(),
-                            i.pointer.button_pressed(egui::PointerButton::Primary),
-                            i.pointer.middle_down(),
-                            i.pointer.button_pressed(egui::PointerButton::Middle),
-                            if viewport_hovered {
-                                (i.smooth_scroll_delta.y + i.raw_scroll_delta.y) / 120.0
-                            } else {
-                                0.0
-                            },
-                        )
-                    });
-                let viewport_drag_started = viewport_hovered && (primary_pressed || middle_pressed);
-                if viewport_drag_started {
-                    self.primary_drag_active = true;
-                    self.last_pointer_pos = pointer_pos;
-                }
-                let viewport_drag_down = primary_down || middle_down;
-                let viewport_dragged = viewport_drag_down && self.primary_drag_active;
-                let pointer_delta = if viewport_dragged {
-                    if let Some(pos) = pointer_pos {
-                        let delta = self
-                            .last_pointer_pos
-                            .map(|last| pos - last)
-                            .unwrap_or_default()
-                            * render_scale;
-                        self.last_pointer_pos = Some(pos);
-                        [delta.x, delta.y]
-                    } else {
-                        [0.0, 0.0]
-                    }
-                } else {
-                    if !viewport_drag_down {
-                        self.primary_drag_active = false;
-                        self.last_pointer_pos = None;
-                    }
-                    [0.0, 0.0]
-                };
-                let middle_dragged = viewport_dragged && middle_down;
-                let primary_dragged = viewport_dragged && primary_down && !middle_dragged;
-                let drag_delta = if primary_dragged {
-                    pointer_delta
-                } else {
-                    [0.0, 0.0]
-                };
-                let pan_delta = if middle_dragged {
-                    pointer_delta
-                } else {
-                    [0.0, 0.0]
-                };
-                let primary_clicked = primary_pressed && viewport_hovered;
-
-                let viewport_input = BevyViewportInput {
-                    pointer_pos: pointer_pos.map(|pos| {
-                        [
-                            ((pos.x - rect.left()) * render_scale.x).clamp(0.0, pixels[0] as f32),
-                            ((pos.y - rect.top()) * render_scale.y).clamp(0.0, pixels[1] as f32),
-                        ]
-                    }),
-                    drag_delta,
-                    pan_delta,
-                    scroll_delta,
-                    primary_clicked,
-                };
-
-                let input_active = viewport_dragged
-                    || primary_clicked
-                    || response.hovered() && viewport_input.scroll_delta.abs() > f32::EPSILON
-                    || response.hovered() && ui.ctx().input(|i| i.pointer.any_down());
-                let target_size = [pixels[0] as usize, pixels[1] as usize];
-                let native_texture_needs_committed_frame =
-                    self.native_texture.is_some() && self.native_texture_size != target_size;
-                let cpu_texture_needs_committed_frame = self
-                    .texture
-                    .as_ref()
-                    .is_some_and(|texture| texture.size() != target_size);
-                let texture_needs_committed_frame =
-                    native_texture_needs_committed_frame || cpu_texture_needs_committed_frame;
-                let has_texture = has_committed_texture;
-                #[cfg(target_arch = "wasm32")]
-                let idle_interval = 1.0 / 12.0;
-                #[cfg(not(target_arch = "wasm32"))]
-                let idle_interval = 1.0 / 24.0;
-                #[cfg(target_arch = "wasm32")]
-                let active_interval = 1.0 / 30.0;
-                #[cfg(not(target_arch = "wasm32"))]
-                let active_interval = 1.0 / 60.0;
-                let target_interval = if input_active
-                    || resize_pending
-                    || texture_needs_committed_frame
-                    || !has_texture
-                {
-                    active_interval
-                } else {
-                    idle_interval
-                };
-                let elapsed = now - self.last_render_time;
-                let should_render = resize_pending
-                    || !has_texture
-                    || texture_needs_committed_frame
-                    || input_active
-                    || elapsed >= target_interval;
-
-                if should_render {
-                    self.last_render_time = now;
-                    let dt = ui.ctx().input(|i| i.stable_dt);
-                    let render_attempts = 1;
-                    for attempt in 0..render_attempts {
-                        let input = if attempt == 0 {
-                            viewport_input
-                        } else {
-                            BevyViewportInput {
-                                pointer_pos: viewport_input.pointer_pos,
-                                ..Default::default()
-                            }
-                        };
-                        let dt = if attempt == 0 { dt } else { 0.0 };
-                        if use_native_gpu_texture
-                            && let Some(render_state) = render_state
-                            && let Some(frame) = self
-                                .bevy
-                                .render_texture_with_input(pixels[0], pixels[1], dt, input)
-                        {
-                            let size = [frame.width as usize, frame.height as usize];
-                            if size == target_size {
-                                let texture_id = {
-                                    let mut renderer = render_state.renderer.write();
-                                    match self.native_texture {
-                                        Some(texture_id) if self.native_texture_size == size => {
-                                            // The egui texture id already points at the
-                                            // Bevy render target. Bevy updates the GPU
-                                            // texture contents in-place, so avoid rebuilding
-                                            // the egui bind group every frame.
-                                            texture_id
-                                        }
-                                        Some(texture_id) => {
-                                            renderer.free_texture(&texture_id);
-                                            renderer.register_native_texture(
-                                                &render_state.device,
-                                                &frame.view,
-                                                wgpu::FilterMode::Linear,
-                                            )
-                                        }
-                                        None => renderer.register_native_texture(
-                                            &render_state.device,
-                                            &frame.view,
-                                            wgpu::FilterMode::Linear,
-                                        ),
-                                    }
-                                };
-                                self.native_texture = Some(texture_id);
-                                self.native_texture_size = size;
-                                self.last_pixels = pixels;
-                                break;
-                            }
-                        }
-
-                        if !use_native_gpu_texture
-                            && let Some(frame) = self
-                                .bevy
-                                .render_frame_with_input(pixels[0], pixels[1], dt, input)
-                        {
-                            let size = [frame.width as usize, frame.height as usize];
-                            let rgba = if size == target_size {
-                                Some(frame.rgba.clone())
-                            } else {
-                                None
-                            };
-                            if let Some(rgba) = rgba {
-                                self.last_pixels = pixels;
-                                let image = egui::ColorImage::from_rgba_unmultiplied(size, &rgba);
-                                match &mut self.texture {
-                                    Some(texture) if texture.size() == size => {
-                                        texture.set(image, egui::TextureOptions::LINEAR);
-                                    }
-                                    _ => {
-                                        self.texture = Some(ui.ctx().load_texture(
-                                            "mara_embedded_bevy_viewport",
-                                            image,
-                                            egui::TextureOptions::LINEAR,
-                                        ));
-                                    }
-                                }
-                                break;
-                            }
-                        }
-                    }
-                }
-
-                if let Some(texture_id) = self.native_texture {
-                    paint_texture_id_cover(&painter, texture_id, self.native_texture_size, rect);
-                } else if let Some(texture) = &self.texture {
-                    paint_texture_cover(&painter, texture, rect);
-                } else if self.texture.is_none() {
-                    self.paint_warmup(ui, rect, accent);
-                }
-
-                picked_color = self.bevy.picked_color();
-                let mut next = if should_render {
-                    target_interval
-                } else {
-                    (target_interval - elapsed).max(active_interval)
-                };
-                if resize_pending || texture_needs_committed_frame {
-                    next = next.min(active_interval);
-                }
-                if waiting_for_resize_settle {
-                    next = next.min((self.resize_settle_until - now).max(0.0));
-                }
-                ui.ctx()
-                    .request_repaint_after(Duration::from_secs_f64(next));
-            });
+                        .request_repaint_after(Duration::from_secs_f64(next));
+                });
+        }
         picked_color
     }
 

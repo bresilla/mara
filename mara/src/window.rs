@@ -391,7 +391,8 @@ impl<A: WindowApp> NativeWinitApp<A> {
         let frame_timing = std::env::var_os("MARA_FRAME_TIME").is_some();
         let frame_t0 = std::time::Instant::now();
 
-        let full_output = self.egui_ctx.run(raw_input, |ctx| {
+        let full_output = self.egui_ctx.run_ui(raw_input, |ui| {
+            let ctx = ui.ctx();
             let mut host = MaraHostCtx::mara_window(ctx, Some(&render_state));
             app.update(&mut host);
 
@@ -456,10 +457,19 @@ impl<A: WindowApp> NativeWinitApp<A> {
         let tex_set = textures_delta.set.len();
         let tex_free = textures_delta.free.len();
         let paint_t0 = std::time::Instant::now();
+        // The screen clear is the absolute backdrop behind everything —
+        // it shows through wherever no view/pane paints (e.g. around a
+        // view that shrinks inside the ribbons, or behind the glass top
+        // bar). Drive it from the active theme so it tracks light/dark
+        // instead of being a fixed dark color.
+        let clear_color = {
+            let bg: egui::Color32 = mara_core::style::theme().palette.bg_window.into();
+            egui::Rgba::from(bg).to_array()
+        };
         painter.paint_and_update_textures(
             ViewportId::ROOT,
             pixels_per_point,
-            [0.06, 0.08, 0.12, 1.0],
+            clear_color,
             &clipped_primitives,
             &textures_delta,
             Vec::new(),

@@ -1,5 +1,5 @@
 //! Theme setup — palette, typography, and backend styling hooks.
-//! **Framework-agnostic** — no bevy or bevy_egui imports here. Raw
+//! **Framework-agnostic** — no Bevy imports here. Raw
 //! `egui::Context` styling remains first-party backend plumbing; app
 //! code applies themes through Mara host/facade APIs.
 //!
@@ -314,12 +314,11 @@ impl Default for AccentColor {
 //
 // We deliberately stick with the stock egui font families
 // (`Proportional` + `Monospace`) and do NOT register `FontFamily::Name`
-// variants: `ctx.set_fonts` only takes effect on the NEXT `begin_pass`,
-// and bevy_egui 0.39 spawns the primary egui context entity late
-// enough that we can't race ahead of frame 0's draw. Looking up an
-// unbound `FontFamily::Name("…")` on frame 0 is a hard panic in
-// epaint, so we give up per-text weight selection and use size +
-// colour + `.strong()` for hierarchy instead.
+// variants: `ctx.set_fonts` only takes effect on the NEXT `begin_pass`.
+// Hosts can create/draw the first egui frame before the theme hook has
+// run, and looking up an unbound `FontFamily::Name("…")` on frame 0 is
+// a hard panic in epaint, so we give up per-text weight selection and
+// use size + colour + `.strong()` for hierarchy instead.
 
 const IOSEVKA_THIN_TTF: &[u8] = include_bytes!("fonts/iosevka-thin.ttf");
 const IOSEVKA_EXTRALIGHT_TTF: &[u8] = include_bytes!("fonts/iosevka-extralight.ttf");
@@ -544,7 +543,7 @@ pub fn __internal_install_fonts(ctx: &egui::Context, body: FontWeight, title: Fo
 /// Internal first-party backend hook. Hosts expose this through Mara
 /// facade APIs instead of handing app code raw backend contexts. The
 /// function de-dupes internally via a static cache so re-calling with
-/// the same `(accent, opacity)` skips the `ctx.set_style` /
+/// the same `(accent, opacity)` skips the `ctx.set_global_style` /
 /// `ctx.set_fonts` work.
 #[doc(hidden)]
 pub fn __internal_apply_theme(ctx: &egui::Context, accent: AccentColor, opacity: GlassOpacity) {
@@ -732,7 +731,7 @@ pub fn __internal_apply_theme_to(
     // every glyph — the "border around the text" the user sees only when
     // the accent is applied. `Linear` blends the coverage straight, so
     // the AA edge is a single 1-px transition between text and bg.
-    visuals.text_alpha_from_coverage = egui::epaint::AlphaFromCoverage::Linear;
+    visuals.text_options.alpha_from_coverage = egui::epaint::AlphaFromCoverage::Linear;
     visuals.selection.bg_fill = tinted_surface(accent_col);
     visuals.selection.stroke = egui::Stroke::new(stroke_w.max(1.0), accent_col);
     visuals.hyperlink_color = accent_col;
@@ -776,7 +775,7 @@ pub fn __internal_apply_theme_to(
         th.palette.border_inner,
     );
 
-    let mut style = (*ctx.style()).clone();
+    let mut style = (*ctx.global_style()).clone();
     style.visuals = visuals;
 
     // Slightly roomier controls — interacts at 20 px (was 18) and
@@ -828,6 +827,7 @@ pub fn __internal_apply_theme_to(
     // dragging every other widget bg with them.
     style.spacing.scroll = egui::style::ScrollStyle {
         floating: true,
+        content_margin: egui::Margin::ZERO,
         bar_width: 3.0,
         floating_width: 2.0,
         floating_allocated_width: 3.0,
@@ -841,6 +841,7 @@ pub fn __internal_apply_theme_to(
         dormant_handle_opacity: 0.55,
         active_handle_opacity: 0.85,
         interact_handle_opacity: 1.00,
+        fade: Default::default(),
     };
     // Rest: a dimmed-accent track handle that still belongs to the
     // accent family. Hover: full ACCENT_HOVER. Drag: ACCENT_PRESSED.
@@ -893,7 +894,7 @@ pub fn __internal_apply_theme_to(
         opts.parallel_tessellation = true;
     });
 
-    ctx.set_style(style);
+    ctx.set_global_style(style);
 }
 
 /// Darker/muted version of an accent colour — used for "selected" row

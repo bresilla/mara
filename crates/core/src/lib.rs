@@ -116,7 +116,8 @@ pub use style::{
     screen_class, screen_metrics, set_glass_opacity, set_touch_density_override, touch_density,
 };
 pub use view::{
-    MaraView, SharedSurfaceId, ViewCtx, ViewEntry, ViewId, ViewRouter, ViewRouterError,
+    CellId, Layout, MaraView, MultiView, SharedSurfaceId, SplitAxis, ViewCtx, ViewEntry, ViewId,
+    ViewRouter, ViewRouterError,
 };
 pub use window_chrome::{
     WindowChromeHit, WindowChromeHostCapabilities, WindowChromeInput, WindowChromePolicy,

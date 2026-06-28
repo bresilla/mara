@@ -40,6 +40,7 @@ crates/
   modules/code/          mara_code   — code editor widget (vendored fork)
   modules/image/         mara_image  — proof View+Module surface
   modules/canvas/        mara_canvas — freehand canvas View+Module
+  modules/board/         mara_board  — pixel-drawing Board surface module
   modules/map/           mara_map    — vector-tile map View+Module
   modules/three_d/       mara_three_d— retained 3D scene View+Module
   modules/bevy/          mara_bevy   — embedded Bevy viewport (offscreen)
@@ -65,7 +66,7 @@ layer that makes the toolkit backend-swappable.
 | `vocab` | `vocab.rs` | Mara's own `Pos2` / `Vec2` / `Rect` / `Color32` / `Id`, wrapping the egui equivalents. The public API speaks *only* these — egui types never leak. |
 | `UiBackend` | `layout.rs` | Trait the UI calls instead of `egui::Ui`: `allocate`, `interact`, `reserve_rect`, `show_area*`, `id`, `available_width/height`, `input`, `add_space`. |
 | `EguiUiBackend` | `backend/egui.rs` | The one concrete `UiBackend` today — wraps `&mut egui::Ui` and translates calls to egui. |
-| `PaintCmd` / `PaintList` | `paint.rs` | A paint **intermediate representation**: `Rect`, `Polygon`, `Polyline`, `Text`, `Svg`, `Circle*`, `Clip`, … Widgets build `PaintCmd`s; `render_paint_cmd*` lowers them to egui shapes. |
+| `PaintCmd` / `PaintList` | `paint.rs` | A paint **intermediate representation**: `Rect`, `Polygon`, `Polyline`, `Text`, `Svg`, `Circle*`, `Ellipse`, `Arc`, `Sector`, `Image`, `Clip`, … Widgets build `PaintCmd`s; `render_paint_cmd*` lowers them to egui shapes. Exposed as `MaraPainter` methods (`rect_filled`, `text`, `ellipse_filled`/`ellipse_stroke`, `arc`, `sector`, `image`, …). |
 | `MaraMemory` / `MaraMemoryCtx` | `memory.rs` | Backend-neutral persisted per-id state, backed by egui's data store. |
 
 On top of these sits the **sealed widget surface**:
@@ -139,23 +140,23 @@ reacts to app-level `ShellEvent`s; window actions are handled in the runner).
 > at hundreds of ms to >1 s per frame). `AutoNoVsync` makes present non-blocking.
 > See `crates/.../memory` notes and diagnose with `MARA_FRAME_TIME` (§10).
 
-### 4.2 Bevy host — `mara/plugin/bevy` (`bevy_mara`)
+### 4.2 Bevy content — `crates/modules/bevy` (`mara_bevy`)
 
-Bevy (via `bevy_egui`) owns the loop, window, and egui context. Mara plugs in
-as a tiered set of plugins:
+Mara owns egui and the shell. Bevy is embedded as content through
+`MaraBevyViewport`, which keeps the top-level window, theme, ribbons, and pane
+system in Mara while letting Bevy render a scene into an offscreen viewport.
 
-- **`MaraPlugin`** — the full install: `ThemePlugin` (accent/glass resources +
-  per-frame theme apply) + `RibbonPlugin` (ribbon state resources + auto-layout)
-  + `EguiInputAbsorbPlugin` (a **pointer firewall** that masks Bevy-side 3D
-  viewport input when the cursor is over a Mara pane, without disturbing
-  bevy_egui's own forwarding) + **`MaraShellPlugin`**.
-- **`MaraShellPlugin`** — registers the same `ShellBar` resource as the native
-  runner and renders it each egui pass, translating `ShellEvent`s into Bevy
-  (`AppExit`, `Window.maximized`, app-level `Message<ShellEvent>`).
-- **`MaraWindowChromePlugin`** — opt-in borderless desktop chrome; maps Mara's
-  hit-test regions onto Bevy/winit native window operations. Omitted on web/android.
-- **`NodeViewPlugin`** — bridges the graph widget's offscreen texture into
-  Bevy's render world (GPU `CopyTextureToTexture` each frame).
+- **`MaraBevyViewport`** — egui/Mara widget that reserves a region, drives a
+  windowless Bevy app, uploads the latest frame/texture, and forwards pointer
+  input into the Bevy camera.
+- **`BevyViewportBridge` / `BevyViewportRenderTarget`** — the Bevy-side
+  offscreen render target and frame-copy bridge.
+- **`MaraBevySceneHelpersPlugin`** — small Bevy content helpers such as the demo
+  ground grid and orbit camera support. It does not render Mara UI and does not
+  create an egui context.
+- **`mara/plugin/bevy` (`bevy_mara`)** — compatibility/helper crate that
+  re-exports the embedded viewport helpers and Bevy-only material utilities. It
+  deliberately has no Bevy-owned egui bridge.
 
 ### 4.3 Web
 
@@ -175,10 +176,10 @@ dragging are disabled and window chrome is left to the browser.
                                    │  MaraHostCtx (per-frame bridge)
               ┌────────────────────┼────────────────────┐
               ▼                    ▼                     ▼
-     native runner          eframe / web            Bevy plugins
-   (winit + wgpu,         (browser owns           (bevy_egui owns
-    borderless chrome)     the window)             ctx; ECS systems)
-              └──────────── all render the SAME ShellBar ───────────┘
+     native runner          eframe / web        embedded Bevy viewport
+   (winit + wgpu,         (browser owns          (Bevy renders content;
+    borderless chrome)     the window)            Mara owns the shell)
+              └──────────── all render through Mara-owned egui ──────┘
 ```
 
 App code only ever touches `MaraUi` + `MaraHostCtx`; the host supplies the egui
@@ -250,6 +251,62 @@ L0  MaraView  ── owns one WorkspaceStack
                    └─ fullscreen ─► push L2 …
 ```
 
+### Board & multiview (two independent things)
+
+The pane/shelf hierarchy above is for *widget* UIs. Two separate
+primitives cover free drawing and view composition; they are unrelated and
+compose freely.
+
+**1. Board** (`mara_board`) — a pixel-drawing surface *module*, a peer to
+canvas/code/image/graph. It is a top-level `MaraView` **and** an embeddable
+`MaraModule`. Where the canvas captures freehand strokes, a Board lets the
+consumer draw raw `PaintCmd` primitives (`rect`, `text`, `ellipse_*`,
+`arc`, `sector`, `image`) and read pointer input back — no widgets. The
+consumer supplies drawing via a callback:
+
+```rust
+Board::new(id, "VT")
+    .with_layout(Layout::row(…))         // OPTIONAL internal cells
+    .on_draw(|b: BoardPaint| {           // b.painter, b.rect, b.response,
+        // draw primitives; b.cell("data_mask") → cell rect   b.accent, b.cells
+    })
+```
+
+The consumer owns the data model *and* hit-testing; Mara owns the surface
+and the draw calls. A Board's *own* internal `Layout` is enough to build a
+whole ISOBUS virtual terminal **inside one Board** (a data-mask cell +
+soft-key cells). **Mara stays GUI-only** — Boards + primitives, never the
+IOP/CAN/data model.
+
+**2. MultiView** (`mara_core`, `view/multi.rs`) — the generic "divide a
+view" primitive, independent of Board. It splits one view into cells and
+hosts a *child view per cell*, each rendered scoped to its cell rect (own
+content area + workspace, via `ViewCtx::__internal_scoped`). A child is any
+`MaraView` — a Board, a canvas, a map, even another `MultiView`.
+
+```rust
+MultiView::new(id, "VT", Layout::row(gap, vec![
+        (1.0, Layout::col(gap, soft_keys_left)),
+        (4.0, Layout::cell("data_mask")),
+        (1.0, Layout::col(gap, soft_keys_right))]))
+    .view("data_mask", Box::new(Board::new(…).on_draw(…)))
+    .view("L1",        Box::new(Board::new(…).on_draw(…)))   // each key its own Board
+```
+
+So a VT is buildable **either** as one Board with an internal layout, **or**
+as a MultiView of Boards (a big board in the middle, a board per physical
+key) — both are just compositions.
+
+**Shared `Layout`** (`mara_core`, `view/layout.rs`) — the split-tree both
+use: `Layout::{cell, row, col}` (children weighted, with a `gap`) →
+`layout.resolve(rect) -> Vec<(CellId, Rect)>`. Pure geometry; knows nothing
+about views or drawing.
+
+*Not yet:* absolute (fixed-coordinate) cells; host-owned drag-to-rearrange;
+and `CentralPanel`/GPU views (`three_d`, `bevy`) as MultiView children —
+they own the whole window and must render into an Area at `content_rect`
+before they can tile.
+
 ---
 
 ## 7. Ribbons and the Shell bar
@@ -301,6 +358,7 @@ portability characteristics:
 |---|---|---|
 | `mara_image` | `MaraView` + `MaraModule` | Through `MaraUi`/`PaintCmd` (fully abstracted) |
 | `mara_canvas` | `MaraView` + `MaraModule` | Through `MaraUi`/`PaintCmd` (fully abstracted) |
+| `mara_board` | `MaraView` + `MaraModule` | Through `MaraUi`/`PaintCmd` — a pixel-drawing surface with `on_draw` + optional internal `Layout` (see §6) |
 | `mara_map` | `MaraView` + `MaraModule` | Hybrid: basemap via raw egui tessellation (`mvt.rs`); annotations lower to `PaintCmd` |
 | `mara_graph` | View/Module (Mara styling optional) | A **secondary `egui::Context`** rendered to a wgpu texture (sharp-zoom), composited back as an image |
 | `mara_code` | View/Module (Mara styling optional) | Raw egui in the parent context (vendored editor) |

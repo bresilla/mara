@@ -42,4 +42,3 @@ bevy = { workspace = true, features = [
     "reflect_auto_register",
 ] }
 crossbeam-channel = "0.5"
-bevy_glacial = { git = "https://github.com/bresilla/bevy_glacial.git", rev = "d7bc6d3" }

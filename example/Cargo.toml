@@ -8,30 +8,27 @@ repository.workspace = true
 publish = false
 
 [dependencies]
-mara = { path = "../mara", features = ["window", "bevy", "canvas", "code", "graph", "image", "map", "three-d"] }
-egui_plot = "0.34"
+mara = { path = "../mara", features = ["window", "bevy", "canvas", "board", "code", "graph", "image", "map", "three-d"] }
+egui_plot = "0.35"
 bevy = { workspace = true, features = ["webgl2"] }
-bevy_egui = { workspace = true, features = ["default_fonts", "render"] }
-bevy_mara = { path = "../mara/plugin/bevy" }
-bevy_ecs = "0.18"
-bevy_glacial = { git = "https://github.com/bresilla/bevy_glacial.git", rev = "d7bc6d3" }
+bevy_ecs = "0.19"
 tobj = "4"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-eframe = { version = "0.33", default-features = false, features = [
+eframe = { version = "0.34", default-features = false, features = [
     "default_fonts",
     "wgpu",
     "x11",
 ] }
-wgpu = { version = "27", default-features = false, features = ["vulkan"] }
+wgpu = { version = "29", default-features = false, features = ["vulkan"] }
 egui-wgpu = { workspace = true, features = ["winit"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-eframe = { version = "0.33", default-features = false, features = [
+eframe = { version = "0.34", default-features = false, features = [
     "default_fonts",
     "wgpu",
 ] }
-wgpu = { version = "27", default-features = false, features = ["webgl"] }
+wgpu = { version = "29", default-features = false, features = ["webgl"] }
 getrandom = { version = "0.3", features = ["wasm_js"] }
 wasm-bindgen-futures = "0.4"
 log = "0.4"
@@ -41,10 +38,6 @@ console_error_panic_hook = "0.1"
 [[bin]]
 name = "native"
 path = "src/native.rs"
-
-[[bin]]
-name = "bevy"
-path = "src/bevy.rs"
 
 [[bin]]
 name = "web"

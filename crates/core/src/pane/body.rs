@@ -523,6 +523,8 @@ pub(crate) fn render_containers_with_tab_scope<'a>(
 
 #[cfg(test)]
 mod tests {
+    #![allow(deprecated)]
+
     use super::*;
     use crate::pane::{RailZone, active_pane_key, tab_drag};
 
