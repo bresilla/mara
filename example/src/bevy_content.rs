@@ -10,7 +10,7 @@ use bevy::light::{CascadeShadowConfigBuilder, NotShadowCaster, NotShadowReceiver
 use bevy::pbr::{DistanceFog, FogFalloff};
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
-use eframe::egui;
+use egui;
 use mara::ui::modules::bevy::{
     BevyViewportInput, BevyViewportPickedColor, BevyViewportRenderTarget, BevyViewportSet,
     ChaseCamera, GroundGrid, apply_rig, apply_viewport_camera_input_system,

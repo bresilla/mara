@@ -8,19 +8,52 @@ repository.workspace = true
 publish = false
 
 [dependencies]
-mara = { path = "../mara", features = ["window", "bevy", "canvas", "board", "code", "graph", "image", "map", "three-d"] }
+egui = { workspace = true }
+egui-wgpu = { workspace = true }
 egui_plot = "0.35"
 bevy = { workspace = true, features = ["webgl2"] }
 bevy_ecs = "0.19"
 tobj = "4"
 
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+# Desktop (Linux/macOS/Windows): the Mara-owned native window runner plus
+# eframe (only used by the web build's app trait, but the dependency is
+# shared with desktop today).
+[target.'cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))'.dependencies]
+mara = { path = "../mara", features = [
+    "window",
+    "bevy",
+    "canvas",
+    "board",
+    "code",
+    "graph",
+    "image",
+    "map",
+    "three-d",
+] }
 eframe = { version = "0.34", default-features = false, features = [
     "default_fonts",
     "wgpu",
     "x11",
 ] }
 wgpu = { version = "29", default-features = false, features = ["vulkan"] }
+egui-wgpu = { workspace = true, features = ["winit"] }
+
+# Android: the Mara Android runner (NativeActivity). No eframe — its winit
+# activity backend would clash with Mara's. GLES is enabled alongside
+# Vulkan for broad device coverage.
+[target.'cfg(target_os = "android")'.dependencies]
+mara = { path = "../mara", features = [
+    "android",
+    "bevy",
+    "canvas",
+    "board",
+    "code",
+    "graph",
+    "image",
+    "map",
+    "three-d",
+] }
+wgpu = { version = "29", default-features = false, features = ["vulkan", "gles"] }
 egui-wgpu = { workspace = true, features = ["winit"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
@@ -34,6 +67,24 @@ wasm-bindgen-futures = "0.4"
 log = "0.4"
 web-sys = { version = "0.3", features = ["console"] }
 console_error_panic_hook = "0.1"
+
+# `cdylib` so the Android build produces the `libmara_example.so` that
+# NativeActivity loads and whose `android_main` symbol it calls; `lib`
+# keeps the rlib the native/web bins depend on.
+[lib]
+crate-type = ["lib", "cdylib"]
+
+# cargo-apk packaging metadata (NativeActivity). Build the APK with
+# `cargo apk build -p mara_example` inside `nix develop .#android`.
+[package.metadata.android]
+package = "com.mara.example"
+
+[package.metadata.android.sdk]
+min_sdk_version = 28
+target_sdk_version = 34
+
+[package.metadata.android.application]
+label = "Mara Example"
 
 [[bin]]
 name = "native"

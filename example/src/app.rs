@@ -42,7 +42,10 @@
 
 use std::io::Cursor;
 
-use eframe::egui;
+// `egui` directly (not via `eframe`) so this file compiles on Android,
+// where the app does not depend on `eframe`. `eframe::egui` is the same
+// crate re-exported, so non-Android behavior is unchanged.
+use egui;
 
 use mara::ui::{mara_core, modules::map as mara_map};
 use mara_core::container::SeparatorStyle;
@@ -2038,7 +2041,9 @@ fn shell_event_to_click(event: mara_core::ShellEvent) -> Option<RibbonSlotClick>
 
 impl DemoApp {
     /// Built once by `eframe::WebRunner`. No persistence — every
-    /// session starts from the default mara layout.
+    /// session starts from the default mara layout. eframe-only, so it
+    /// is excluded on Android (which uses the Mara Android runner).
+    #[cfg(not(target_os = "android"))]
     pub fn new(_cc: &eframe::CreationContext<'_>) -> Self {
         Self {
             bevy_view: MaraBevyViewport::with_content(crate::bevy_content::configure_app),
@@ -2048,7 +2053,7 @@ impl DemoApp {
     }
 
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn new_winit(render_state: Option<&eframe::egui_wgpu::RenderState>) -> Self {
+    pub fn new_winit(render_state: Option<&egui_wgpu::RenderState>) -> Self {
         Self {
             bevy_view: MaraBevyViewport::with_render_state_and_content(
                 render_state,
@@ -2095,7 +2100,7 @@ impl DemoApp {
     pub fn update_with_render_state(
         &mut self,
         ctx: &egui::Context,
-        render_state: &eframe::egui_wgpu::RenderState,
+        render_state: &egui_wgpu::RenderState,
     ) {
         let mut host = MaraHostCtx::ui_only(ctx, Some(render_state));
         ui_system(self, &mut host);
@@ -2127,6 +2132,7 @@ impl DemoApp {
     }
 }
 
+#[cfg(not(target_os = "android"))]
 impl eframe::App for DemoApp {
     #[cfg(target_arch = "wasm32")]
     fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
@@ -2144,9 +2150,17 @@ impl eframe::App for DemoApp {
     }
 }
 
+// The window-owning runner differs by platform but exposes the same
+// `WindowApp` contract: `mara::window` on desktop, `mara::android` on
+// Android. Alias whichever applies so this single impl serves both.
+#[cfg(target_os = "android")]
+use mara::android::{CreationContext as RunnerCreationContext, WindowApp as RunnerWindowApp};
+#[cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))]
+use mara::window::{CreationContext as RunnerCreationContext, WindowApp as RunnerWindowApp};
+
 #[cfg(not(target_arch = "wasm32"))]
-impl mara::window::WindowApp for DemoApp {
-    fn new(ctx: mara::window::CreationContext<'_>) -> Self {
+impl RunnerWindowApp for DemoApp {
+    fn new(ctx: RunnerCreationContext<'_>) -> Self {
         Self::new_winit(ctx.render_state)
     }
 
