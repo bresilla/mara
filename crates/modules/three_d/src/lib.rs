@@ -3870,6 +3870,7 @@ impl View3d {
         );
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn paint_gizmo_arrow(
         &self,
         painter: &egui::Painter,
@@ -3934,6 +3935,7 @@ impl View3d {
         paint_gizmo_arrow_head(painter, b, c, translate_color, translate_width);
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn paint_gizmo_plane(
         &self,
         painter: &egui::Painter,
@@ -3985,6 +3987,7 @@ impl View3d {
         ));
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn paint_gizmo_rotation_arc(
         &self,
         painter: &egui::Painter,
@@ -4057,6 +4060,7 @@ impl View3d {
         );
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn gizmo_axis_handle_distance(
         &self,
         rect: egui::Rect,
@@ -4117,9 +4121,7 @@ impl View3d {
         ];
         let mut projected = Vec::with_capacity(4);
         for corner in corners {
-            let Some((point, _)) = camera.project(rect, corner) else {
-                return None;
-            };
+            let (point, _) = camera.project(rect, corner)?;
             projected.push(point);
         }
         if point_in_screen_polygon(pointer, &projected) {
@@ -4385,6 +4387,7 @@ impl View3d {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn collect_mesh_faces(
         &self,
         faces: &mut Vec<PreviewFace>,

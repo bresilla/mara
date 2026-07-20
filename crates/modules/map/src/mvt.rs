@@ -382,6 +382,7 @@ struct CandidatePath {
     geo: Vec<GeoPosition>,
 }
 
+#[allow(clippy::too_many_arguments)]
 fn connected_feature_geo_paths(
     rect: egui::Rect,
     viewport: MapViewport,
@@ -408,6 +409,7 @@ fn connected_feature_geo_paths(
     .collect()
 }
 
+#[allow(clippy::too_many_arguments)]
 fn connected_feature_paths(
     rect: egui::Rect,
     viewport: MapViewport,
@@ -748,6 +750,7 @@ fn fetch_tile(key: TileKey) -> Result<Vec<u8>, String> {
     Ok(bytes)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn paint_tile_pass(
     painter: &egui::Painter,
     rect: egui::Rect,
@@ -1029,6 +1032,7 @@ impl MapPalette {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn paint_area_fill(
     painter: &egui::Painter,
     rect: egui::Rect,
@@ -1580,6 +1584,7 @@ fn road_fill_color(feature: &DecodedFeature, palette: &MapPalette) -> egui::Colo
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn paint_label(
     painter: &egui::Painter,
     rect: egui::Rect,
