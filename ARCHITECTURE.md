@@ -72,25 +72,35 @@ layer that makes the toolkit backend-swappable.
 On top of these sits the **sealed widget surface**:
 
 - **`MaraUi`** (`mui/mod.rs`) — what every widget and pane body receives. It
-  holds an `EguiUiBackend`, *not* an `egui::Ui`, and exposes Mara-shaped
-  primitives (`MaraResponse`, `MaraInput`, `MaraPainter`, `MaraKey`).
+  holds a `MaraBackend` (a closed enum `{ Egui, Recording }` implementing
+  `UiBackend`), *not* a raw `egui::Ui`, and exposes Mara-shaped primitives
+  (`MaraResponse`, `MaraInput`, `MaraPainter`, `MaraKey`). Because the backend
+  is generic, the whole sealed surface can render over the headless recording
+  backend — golden paint tests (`backend/record.rs`) exercise exactly that.
 
 **How far the seam actually goes today** (measured 2026-07-20; tracked by the
-coupling ratchet in `make check` and scheduled for reduction by `PLAN.md`):
+coupling ratchet in `make check`, driven down by `PLAN.md`):
 
-- The seam is **real at the paint/measure/interact layer**: widget logic
-  expresses painting as `PaintCmd` and drives `*_backend` functions over the
-  `UiBackend` trait; `backend/egui.rs` is the only *lowering* code. Seven
-  widget families (label, toggle, readout, chip, badge, keybinding,
-  progressbar) are fully backend-routed.
-- The seam is **not yet real at the signature/runtime layer**: widget entry
-  points in all 10 `widget/` files are still typed on `&mut egui::Ui` and
-  construct `EguiUiBackend` locally; `egui::` is referenced in 57 core
-  files; `MaraUi` stores the concrete `EguiUiBackend` (with 24 `ui_mut()`
-  escape sites), and per-id state/animation mostly hits egui's data store
-  directly (~139 sites) rather than `MaraMemory`. A second backend cannot
-  run Mara today. `docs/adr/0001-backend-seam-scope.md` records the decided
-  direction; `PLAN.md` Phases 0–3 are the closure work.
+- **State/animation: fully backend-neutral.** All per-id persisted/temp state
+  and animation route through the `MaraMemory`/`MaraAnim` contracts
+  (`memory.rs`) — zero direct `ctx.data*`/`ctx.animate_*` outside
+  `backend/egui.rs` (the ratchet enforces this at 0). `UiBackend::memory()`
+  vends a `BackendMemory` enum so state works over any backend.
+- **Paint/measure/interact: real.** Widget logic expresses painting as
+  `PaintCmd` and drives `*_backend` functions over the `UiBackend` trait;
+  `backend/egui.rs` is the only *lowering* code. The core widget families
+  (label, toggle, readout, chip, badge, keybinding, progressbar, button,
+  slider, drag_value, select) render with zero egui in the call path.
+- **Signature layer: partially migrated.** `MaraUi` is backend-generic, but a
+  shrinking set of operations still reach egui through the single
+  `MaraUi::egui_ui()` downcast escape (tracked by the ratchet's `ui_escapes`
+  count): the ones needing egui's layout engine (stack scopes, `pod`, the
+  foldable-section frame/indent, `canvas`) or its popup/overlay system
+  (dropdown popup, `context_menu`, tooltips, the egui colour picker). These
+  are the work of `PLAN.md` Phase 4 (layout engine + layer model). A fully
+  headless *chrome* (panes/shelves) is not possible until then, but the
+  *widget surface* already is. `docs/adr/0001-backend-seam-scope.md` records
+  the decided direction.
 
 A handful of **backend-neutral state machines** live alongside, each a pure
 `MaraMemory`-backed core that any backend could reuse:
