@@ -37,6 +37,7 @@ pub use drag::{
 };
 pub(crate) use drag::{ghost_gap_suppressed, set_ghost_gap_suppressed, set_snapshot};
 
+use crate::memory::MaraAnim;
 use egui::{Color32, Id};
 
 use crate::layout::{AreaHost, Layer, PaneBodyScrollSpec, PaneFlexSpec, UiBackend};
@@ -106,8 +107,8 @@ pub(crate) fn body_openness(ctx: &egui::Context, pane_id: impl Into<MaraId>) -> 
     let pane_id: Id = pane_id.into().into();
     let open: bool =
         ctx.data_mut(|d| *d.get_persisted_mut_or_insert_with(pane_id.with("body_open"), || true));
-    ctx.animate_bool_with_time(
-        pane_id.with("body_open").with("anim"),
+    crate::memory::MaraMemoryCtx::new(ctx).animate_bool(
+        pane_id.with("body_open").with("anim").into(),
         open,
         BODY_ANIMATION_TIME,
     )

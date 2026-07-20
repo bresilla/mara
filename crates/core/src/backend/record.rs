@@ -20,7 +20,7 @@ use std::any::Any;
 use std::collections::HashMap;
 
 use crate::layout::{AreaHost, Sense, UiBackend};
-use crate::memory::MaraMemory;
+use crate::memory::{MaraAnim, MaraMemory};
 use crate::mui::MaraResponse;
 use crate::paint::PaintCmd;
 use crate::vocab::{Id, Rect, Vec2};
@@ -32,6 +32,23 @@ use crate::vocab::{Id, Rect, Vec2};
 pub struct RecordingMemory {
     temp: HashMap<Id, Box<dyn Any + Send + Sync>>,
     persisted: HashMap<Id, Box<dyn Any + Send + Sync>>,
+}
+
+/// Headless animation: completes instantly. Goldens and tests pin the
+/// settled endpoints; a frame-clock impl can replace this when a real
+/// non-egui host needs live animation.
+impl MaraAnim for RecordingMemory {
+    fn animate_bool(&mut self, _id: Id, value: bool, _animation_time: f32) -> f32 {
+        if value { 1.0 } else { 0.0 }
+    }
+
+    fn animate_value(&mut self, _id: Id, target: f32, _animation_time: f32) -> f32 {
+        target
+    }
+
+    fn animate_bool_responsive(&mut self, _id: Id, value: bool) -> f32 {
+        if value { 1.0 } else { 0.0 }
+    }
 }
 
 impl MaraMemory for RecordingMemory {
@@ -151,10 +168,7 @@ mod golden {
     use crate::vocab::{Color32, Pos2};
 
     fn golden_check(name: &str, paints: &[PaintCmd]) {
-        let path = format!(
-            "{}/tests/golden/{name}.txt",
-            env!("CARGO_MANIFEST_DIR")
-        );
+        let path = format!("{}/tests/golden/{name}.txt", env!("CARGO_MANIFEST_DIR"));
         let actual = format!("{:#?}\n", paints);
         if std::env::var("MARA_UPDATE_GOLDEN").is_ok() {
             std::fs::create_dir_all(format!("{}/tests/golden", env!("CARGO_MANIFEST_DIR")))

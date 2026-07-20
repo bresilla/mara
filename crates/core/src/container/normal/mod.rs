@@ -16,6 +16,7 @@
 //! });
 //! ```
 
+use crate::memory::MaraAnim;
 use egui::{Color32, Frame, Id, Rect, Ui};
 
 use super::body::Body;
@@ -2247,9 +2248,8 @@ fn paint_top_tabs(
         // active icon SHRINKS and the newly-active icon GROWS at
         // the same time, smoothly, instead of popping in/out.
         let active_target = if is_active { 1.0 } else { 0.0 };
-        let active_t = crate::backend::egui::animate_value_with_time(
-            ui.ctx(),
-            pane_id.with("mara_top_tab_active").with(i),
+        let active_t = crate::memory::MaraMemoryCtx::new(ui.ctx()).animate_value(
+            pane_id.with("mara_top_tab_active").with(i).into(),
             active_target,
             0.2,
         );
@@ -2266,9 +2266,8 @@ fn paint_top_tabs(
         // egui's `animate_value_with_time` smooths the shift so
         // the move reads as an animation, not a teleport.
         let shift_target = if is_active { label_font_size } else { 0.0 };
-        let label_shift = crate::backend::egui::animate_value_with_time(
-            ui.ctx(),
-            pane_id.with("mara_top_tab_label_shift").with(i),
+        let label_shift = crate::memory::MaraMemoryCtx::new(ui.ctx()).animate_value(
+            pane_id.with("mara_top_tab_label_shift").with(i).into(),
             shift_target,
             0.2,
         );

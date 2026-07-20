@@ -22,6 +22,7 @@
 //! * Animation scale is gated by `theme().animations_enabled` and
 //!   stretched by `theme().button_anim_scale`.
 
+use crate::memory::MaraAnim;
 use crate::style::{
     body_accent, contrast_text_for, glass_alpha_card, pane_fill, section_fill, section_show_frame,
     surface_lift_target, theme, widget_border,
@@ -445,8 +446,7 @@ impl<'a> Button<'a> {
         // both paths so the visuals can't drift.
         let hover_t = if th.animations_enabled {
             let dur = 0.25 * th.button_anim_scale.max(0.01);
-            crate::backend::egui::animate_bool_with_time_for_ui(
-                ui,
+            crate::backend::egui::memory_ctx_for_ui(ui).animate_bool(
                 resp.backend_response_id().with("mara_button_hover"),
                 active,
                 dur,

@@ -25,8 +25,38 @@ pub trait MaraMemory {
         T: Clone + Send + Sync + 'static;
 }
 
+/// Animation clock on the memory contract — PLAN.md Phase 2.1.
+///
+/// Widgets animate through this trait instead of the egui context, so
+/// a non-egui backend only has to supply a clock. Object-safe: takes
+/// concrete [`Id`]s so it can ride behind `dyn` with the memory store.
+pub trait MaraAnim {
+    /// 0.0→1.0 progress toward `value` over `animation_time` seconds.
+    fn animate_bool(&mut self, id: Id, value: bool, animation_time: f32) -> f32;
+    /// Persisted value eased toward `target` over `animation_time`.
+    fn animate_value(&mut self, id: Id, target: f32, animation_time: f32) -> f32;
+    /// [`MaraAnim::animate_bool`] with the backend's default duration.
+    fn animate_bool_responsive(&mut self, id: Id, value: bool) -> f32;
+}
+
 pub struct MaraMemoryCtx<'a> {
     pub(crate) ctx: &'a egui::Context,
+}
+
+impl MaraAnim for MaraMemoryCtx<'_> {
+    fn animate_bool(&mut self, id: Id, value: bool, animation_time: f32) -> f32 {
+        self.ctx
+            .animate_bool_with_time(id.into(), value, animation_time)
+    }
+
+    fn animate_value(&mut self, id: Id, target: f32, animation_time: f32) -> f32 {
+        self.ctx
+            .animate_value_with_time(id.into(), target, animation_time)
+    }
+
+    fn animate_bool_responsive(&mut self, id: Id, value: bool) -> f32 {
+        self.ctx.animate_bool_responsive(id.into(), value)
+    }
 }
 
 impl<'a> MaraMemoryCtx<'a> {

@@ -23,6 +23,7 @@
 //!   └── indent guides (depth × TREE_INDENT)
 //! ```
 
+use crate::memory::MaraAnim;
 use std::hash::Hash;
 
 use crate::{
@@ -280,11 +281,8 @@ pub(crate) fn tree_row(
     let glyph_col = style::section_title_color(accent_mara);
     let mut chevron_shift_clicked = false;
     if let (Some(exp), Some(cr)) = (expanded, chevron_rect_opt) {
-        let how_open = crate::backend::egui::animate_bool_responsive_for_ui(
-            ui,
-            ui_id.with(("mara_tree_chev_anim", id_salt)),
-            *exp,
-        );
+        let how_open = crate::backend::egui::memory_ctx_for_ui(ui)
+            .animate_bool_responsive(ui_id.with(("mara_tree_chev_anim", id_salt)), *exp);
         paint_chevron(ui, cr, how_open, glyph_col);
         if let Some(ref cresp) = chevron
             && cresp.clicked()
@@ -485,8 +483,7 @@ pub(crate) fn tree_action_row_with_guide(
     let theme = style::theme();
     let button = theme.widgets.button;
     let hover_t = if theme.animations_enabled {
-        crate::backend::egui::animate_bool_with_time_for_ui(
-            ui,
+        crate::backend::egui::memory_ctx_for_ui(ui).animate_bool(
             ui_id.with(("mara_tree_action_button_hover", id_salt)),
             active,
             0.25 * theme.button_anim_scale.max(0.01),
@@ -555,11 +552,8 @@ pub(crate) fn tree_action_row_with_guide(
     let glyph_col = style::section_title_color(accent_mara);
     let mut chevron_shift_clicked = false;
     if let (Some(exp), Some(cr)) = (expanded, chevron_rect) {
-        let how_open = crate::backend::egui::animate_bool_responsive_for_ui(
-            ui,
-            ui_id.with(("mara_tree_action_chev_anim", id_salt)),
-            *exp,
-        );
+        let how_open = crate::backend::egui::memory_ctx_for_ui(ui)
+            .animate_bool_responsive(ui_id.with(("mara_tree_action_chev_anim", id_salt)), *exp);
         paint_chevron(ui, cr, how_open, glyph_col);
         if let Some(ref cresp) = chevron
             && cresp.clicked()
@@ -587,8 +581,7 @@ pub(crate) fn tree_action_row_with_guide(
     paint_two_line_label(ui, label_rect, title, meta);
 
     let action_hover_t = if style::theme().animations_enabled {
-        crate::backend::egui::animate_bool_with_time_for_ui(
-            ui,
+        crate::backend::egui::memory_ctx_for_ui(ui).animate_bool(
             ui_id.with(("mara_tree_action_tail_hover", id_salt)),
             action.hovered() || action.pointer_button_down() || action_armed,
             0.18 * style::theme().button_anim_scale.max(0.01),

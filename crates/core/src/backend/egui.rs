@@ -366,51 +366,8 @@ pub(crate) fn unstable_dt(ctx: &egui::Context) -> f32 {
     ctx.input(|input| input.unstable_dt).max(0.0)
 }
 
-pub(crate) fn animate_value_with_time(
-    ctx: &egui::Context,
-    id: impl Into<vocab::Id>,
-    target: f32,
-    animation_time: f32,
-) -> f32 {
-    ctx.animate_value_with_time(id.into().into(), target, animation_time)
-}
-
-pub(crate) fn animate_bool_with_time(
-    ctx: &egui::Context,
-    id: impl Into<vocab::Id>,
-    value: bool,
-    animation_time: f32,
-) -> f32 {
-    ctx.animate_bool_with_time(id.into().into(), value, animation_time)
-}
-
-pub(crate) fn animate_bool_with_time_for_ui(
-    ui: &egui::Ui,
-    id: impl Into<vocab::Id>,
-    value: bool,
-    animation_time: f32,
-) -> f32 {
-    animate_bool_with_time(ui.ctx(), id, value, animation_time)
-}
-
 pub(crate) fn context_for_ui(ui: &egui::Ui) -> egui::Context {
     ui.ctx().clone()
-}
-
-pub(crate) fn animate_bool_responsive(
-    ctx: &egui::Context,
-    id: impl Into<vocab::Id>,
-    value: bool,
-) -> f32 {
-    ctx.animate_bool_responsive(id.into().into(), value)
-}
-
-pub(crate) fn animate_bool_responsive_for_ui(
-    ui: &egui::Ui,
-    id: impl Into<vocab::Id>,
-    value: bool,
-) -> f32 {
-    animate_bool_responsive(ui.ctx(), id, value)
 }
 
 pub(crate) fn context_painter_for_layer(
