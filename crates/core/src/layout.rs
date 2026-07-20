@@ -801,6 +801,8 @@ mod tests {
             area,
         );
 
+        // Top-down flow: the first allocation sits at the region
+        // origin, the next flows directly below it.
         let response = backend.allocate(Vec2::new(12.0, 8.0), Sense::ClickAndDrag);
         assert_eq!(
             response.rect,
@@ -808,7 +810,13 @@ mod tests {
         );
 
         let space = backend.reserve_space(Vec2::new(24.0, 16.0));
-        assert_eq!(space, Rect::from_min_size(area.min, Vec2::new(24.0, 16.0)));
+        assert_eq!(
+            space,
+            Rect::from_min_size(
+                Pos2::new(area.min.x, area.min.y + 8.0),
+                Vec2::new(24.0, 16.0)
+            )
+        );
 
         let reserved = backend.reserve_rect(
             Rect::from_min_size(Pos2::new(20.0, 30.0), Vec2::new(40.0, 50.0)),
