@@ -33,19 +33,19 @@ use crate::pod::{Pod, PodResponse};
 use crate::vocab;
 use crate::widget::TreeBody;
 use crate::widget::badge::badge_row_backend;
-use crate::widget::button::{ActionButtonResponse, button, button_h, card_action_button};
+use crate::widget::button::{ActionButtonResponse, button_backend, card_action_button};
 use crate::widget::chip::{chip_colored_backend, chip_fill};
 use crate::widget::color::{color_rgb, color_rgba};
 use crate::widget::context_menu::context_menu_mara;
-use crate::widget::drag_value::drag_value;
+use crate::widget::drag_value::drag_value_backend;
 use crate::widget::dropdown::dropdown;
 use crate::widget::foldable::section;
 use crate::widget::keybinding::keybinding_row_backend;
 use crate::widget::label::label_backend;
 use crate::widget::progressbar::progressbar_backend;
 use crate::widget::readout::readout_backend;
-use crate::widget::select::{HybridSelectResponse, hybrid_select_row, select_row};
-use crate::widget::slider::slider;
+use crate::widget::select::{HybridSelectResponse, hybrid_select_row_backend, select_row_backend};
+use crate::widget::slider::slider_backend;
 use crate::widget::text_input::text_input;
 use crate::widget::toggle::{toggle_backend, toggle_track_only_backend};
 
@@ -553,24 +553,176 @@ impl MaraPainter {
 
 // ─── MaraUi ───────────────────────────────────────────────────────
 
+/// Which concrete backend a [`MaraUi`] drives — PLAN.md Phase 3.
+///
+/// A closed enum (like [`crate::memory::BackendMemory`]) rather than
+/// `Box<dyn UiBackend>`: `EguiUiBackend<'a>` borrows the host `Ui`, so
+/// it is not `'static` and cannot be `Any`-downcast; and `MaraUi` must
+/// keep *owning* its backend (`__internal_from_raw` returns an owning
+/// `MaraUi` from a bare `&mut egui::Ui`), so a `&mut dyn` reference
+/// won't do. The enum gives zero-alloc dynamic dispatch and a clean
+/// `match` for the shrinking set of operations still egui-bound.
+pub(crate) enum MaraBackend<'a> {
+    Egui(backend::egui::EguiUiBackend<'a>),
+    /// Headless recording backend — golden paint tests render a full
+    /// `MaraUi` over this with zero egui in the call path. Constructed
+    /// only in tests today; a headless/pilot host (PLAN.md Phase 6)
+    /// will construct it in production.
+    #[allow(dead_code)]
+    Recording(Box<backend::record::RecordingBackend>),
+}
+
+impl crate::layout::UiBackend for MaraBackend<'_> {
+    fn begin_area(&mut self, host: crate::layout::AreaHost, rect: vocab::Rect) {
+        match self {
+            Self::Egui(b) => b.begin_area(host, rect),
+            Self::Recording(b) => b.begin_area(host, rect),
+        }
+    }
+    fn allocate(&mut self, size: vocab::Vec2, sense: MaraSense) -> MaraResponse {
+        match self {
+            Self::Egui(b) => b.allocate(size, sense),
+            Self::Recording(b) => b.allocate(size, sense),
+        }
+    }
+    fn reserve_rect(&mut self, rect: vocab::Rect, sense: MaraSense) -> MaraResponse {
+        match self {
+            Self::Egui(b) => b.reserve_rect(rect, sense),
+            Self::Recording(b) => b.reserve_rect(rect, sense),
+        }
+    }
+    fn interact(&mut self, rect: vocab::Rect, id: vocab::Id, sense: MaraSense) -> MaraResponse {
+        match self {
+            Self::Egui(b) => b.interact(rect, id, sense),
+            Self::Recording(b) => b.interact(rect, id, sense),
+        }
+    }
+    fn available_rect(&self) -> vocab::Rect {
+        match self {
+            Self::Egui(b) => b.available_rect(),
+            Self::Recording(b) => b.available_rect(),
+        }
+    }
+    fn id(&self) -> vocab::Id {
+        match self {
+            Self::Egui(b) => b.id(),
+            Self::Recording(b) => b.id(),
+        }
+    }
+    fn available_width(&self) -> f32 {
+        match self {
+            Self::Egui(b) => b.available_width(),
+            Self::Recording(b) => b.available_width(),
+        }
+    }
+    fn available_height(&self) -> f32 {
+        match self {
+            Self::Egui(b) => b.available_height(),
+            Self::Recording(b) => b.available_height(),
+        }
+    }
+    fn input(&self) -> MaraInput {
+        match self {
+            Self::Egui(b) => b.input(),
+            Self::Recording(b) => b.input(),
+        }
+    }
+    fn memory(&self) -> crate::memory::BackendMemory<'_> {
+        match self {
+            Self::Egui(b) => b.memory(),
+            Self::Recording(b) => b.memory(),
+        }
+    }
+    fn add_space(&mut self, spec: SpaceSpec) {
+        match self {
+            Self::Egui(b) => b.add_space(spec),
+            Self::Recording(b) => b.add_space(spec),
+        }
+    }
+    fn push_clip(&mut self, rect: vocab::Rect) {
+        match self {
+            Self::Egui(b) => b.push_clip(rect),
+            Self::Recording(b) => b.push_clip(rect),
+        }
+    }
+    fn pop_clip(&mut self) {
+        match self {
+            Self::Egui(b) => b.pop_clip(),
+            Self::Recording(b) => b.pop_clip(),
+        }
+    }
+    fn measure_text(&self, text: &str, size: f32, mono: bool) -> vocab::Vec2 {
+        match self {
+            Self::Egui(b) => b.measure_text(text, size, mono),
+            Self::Recording(b) => b.measure_text(text, size, mono),
+        }
+    }
+    fn paint(&mut self, cmd: PaintCmd) {
+        match self {
+            Self::Egui(b) => b.paint(cmd),
+            Self::Recording(b) => b.paint(cmd),
+        }
+    }
+}
+
 /// The sealed widget surface handed to consumer drawing code.
 ///
 /// Carries an ambient accent colour so widget calls stay terse;
 /// override it per-scope with [`MaraUi::set_accent`].
 pub struct MaraUi<'a> {
-    /// Backend adapter that owns the concrete host `Ui`. `MaraUi`
-    /// drives it through the [`crate::layout::UiBackend`] contract;
-    /// raw-host access stays behind the adapter's `ui()`/`ui_mut()`
-    /// seam.
-    pub(crate) backend: backend::egui::EguiUiBackend<'a>,
+    /// The concrete backend `MaraUi` drives through the
+    /// [`crate::layout::UiBackend`] contract. Operations not yet
+    /// promoted to that contract reach egui through the crate-internal
+    /// [`MaraUi::egui_ui`] downcast (tracked by the coupling ratchet).
+    pub(crate) backend: MaraBackend<'a>,
     accent: vocab::Color32,
 }
 
 impl<'a> MaraUi<'a> {
     pub(crate) fn new(ui: &'a mut egui::Ui, accent: impl Into<vocab::Color32>) -> Self {
         Self {
-            backend: backend::egui::EguiUiBackend::new(ui),
+            backend: MaraBackend::Egui(backend::egui::EguiUiBackend::new(ui)),
             accent: accent.into(),
+        }
+    }
+
+    /// Construct over an explicit backend — used by golden paint tests
+    /// to drive the full sealed surface over the headless recording
+    /// backend.
+    #[cfg(test)]
+    pub(crate) fn over(backend: MaraBackend<'a>, accent: impl Into<vocab::Color32>) -> Self {
+        Self {
+            backend,
+            accent: accent.into(),
+        }
+    }
+
+    /// Recover the owned backend — golden tests read the recorded
+    /// paint stream back out after rendering.
+    #[cfg(test)]
+    pub(crate) fn into_backend(self) -> MaraBackend<'a> {
+        self.backend
+    }
+
+    /// Downcast to the concrete egui backend. Panics on a non-egui
+    /// backend — the shrinking set of operations still egui-bound
+    /// (stack scopes, canvas, pod, context menu, painter, the raw
+    /// hatch) go through here. Each call is a coupling-ratchet escape.
+    pub(crate) fn egui_ui(&mut self) -> &mut egui::Ui {
+        match &mut self.backend {
+            MaraBackend::Egui(b) => b.ui_mut(),
+            MaraBackend::Recording(_) => {
+                panic!("this MaraUi operation requires the egui backend")
+            }
+        }
+    }
+
+    fn egui_ui_ref(&self) -> &egui::Ui {
+        match &self.backend {
+            MaraBackend::Egui(b) => b.ui(),
+            MaraBackend::Recording(_) => {
+                panic!("this MaraUi operation requires the egui backend")
+            }
         }
     }
 
@@ -581,7 +733,7 @@ impl<'a> MaraUi<'a> {
     #[doc(hidden)]
     #[must_use]
     pub fn __internal_raw_ui(&mut self) -> &mut egui::Ui {
-        self.backend.ui_mut()
+        self.egui_ui()
     }
 
     /// Internal first-party constructor — NOT part of the public
@@ -660,20 +812,16 @@ impl<'a> MaraUi<'a> {
 
     pub fn horizontal<R>(&mut self, body: impl FnOnce(&mut MaraUi<'_>) -> R) -> R {
         let accent = self.accent;
-        backend::egui::show_stack_scope_for_ui(
-            self.backend.ui_mut(),
-            StackScopeSpec::horizontal(),
-            |ui| body(&mut MaraUi::new(ui, accent)),
-        )
+        backend::egui::show_stack_scope_for_ui(self.egui_ui(), StackScopeSpec::horizontal(), |ui| {
+            body(&mut MaraUi::new(ui, accent))
+        })
     }
 
     pub fn vertical<R>(&mut self, body: impl FnOnce(&mut MaraUi<'_>) -> R) -> R {
         let accent = self.accent;
-        backend::egui::show_stack_scope_for_ui(
-            self.backend.ui_mut(),
-            StackScopeSpec::vertical(),
-            |ui| body(&mut MaraUi::new(ui, accent)),
-        )
+        backend::egui::show_stack_scope_for_ui(self.egui_ui(), StackScopeSpec::vertical(), |ui| {
+            body(&mut MaraUi::new(ui, accent))
+        })
     }
 
     // ── text ─────────────────────────────────────────────────────
@@ -696,11 +844,14 @@ impl<'a> MaraUi<'a> {
     // ── widgets (ambient accent) ─────────────────────────────────
 
     pub fn button(&mut self, label: &str) -> MaraResponse {
-        button(self.backend.ui_mut(), label, self.accent)
+        let accent = self.accent;
+        let height = crate::style::theme().widgets.button.row_h;
+        button_backend(&mut self.backend, label, accent, height)
     }
 
     pub fn button_h(&mut self, label: &str, height: f32) -> MaraResponse {
-        button_h(self.backend.ui_mut(), label, self.accent, height)
+        let accent = self.accent;
+        button_backend(&mut self.backend, label, accent, height)
     }
 
     pub fn card_action_button(
@@ -711,14 +862,15 @@ impl<'a> MaraUi<'a> {
         action_glyph: &str,
         action_tooltip: &str,
     ) -> ActionButtonResponse {
+        let accent = self.accent;
         card_action_button(
-            self.backend.ui_mut(),
+            self.egui_ui(),
             glyph,
             name,
             subtitle,
             action_glyph,
             action_tooltip,
-            self.accent,
+            accent,
         )
     }
 
@@ -748,14 +900,17 @@ impl<'a> MaraUi<'a> {
         decimals: usize,
         suffix: &str,
     ) -> MaraResponse {
-        slider(
-            self.backend.ui_mut(),
+        let accent = self.accent;
+        let row_height = crate::style::theme().widgets.slider.row_h;
+        slider_backend(
+            &mut self.backend,
             label,
             value,
             range,
             decimals,
             suffix,
-            self.accent,
+            accent,
+            row_height,
         )
     }
 
@@ -768,14 +923,16 @@ impl<'a> MaraUi<'a> {
         decimals: usize,
         suffix: &str,
     ) -> MaraResponse {
-        drag_value(
-            self.backend.ui_mut(),
+        let row_height = crate::style::theme().widgets.drag_value.row_h;
+        drag_value_backend(
+            &mut self.backend,
             label,
             value,
             speed,
             range,
             decimals,
             suffix,
+            row_height,
         )
     }
 
@@ -785,13 +942,8 @@ impl<'a> MaraUi<'a> {
         selected: &mut usize,
         options: &[&str],
     ) -> MaraResponse {
-        dropdown(
-            self.backend.ui_mut(),
-            id_salt,
-            selected,
-            options,
-            self.accent,
-        )
+        let accent = self.accent;
+        dropdown(self.egui_ui(), id_salt, selected, options, accent)
     }
 
     pub fn select_row(
@@ -801,13 +953,16 @@ impl<'a> MaraUi<'a> {
         trailing: Option<&str>,
         selected: bool,
     ) -> MaraResponse {
-        select_row(
-            self.backend.ui_mut(),
+        let accent = self.accent;
+        let height = crate::style::theme().widgets.select.row_h;
+        select_row_backend(
+            &mut self.backend,
             id_salt,
             label,
             trailing,
             selected,
-            self.accent,
+            accent,
+            height,
         )
     }
 
@@ -819,19 +974,23 @@ impl<'a> MaraUi<'a> {
         selected: bool,
         radio_on: bool,
     ) -> HybridSelectResponse {
-        hybrid_select_row(
-            self.backend.ui_mut(),
+        let accent = self.accent;
+        let height = crate::style::theme().widgets.select.row_h;
+        hybrid_select_row_backend(
+            &mut self.backend,
             id_salt,
             label,
             trailing,
             selected,
             radio_on,
-            self.accent,
+            accent,
+            height,
         )
     }
 
     pub fn text_input(&mut self, text: &mut String, placeholder: &str) -> MaraResponse {
-        text_input(self.backend.ui_mut(), text, placeholder, self.accent)
+        let accent = self.accent;
+        text_input(self.egui_ui(), text, placeholder, accent)
     }
 
     pub fn readout(&mut self, label: &str, value: &str) -> MaraResponse {
@@ -899,11 +1058,13 @@ impl<'a> MaraUi<'a> {
     }
 
     pub fn color_rgb(&mut self, label: &str, rgb: &mut [f32; 3]) -> MaraResponse {
-        color_rgb(self.backend.ui_mut(), label, rgb, self.accent)
+        let accent = self.accent;
+        color_rgb(self.egui_ui(), label, rgb, accent)
     }
 
     pub fn color_rgba(&mut self, label: &str, rgba: &mut [f32; 4]) -> MaraResponse {
-        color_rgba(self.backend.ui_mut(), label, rgba, self.accent)
+        let accent = self.accent;
+        color_rgba(self.egui_ui(), label, rgba, accent)
     }
 
     /// Foldable titled section whose body is itself a sealed
@@ -916,22 +1077,15 @@ impl<'a> MaraUi<'a> {
         body: impl FnOnce(&mut MaraUi<'_>),
     ) {
         let accent = self.accent;
-        section(
-            self.backend.ui_mut(),
-            id_salt,
-            title,
-            accent,
-            default_open,
-            |ui| {
-                body(&mut MaraUi::new(ui, accent));
-            },
-        );
+        section(self.egui_ui(), id_salt, title, accent, default_open, |ui| {
+            body(&mut MaraUi::new(ui, accent));
+        });
     }
 
     /// Mara-styled right-click context menu on a previous response.
     pub fn context_menu(&mut self, resp: &MaraResponse, body: impl FnOnce(&mut MaraUi<'_>)) {
         let accent = self.accent;
-        backend::egui::with_response_for_ui(self.backend.ui_mut(), resp, |raw| {
+        backend::egui::with_response_for_ui(self.egui_ui(), resp, |raw| {
             context_menu_mara(raw, accent, |ui| {
                 body(&mut MaraUi::new(ui, accent));
             });
@@ -941,13 +1095,13 @@ impl<'a> MaraUi<'a> {
     /// Recursive tree built from Mara tree rows. The closure only
     /// sees [`TreeBody`].
     pub fn tree(&mut self, body: impl FnOnce(&mut TreeBody<'_>)) {
-        let mut tb = TreeBody::new(self.backend.ui_mut());
+        let mut tb = TreeBody::new(self.egui_ui());
         body(&mut tb);
     }
 
     /// Render a fully-typed [`Pod`] inline.
     pub fn pod(&mut self, pod: Pod) -> PodResponse {
-        pod.show(self.backend.ui_mut())
+        pod.show(self.egui_ui())
     }
 
     // ── custom drawing ───────────────────────────────────────────
@@ -959,8 +1113,7 @@ impl<'a> MaraUi<'a> {
     /// other bespoke visuals.
     pub fn canvas(&mut self, desired_size: impl Into<vocab::Vec2>) -> (MaraPainter, MaraResponse) {
         let spec = CanvasSlotSpec::new(desired_size.into(), MaraSense::ClickAndDrag);
-        let (painter, response) =
-            backend::egui::allocate_canvas_slot_for_ui(self.backend.ui_mut(), spec);
+        let (painter, response) = backend::egui::allocate_canvas_slot_for_ui(self.egui_ui(), spec);
         (MaraPainter::new(painter), response)
     }
 
@@ -975,8 +1128,7 @@ impl<'a> MaraUi<'a> {
             rect,
             MaraSense::ClickAndDrag,
         );
-        let (painter, response) =
-            backend::egui::interact_canvas_rect_for_ui(self.backend.ui_mut(), spec);
+        let (painter, response) = backend::egui::interact_canvas_rect_for_ui(self.egui_ui(), spec);
         (MaraPainter::new(painter), response)
     }
 
@@ -985,7 +1137,7 @@ impl<'a> MaraUi<'a> {
     #[must_use]
     pub fn painter(&self) -> MaraPainter {
         MaraPainter::new(backend::egui::painter_for_ui_surface(
-            self.backend.ui(),
+            self.egui_ui_ref(),
             PaintSurfaceSpec::remaining_available(),
         ))
     }

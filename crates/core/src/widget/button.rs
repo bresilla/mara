@@ -185,7 +185,7 @@ impl<'a> ActionButton<'a> {
     /// independent body/action responses.
     pub fn show(self, ui: &mut crate::mui::MaraUi<'_>) -> ActionButtonResponse {
         let accent = ui.accent();
-        self.show_egui(ui.backend.ui_mut(), accent)
+        self.show_egui(ui.egui_ui(), accent)
     }
 
     /// Current egui-backend adapter used by first-party internals.
@@ -398,7 +398,7 @@ impl<'a> Button<'a> {
     /// interaction snapshot.
     pub fn show(self, ui: &mut crate::mui::MaraUi<'_>) -> MaraResponse {
         let accent = ui.accent();
-        self.show_egui(ui.backend.ui_mut(), accent)
+        self.show_egui(ui.egui_ui(), accent)
     }
 
     /// Current egui-backend adapter used by first-party internals.
@@ -475,35 +475,6 @@ impl<'a> Button<'a> {
         }
         resp
     }
-}
-
-/// Render a plain button at the default [`BUTTON_ROW_H`] height —
-/// shortcut for `Button::new(label).show(mui)`.
-pub(crate) fn button(
-    ui: &mut egui::Ui,
-    label: &str,
-    accent: impl Into<MaraColor32>,
-) -> MaraResponse {
-    let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
-    button_backend(
-        &mut backend,
-        label,
-        accent.into(),
-        theme().widgets.button.row_h,
-    )
-}
-
-/// Variable-height plain button — shortcut for
-/// `Button::new(label).height(height).show(mui)`. Used by
-/// resizable pods.
-pub(crate) fn button_h(
-    ui: &mut egui::Ui,
-    label: &str,
-    accent: impl Into<MaraColor32>,
-    height: f32,
-) -> MaraResponse {
-    let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
-    button_backend(&mut backend, label, accent.into(), height)
 }
 
 /// Backend-neutral plain button renderer.

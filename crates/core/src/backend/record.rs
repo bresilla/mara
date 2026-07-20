@@ -230,4 +230,25 @@ mod golden {
         let _ = crate::widget::button::button_backend(&mut backend, "apply", ACCENT, 24.0);
         golden_check("button", &backend.paints);
     }
+
+    /// The Phase 3 exit gate: a full `MaraUi` — the sealed surface app
+    /// code uses — renders label/button/toggle/slider over the
+    /// recording backend with zero egui in the call path.
+    #[test]
+    fn golden_mara_ui_over_recording() {
+        use crate::mui::{MaraBackend, MaraUi};
+
+        let mut mui = MaraUi::over(MaraBackend::Recording(Box::new(frame())), ACCENT);
+        mui.label("headless");
+        mui.button("apply");
+        let mut on = true;
+        mui.toggle("dark", &mut on);
+        let mut value = 0.5_f64;
+        mui.slider("gain", &mut value, 0.0..=1.0, 2, "");
+
+        let MaraBackend::Recording(backend) = mui.into_backend() else {
+            unreachable!("constructed with the recording backend");
+        };
+        golden_check("mara_ui_over_recording", &backend.paints);
+    }
 }
