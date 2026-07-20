@@ -55,7 +55,10 @@ impl eframe::App for NaughtyApp {
         host.show_root_body(mara::ui::style::active_accent(), |mui, _rect| {
             mui.label("this app never draws the top bar — Mara enforces it anyway");
             mui.label("(no theme applied, no shelf layout published either)");
-            let _ = mui.toggle("opt out of the enforced bar (explicit, per-frame)", &mut self.opt_out);
+            let _ = mui.toggle(
+                "opt out of the enforced bar (explicit, per-frame)",
+                &mut self.opt_out,
+            );
         });
 
         // The single deliberate escape hatch: a per-frame decision.

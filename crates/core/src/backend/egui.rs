@@ -1529,17 +1529,18 @@ fn svg_stable_hash(svg: &str) -> u64 {
 }
 
 fn egui_mesh_from_mara(vertices: Vec<crate::paint::PaintVertex>, indices: Vec<u32>) -> egui::Mesh {
-    let mut mesh = egui::Mesh::default();
-    mesh.indices = indices;
-    mesh.vertices = vertices
-        .into_iter()
-        .map(|vertex| egui::epaint::Vertex {
-            pos: vertex.pos.into(),
-            uv: egui::epaint::WHITE_UV,
-            color: vertex.color.into(),
-        })
-        .collect();
-    mesh
+    egui::Mesh {
+        indices,
+        vertices: vertices
+            .into_iter()
+            .map(|vertex| egui::epaint::Vertex {
+                pos: vertex.pos.into(),
+                uv: egui::epaint::WHITE_UV,
+                color: vertex.color.into(),
+            })
+            .collect(),
+        ..egui::Mesh::default()
+    }
 }
 
 pub(crate) fn render_text_cmd(painter: &egui::Painter, cmd: PaintCmd) -> vocab::Rect {

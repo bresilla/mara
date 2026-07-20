@@ -1040,6 +1040,7 @@ impl Pod {
     /// chrome" shape used by hierarchy UIs: body click selects /
     /// opens the row, tail click performs the secondary action
     /// without also firing the body click.
+    #[allow(clippy::too_many_arguments)]
     pub fn with_card_action_button(
         mut self,
         glyph: impl Into<String>,

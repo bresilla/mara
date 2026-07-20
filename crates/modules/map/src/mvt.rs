@@ -335,6 +335,7 @@ struct PathHit {
     score: f32,
 }
 
+#[allow(clippy::too_many_arguments)]
 fn feature_info(
     rect: egui::Rect,
     viewport: MapViewport,

@@ -459,8 +459,8 @@ fn hide_side_rails_under_open_panels(
     ribbons
         .into_iter()
         .filter(|ribbon| {
-            !(left_panel_open && ribbon.edge == RibbonEdge::Left)
-                && !(right_panel_open && ribbon.edge == RibbonEdge::Right)
+            !(left_panel_open && ribbon.edge == RibbonEdge::Left
+                || right_panel_open && ribbon.edge == RibbonEdge::Right)
         })
         .collect()
 }
