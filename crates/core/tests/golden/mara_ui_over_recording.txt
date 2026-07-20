@@ -18,11 +18,11 @@
         rect: Rect {
             min: Pos2 {
                 x: 0.0,
-                y: 0.0,
+                y: 18.0,
             },
             max: Pos2 {
                 x: 320.0,
-                y: 24.0,
+                y: 42.0,
             },
         },
         corner: CornerRadius(
@@ -41,11 +41,11 @@
         rect: Rect {
             min: Pos2 {
                 x: 0.0,
-                y: 0.0,
+                y: 18.0,
             },
             max: Pos2 {
                 x: 320.0,
-                y: 24.0,
+                y: 42.0,
             },
         },
         corner: CornerRadius(
@@ -67,18 +67,18 @@
         rect: Rect {
             min: Pos2 {
                 x: 0.0,
-                y: 0.0,
+                y: 18.0,
             },
             max: Pos2 {
                 x: 320.0,
-                y: 24.0,
+                y: 42.0,
             },
         },
         children: [
             Text {
                 pos: Pos2 {
                     x: 160.0,
-                    y: 12.0,
+                    y: 30.0,
                 },
                 anchor: Align2(
                     Align2(Center, Center),
@@ -95,7 +95,7 @@
     Text {
         pos: Pos2 {
             x: 0.0,
-            y: 9.0,
+            y: 51.0,
         },
         anchor: Align2(
             Align2(Min, Center),
@@ -111,11 +111,11 @@
         rect: Rect {
             min: Pos2 {
                 x: 282.0,
-                y: 0.0,
+                y: 42.0,
             },
             max: Pos2 {
                 x: 320.0,
-                y: 18.0,
+                y: 60.0,
             },
         },
         corner: CornerRadius(
@@ -134,11 +134,11 @@
         rect: Rect {
             min: Pos2 {
                 x: 282.0,
-                y: 0.0,
+                y: 42.0,
             },
             max: Pos2 {
                 x: 320.0,
-                y: 18.0,
+                y: 60.0,
             },
         },
         corner: CornerRadius(
@@ -160,11 +160,11 @@
         rect: Rect {
             min: Pos2 {
                 x: 304.0,
-                y: 2.0,
+                y: 44.0,
             },
             max: Pos2 {
                 x: 318.0,
-                y: 16.0,
+                y: 58.0,
             },
         },
         corner: CornerRadius(
@@ -183,11 +183,11 @@
         rect: Rect {
             min: Pos2 {
                 x: 304.0,
-                y: 2.0,
+                y: 44.0,
             },
             max: Pos2 {
                 x: 318.0,
-                y: 16.0,
+                y: 58.0,
             },
         },
         corner: CornerRadius(
@@ -208,7 +208,7 @@
     Text {
         pos: Pos2 {
             x: 0.0,
-            y: 9.0,
+            y: 69.0,
         },
         anchor: Align2(
             Align2(Min, Center),
@@ -224,11 +224,11 @@
         rect: Rect {
             min: Pos2 {
                 x: 0.0,
-                y: 18.0,
+                y: 78.0,
             },
             max: Pos2 {
                 x: 320.0,
-                y: 36.0,
+                y: 96.0,
             },
         },
         corner: CornerRadius(
@@ -247,11 +247,11 @@
         rect: Rect {
             min: Pos2 {
                 x: 0.0,
-                y: 18.0,
+                y: 78.0,
             },
             max: Pos2 {
                 x: 320.0,
-                y: 36.0,
+                y: 96.0,
             },
         },
         corner: CornerRadius(
@@ -273,11 +273,11 @@
         rect: Rect {
             min: Pos2 {
                 x: 0.0,
-                y: 18.0,
+                y: 78.0,
             },
             max: Pos2 {
                 x: 160.0,
-                y: 36.0,
+                y: 96.0,
             },
         },
         corner: CornerRadius(
@@ -295,7 +295,7 @@
     Text {
         pos: Pos2 {
             x: 160.0,
-            y: 27.0,
+            y: 87.0,
         },
         anchor: Align2(
             Align2(Center, Center),
@@ -310,7 +310,7 @@
     Text {
         pos: Pos2 {
             x: 160.0,
-            y: 27.0,
+            y: 87.0,
         },
         anchor: Align2(
             Align2(Center, Center),

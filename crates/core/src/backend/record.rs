@@ -9,7 +9,8 @@
 //! Semantics are deliberately simple and FROZEN — goldens and 18 widget
 //! test suites depend on them:
 //!
-//! - `allocate` places at `available.min` (no flowing cursor).
+//! - `allocate`/`reserve_space` place at a top-down flow cursor and
+//!   advance it, so widgets stack vertically like egui's default `Ui`.
 //! - `interact` returns the injected [`RecordingBackend::interaction`]
 //!   when set, else a synthetic hover-less response at the given rect.
 //! - `measure_text` is `chars * size * 0.5` wide and `size` tall.
@@ -23,7 +24,7 @@ use crate::layout::{AreaHost, Sense, UiBackend};
 use crate::memory::{MaraAnim, MaraMemory};
 use crate::mui::MaraResponse;
 use crate::paint::PaintCmd;
-use crate::vocab::{Id, Rect, Vec2};
+use crate::vocab::{Id, Pos2, Rect, Vec2};
 
 /// Headless [`MaraMemory`] store — a type-erased `HashMap` per lane.
 /// The backend-neutral state cores (popup/focus/scroll) and widget
@@ -102,8 +103,14 @@ impl MaraMemory for RecordingMemory {
 /// assert on the captured stream directly.
 #[derive(Default)]
 pub struct RecordingBackend {
-    /// The rect `begin_area` was last given; `allocate` places here.
+    /// The region `begin_area` was last given — the flow container.
     pub available: Rect,
+    /// Top-down layout cursor: `allocate`/`reserve_space`/`add_space`
+    /// place at the cursor and advance it down, so a sequence of
+    /// widgets stacks vertically like egui's default top-down `Ui`
+    /// (rather than overlapping at the region origin). Reset to the
+    /// region's top-left by `begin_area`.
+    pub cursor: Pos2,
     /// Append-only log of every clip rect pushed. `pop_clip` does NOT
     /// remove entries — assertions want the full push history, and no
     /// trait consumer reads the live clip state back.
@@ -118,10 +125,12 @@ pub struct RecordingBackend {
 }
 
 impl RecordingBackend {
-    /// Backend spanning `rect`, as if `begin_area` had run.
+    /// Backend spanning `rect`, as if `begin_area` had run — the flow
+    /// cursor starts at the region's top-left.
     pub fn at(rect: Rect) -> Self {
         Self {
             available: rect,
+            cursor: rect.min,
             ..Self::default()
         }
     }
@@ -130,10 +139,23 @@ impl RecordingBackend {
 impl UiBackend for RecordingBackend {
     fn begin_area(&mut self, _host: AreaHost, rect: Rect) {
         self.available = rect;
+        self.cursor = rect.min;
     }
 
     fn allocate(&mut self, size: Vec2, _sense: Sense) -> MaraResponse {
-        MaraResponse::synthetic(Rect::from_min_size(self.available.min, size))
+        let rect = Rect::from_min_size(self.cursor, size);
+        self.cursor.y += size.y;
+        MaraResponse::synthetic(rect)
+    }
+
+    fn reserve_space(&mut self, size: Vec2) -> Rect {
+        let rect = Rect::from_min_size(self.cursor, size);
+        self.cursor.y += size.y;
+        rect
+    }
+
+    fn add_space(&mut self, spec: crate::layout::SpaceSpec) {
+        self.cursor.y += spec.size.y;
     }
 
     fn interact(&mut self, rect: Rect, _id: Id, _sense: Sense) -> MaraResponse {
@@ -143,7 +165,8 @@ impl UiBackend for RecordingBackend {
     }
 
     fn available_rect(&self) -> Rect {
-        self.available
+        // Remaining flow region below the cursor.
+        Rect::from_min_max(self.cursor, self.available.max)
     }
 
     fn push_clip(&mut self, rect: Rect) {
@@ -240,6 +263,19 @@ mod golden {
         let mut backend = frame();
         let _ = crate::widget::button::button_backend(&mut backend, "apply", ACCENT, 24.0);
         golden_check("button", &backend.paints);
+    }
+
+    #[test]
+    fn flow_cursor_stacks_allocations_top_down() {
+        use crate::layout::{Sense, UiBackend};
+        let mut backend = frame();
+        let a = backend.allocate(Vec2::new(100.0, 20.0), Sense::Hover);
+        let b = backend.allocate(Vec2::new(100.0, 30.0), Sense::Hover);
+        // Second allocation sits directly below the first (no overlap).
+        assert_eq!(a.rect.min, Pos2::new(0.0, 0.0));
+        assert_eq!(b.rect.min, Pos2::new(0.0, 20.0));
+        // available_rect shrinks from the top as the cursor advances.
+        assert_eq!(backend.available_rect().min, Pos2::new(0.0, 50.0));
     }
 
     /// A tree row renders headlessly through the converted `tree_row`
