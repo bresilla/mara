@@ -663,6 +663,30 @@ impl crate::layout::UiBackend for MaraBackend<'_> {
             Self::Recording(b) => b.paint(cmd),
         }
     }
+    fn reserve_paint_slot(&mut self) -> crate::layout::PaintSlot {
+        match self {
+            Self::Egui(b) => b.reserve_paint_slot(),
+            Self::Recording(b) => b.reserve_paint_slot(),
+        }
+    }
+    fn fill_paint_slot(&mut self, slot: crate::layout::PaintSlot, cmd: Option<PaintCmd>) {
+        match self {
+            Self::Egui(b) => b.fill_paint_slot(slot, cmd),
+            Self::Recording(b) => b.fill_paint_slot(slot, cmd),
+        }
+    }
+    fn hover_text(&mut self, response: &MaraResponse, text: &str) {
+        match self {
+            Self::Egui(b) => b.hover_text(response, text),
+            Self::Recording(b) => b.hover_text(response, text),
+        }
+    }
+    fn is_rect_visible(&self, rect: vocab::Rect) -> bool {
+        match self {
+            Self::Egui(b) => b.is_rect_visible(rect),
+            Self::Recording(b) => b.is_rect_visible(rect),
+        }
+    }
 }
 
 /// The sealed widget surface handed to consumer drawing code.

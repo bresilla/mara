@@ -695,6 +695,51 @@ pub trait UiBackend {
     fn pop_clip(&mut self);
     fn measure_text(&self, text: &str, size: f32, mono: bool) -> Vec2;
     fn paint(&mut self, cmd: PaintCmd);
+
+    /// Reserve a paint slot at the current z-position, to be filled
+    /// later with [`UiBackend::fill_paint_slot`]. Lets a widget paint
+    /// a background *beneath* content drawn after the reservation
+    /// (e.g. a tree row's selection fill under its label). The default
+    /// degrades to inline painting (no z-deferral); backends with a
+    /// shape list override it.
+    fn reserve_paint_slot(&mut self) -> PaintSlot {
+        PaintSlot::INLINE
+    }
+
+    /// Fill (or clear, with `None`) a slot from
+    /// [`UiBackend::reserve_paint_slot`]. The default paints `cmd`
+    /// immediately at the current position.
+    fn fill_paint_slot(&mut self, slot: PaintSlot, cmd: Option<PaintCmd>) {
+        let _ = slot;
+        if let Some(cmd) = cmd {
+            self.paint(cmd);
+        }
+    }
+
+    /// Show hover-tooltip `text` for a previously-returned response.
+    /// No-op on backends without an overlay layer.
+    fn hover_text(&mut self, response: &MaraResponse, text: &str) {
+        let _ = (response, text);
+    }
+
+    /// Whether `rect` is within the visible viewport — a culling hint
+    /// widgets use to skip offscreen paint work. Defaults to always
+    /// visible for backends without a viewport.
+    fn is_rect_visible(&self, rect: Rect) -> bool {
+        let _ = rect;
+        true
+    }
+}
+
+/// Opaque handle to a paint slot reserved via
+/// [`UiBackend::reserve_paint_slot`]. The inner index is
+/// backend-interpreted; [`PaintSlot::INLINE`] is the sentinel the
+/// default (non-deferring) implementation returns.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PaintSlot(pub(crate) usize);
+
+impl PaintSlot {
+    pub(crate) const INLINE: PaintSlot = PaintSlot(usize::MAX);
 }
 
 /// Hidden egui measurement adapter for first-party crates that have

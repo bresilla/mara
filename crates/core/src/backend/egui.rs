@@ -39,6 +39,9 @@ pub(crate) fn egui_frame_for_style_spec(spec: crate::style::FrameSpec) -> egui::
 pub(crate) struct EguiUiBackend<'a> {
     ui: &'a mut egui::Ui,
     clip_stack: Vec<egui::Rect>,
+    /// Maps `PaintSlot` indices to reserved egui shape ids, so
+    /// `reserve_paint_slot`/`fill_paint_slot` can defer a shape.
+    deferred_slots: Vec<ShapeIdx>,
 }
 
 pub(crate) struct DeferredPaintSlot(ShapeIdx);
@@ -48,6 +51,7 @@ impl<'a> EguiUiBackend<'a> {
         Self {
             ui,
             clip_stack: Vec::new(),
+            deferred_slots: Vec::new(),
         }
     }
 
@@ -231,6 +235,27 @@ impl UiBackend for EguiUiBackend<'_> {
 
     fn paint(&mut self, cmd: PaintCmd) {
         render_paint_cmd_ui(self.ui, cmd);
+    }
+
+    fn reserve_paint_slot(&mut self) -> crate::layout::PaintSlot {
+        let idx = self.ui.painter().add(egui::Shape::Noop);
+        self.deferred_slots.push(idx);
+        crate::layout::PaintSlot(self.deferred_slots.len() - 1)
+    }
+
+    fn fill_paint_slot(&mut self, slot: crate::layout::PaintSlot, cmd: Option<PaintCmd>) {
+        if let Some(&idx) = self.deferred_slots.get(slot.0) {
+            let shape = cmd.map(shape_from_paint_cmd).unwrap_or(egui::Shape::Noop);
+            self.ui.painter().set(idx, shape);
+        }
+    }
+
+    fn hover_text(&mut self, response: &MaraResponse, text: &str) {
+        hover_text(self.ui.ctx(), response.backend_response_id(), text);
+    }
+
+    fn is_rect_visible(&self, rect: vocab::Rect) -> bool {
+        self.ui.is_rect_visible(rect.into())
     }
 }
 
@@ -1335,6 +1360,7 @@ pub(crate) fn render_paint_cmd(painter: &egui::Painter, cmd: PaintCmd) {
                 .as_shape(rect.into(), Into::<egui::CornerRadius>::into(corner)),
             );
         }
+        PaintCmd::Noop => {}
         PaintCmd::Clip { rect, children } => {
             let clipped = painter_with_clip(painter, rect);
             for child in children {
@@ -1459,7 +1485,8 @@ pub(crate) fn shape_from_paint_cmd(cmd: PaintCmd) -> egui::Shape {
         | PaintCmd::TextRuns { .. }
         | PaintCmd::Image { .. }
         | PaintCmd::Svg { .. }
-        | PaintCmd::Clip { .. } => egui::Shape::Noop,
+        | PaintCmd::Clip { .. }
+        | PaintCmd::Noop => egui::Shape::Noop,
     }
 }
 

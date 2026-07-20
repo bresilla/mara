@@ -160,6 +160,17 @@ impl UiBackend for RecordingBackend {
         self.paints.push(cmd);
     }
 
+    fn reserve_paint_slot(&mut self) -> crate::layout::PaintSlot {
+        self.paints.push(PaintCmd::Noop);
+        crate::layout::PaintSlot(self.paints.len() - 1)
+    }
+
+    fn fill_paint_slot(&mut self, slot: crate::layout::PaintSlot, cmd: Option<PaintCmd>) {
+        if let (Some(cmd), Some(existing)) = (cmd, self.paints.get_mut(slot.0)) {
+            *existing = cmd;
+        }
+    }
+
     fn memory(&self) -> crate::memory::BackendMemory<'_> {
         crate::memory::BackendMemory::Recording(&self.memory)
     }
