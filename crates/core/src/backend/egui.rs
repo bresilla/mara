@@ -1613,6 +1613,25 @@ mod tests {
     use crate::vocab::{Color32, CornerRadius, Pos2, Rect, Stroke, Vec2};
 
     #[test]
+    fn egui_order_mapping_preserves_layer_rank() {
+        // The egui backend must honour the Layer contract: a
+        // higher-rank Mara layer maps to an egui order that paints
+        // no lower than a lower-rank one.
+        let layers = [
+            Layer::Background,
+            Layer::Middle,
+            Layer::Foreground,
+            Layer::Overlay,
+        ];
+        for pair in layers.windows(2) {
+            assert!(
+                egui_order_for_layer(pair[0]) <= egui_order_for_layer(pair[1]),
+                "egui order must be monotonic with Layer::rank"
+            );
+        }
+    }
+
+    #[test]
     fn arc_polyline_hits_endpoints_and_scales_with_sweep() {
         use std::f32::consts::{FRAC_PI_2, TAU};
         // Quarter arc, radius 10, 0 → 90° (clockwise: +x toward +y screen-down).

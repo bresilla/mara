@@ -11,12 +11,47 @@ use crate::{
     vocab::{Color32, CornerRadius, Id, Pos2, Rect, Vec2},
 };
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+/// The z-ordering band an [`AreaHost`] paints and interacts in — the
+/// backend-neutral layer contract (PLAN.md Phase 4).
+///
+/// Bands paint back-to-front in variant order: **`Background` <
+/// `Middle` < `Foreground` < `Overlay`** ([`Layer::rank`] gives the
+/// numeric order). Areas in a higher band paint over — and take
+/// pointer input ahead of — every area in a lower band. Within one
+/// band, ties break by paint order (later wins), matching immediate
+/// mode. A backend MUST honour this ordering; the egui backend maps it
+/// onto `egui::Order` (`Overlay` → `Tooltip`, so floating palettes sit
+/// above foreground scrims).
+///
+/// Occlusion is governed by [`AreaHost::interactable`]: a
+/// non-interactive area paints but never consumes pointer input, so
+/// clicks fall through to whatever is beneath it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Layer {
+    /// Behind all content — backdrops, scrims, the root body fill.
     Background,
+    /// Default band for docked chrome (panes, shelves, ribbons).
     Middle,
+    /// Above docked chrome — drag ghosts, active-drag surfaces.
     Foreground,
+    /// Top transient UI — command palette, dropdown popups, tooltips,
+    /// context menus. Always paints and hit-tests above everything.
     Overlay,
+}
+
+impl Layer {
+    /// The layer's back-to-front rank (`Background` = 0 …
+    /// `Overlay` = 3). Backends without egui's `Order` sort areas by
+    /// this; the value equals the enum's `Ord` position.
+    #[must_use]
+    pub const fn rank(self) -> u8 {
+        match self {
+            Layer::Background => 0,
+            Layer::Middle => 1,
+            Layer::Foreground => 2,
+            Layer::Overlay => 3,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -804,6 +839,25 @@ mod tests {
 
         let passive = host.non_interactive();
         assert!(!passive.interactable);
+    }
+
+    #[test]
+    fn layer_ranks_form_the_documented_total_order() {
+        // Back-to-front: Background < Middle < Foreground < Overlay.
+        let order = [
+            Layer::Background,
+            Layer::Middle,
+            Layer::Foreground,
+            Layer::Overlay,
+        ];
+        for (i, layer) in order.iter().enumerate() {
+            assert_eq!(layer.rank() as usize, i, "rank must equal position");
+        }
+        // rank() agrees with the derived Ord, and every band is distinct.
+        for pair in order.windows(2) {
+            assert!(pair[0] < pair[1], "Ord must match documented order");
+            assert!(pair[0].rank() < pair[1].rank());
+        }
     }
 
     #[test]
