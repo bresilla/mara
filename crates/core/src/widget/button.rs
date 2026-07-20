@@ -185,34 +185,43 @@ impl<'a> ActionButton<'a> {
     /// independent body/action responses.
     pub fn show(self, ui: &mut crate::mui::MaraUi<'_>) -> ActionButtonResponse {
         let accent = ui.accent();
-        self.show_egui(ui.egui_ui(), accent)
+        self.show_backend(&mut ui.backend, accent)
     }
 
-    /// Current egui-backend adapter used by first-party internals.
+    /// Backend-neutral renderer — paints the action button and, if a
+    /// tooltip was set, shows it through the backend's hover contract.
+    pub(crate) fn show_backend<B: crate::layout::UiBackend>(
+        self,
+        backend: &mut B,
+        accent: impl Into<MaraColor32>,
+    ) -> ActionButtonResponse {
+        let accent = accent.into();
+        let tooltip = self.action_tooltip;
+        let response = action_button_backend(
+            backend,
+            self.label,
+            self.subtitle,
+            self.glyph,
+            self.action_glyph,
+            self.action_armed,
+            accent,
+            self.height,
+        );
+        if let Some(tip) = tooltip {
+            backend.hover_text(&response.action, tip);
+        }
+        response
+    }
+
+    /// egui-backend adapter retained for the pod render path, which
+    /// still holds a raw `egui::Ui`.
     pub(crate) fn show_egui(
         self,
         ui: &mut egui::Ui,
         accent: impl Into<MaraColor32>,
     ) -> ActionButtonResponse {
-        let accent = accent.into();
-        let tooltip = self.action_tooltip;
-        let response = {
-            let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
-            action_button_backend(
-                &mut backend,
-                self.label,
-                self.subtitle,
-                self.glyph,
-                self.action_glyph,
-                self.action_armed,
-                accent,
-                self.height,
-            )
-        };
-        if let Some(tip) = tooltip {
-            crate::backend::egui::hover_text_for_ui_response(ui, &response.action, tip);
-        }
-        response
+        let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
+        self.show_backend(&mut backend, accent)
     }
 }
 
@@ -748,7 +757,7 @@ fn glyph_or_icon_paint_cmd(
 /// Shortcut for [`ActionButton`] with a leading glyph, primary label,
 /// subtitle, and independent tail action.
 pub(crate) fn card_action_button(
-    ui: &mut egui::Ui,
+    backend: &mut impl crate::layout::UiBackend,
     glyph: &str,
     name: &str,
     subtitle: &str,
@@ -760,7 +769,7 @@ pub(crate) fn card_action_button(
         .glyph(glyph)
         .subtitle(subtitle)
         .action_tooltip(action_tooltip)
-        .show_egui(ui, accent)
+        .show_backend(backend, accent)
 }
 
 // ─── Colour helpers ────────────────────────────────────────────────
