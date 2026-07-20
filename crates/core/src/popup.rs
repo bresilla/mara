@@ -148,35 +148,8 @@ pub fn step_popup(
 mod tests {
     use super::*;
     use crate::vocab::{Pos2, Vec2};
-    use std::any::Any;
-    use std::collections::HashMap;
 
-    #[derive(Default)]
-    struct MockMemory {
-        temp: HashMap<Id, Box<dyn Any + Send + Sync>>,
-        persisted: HashMap<Id, Box<dyn Any + Send + Sync>>,
-    }
-
-    impl MaraMemory for MockMemory {
-        fn get_persisted<T: Clone + Send + Sync + 'static>(&self, id: Id) -> Option<T> {
-            self.persisted
-                .get(&id)
-                .and_then(|v| v.downcast_ref::<T>())
-                .cloned()
-        }
-        fn set_persisted<T: Clone + Send + Sync + 'static>(&mut self, id: Id, value: T) {
-            self.persisted.insert(id, Box::new(value));
-        }
-        fn get_temp<T: Clone + Send + Sync + 'static>(&self, id: Id) -> Option<T> {
-            self.temp
-                .get(&id)
-                .and_then(|v| v.downcast_ref::<T>())
-                .cloned()
-        }
-        fn set_temp<T: Clone + Send + Sync + 'static>(&mut self, id: Id, value: T) {
-            self.temp.insert(id, Box::new(value));
-        }
-    }
+    use crate::backend::record::RecordingMemory as MockMemory;
 
     fn rect(x: f32, y: f32, w: f32, h: f32) -> Rect {
         Rect::from_min_size(Pos2::new(x, y), Vec2::new(w, h))
