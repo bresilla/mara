@@ -217,6 +217,7 @@ mod tests {
             paints: Vec::new(),
             clips: Vec::new(),
             interaction: None,
+            ..Default::default()
         };
         let mut value = 12.5;
 
@@ -265,6 +266,7 @@ mod tests {
             paints: Vec::new(),
             clips: Vec::new(),
             interaction: Some(interaction),
+            ..Default::default()
         };
         let mut value = 1.0;
 

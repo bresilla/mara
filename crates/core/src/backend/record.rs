@@ -104,6 +104,8 @@ pub struct RecordingBackend {
     /// When set, `interact` returns a clone of this response instead of
     /// a synthetic one — lets tests simulate hover/click/drag.
     pub interaction: Option<MaraResponse>,
+    /// Headless state store vended through [`UiBackend::memory`].
+    pub memory: std::cell::RefCell<RecordingMemory>,
 }
 
 impl RecordingBackend {
@@ -147,6 +149,10 @@ impl UiBackend for RecordingBackend {
 
     fn paint(&mut self, cmd: PaintCmd) {
         self.paints.push(cmd);
+    }
+
+    fn memory(&self) -> crate::memory::BackendMemory<'_> {
+        crate::memory::BackendMemory::Recording(&self.memory)
     }
 }
 

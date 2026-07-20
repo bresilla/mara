@@ -39,6 +39,88 @@ pub trait MaraAnim {
     fn animate_bool_responsive(&mut self, id: Id, value: bool) -> f32;
 }
 
+/// Memory handle vended by [`UiBackend::memory`](crate::layout::UiBackend::memory)
+/// — PLAN.md Phase 2.2.
+///
+/// A closed enum rather than a trait object: egui's data store is
+/// typed (generic get/set only), so a type-erased `dyn` store cannot
+/// wrap it without breaking its persistence model. Each backend adds
+/// a variant; the generic [`MaraMemory`]/[`MaraAnim`] impls dispatch
+/// by match, and the [`UiBackend`](crate::layout::UiBackend) trait
+/// stays object-safe because this return type is concrete.
+pub enum BackendMemory<'a> {
+    /// Live egui context store (interior-mutable).
+    Egui(MaraMemoryCtx<'a>),
+    /// Headless recording store; `RefCell` because reads come through
+    /// `&self` backends while the map needs `&mut` internally.
+    Recording(&'a std::cell::RefCell<crate::backend::record::RecordingMemory>),
+}
+
+impl MaraMemory for BackendMemory<'_> {
+    fn get_persisted<T>(&self, id: Id) -> Option<T>
+    where
+        T: Clone + Send + Sync + 'static,
+    {
+        match self {
+            Self::Egui(memory) => memory.get_persisted(id),
+            Self::Recording(cell) => cell.borrow().get_persisted(id),
+        }
+    }
+
+    fn set_persisted<T>(&mut self, id: Id, value: T)
+    where
+        T: Clone + Send + Sync + 'static,
+    {
+        match self {
+            Self::Egui(memory) => memory.set_persisted(id, value),
+            Self::Recording(cell) => cell.borrow_mut().set_persisted(id, value),
+        }
+    }
+
+    fn get_temp<T>(&self, id: Id) -> Option<T>
+    where
+        T: Clone + Send + Sync + 'static,
+    {
+        match self {
+            Self::Egui(memory) => memory.get_temp(id),
+            Self::Recording(cell) => cell.borrow().get_temp(id),
+        }
+    }
+
+    fn set_temp<T>(&mut self, id: Id, value: T)
+    where
+        T: Clone + Send + Sync + 'static,
+    {
+        match self {
+            Self::Egui(memory) => memory.set_temp(id, value),
+            Self::Recording(cell) => cell.borrow_mut().set_temp(id, value),
+        }
+    }
+}
+
+impl MaraAnim for BackendMemory<'_> {
+    fn animate_bool(&mut self, id: Id, value: bool, animation_time: f32) -> f32 {
+        match self {
+            Self::Egui(memory) => memory.animate_bool(id, value, animation_time),
+            Self::Recording(cell) => cell.borrow_mut().animate_bool(id, value, animation_time),
+        }
+    }
+
+    fn animate_value(&mut self, id: Id, target: f32, animation_time: f32) -> f32 {
+        match self {
+            Self::Egui(memory) => memory.animate_value(id, target, animation_time),
+            Self::Recording(cell) => cell.borrow_mut().animate_value(id, target, animation_time),
+        }
+    }
+
+    fn animate_bool_responsive(&mut self, id: Id, value: bool) -> f32 {
+        match self {
+            Self::Egui(memory) => memory.animate_bool_responsive(id, value),
+            Self::Recording(cell) => cell.borrow_mut().animate_bool_responsive(id, value),
+        }
+    }
+}
+
 pub struct MaraMemoryCtx<'a> {
     pub(crate) ctx: &'a egui::Context,
 }
@@ -141,5 +223,23 @@ mod tests {
 
         assert_eq!(memory.get_temp::<String>(key), Some("frame".to_owned()));
         assert_eq!(memory.get_persisted::<u32>(key.with("persisted")), Some(7));
+    }
+
+    #[test]
+    fn backend_memory_recording_roundtrip_and_instant_anim() {
+        use crate::layout::UiBackend;
+
+        let backend = crate::backend::record::RecordingBackend::default();
+        let mut memory = backend.memory();
+        let key = Id::new("record-test");
+
+        memory.set_persisted(key, 7_u32);
+        memory.set_temp(key, "frame".to_owned());
+        assert_eq!(memory.get_persisted::<u32>(key), Some(7));
+        assert_eq!(memory.get_temp::<String>(key), Some("frame".to_owned()));
+
+        assert_eq!(memory.animate_bool(key.with("a"), true, 0.25), 1.0);
+        assert_eq!(memory.animate_bool(key.with("a"), false, 0.25), 0.0);
+        assert_eq!(memory.animate_value(key.with("v"), 3.5, 0.25), 3.5);
     }
 }

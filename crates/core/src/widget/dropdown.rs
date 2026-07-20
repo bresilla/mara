@@ -312,6 +312,7 @@ mod tests {
             paints: Vec::new(),
             clips: Vec::new(),
             interaction: None,
+            ..Default::default()
         };
 
         let response =
@@ -340,6 +341,7 @@ mod tests {
             paints: Vec::new(),
             clips: Vec::new(),
             interaction: None,
+            ..Default::default()
         };
 
         let response = dropdown_popup_row_backend(&mut backend, "Option A", true, Color32::WHITE);

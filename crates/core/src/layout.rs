@@ -684,6 +684,10 @@ pub trait UiBackend {
     fn input(&self) -> MaraInput {
         MaraInput::default()
     }
+    /// Backend-neutral persisted/temp state + animation clock for the
+    /// current scope. Widgets reach state ONLY through this — never a
+    /// raw backend context (PLAN.md Phase 2.2, ADR 0001).
+    fn memory(&self) -> crate::memory::BackendMemory<'_>;
     /// Advance the layout cursor by a fixed gap. No-op default for
     /// backends that do not track a flowing layout cursor.
     fn add_space(&mut self, _spec: SpaceSpec) {}

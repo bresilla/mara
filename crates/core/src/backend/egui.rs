@@ -201,6 +201,10 @@ impl UiBackend for EguiUiBackend<'_> {
         ui_available_height(self.ui)
     }
 
+    fn memory(&self) -> crate::memory::BackendMemory<'_> {
+        crate::memory::BackendMemory::Egui(MaraMemoryCtx::new(self.ui.ctx()))
+    }
+
     fn input(&self) -> MaraInput {
         input_snapshot_for_ui(self.ui)
     }

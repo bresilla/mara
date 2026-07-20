@@ -28,7 +28,6 @@ use crate::layout::{
     CanvasRectSpec, CanvasSlotSpec, PaintSurfaceSpec, Sense as MaraSense, SpaceSpec,
     StackScopeSpec, UiBackend,
 };
-use crate::memory::MaraMemoryCtx;
 use crate::paint::{PaintCmd, PaintList};
 use crate::pod::{Pod, PodResponse};
 use crate::vocab;
@@ -637,8 +636,8 @@ impl<'a> MaraUi<'a> {
     /// state. Uses Mara IDs and does not expose the raw backend
     /// context.
     #[must_use]
-    pub fn memory(&self) -> MaraMemoryCtx<'_> {
-        backend::egui::memory_ctx_for_ui(self.backend.ui())
+    pub fn memory(&self) -> crate::memory::BackendMemory<'_> {
+        self.backend.memory()
     }
 
     // ── layout ───────────────────────────────────────────────────
