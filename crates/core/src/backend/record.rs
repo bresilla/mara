@@ -85,6 +85,15 @@ impl MaraMemory for RecordingMemory {
     {
         self.temp.insert(id, Box::new(value));
     }
+
+    /// Id-keyed (the store holds one value per id, unlike egui's
+    /// id+type keying — Mara code never stores two types under one id).
+    fn remove_temp<T>(&mut self, id: Id)
+    where
+        T: Clone + Send + Sync + 'static,
+    {
+        self.temp.remove(&id);
+    }
 }
 
 /// Headless [`UiBackend`] that records paint commands and clip pushes.

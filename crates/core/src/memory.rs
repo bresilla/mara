@@ -23,6 +23,11 @@ pub trait MaraMemory {
     fn set_temp<T>(&mut self, id: Id, value: T)
     where
         T: Clone + Send + Sync + 'static;
+
+    /// Remove the temp value of type `T` stored under `id`, if any.
+    fn remove_temp<T>(&mut self, id: Id)
+    where
+        T: Clone + Send + Sync + 'static;
 }
 
 /// Animation clock on the memory contract — PLAN.md Phase 2.1.
@@ -94,6 +99,16 @@ impl MaraMemory for BackendMemory<'_> {
         match self {
             Self::Egui(memory) => memory.set_temp(id, value),
             Self::Recording(cell) => cell.borrow_mut().set_temp(id, value),
+        }
+    }
+
+    fn remove_temp<T>(&mut self, id: Id)
+    where
+        T: Clone + Send + Sync + 'static,
+    {
+        match self {
+            Self::Egui(memory) => MaraMemory::remove_temp::<T>(memory, id),
+            Self::Recording(cell) => MaraMemory::remove_temp::<T>(&mut *cell.borrow_mut(), id),
         }
     }
 }
@@ -175,6 +190,13 @@ impl<'a> MaraMemoryCtx<'a> {
     {
         <Self as MaraMemory>::set_temp(self, id.into(), value);
     }
+
+    pub fn remove_temp<T>(&mut self, id: impl Into<Id>)
+    where
+        T: Clone + Send + Sync + 'static,
+    {
+        <Self as MaraMemory>::remove_temp::<T>(self, id.into());
+    }
 }
 
 impl MaraMemory for MaraMemoryCtx<'_> {
@@ -205,6 +227,13 @@ impl MaraMemory for MaraMemoryCtx<'_> {
         T: Clone + Send + Sync + 'static,
     {
         self.ctx.data_mut(|data| data.insert_temp(id.into(), value));
+    }
+
+    fn remove_temp<T>(&mut self, id: Id)
+    where
+        T: Clone + Send + Sync + 'static,
+    {
+        self.ctx.data_mut(|data| data.remove::<T>(id.into()));
     }
 }
 

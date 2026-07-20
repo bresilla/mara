@@ -1397,18 +1397,17 @@ pub fn __internal_publish_shelf_layout(ctx: &egui::Context, layout: ShelfLayout)
     // itself publishes) so `crate::enforce` doesn't stomp a real layout.
     crate::enforce::mark_app_shelf_published(ctx);
     let pass = ctx.cumulative_pass_nr();
-    ctx.data_mut(|d| {
-        d.insert_temp(shelf_layout_key(), layout);
-        d.insert_temp(shelf_layout_pass_key(), pass);
-        d.insert_temp(shelf_presence_key(), ShelfPresence::from_layout(layout));
-        d.insert_temp(crate::ribbon::chrome::chrome_bounds_key(), layout.viewport);
-    });
+    let mut memory = crate::memory::MaraMemoryCtx::new(ctx);
+    memory.set_temp(shelf_layout_key(), layout);
+    memory.set_temp(shelf_layout_pass_key(), pass);
+    memory.set_temp(shelf_presence_key(), ShelfPresence::from_layout(layout));
+    memory.set_temp(crate::ribbon::chrome::chrome_bounds_key(), layout.viewport);
 }
 
 #[must_use]
 #[doc(hidden)]
 pub fn __internal_shelf_layout(ctx: &egui::Context) -> Option<ShelfLayout> {
-    ctx.data(|d| d.get_temp::<ShelfLayout>(shelf_layout_key()))
+    crate::memory::MaraMemoryCtx::new(ctx).get_temp::<ShelfLayout>(shelf_layout_key())
 }
 
 /// Whether a shelf layout was already published during the current
@@ -1420,7 +1419,7 @@ pub fn __internal_shelf_layout(ctx: &egui::Context) -> Option<ShelfLayout> {
 #[doc(hidden)]
 pub fn __internal_shelf_layout_published_this_pass(ctx: &egui::Context) -> bool {
     let pass = ctx.cumulative_pass_nr();
-    ctx.data(|d| d.get_temp::<u64>(shelf_layout_pass_key()) == Some(pass))
+    crate::memory::MaraMemoryCtx::new(ctx).get_temp::<u64>(shelf_layout_pass_key()) == Some(pass)
 }
 
 fn shelf_layout_key() -> egui::Id {
@@ -1432,14 +1431,13 @@ fn shelf_layout_pass_key() -> egui::Id {
 }
 
 pub(crate) fn published_shelf_presence(ctx: &egui::Context) -> ShelfPresence {
-    ctx.data(|d| {
-        d.get_temp::<ShelfPresence>(shelf_presence_key())
-            .unwrap_or_default()
-    })
+    crate::memory::MaraMemoryCtx::new(ctx)
+        .get_temp::<ShelfPresence>(shelf_presence_key())
+        .unwrap_or_default()
 }
 
 fn publish_shelf_presence(ctx: &egui::Context, presence: ShelfPresence) {
-    ctx.data_mut(|d| d.insert_temp(shelf_presence_key(), presence));
+    crate::memory::MaraMemoryCtx::new(ctx).set_temp(shelf_presence_key(), presence);
 }
 
 fn shelf_presence_key() -> egui::Id {
@@ -1650,19 +1648,18 @@ fn shelf_pane_info_key(edge: ShelfEdge) -> Id {
 }
 
 fn publish_shelf_pane_info(ctx: &egui::Context, info: ShelfPaneInfo) {
-    ctx.data_mut(|d| d.insert_temp(shelf_pane_info_key(info.edge), info));
+    crate::memory::MaraMemoryCtx::new(ctx).set_temp(shelf_pane_info_key(info.edge), info);
 }
 
 fn shelf_pane_info(ctx: &egui::Context, edge: ShelfEdge) -> Option<ShelfPaneInfo> {
-    ctx.data(|d| d.get_temp(shelf_pane_info_key(edge)))
+    crate::memory::MaraMemoryCtx::new(ctx).get_temp(shelf_pane_info_key(edge))
 }
 
 fn clear_published_shelf_pane_infos(ctx: &egui::Context) {
-    ctx.data_mut(|d| {
-        for edge in [ShelfEdge::Left, ShelfEdge::Right, ShelfEdge::Bottom] {
-            d.remove::<ShelfPaneInfo>(shelf_pane_info_key(edge));
-        }
-    });
+    let mut memory = crate::memory::MaraMemoryCtx::new(ctx);
+    for edge in [ShelfEdge::Left, ShelfEdge::Right, ShelfEdge::Bottom] {
+        memory.remove_temp::<ShelfPaneInfo>(shelf_pane_info_key(edge));
+    }
 }
 
 fn external_container_gap_key(pane_id: Id) -> Id {
@@ -1670,20 +1667,17 @@ fn external_container_gap_key(pane_id: Id) -> Id {
 }
 
 fn mark_external_container_gap(ctx: &egui::Context, pane_id: Id) {
-    ctx.data_mut(|d| d.insert_temp(external_container_gap_key(pane_id), true));
+    crate::memory::MaraMemoryCtx::new(ctx).set_temp(external_container_gap_key(pane_id), true);
 }
 
 fn clear_external_container_gap(ctx: &egui::Context, pane_id: Id) {
-    ctx.data_mut(|d| {
-        d.remove::<bool>(external_container_gap_key(pane_id));
-    });
+    crate::memory::MaraMemoryCtx::new(ctx).remove_temp::<bool>(external_container_gap_key(pane_id));
 }
 
 fn external_container_gap_was_painted(ctx: &egui::Context, pane_id: Id) -> bool {
-    ctx.data(|d| {
-        d.get_temp::<bool>(external_container_gap_key(pane_id))
-            .unwrap_or(false)
-    })
+    crate::memory::MaraMemoryCtx::new(ctx)
+        .get_temp::<bool>(external_container_gap_key(pane_id))
+        .unwrap_or(false)
 }
 
 fn update_container_move_target_from_published(ctx: &egui::Context, state: &mut ShelfState) {
