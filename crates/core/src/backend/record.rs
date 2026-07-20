@@ -311,17 +311,19 @@ mod golden {
     fn golden_mara_ui_over_recording() {
         use crate::mui::{MaraBackend, MaraUi};
 
-        let mut mui = MaraUi::over(MaraBackend::Recording(Box::new(frame())), ACCENT);
-        mui.label("headless");
-        mui.button("apply");
-        let mut on = true;
-        mui.toggle("dark", &mut on);
-        let mut value = 0.5_f64;
-        mui.slider("gain", &mut value, 0.0..=1.0, 2, "");
-
-        let MaraBackend::Recording(backend) = mui.into_backend() else {
+        let mut backend = MaraBackend::Recording(Box::new(frame()));
+        {
+            let mut mui = MaraUi::over(&mut backend, ACCENT);
+            mui.label("headless");
+            mui.button("apply");
+            let mut on = true;
+            mui.toggle("dark", &mut on);
+            let mut value = 0.5_f64;
+            mui.slider("gain", &mut value, 0.0..=1.0, 2, "");
+        }
+        let MaraBackend::Recording(recorded) = backend else {
             unreachable!("constructed with the recording backend");
         };
-        golden_check("mara_ui_over_recording", &backend.paints);
+        golden_check("mara_ui_over_recording", &recorded.paints);
     }
 }

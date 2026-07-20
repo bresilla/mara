@@ -305,7 +305,8 @@ impl<'a> MaraHostCtx<'a> {
                 .frame(egui::Frame::new().fill(egui::Color32::TRANSPARENT))
                 .show(self.egui, |ui| {
                     let screen_rect = ui.max_rect().into();
-                    let mut mui = mara_core::MaraUi::__internal_from_raw(ui, accent);
+                    let mut __raw = mara_core::MaraUi::__internal_backend_from_raw(ui);
+                    let mut mui = mara_core::MaraUi::__internal_over(&mut __raw, accent);
                     body(&mut mui, screen_rect)
                 })
                 .inner

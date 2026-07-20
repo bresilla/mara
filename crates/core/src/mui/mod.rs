@@ -687,67 +687,68 @@ impl crate::layout::UiBackend for MaraBackend<'_> {
             Self::Recording(b) => b.is_rect_visible(rect),
         }
     }
+    fn egui_ui_mut(&mut self) -> Option<&mut egui::Ui> {
+        match self {
+            Self::Egui(b) => b.egui_ui_mut(),
+            Self::Recording(b) => b.egui_ui_mut(),
+        }
+    }
+    fn egui_ui_ref(&self) -> Option<&egui::Ui> {
+        match self {
+            Self::Egui(b) => b.egui_ui_ref(),
+            Self::Recording(b) => b.egui_ui_ref(),
+        }
+    }
 }
+
+/// Opaque owned backend handle for host plugins — created by
+/// [`MaraUi::__internal_backend_from_raw`], lent to
+/// [`MaraUi::__internal_over`]. Doc-hidden; not semver-stable.
+#[doc(hidden)]
+pub struct MaraRawBackend<'a>(pub(crate) MaraBackend<'a>);
 
 /// The sealed widget surface handed to consumer drawing code.
 ///
 /// Carries an ambient accent colour so widget calls stay terse;
 /// override it per-scope with [`MaraUi::set_accent`].
 pub struct MaraUi<'a> {
-    /// The concrete backend `MaraUi` drives through the
-    /// [`crate::layout::UiBackend`] contract. Operations not yet
-    /// promoted to that contract reach egui through the crate-internal
-    /// [`MaraUi::egui_ui`] downcast (tracked by the coupling ratchet).
-    pub(crate) backend: MaraBackend<'a>,
+    /// The backend `MaraUi` drives through the
+    /// [`crate::layout::UiBackend`] contract, held by mutable
+    /// reference so nested/child regions can lend a scoped view of the
+    /// same backend (PLAN.md Phase 4 / ADR 0002). Operations not yet
+    /// promoted to the contract reach egui through
+    /// [`crate::layout::UiBackend::egui_ui_mut`] (tracked by the
+    /// coupling ratchet).
+    pub(crate) backend: &'a mut dyn UiBackend,
     accent: vocab::Color32,
 }
 
 impl<'a> MaraUi<'a> {
-    pub(crate) fn new(ui: &'a mut egui::Ui, accent: impl Into<vocab::Color32>) -> Self {
-        Self {
-            backend: MaraBackend::Egui(backend::egui::EguiUiBackend::new(ui)),
-            accent: accent.into(),
-        }
-    }
-
-    /// Construct over an explicit backend — used by golden paint tests
-    /// to drive the full sealed surface over the headless recording
-    /// backend.
-    #[cfg(test)]
-    pub(crate) fn over(backend: MaraBackend<'a>, accent: impl Into<vocab::Color32>) -> Self {
+    /// Construct over a borrowed backend. The caller owns the backend
+    /// (typically a local `MaraBackend::Egui` wrapping an `egui::Ui`)
+    /// for at least as long as this `MaraUi`.
+    pub(crate) fn over(backend: &'a mut dyn UiBackend, accent: impl Into<vocab::Color32>) -> Self {
         Self {
             backend,
             accent: accent.into(),
         }
     }
 
-    /// Recover the owned backend — golden tests read the recorded
-    /// paint stream back out after rendering.
-    #[cfg(test)]
-    pub(crate) fn into_backend(self) -> MaraBackend<'a> {
-        self.backend
-    }
-
-    /// Downcast to the concrete egui backend. Panics on a non-egui
-    /// backend — the shrinking set of operations still egui-bound
-    /// (stack scopes, canvas, pod, context menu, painter, the raw
-    /// hatch) go through here. Each call is a coupling-ratchet escape.
+    /// The concrete egui `Ui` behind this surface. Panics on a
+    /// non-egui backend — the shrinking set of operations still
+    /// egui-bound (stack scopes, canvas, pod, context menu, painter,
+    /// the raw hatch) go through here. Each call is a coupling-ratchet
+    /// escape.
     pub(crate) fn egui_ui(&mut self) -> &mut egui::Ui {
-        match &mut self.backend {
-            MaraBackend::Egui(b) => b.ui_mut(),
-            MaraBackend::Recording(_) => {
-                panic!("this MaraUi operation requires the egui backend")
-            }
-        }
+        self.backend
+            .egui_ui_mut()
+            .expect("this MaraUi operation requires the egui backend")
     }
 
-    fn egui_ui_ref(&self) -> &egui::Ui {
-        match &self.backend {
-            MaraBackend::Egui(b) => b.ui(),
-            MaraBackend::Recording(_) => {
-                panic!("this MaraUi operation requires the egui backend")
-            }
-        }
+    fn egui_ui_readonly(&self) -> &egui::Ui {
+        self.backend
+            .egui_ui_ref()
+            .expect("this MaraUi operation requires the egui backend")
     }
 
     /// Internal first-party accessor — NOT part of the public API
@@ -760,14 +761,27 @@ impl<'a> MaraUi<'a> {
         self.egui_ui()
     }
 
-    /// Internal first-party constructor — NOT part of the public
-    /// API and not semver-stable. Used by host plugins that own the
-    /// egui pass (e.g. `bevy_mara`) to hand sealed surfaces to app
-    /// code.
+    /// Internal first-party backend handle — NOT part of the public
+    /// API and not semver-stable. Host plugins that own the egui pass
+    /// (e.g. `bevy_mara`) create one from their `egui::Ui`, then lend
+    /// it to [`MaraUi::__internal_over`]. Two steps because `MaraUi`
+    /// now *borrows* its backend (ADR 0002), so the caller must own it.
     #[doc(hidden)]
     #[must_use]
-    pub fn __internal_from_raw(ui: &'a mut egui::Ui, accent: impl Into<vocab::Color32>) -> Self {
-        Self::new(ui, accent)
+    pub fn __internal_backend_from_raw(ui: &'a mut egui::Ui) -> MaraRawBackend<'a> {
+        MaraRawBackend(MaraBackend::Egui(backend::egui::EguiUiBackend::new(ui)))
+    }
+
+    /// Internal first-party constructor — NOT part of the public API
+    /// and not semver-stable. Borrows a [`MaraRawBackend`] made by
+    /// [`MaraUi::__internal_backend_from_raw`].
+    #[doc(hidden)]
+    #[must_use]
+    pub fn __internal_over(
+        backend: &'a mut MaraRawBackend<'_>,
+        accent: impl Into<vocab::Color32>,
+    ) -> Self {
+        Self::over(&mut backend.0, accent)
     }
 
     // ── ambient state ────────────────────────────────────────────
@@ -837,14 +851,16 @@ impl<'a> MaraUi<'a> {
     pub fn horizontal<R>(&mut self, body: impl FnOnce(&mut MaraUi<'_>) -> R) -> R {
         let accent = self.accent;
         backend::egui::show_stack_scope_for_ui(self.egui_ui(), StackScopeSpec::horizontal(), |ui| {
-            body(&mut MaraUi::new(ui, accent))
+            let mut backend = MaraBackend::Egui(backend::egui::EguiUiBackend::new(ui));
+            body(&mut MaraUi::over(&mut backend, accent))
         })
     }
 
     pub fn vertical<R>(&mut self, body: impl FnOnce(&mut MaraUi<'_>) -> R) -> R {
         let accent = self.accent;
         backend::egui::show_stack_scope_for_ui(self.egui_ui(), StackScopeSpec::vertical(), |ui| {
-            body(&mut MaraUi::new(ui, accent))
+            let mut backend = MaraBackend::Egui(backend::egui::EguiUiBackend::new(ui));
+            body(&mut MaraUi::over(&mut backend, accent))
         })
     }
 
@@ -1102,7 +1118,8 @@ impl<'a> MaraUi<'a> {
     ) {
         let accent = self.accent;
         section(self.egui_ui(), id_salt, title, accent, default_open, |ui| {
-            body(&mut MaraUi::new(ui, accent));
+            let mut backend = MaraBackend::Egui(backend::egui::EguiUiBackend::new(ui));
+            body(&mut MaraUi::over(&mut backend, accent));
         });
     }
 
@@ -1111,7 +1128,8 @@ impl<'a> MaraUi<'a> {
         let accent = self.accent;
         backend::egui::with_response_for_ui(self.egui_ui(), resp, |raw| {
             context_menu_mara(raw, accent, |ui| {
-                body(&mut MaraUi::new(ui, accent));
+                let mut backend = MaraBackend::Egui(backend::egui::EguiUiBackend::new(ui));
+                body(&mut MaraUi::over(&mut backend, accent));
             });
         });
     }
@@ -1161,7 +1179,7 @@ impl<'a> MaraUi<'a> {
     #[must_use]
     pub fn painter(&self) -> MaraPainter {
         MaraPainter::new(backend::egui::painter_for_ui_surface(
-            self.egui_ui_ref(),
+            self.egui_ui_readonly(),
             PaintSurfaceSpec::remaining_available(),
         ))
     }

@@ -176,7 +176,9 @@ impl<'a> ViewCtx<'a> {
             AreaHost::new(id, rect.min, Layer::Background),
             |ui| {
                 backend::egui::constrain_ui_to_rect(ui, rect);
-                body(&mut MaraUi::new(ui, accent))
+                let mut backend =
+                    crate::mui::MaraBackend::Egui(backend::egui::EguiUiBackend::new(ui));
+                body(&mut MaraUi::over(&mut backend, accent))
             },
         )
         .inner

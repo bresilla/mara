@@ -764,6 +764,99 @@ pub trait UiBackend {
         let _ = rect;
         true
     }
+
+    /// The concrete `egui::Ui` this backend drives, if it is the egui
+    /// backend. `None` on every other backend.
+    ///
+    /// This is the object-safe escape hatch for the shrinking set of
+    /// `MaraUi` operations not yet promoted to the contract (stack
+    /// scopes, canvas, pod, context menu, painter, the raw hatch). It
+    /// keeps `MaraUi` able to hold `&mut dyn UiBackend` — a plain
+    /// downcast can't reach `EguiUiBackend`, which is not `'static`.
+    /// Tracked by the coupling ratchet's `ui_escapes` metric. Returns
+    /// `None` by default so non-egui backends need not implement it.
+    fn egui_ui_mut(&mut self) -> Option<&mut egui::Ui> {
+        None
+    }
+
+    /// Shared reference to the concrete `egui::Ui`, if this is the egui
+    /// backend. See [`UiBackend::egui_ui_mut`].
+    fn egui_ui_ref(&self) -> Option<&egui::Ui> {
+        None
+    }
+}
+
+/// Blanket impl so a `&mut` to any backend (notably `&mut dyn
+/// UiBackend`, which `MaraUi` holds) is itself a [`UiBackend`]. Lets
+/// widget `*_backend(&mut impl UiBackend, …)` functions accept the
+/// backend `MaraUi` carries without every one becoming `?Sized`.
+impl<T: UiBackend + ?Sized> UiBackend for &mut T {
+    fn begin_area(&mut self, host: AreaHost, rect: Rect) {
+        (**self).begin_area(host, rect)
+    }
+    fn allocate(&mut self, size: Vec2, sense: Sense) -> MaraResponse {
+        (**self).allocate(size, sense)
+    }
+    fn reserve_space(&mut self, size: Vec2) -> Rect {
+        (**self).reserve_space(size)
+    }
+    fn reserve_rect(&mut self, rect: Rect, sense: Sense) -> MaraResponse {
+        (**self).reserve_rect(rect, sense)
+    }
+    fn interact(&mut self, rect: Rect, id: Id, sense: Sense) -> MaraResponse {
+        (**self).interact(rect, id, sense)
+    }
+    fn available_rect(&self) -> Rect {
+        (**self).available_rect()
+    }
+    fn id(&self) -> Id {
+        (**self).id()
+    }
+    fn available_width(&self) -> f32 {
+        (**self).available_width()
+    }
+    fn available_height(&self) -> f32 {
+        (**self).available_height()
+    }
+    fn input(&self) -> MaraInput {
+        (**self).input()
+    }
+    fn memory(&self) -> crate::memory::BackendMemory<'_> {
+        (**self).memory()
+    }
+    fn add_space(&mut self, spec: SpaceSpec) {
+        (**self).add_space(spec)
+    }
+    fn push_clip(&mut self, rect: Rect) {
+        (**self).push_clip(rect)
+    }
+    fn pop_clip(&mut self) {
+        (**self).pop_clip()
+    }
+    fn measure_text(&self, text: &str, size: f32, mono: bool) -> Vec2 {
+        (**self).measure_text(text, size, mono)
+    }
+    fn paint(&mut self, cmd: PaintCmd) {
+        (**self).paint(cmd)
+    }
+    fn reserve_paint_slot(&mut self) -> PaintSlot {
+        (**self).reserve_paint_slot()
+    }
+    fn fill_paint_slot(&mut self, slot: PaintSlot, cmd: Option<PaintCmd>) {
+        (**self).fill_paint_slot(slot, cmd)
+    }
+    fn hover_text(&mut self, response: &MaraResponse, text: &str) {
+        (**self).hover_text(response, text)
+    }
+    fn is_rect_visible(&self, rect: Rect) -> bool {
+        (**self).is_rect_visible(rect)
+    }
+    fn egui_ui_mut(&mut self) -> Option<&mut egui::Ui> {
+        (**self).egui_ui_mut()
+    }
+    fn egui_ui_ref(&self) -> Option<&egui::Ui> {
+        (**self).egui_ui_ref()
+    }
 }
 
 /// Opaque handle to a paint slot reserved via

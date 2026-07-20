@@ -241,8 +241,11 @@ impl MaraModule for CanvasSurface {
                 ui.label(format!("{} strokes", self.doc.strokes.len()));
             });
             {
-                let mut canvas_ui =
-                    mara_core::MaraUi::__internal_from_raw(ui, mara_core::style::active_accent());
+                let mut canvas_raw = mara_core::MaraUi::__internal_backend_from_raw(ui);
+                let mut canvas_ui = mara_core::MaraUi::__internal_over(
+                    &mut canvas_raw,
+                    mara_core::style::active_accent(),
+                );
                 self.paint_canvas(&mut canvas_ui, MaraVec2::new(180.0, 120.0));
             }
             if ctx.can_enter_workspace() && ui.button("Open whiteboard workspace").clicked() {

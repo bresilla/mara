@@ -52,19 +52,6 @@ impl<'a> EguiUiBackend<'a> {
             deferred_slots: Vec::new(),
         }
     }
-
-    /// Shared access to the hosted egui `Ui`. This is the migration
-    /// seam: `MaraUi` and first-party module code reach the concrete
-    /// backend `Ui` through here while individual operations have not
-    /// yet been promoted to `UiBackend`/spec contracts.
-    pub(crate) fn ui(&self) -> &egui::Ui {
-        &*self.ui
-    }
-
-    /// Mutable access to the hosted egui `Ui`. See [`Self::ui`].
-    pub(crate) fn ui_mut(&mut self) -> &mut egui::Ui {
-        &mut *self.ui
-    }
 }
 
 #[allow(dead_code)]
@@ -231,6 +218,14 @@ impl UiBackend for EguiUiBackend<'_> {
 
     fn is_rect_visible(&self, rect: vocab::Rect) -> bool {
         self.ui.is_rect_visible(rect.into())
+    }
+
+    fn egui_ui_mut(&mut self) -> Option<&mut egui::Ui> {
+        Some(self.ui)
+    }
+
+    fn egui_ui_ref(&self) -> Option<&egui::Ui> {
+        Some(self.ui)
     }
 }
 

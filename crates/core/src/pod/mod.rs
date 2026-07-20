@@ -2096,9 +2096,11 @@ fn paint_widgets(
                     workspace: None,
                 };
                 let accent = ctx.accent;
+                let mut backend =
+                    crate::mui::MaraBackend::Egui(crate::backend::egui::EguiUiBackend::new(ui));
                 let module_response = cfg
                     .module
-                    .inline(&mut crate::mui::MaraUi::new(ui, accent), ctx);
+                    .inline(&mut crate::mui::MaraUi::over(&mut backend, accent), ctx);
                 crate::debug::tag(ui, ui.min_rect(), format!("widget[module #{}]", module_idx));
                 response.modules.push(ModulePodResponse {
                     id: module_id,

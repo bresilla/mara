@@ -6111,7 +6111,8 @@ impl NodeViewer<GraphNode> for DemoViewer {
                     egui::vec2(125.0, h),
                     egui::Layout::left_to_right(egui::Align::Center),
                     |ui| {
-                        let mut mui = mara_core::MaraUi::__internal_from_raw(ui, accent);
+                        let mut __raw = mara_core::MaraUi::__internal_backend_from_raw(ui);
+                        let mut mui = mara_core::MaraUi::__internal_over(&mut __raw, accent);
                         mui.drag_value("", v, 0.05, f64::MIN..=f64::MAX, 2, "");
                     },
                 );
@@ -6123,7 +6124,8 @@ impl NodeViewer<GraphNode> for DemoViewer {
                     egui::vec2(125.0, h),
                     egui::Layout::left_to_right(egui::Align::Center),
                     |ui| {
-                        let mut mui = mara_core::MaraUi::__internal_from_raw(ui, accent);
+                        let mut __raw = mara_core::MaraUi::__internal_backend_from_raw(ui);
+                        let mut mui = mara_core::MaraUi::__internal_over(&mut __raw, accent);
                         mui.drag_value("", &mut tmp, 1.0, f64::MIN..=f64::MAX, 0, "");
                     },
                 );
@@ -6136,7 +6138,8 @@ impl NodeViewer<GraphNode> for DemoViewer {
                         egui::vec2(125.0, h),
                         egui::Layout::left_to_right(egui::Align::Center),
                         |ui| {
-                            let mut mui = mara_core::MaraUi::__internal_from_raw(ui, accent);
+                            let mut __raw = mara_core::MaraUi::__internal_backend_from_raw(ui);
+                            let mut mui = mara_core::MaraUi::__internal_over(&mut __raw, accent);
                             mui.drag_value(axis, comp, 0.05, f64::MIN..=f64::MAX, 2, "");
                         },
                     );
@@ -6151,7 +6154,8 @@ impl NodeViewer<GraphNode> for DemoViewer {
                     egui::vec2(125.0, h),
                     egui::Layout::left_to_right(egui::Align::Center),
                     |ui| {
-                        let mut mui = mara_core::MaraUi::__internal_from_raw(ui, accent);
+                        let mut __raw = mara_core::MaraUi::__internal_backend_from_raw(ui);
+                        let mut mui = mara_core::MaraUi::__internal_over(&mut __raw, accent);
                         mui.toggle("", b);
                     },
                 );
@@ -6266,7 +6270,8 @@ impl NodeViewer<GraphNode> for DemoViewer {
                     egui::vec2(SLOT_W, drag_h),
                     egui::Layout::left_to_right(egui::Align::Center),
                     |ui| {
-                        let mut mui = mara_core::MaraUi::__internal_from_raw(ui, accent);
+                        let mut __raw = mara_core::MaraUi::__internal_backend_from_raw(ui);
+                        let mut mui = mara_core::MaraUi::__internal_over(&mut __raw, accent);
                         mui.drag_value("seed", &mut seed_f, 1.0, 0.0..=u32::MAX as f64, 0, "");
                     },
                 );
@@ -6275,7 +6280,8 @@ impl NodeViewer<GraphNode> for DemoViewer {
                     egui::vec2(SLOT_W, drag_h * 2.0),
                     egui::Layout::left_to_right(egui::Align::Center),
                     |ui| {
-                        let mut mui = mara_core::MaraUi::__internal_from_raw(ui, accent);
+                        let mut __raw = mara_core::MaraUi::__internal_backend_from_raw(ui);
+                        let mut mui = mara_core::MaraUi::__internal_over(&mut __raw, accent);
                         mui.slider("freq", frequency, 0.05..=8.0, 2, "");
                     },
                 );
@@ -6288,7 +6294,8 @@ impl NodeViewer<GraphNode> for DemoViewer {
                     egui::vec2(SLOT_W, drag_h),
                     egui::Layout::left_to_right(egui::Align::Center),
                     |ui| {
-                        let mut mui = mara_core::MaraUi::__internal_from_raw(ui, accent);
+                        let mut __raw = mara_core::MaraUi::__internal_backend_from_raw(ui);
+                        let mut mui = mara_core::MaraUi::__internal_over(&mut __raw, accent);
                         mui.drag_value("seed", &mut seed_f, 1.0, 0.0..=u32::MAX as f64, 0, "");
                     },
                 );
@@ -6867,7 +6874,8 @@ where
         egui::vec2(SLOT_W, h),
         egui::Layout::left_to_right(egui::Align::Center),
         |ui| {
-            let mut mui = mara_core::MaraUi::__internal_from_raw(ui, accent);
+            let mut __raw = mara_core::MaraUi::__internal_backend_from_raw(ui);
+            let mut mui = mara_core::MaraUi::__internal_over(&mut __raw, accent);
             let resp = mui.dropdown(
                 ("mara_demo_op_dropdown", current as *const T as usize),
                 &mut idx,
