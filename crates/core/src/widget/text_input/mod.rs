@@ -189,44 +189,7 @@ pub fn text_input_chrome_backend(
 mod tests {
     use super::*;
 
-    #[derive(Default)]
-    struct RecordingBackend {
-        available: Rect,
-        paints: Vec<PaintCmd>,
-        interaction: Option<MaraResponse>,
-    }
-
-    impl UiBackend for RecordingBackend {
-        fn begin_area(&mut self, _host: crate::layout::AreaHost, rect: Rect) {
-            self.available = rect;
-        }
-
-        fn allocate(&mut self, size: Vec2, _sense: Sense) -> MaraResponse {
-            MaraResponse::synthetic(Rect::from_min_size(self.available.min, size))
-        }
-
-        fn interact(&mut self, rect: Rect, _id: Id, _sense: Sense) -> MaraResponse {
-            self.interaction
-                .clone()
-                .unwrap_or_else(|| MaraResponse::synthetic(rect))
-        }
-
-        fn available_rect(&self) -> Rect {
-            self.available
-        }
-
-        fn push_clip(&mut self, _rect: Rect) {}
-
-        fn pop_clip(&mut self) {}
-
-        fn measure_text(&self, text: &str, size: f32, _mono: bool) -> Vec2 {
-            Vec2::new(text.len() as f32 * size * 0.5, size)
-        }
-
-        fn paint(&mut self, cmd: PaintCmd) {
-            self.paints.push(cmd);
-        }
-    }
+    use crate::backend::record::RecordingBackend;
 
     #[test]
     fn text_input_chrome_backend_emits_field_search_and_clear() {
@@ -234,6 +197,7 @@ mod tests {
             available: Rect::from_min_size(Pos2::ZERO, Vec2::new(240.0, crate::style::UNIT)),
             paints: Vec::new(),
             interaction: None,
+            ..Default::default()
         };
 
         let chrome =
@@ -261,6 +225,7 @@ mod tests {
             available: Rect::from_min_size(Pos2::ZERO, Vec2::new(240.0, crate::style::UNIT)),
             paints: Vec::new(),
             interaction: None,
+            ..Default::default()
         };
 
         let chrome =

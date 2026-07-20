@@ -287,47 +287,14 @@ fn paint_vertical_backend(
 mod tests {
     use super::*;
 
-    #[derive(Default)]
-    struct RecordingBackend {
-        available: MaraRect,
-        paints: Vec<PaintCmd>,
-    }
-
-    impl UiBackend for RecordingBackend {
-        fn begin_area(&mut self, _host: crate::layout::AreaHost, rect: MaraRect) {
-            self.available = rect;
-        }
-
-        fn allocate(&mut self, size: Vec2, _sense: Sense) -> MaraResponse {
-            MaraResponse::synthetic(MaraRect::from_min_size(self.available.min, size))
-        }
-
-        fn interact(&mut self, rect: MaraRect, _id: Id, _sense: Sense) -> MaraResponse {
-            MaraResponse::synthetic(rect)
-        }
-
-        fn available_rect(&self) -> MaraRect {
-            self.available
-        }
-
-        fn push_clip(&mut self, _rect: MaraRect) {}
-
-        fn pop_clip(&mut self) {}
-
-        fn measure_text(&self, text: &str, size: f32, _mono: bool) -> Vec2 {
-            Vec2::new(text.len() as f32 * size * 0.5, size)
-        }
-
-        fn paint(&mut self, cmd: PaintCmd) {
-            self.paints.push(cmd);
-        }
-    }
+    use crate::backend::record::RecordingBackend;
 
     #[test]
     fn separator_backend_emits_horizontal_line() {
         let mut backend = RecordingBackend {
             available: MaraRect::from_min_size(Pos2::ZERO, Vec2::new(160.0, 32.0)),
             paints: Vec::new(),
+            ..Default::default()
         };
 
         let response = paint_separator_backend(
@@ -348,6 +315,7 @@ mod tests {
         let mut backend = RecordingBackend {
             available: MaraRect::from_min_size(Pos2::ZERO, Vec2::new(160.0, 32.0)),
             paints: Vec::new(),
+            ..Default::default()
         };
 
         let response = paint_separator_resize_backend(

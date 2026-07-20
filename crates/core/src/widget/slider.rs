@@ -184,47 +184,7 @@ fn paint_value_bar_backend(
 mod tests {
     use super::*;
 
-    #[derive(Default)]
-    struct RecordingBackend {
-        available: Rect,
-        paints: Vec<PaintCmd>,
-        clips: Vec<Rect>,
-        interaction: Option<MaraResponse>,
-    }
-
-    impl UiBackend for RecordingBackend {
-        fn begin_area(&mut self, _host: crate::layout::AreaHost, rect: Rect) {
-            self.available = rect;
-        }
-
-        fn allocate(&mut self, size: Vec2, _sense: Sense) -> MaraResponse {
-            MaraResponse::synthetic(Rect::from_min_size(self.available.min, size))
-        }
-
-        fn interact(&mut self, rect: Rect, _id: Id, _sense: Sense) -> MaraResponse {
-            self.interaction
-                .clone()
-                .unwrap_or_else(|| MaraResponse::synthetic(rect))
-        }
-
-        fn available_rect(&self) -> Rect {
-            self.available
-        }
-
-        fn push_clip(&mut self, rect: Rect) {
-            self.clips.push(rect);
-        }
-
-        fn pop_clip(&mut self) {}
-
-        fn measure_text(&self, text: &str, size: f32, _mono: bool) -> Vec2 {
-            Vec2::new(text.len() as f32 * size * 0.5, size)
-        }
-
-        fn paint(&mut self, cmd: PaintCmd) {
-            self.paints.push(cmd);
-        }
-    }
+    use crate::backend::record::RecordingBackend;
 
     #[test]
     fn slider_backend_emits_label_track_fill_and_clipped_text() {
@@ -233,6 +193,7 @@ mod tests {
             paints: Vec::new(),
             clips: Vec::new(),
             interaction: None,
+            ..Default::default()
         };
         let mut value = 0.25;
 
@@ -285,6 +246,7 @@ mod tests {
             paints: Vec::new(),
             clips: Vec::new(),
             interaction: Some(interaction),
+            ..Default::default()
         };
         let mut value = 0.0;
 

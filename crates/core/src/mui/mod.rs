@@ -105,7 +105,8 @@ impl From<egui::Response> for MaraResponse {
 }
 
 impl MaraResponse {
-    #[cfg(test)]
+    /// Inert response at `rect` — used by non-interactive backends
+    /// (the recording backend) and tests.
     pub(crate) fn synthetic(rect: vocab::Rect) -> Self {
         Self {
             clicked: false,

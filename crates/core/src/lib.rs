@@ -28,7 +28,8 @@
 //! * [`icons`] — Fluent UI System Icon glyph painter.
 
 pub mod app_shell;
-pub(crate) mod backend;
+#[doc(hidden)]
+pub mod backend;
 pub mod command_palette;
 pub mod container;
 pub(crate) mod debug;

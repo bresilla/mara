@@ -166,46 +166,8 @@ fn shrink_rect(rect: Rect, amount: f32) -> Rect {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::vocab::Id;
 
-    #[derive(Default)]
-    struct RecordingBackend {
-        available: Rect,
-        paints: Vec<PaintCmd>,
-        clips: Vec<Rect>,
-    }
-
-    impl UiBackend for RecordingBackend {
-        fn begin_area(&mut self, _host: crate::layout::AreaHost, rect: Rect) {
-            self.available = rect;
-        }
-
-        fn allocate(&mut self, size: Vec2, _sense: Sense) -> MaraResponse {
-            MaraResponse::synthetic(Rect::from_min_size(self.available.min, size))
-        }
-
-        fn interact(&mut self, rect: Rect, _id: Id, _sense: Sense) -> MaraResponse {
-            MaraResponse::synthetic(rect)
-        }
-
-        fn available_rect(&self) -> Rect {
-            self.available
-        }
-
-        fn push_clip(&mut self, rect: Rect) {
-            self.clips.push(rect);
-        }
-
-        fn pop_clip(&mut self) {}
-
-        fn measure_text(&self, text: &str, size: f32, _mono: bool) -> Vec2 {
-            Vec2::new(text.len() as f32 * size * 0.5, size)
-        }
-
-        fn paint(&mut self, cmd: PaintCmd) {
-            self.paints.push(cmd);
-        }
-    }
+    use crate::backend::record::RecordingBackend;
 
     #[test]
     fn progressbar_backend_emits_label_track_fill_and_clipped_text() {
@@ -213,6 +175,7 @@ mod tests {
             available: Rect::from_min_size(Pos2::ZERO, Vec2::new(200.0, 40.0)),
             paints: Vec::new(),
             clips: Vec::new(),
+            ..Default::default()
         };
 
         let response = progressbar_backend(

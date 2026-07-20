@@ -1170,93 +1170,17 @@ fn fill_paint_cmds(
 #[cfg(test)]
 mod runtime_tests {
     use super::*;
-    use std::{any::Any, collections::HashMap};
 
     use crate::vocab::{Id, Pos2, Rect, Vec2};
 
-    #[derive(Default)]
-    struct RecordingBackend {
-        available: Rect,
-        paints: Vec<PaintCmd>,
-    }
-
-    #[derive(Default)]
-    struct RecordingMemory {
-        temp: HashMap<Id, Box<dyn Any + Send + Sync>>,
-        persisted: HashMap<Id, Box<dyn Any + Send + Sync>>,
-    }
-
-    impl MaraMemory for RecordingMemory {
-        fn get_persisted<T>(&self, id: Id) -> Option<T>
-        where
-            T: Clone + Send + Sync + 'static,
-        {
-            self.persisted
-                .get(&id)
-                .and_then(|value| value.downcast_ref::<T>())
-                .cloned()
-        }
-
-        fn set_persisted<T>(&mut self, id: Id, value: T)
-        where
-            T: Clone + Send + Sync + 'static,
-        {
-            self.persisted.insert(id, Box::new(value));
-        }
-
-        fn get_temp<T>(&self, id: Id) -> Option<T>
-        where
-            T: Clone + Send + Sync + 'static,
-        {
-            self.temp
-                .get(&id)
-                .and_then(|value| value.downcast_ref::<T>())
-                .cloned()
-        }
-
-        fn set_temp<T>(&mut self, id: Id, value: T)
-        where
-            T: Clone + Send + Sync + 'static,
-        {
-            self.temp.insert(id, Box::new(value));
-        }
-    }
-
-    impl UiBackend for RecordingBackend {
-        fn begin_area(&mut self, _host: crate::layout::AreaHost, rect: Rect) {
-            self.available = rect;
-        }
-
-        fn allocate(&mut self, size: Vec2, _sense: Sense) -> MaraResponse {
-            MaraResponse::synthetic(Rect::from_min_size(self.available.min, size))
-        }
-
-        fn interact(&mut self, rect: Rect, _id: Id, _sense: Sense) -> MaraResponse {
-            MaraResponse::synthetic(rect)
-        }
-
-        fn available_rect(&self) -> Rect {
-            self.available
-        }
-
-        fn push_clip(&mut self, _rect: Rect) {}
-
-        fn pop_clip(&mut self) {}
-
-        fn measure_text(&self, text: &str, size: f32, _mono: bool) -> Vec2 {
-            Vec2::new(text.len() as f32 * size * 0.5, size)
-        }
-
-        fn paint(&mut self, cmd: PaintCmd) {
-            self.paints.push(cmd);
-        }
-    }
+    use crate::backend::record::{RecordingBackend, RecordingMemory};
 
     #[test]
     fn button_backend_emits_fill_stroke_and_label_commands() {
         let mut backend = RecordingBackend {
             available: Rect::from_min_size(Pos2::ZERO, Vec2::new(240.0, BUTTON_ROW_H)),
             paints: Vec::new(),
+            ..Default::default()
         };
 
         let response = button_backend(&mut backend, "Apply", MaraColor32::WHITE, BUTTON_ROW_H);
@@ -1282,6 +1206,7 @@ mod runtime_tests {
         let mut backend = RecordingBackend {
             available: Rect::from_min_size(Pos2::ZERO, Vec2::new(240.0, CARD_BUTTON_ROW_H)),
             paints: Vec::new(),
+            ..Default::default()
         };
 
         let response = button_content_backend(
@@ -1339,6 +1264,7 @@ mod runtime_tests {
         let mut backend = RecordingBackend {
             available: Rect::from_min_size(Pos2::ZERO, Vec2::new(260.0, CARD_BUTTON_ROW_H)),
             paints: Vec::new(),
+            ..Default::default()
         };
 
         let response = action_button_backend(
@@ -1419,6 +1345,7 @@ mod runtime_tests {
         let mut backend = RecordingBackend {
             available: Rect::from_min_size(Pos2::ZERO, Vec2::new(180.0, CARD_BUTTON_ROW_H)),
             paints: Vec::new(),
+            ..Default::default()
         };
         let response = button_allocate_backend(&mut backend, CARD_BUTTON_ROW_H, Sense::Click);
 
