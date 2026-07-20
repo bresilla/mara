@@ -39,7 +39,7 @@ use crate::widget::color::{color_rgb, color_rgba};
 use crate::widget::context_menu::context_menu_mara;
 use crate::widget::drag_value::drag_value_backend;
 use crate::widget::dropdown::dropdown;
-use crate::widget::foldable::section;
+use crate::widget::foldable::section_backend;
 use crate::widget::keybinding::keybinding_row_backend;
 use crate::widget::label::label_backend;
 use crate::widget::progressbar::progressbar_backend;
@@ -1128,10 +1128,20 @@ impl<'a> MaraUi<'a> {
         body: impl FnOnce(&mut MaraUi<'_>),
     ) {
         let accent = self.accent;
-        section(self.egui_ui(), id_salt, title, accent, default_open, |ui| {
-            let mut backend = MaraBackend::Egui(backend::egui::EguiUiBackend::new(ui));
-            body(&mut MaraUi::over(&mut backend, accent));
-        });
+        let mut body_opt = Some(body);
+        section_backend(
+            &mut *self.backend,
+            id_salt,
+            title,
+            accent,
+            default_open,
+            &mut |child: &mut dyn UiBackend| {
+                let mut ui = MaraUi::over(child, accent);
+                if let Some(body) = body_opt.take() {
+                    body(&mut ui);
+                }
+            },
+        );
     }
 
     /// Mara-styled right-click context menu on a previous response.

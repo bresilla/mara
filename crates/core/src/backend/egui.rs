@@ -5,11 +5,11 @@ use egui::{FontId, layers::ShapeIdx};
 use crate::{
     layout::{
         AreaHost, AreaSlotSpec, CanvasRectSpec, CanvasSlotSpec, ChildRegion, ColorPickerAlpha,
-        ContainerBodySpec, CursorIcon, FrameHostSpec, IndentedBodySpec, InlinePickerSpec,
-        ItemSpacingSpec, Layer, PaintSurfaceRegion, PaintSurfaceSpec, PaneBodyScrollAxis,
-        PaneBodyScrollSpec, PaneFlexSpec, PopupAlign, PopupListSpec, PopupSpec, PopupTrigger,
-        ScrollAxis, ScrollRegion, Sense, SlotRibbonLayoutSpec, SpaceSpec, StackAlign,
-        StackDirection, StackScopeSpec, TextEditRegion, TextEditSpec, TextMeasureSpec, UiBackend,
+        ContainerBodySpec, CursorIcon, FrameHostSpec, InlinePickerSpec, ItemSpacingSpec, Layer,
+        PaintSurfaceRegion, PaintSurfaceSpec, PaneBodyScrollAxis, PaneBodyScrollSpec, PaneFlexSpec,
+        PopupAlign, PopupListSpec, PopupSpec, PopupTrigger, ScrollAxis, ScrollRegion, Sense,
+        SlotRibbonLayoutSpec, SpaceSpec, StackAlign, StackDirection, StackScopeSpec,
+        TextEditRegion, TextEditSpec, TextMeasureSpec, UiBackend,
     },
     memory::MaraMemoryCtx,
     mui::{MaraInput, MaraKey, MaraResponse},
@@ -855,14 +855,6 @@ pub(crate) fn show_inline_picker_scope<R>(
         content(ui)
     })
     .inner
-}
-
-pub(crate) fn show_indented_body_for_spec<R>(
-    ui: &mut egui::Ui,
-    spec: IndentedBodySpec,
-    body: impl FnOnce(&mut egui::Ui) -> R,
-) -> egui::InnerResponse<R> {
-    ui.indent(Into::<egui::Id>::into(spec.id), body)
 }
 
 pub(crate) fn show_frame_for_spec<R>(

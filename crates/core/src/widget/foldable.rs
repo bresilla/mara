@@ -10,47 +10,72 @@
 //! vocabulary/state model to implement.
 
 use crate::{
-    layout::{IndentedBodySpec, Sense, UiBackend},
+    layout::{Sense, SpaceSpec, UiBackend},
     memory::MaraMemory,
     mui::MaraResponse,
     paint::PaintCmd,
     style::{FrameRole, frame_for, on_section, theme},
-    vocab::{Align2, Color32, Id, Pos2, Vec2},
+    vocab::{Align2, Color32, Id, Pos2, Rect, Vec2},
 };
 
-/// Render a mara-styled collapsible section. `id_salt` makes the
-/// section's open/closed state distinct from siblings; `title` is
-/// the header label; `default_open` is the initial state on first
-/// paint.
-pub(crate) fn section(
-    ui: &mut egui::Ui,
+/// Extra body indent beyond the frame's left margin, in px.
+const SECTION_BODY_INDENT: f32 = 4.0;
+
+/// Render a mara-styled collapsible section through the backend
+/// contract — headless-capable (PLAN.md Phase 4). `id_salt` makes the
+/// section's open/closed state distinct from siblings; `title` is the
+/// header label; `default_open` is the initial state on first paint.
+/// `body` renders the (indented) content when open.
+///
+/// The glass frame is emitted as paint commands: a background fill
+/// reserved *before* the content (so it sits behind it) and a border
+/// stroke painted *after*, both sized to the content the section
+/// occupied (measured via `available_rect` before/after).
+pub(crate) fn section_backend(
+    mut backend: &mut dyn UiBackend,
     id_salt: &str,
     title: &str,
-    accent: impl Into<Color32>,
+    accent: Color32,
     default_open: bool,
-    body: impl FnOnce(&mut egui::Ui),
+    body: &mut dyn FnMut(&mut dyn UiBackend),
 ) {
-    let accent = accent.into();
-    let id = section_memory_id(crate::backend::egui::ui_id(ui), id_salt);
-
+    let id = section_memory_id(backend.id(), id_salt);
     let frame = frame_for(FrameRole::Section, accent);
+    let margin = frame.inner_margin;
 
-    crate::backend::egui::egui_frame_for_style_spec(frame).show(ui, |ui| {
-        let mut open = {
-            let memory = crate::backend::egui::memory_ctx_for_ui(ui);
-            section_open(&memory, id, default_open)
-        };
-        let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
-        let header_resp = section_header_backend(&mut backend, title, open, accent);
+    let mut open = section_open(&backend.memory(), id, default_open);
 
-        if apply_section_toggle(&mut open, &header_resp) {
-            let mut memory = crate::backend::egui::memory_ctx_for_ui(ui);
-            set_section_open(&mut memory, id, open);
-        }
+    let start = backend.available_rect();
+    let bg_slot = backend.reserve_paint_slot();
+    backend.add_space(SpaceSpec::vertical(f32::from(margin.top)));
 
-        if let Some(spec) = section_body_spec(id, open) {
-            crate::backend::egui::show_indented_body_for_spec(ui, spec, |ui| body(ui));
-        }
+    let header_resp = section_header_backend(&mut backend, title, open, accent);
+    if apply_section_toggle(&mut open, &header_resp) {
+        set_section_open(&mut backend.memory(), id, open);
+    }
+    if open {
+        backend.in_child(
+            id.with("body"),
+            f32::from(margin.left) + SECTION_BODY_INDENT,
+            body,
+        );
+    }
+    backend.add_space(SpaceSpec::vertical(f32::from(margin.bottom)));
+
+    let end_y = backend.available_rect().min.y;
+    let frame_rect = Rect::from_min_max(start.min, Pos2::new(start.max.x, end_y));
+    backend.fill_paint_slot(
+        bg_slot,
+        Some(PaintCmd::RectFilled {
+            rect: frame_rect,
+            corner: frame.corner,
+            fill: frame.fill,
+        }),
+    );
+    backend.paint(PaintCmd::RectStroke {
+        rect: frame_rect,
+        corner: frame.corner,
+        stroke: frame.stroke,
     });
 }
 
@@ -116,10 +141,6 @@ fn apply_section_toggle(open: &mut bool, response: &MaraResponse) -> bool {
     }
 }
 
-fn section_body_spec(id: Id, open: bool) -> Option<IndentedBodySpec> {
-    open.then(|| IndentedBodySpec::new(id.with("body")))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -180,13 +201,36 @@ mod tests {
     }
 
     #[test]
-    fn section_body_spec_exists_only_when_open() {
-        let id = section_memory_id(Id::new("scope"), "details");
-
-        assert_eq!(section_body_spec(id, false), None);
-        assert_eq!(
-            section_body_spec(id, true),
-            Some(IndentedBodySpec::new(id.with("body")))
+    fn section_backend_emits_frame_fill_stroke_and_header_headless() {
+        let mut backend =
+            RecordingBackend::at(Rect::from_min_size(Pos2::ZERO, Vec2::new(200.0, 200.0)));
+        section_backend(
+            &mut backend,
+            "grp",
+            "Details",
+            Color32::WHITE,
+            true,
+            &mut |child| {
+                let _ = child.allocate(Vec2::new(80.0, 16.0), Sense::Hover);
+            },
+        );
+        // First command is the frame fill (reserved before content),
+        // then chevron + title text, then a body allocation, and the
+        // last is the border stroke.
+        assert!(
+            matches!(backend.paints.first(), Some(PaintCmd::RectFilled { .. })),
+            "frame fill must sit behind content"
+        );
+        assert!(
+            matches!(backend.paints.last(), Some(PaintCmd::RectStroke { .. })),
+            "border stroke must paint on top"
+        );
+        assert!(
+            backend
+                .paints
+                .iter()
+                .any(|c| matches!(c, PaintCmd::Text { text, .. } if text == "DETAILS")),
+            "header title renders headlessly"
         );
     }
 }
