@@ -23,7 +23,7 @@
 //!   └── indent guides (depth × TREE_INDENT)
 //! ```
 
-use crate::memory::MaraAnim;
+use crate::memory::{MaraAnim, MaraMemory};
 use std::hash::Hash;
 
 use crate::{
@@ -177,8 +177,8 @@ impl TreeBranchGuide {
 /// fixed-width right gutter of action toggles — pass the same slice
 /// shape for every row in the tree.
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn tree_row(
-    ui: &mut egui::Ui,
+pub(crate) fn tree_row<B: crate::layout::UiBackend + ?Sized>(
+    backend: &mut B,
     id_salt: impl Hash + Copy,
     depth: u32,
     expanded: Option<&mut bool>,
@@ -189,13 +189,13 @@ pub(crate) fn tree_row(
     slots: &mut [TreeIconSlot<'_>],
 ) -> TreeRowResponse {
     let accent_mara = accent.into();
-    let w = crate::backend::egui::ui_available_width(ui);
+    let w = backend.available_width();
     // Reserve z-slots for the row background fill + indent guides
     // BEFORE inline widgets draw.
-    let bg_slot = crate::backend::egui::reserve_deferred_paint_cmd_slot(ui);
+    let bg_slot = backend.reserve_paint_slot();
 
     let row = compute_row_rects(
-        ui,
+        backend,
         w,
         depth,
         expanded.is_some(),
@@ -207,32 +207,19 @@ pub(crate) fn tree_row(
     let chevron_rect_opt = row.chevron_rect;
     let icon_rect_opt = row.icon_rect;
 
-    let ui_id = crate::backend::egui::ui_id(ui);
+    let ui_id = backend.id();
     let body_id = ui_id.with(("mara_tree_body", id_salt));
     let chevron_id = ui_id.with(("mara_tree_chevron", id_salt));
     let slot_ids: Vec<MaraId> = (0..slots.len())
         .map(|i| ui_id.with(("mara_tree_slot", id_salt, i)))
         .collect();
     let (body, chevron, icon_responses) = {
-        let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
-        let body = crate::layout::UiBackend::interact(
-            &mut backend,
-            body_rect,
-            body_id,
-            crate::layout::Sense::Click,
-        );
-        let chevron = chevron_rect_opt.map(|cr| {
-            crate::layout::UiBackend::interact(
-                &mut backend,
-                cr,
-                chevron_id,
-                crate::layout::Sense::Click,
-            )
-        });
+        let body = backend.interact(body_rect, body_id, crate::layout::Sense::Click);
+        let chevron = chevron_rect_opt
+            .map(|cr| backend.interact(cr, chevron_id, crate::layout::Sense::Click));
         let mut icon_responses = Vec::with_capacity(slots.len());
         for (i, slot_rect) in row.slot_rects.iter().enumerate() {
-            icon_responses.push(crate::layout::UiBackend::interact(
-                &mut backend,
+            icon_responses.push(backend.interact(
                 *slot_rect,
                 slot_ids[i],
                 crate::layout::Sense::Click,
@@ -242,7 +229,7 @@ pub(crate) fn tree_row(
     };
     for (i, response) in icon_responses.iter().enumerate() {
         if let Some(tip) = slots[i].tooltip {
-            crate::backend::egui::hover_text_for_ui_response(ui, response, tip);
+            backend.hover_text(response, tip);
         }
     }
 
@@ -266,14 +253,14 @@ pub(crate) fn tree_row(
     } else {
         None
     };
-    crate::backend::egui::fill_deferred_paint_cmd_slot(ui, bg_slot, bg_cmd);
+    backend.fill_paint_slot(bg_slot, bg_cmd);
 
     // Indent guides — faint vertical lines at each ancestor depth.
     let guide_base = style::theme().border_subtle;
     let guide_color =
         MaraColor32::from_rgba_unmultiplied(guide_base.r(), guide_base.g(), guide_base.b(), 90);
-    crate::backend::egui::paint_cmds_for_ui(
-        ui,
+    paint_all(
+        backend,
         tree_indent_guide_paint_cmds(rect, style::theme().widgets.tree, depth, guide_color),
     );
 
@@ -281,13 +268,14 @@ pub(crate) fn tree_row(
     let glyph_col = style::section_title_color(accent_mara);
     let mut chevron_shift_clicked = false;
     if let (Some(exp), Some(cr)) = (expanded, chevron_rect_opt) {
-        let how_open = crate::backend::egui::memory_ctx_for_ui(ui)
+        let how_open = backend
+            .memory()
             .animate_bool_responsive(ui_id.with(("mara_tree_chev_anim", id_salt)), *exp);
-        paint_chevron(ui, cr, how_open, glyph_col);
+        paint_chevron(backend, cr, how_open, glyph_col);
         if let Some(ref cresp) = chevron
             && cresp.clicked()
         {
-            let shift_held = crate::backend::egui::input_snapshot_for_ui(ui).modifiers_shift;
+            let shift_held = backend.input().modifiers_shift;
             if shift_held {
                 chevron_shift_clicked = true;
             } else {
@@ -304,7 +292,7 @@ pub(crate) fn tree_row(
             style::theme().icons.tree_glyph_icon_size
         };
         paint_icon_or_glyph(
-            ui,
+            backend,
             ir.center(),
             MaraAlign2::CENTER_CENTER,
             name,
@@ -314,7 +302,7 @@ pub(crate) fn tree_row(
     }
 
     // Label — truncated to the body rect minus its left padding.
-    if crate::backend::egui::is_ui_rect_visible(ui, rect) {
+    if backend.is_rect_visible(rect) {
         let label_left = body_rect.min.x
             + style::theme().widgets.tree.row_pad_l
             + depth as f32 * style::theme().widgets.tree.indent
@@ -329,24 +317,21 @@ pub(crate) fn tree_row(
             MaraPos2::new(label_left, rect.min.y),
             MaraPos2::new(body_rect.max.x, rect.max.y),
         );
-        crate::backend::egui::paint_cmd_for_ui(
-            ui,
-            clipped_text_paint_cmd(
-                label_rect,
-                label_rect.left_center(),
-                MaraAlign2::LEFT_CENTER,
-                label,
-                style::theme().widgets.tree.label_font,
-                style::on_section(),
-            ),
-        );
+        backend.paint(clipped_text_paint_cmd(
+            label_rect,
+            label_rect.left_center(),
+            MaraAlign2::LEFT_CENTER,
+            label,
+            style::theme().widgets.tree.label_font,
+            style::on_section(),
+        ));
 
         // Right-gutter slots — paint each icon in its reserved square.
         for (i, slot) in slots.iter_mut().enumerate() {
             let rect = row.slot_rects[i];
             let resp = &icon_responses[i];
             paint_slot_icon(
-                ui,
+                backend,
                 rect,
                 &slot.kind,
                 *slot.state,
@@ -378,8 +363,8 @@ pub(crate) fn tree_row(
 /// item; clicking the `+` arms child creation without also selecting
 /// the row.
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn tree_action_row(
-    ui: &mut egui::Ui,
+pub(crate) fn tree_action_row<B: crate::layout::UiBackend + ?Sized>(
+    backend: &mut B,
     id_salt: impl Hash + Copy,
     depth: u32,
     expanded: Option<&mut bool>,
@@ -393,7 +378,7 @@ pub(crate) fn tree_action_row(
     accent: impl Into<MaraColor32> + Copy,
 ) -> TreeActionRowResponse {
     tree_action_row_with_guide(
-        ui,
+        backend,
         id_salt,
         depth,
         expanded,
@@ -414,8 +399,8 @@ pub(crate) fn tree_action_row(
 /// and ancestor continuation, so the row can render `├`, `└`, and
 /// deep `│` columns exactly like Coreviz's tree CSS.
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn tree_action_row_with_guide(
-    ui: &mut egui::Ui,
+pub(crate) fn tree_action_row_with_guide<B: crate::layout::UiBackend + ?Sized>(
+    backend: &mut B,
     id_salt: impl Hash + Copy,
     depth: u32,
     expanded: Option<&mut bool>,
@@ -431,10 +416,10 @@ pub(crate) fn tree_action_row_with_guide(
 ) -> TreeActionRowResponse {
     let accent_mara = accent.into();
     let tree = style::theme().widgets.tree;
-    let w = crate::backend::egui::ui_available_width(ui);
-    let bg_slot = crate::backend::egui::reserve_deferred_paint_cmd_slot(ui);
+    let w = backend.available_width();
+    let bg_slot = backend.reserve_paint_slot();
 
-    let row = compute_action_row_rects(ui, w, depth, expanded.is_some(), icon.is_some());
+    let row = compute_action_row_rects(backend, w, depth, expanded.is_some(), icon.is_some());
     let rect = row.rect;
     let button_rect = row.button_rect;
     let body_rect = row.body_rect;
@@ -444,36 +429,19 @@ pub(crate) fn tree_action_row_with_guide(
     let action_size = row.action_size;
     let label_rect = row.label_rect;
 
-    let ui_id = crate::backend::egui::ui_id(ui);
+    let ui_id = backend.id();
     let body_id = ui_id.with(("mara_tree_action_body", id_salt));
     let chevron_id = ui_id.with(("mara_tree_action_chevron", id_salt));
     let action_id = ui_id.with(("mara_tree_action_tail", id_salt));
     let (body, chevron, action) = {
-        let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
-        let body = crate::layout::UiBackend::interact(
-            &mut backend,
-            body_rect,
-            body_id,
-            crate::layout::Sense::Click,
-        );
-        let chevron = chevron_rect.map(|cr| {
-            crate::layout::UiBackend::interact(
-                &mut backend,
-                cr,
-                chevron_id,
-                crate::layout::Sense::Click,
-            )
-        });
-        let action = crate::layout::UiBackend::interact(
-            &mut backend,
-            action_rect,
-            action_id,
-            crate::layout::Sense::Click,
-        );
+        let body = backend.interact(body_rect, body_id, crate::layout::Sense::Click);
+        let chevron =
+            chevron_rect.map(|cr| backend.interact(cr, chevron_id, crate::layout::Sense::Click));
+        let action = backend.interact(action_rect, action_id, crate::layout::Sense::Click);
         (body, chevron, action)
     };
     if let Some(tip) = action_tooltip {
-        crate::backend::egui::hover_text_for_ui_response(ui, &action, tip);
+        backend.hover_text(&action, tip);
     }
 
     let hovered =
@@ -483,7 +451,7 @@ pub(crate) fn tree_action_row_with_guide(
     let theme = style::theme();
     let button = theme.widgets.button;
     let hover_t = if theme.animations_enabled {
-        crate::backend::egui::memory_ctx_for_ui(ui).animate_bool(
+        backend.memory().animate_bool(
             ui_id.with(("mara_tree_action_button_hover", id_salt)),
             active,
             0.25 * theme.button_anim_scale.max(0.01),
@@ -519,8 +487,7 @@ pub(crate) fn tree_action_row_with_guide(
     } else {
         lerp_color(rest_bg, target_bg, hover_t)
     };
-    crate::backend::egui::fill_deferred_paint_cmd_slot(
-        ui,
+    backend.fill_paint_slot(
         bg_slot,
         Some(PaintCmd::RectFilled {
             rect: button_rect,
@@ -528,17 +495,14 @@ pub(crate) fn tree_action_row_with_guide(
             fill: bg,
         }),
     );
-    crate::backend::egui::paint_cmd_for_ui(
-        ui,
-        PaintCmd::RectStroke {
-            rect: button_rect,
-            corner: radius,
-            stroke: MaraStroke::new(
-                theme.border_width,
-                lerp_color_opaque(style::widget_border(accent_mara), accent_mara, hover_t),
-            ),
-        },
-    );
+    backend.paint(PaintCmd::RectStroke {
+        rect: button_rect,
+        corner: radius,
+        stroke: MaraStroke::new(
+            theme.border_width,
+            lerp_color_opaque(style::widget_border(accent_mara), accent_mara, hover_t),
+        ),
+    });
 
     let guide_base = style::theme().border_subtle;
     let guide_color =
@@ -546,19 +510,20 @@ pub(crate) fn tree_action_row_with_guide(
     for cmd in
         tree_action_guide_paint_cmds(rect, tree, depth, button_rect.min.x, branch, guide_color)
     {
-        crate::backend::egui::paint_cmd_for_ui(ui, cmd);
+        backend.paint(cmd);
     }
 
     let glyph_col = style::section_title_color(accent_mara);
     let mut chevron_shift_clicked = false;
     if let (Some(exp), Some(cr)) = (expanded, chevron_rect) {
-        let how_open = crate::backend::egui::memory_ctx_for_ui(ui)
+        let how_open = backend
+            .memory()
             .animate_bool_responsive(ui_id.with(("mara_tree_action_chev_anim", id_salt)), *exp);
-        paint_chevron(ui, cr, how_open, glyph_col);
+        paint_chevron(backend, cr, how_open, glyph_col);
         if let Some(ref cresp) = chevron
             && cresp.clicked()
         {
-            let shift_held = crate::backend::egui::input_snapshot_for_ui(ui).modifiers_shift;
+            let shift_held = backend.input().modifiers_shift;
             if shift_held {
                 chevron_shift_clicked = true;
             } else {
@@ -569,7 +534,7 @@ pub(crate) fn tree_action_row_with_guide(
 
     if let (Some(name), Some(ir)) = (icon, icon_rect) {
         paint_icon_or_glyph(
-            ui,
+            backend,
             ir.center(),
             MaraAlign2::CENTER_CENTER,
             name,
@@ -578,10 +543,10 @@ pub(crate) fn tree_action_row_with_guide(
         );
     }
 
-    paint_two_line_label(ui, label_rect, title, meta);
+    paint_two_line_label(backend, label_rect, title, meta);
 
     let action_hover_t = if style::theme().animations_enabled {
-        crate::backend::egui::memory_ctx_for_ui(ui).animate_bool(
+        backend.memory().animate_bool(
             ui_id.with(("mara_tree_action_tail_hover", id_salt)),
             action.hovered() || action.pointer_button_down() || action_armed,
             0.18 * style::theme().button_anim_scale.max(0.01),
@@ -603,31 +568,25 @@ pub(crate) fn tree_action_row_with_guide(
     let action_fill =
         MaraColor32::from_rgba_unmultiplied(action_fill.r(), action_fill.g(), action_fill.b(), 80);
     let action_radius = CornerRadius::same((action_size * 0.5).round() as u8);
-    crate::backend::egui::paint_cmd_for_ui(
-        ui,
-        PaintCmd::RectFilled {
-            rect: action_rect,
-            corner: action_radius,
-            fill: action_fill,
-        },
-    );
-    crate::backend::egui::paint_cmd_for_ui(
-        ui,
-        PaintCmd::RectStroke {
-            rect: action_rect,
-            corner: action_radius,
-            stroke: MaraStroke::new(
-                style::theme().stroke.border_width,
-                lerp_color_opaque(
-                    style::widget_border(accent_mara),
-                    accent_mara,
-                    action_hover_t.max(if action_armed { 0.75 } else { 0.0 }),
-                ),
+    backend.paint(PaintCmd::RectFilled {
+        rect: action_rect,
+        corner: action_radius,
+        fill: action_fill,
+    });
+    backend.paint(PaintCmd::RectStroke {
+        rect: action_rect,
+        corner: action_radius,
+        stroke: MaraStroke::new(
+            style::theme().stroke.border_width,
+            lerp_color_opaque(
+                style::widget_border(accent_mara),
+                accent_mara,
+                action_hover_t.max(if action_armed { 0.75 } else { 0.0 }),
             ),
-        },
-    );
+        ),
+    });
     paint_icon_or_glyph(
-        ui,
+        backend,
         action_rect.center(),
         MaraAlign2::CENTER_CENTER,
         action_glyph,
@@ -672,8 +631,18 @@ fn tree_action_row_size(width: f32) -> MaraVec2 {
     MaraVec2::new(width, TREE_ACTION_ROW_H)
 }
 
-fn compute_row_rects(
-    ui: &mut egui::Ui,
+/// Paint every command in `cmds` in order through the backend.
+fn paint_all<B: crate::layout::UiBackend + ?Sized>(
+    backend: &mut B,
+    cmds: impl IntoIterator<Item = PaintCmd>,
+) {
+    for cmd in cmds {
+        backend.paint(cmd);
+    }
+}
+
+fn compute_row_rects<B: crate::layout::UiBackend + ?Sized>(
+    backend: &mut B,
     w: f32,
     depth: u32,
     has_chevron: bool,
@@ -681,25 +650,19 @@ fn compute_row_rects(
     slot_count: usize,
 ) -> TreeRowGeometry {
     let tree = style::theme().widgets.tree;
-    let rect = {
-        let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
-        crate::layout::UiBackend::reserve_space(&mut backend, tree_row_size(w, tree))
-    };
+    let rect = { backend.reserve_space(tree_row_size(w, tree)) };
     tree_row_geometry(rect, tree, depth, has_chevron, has_icon, slot_count)
 }
 
-fn compute_action_row_rects(
-    ui: &mut egui::Ui,
+fn compute_action_row_rects<B: crate::layout::UiBackend + ?Sized>(
+    backend: &mut B,
     w: f32,
     depth: u32,
     has_chevron: bool,
     has_icon: bool,
 ) -> TreeActionRowGeometry {
     let tree = style::theme().widgets.tree;
-    let rect = {
-        let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
-        crate::layout::UiBackend::reserve_space(&mut backend, tree_action_row_size(w))
-    };
+    let rect = { backend.reserve_space(tree_action_row_size(w)) };
     tree_action_row_geometry(rect, tree, depth, has_chevron, has_icon)
 }
 
@@ -920,8 +883,13 @@ fn tree_action_guide_segments(
 }
 
 /// Thin stroked chevron (`›` rotating to `⌄`) inside `rect`.
-fn paint_chevron(ui: &egui::Ui, rect: MaraRect, how_open: f32, color: MaraColor32) {
-    crate::backend::egui::paint_cmd_for_ui(ui, chevron_paint_cmd(rect, how_open, color));
+fn paint_chevron<B: crate::layout::UiBackend + ?Sized>(
+    backend: &mut B,
+    rect: MaraRect,
+    how_open: f32,
+    color: MaraColor32,
+) {
+    backend.paint(chevron_paint_cmd(rect, how_open, color));
 }
 
 fn chevron_paint_cmd(rect: MaraRect, how_open: f32, color: MaraColor32) -> PaintCmd {
@@ -949,22 +917,22 @@ fn chevron_paint_cmd(rect: MaraRect, how_open: f32, color: MaraColor32) -> Paint
     }
 }
 
-fn paint_slot_icon(
-    ui: &egui::Ui,
+fn paint_slot_icon<B: crate::layout::UiBackend + ?Sized>(
+    backend: &mut B,
     rect: MaraRect,
     kind: &TreeIconKind,
     active: bool,
     hovered: bool,
     accent: MaraColor32,
 ) {
-    crate::backend::egui::paint_cmds_for_ui(
-        ui,
+    paint_all(
+        backend,
         slot_icon_paint_cmds(rect, kind, active, hovered, accent),
     );
 }
 
-fn paint_icon_or_glyph(
-    ui: &egui::Ui,
+fn paint_icon_or_glyph<B: crate::layout::UiBackend + ?Sized>(
+    backend: &mut B,
     pos: MaraPos2,
     anchor: MaraAlign2,
     name: &str,
@@ -974,10 +942,7 @@ fn paint_icon_or_glyph(
     if crate::icons::icon(name).is_some() && !crate::icons::icon_fonts_ready() {
         return;
     }
-    crate::backend::egui::paint_cmd_for_ui(
-        ui,
-        icon_or_glyph_paint_cmd(pos, anchor, name, size, color),
-    );
+    backend.paint(icon_or_glyph_paint_cmd(pos, anchor, name, size, color));
 }
 
 fn icon_or_glyph_paint_cmd(
@@ -1008,8 +973,13 @@ fn icon_or_glyph_paint_cmd(
     }
 }
 
-fn paint_two_line_label(ui: &egui::Ui, rect: MaraRect, title: &str, meta: &str) {
-    crate::backend::egui::paint_cmd_for_ui(ui, two_line_label_paint_cmd(rect, title, meta));
+fn paint_two_line_label<B: crate::layout::UiBackend + ?Sized>(
+    backend: &mut B,
+    rect: MaraRect,
+    title: &str,
+    meta: &str,
+) {
+    backend.paint(two_line_label_paint_cmd(rect, title, meta));
 }
 
 fn clipped_text_paint_cmd(
@@ -1270,20 +1240,20 @@ fn with_alpha(solid: MaraColor32, alpha: u8) -> MaraColor32 {
 /// Used by `Pod::with_tree` to host a recursive tree without
 /// leaking raw [`egui::Ui`] to the caller.
 pub struct TreeBody<'a> {
-    ui: &'a mut egui::Ui,
+    backend: &'a mut dyn crate::layout::UiBackend,
 }
 
 impl<'a> TreeBody<'a> {
     #[doc(hidden)]
-    pub(crate) fn new(ui: &'a mut egui::Ui) -> Self {
-        Self { ui }
+    pub(crate) fn new(backend: &'a mut dyn crate::layout::UiBackend) -> Self {
+        Self { backend }
     }
 
     /// Backend-neutral memory facade for persisted and frame-temp
     /// tree state.
     #[must_use]
-    pub fn memory(&self) -> crate::MaraMemoryCtx<'_> {
-        crate::backend::egui::memory_ctx_for_ui(self.ui)
+    pub fn memory(&self) -> crate::memory::BackendMemory<'_> {
+        self.backend.memory()
     }
 
     /// Read a persisted `bool` (e.g. an expanded/collapsed flag)
@@ -1291,37 +1261,37 @@ impl<'a> TreeBody<'a> {
     /// `ctx().data(...)`.
     #[must_use]
     pub fn persisted_bool(&self, id: impl Into<crate::vocab::Id>) -> Option<bool> {
-        self.memory().get_persisted::<bool>(id)
+        self.memory().get_persisted::<bool>(id.into())
     }
 
     /// Write a persisted `bool` keyed by `id`. Typed, sealed
     /// replacement for `ctx_mut().data_mut(...)`.
     pub fn set_persisted_bool(&mut self, id: impl Into<crate::vocab::Id>, value: bool) {
-        self.memory().set_persisted(id, value);
+        self.memory().set_persisted(id.into(), value);
     }
 
     /// Read a persisted `String` (e.g. an "armed item" marker)
     /// keyed by `id`.
     #[must_use]
     pub fn persisted_string(&self, id: impl Into<crate::vocab::Id>) -> Option<String> {
-        self.memory().get_persisted::<String>(id)
+        self.memory().get_persisted::<String>(id.into())
     }
 
     /// Write a persisted `String` keyed by `id`.
     pub fn set_persisted_string(&mut self, id: impl Into<crate::vocab::Id>, value: String) {
-        self.memory().set_persisted(id, value);
+        self.memory().set_persisted(id.into(), value);
     }
 
     /// Read a frame-temporary `String` (e.g. a selection path
     /// shared with the hosting pane) keyed by `id`.
     #[must_use]
     pub fn temp_string(&self, id: impl Into<crate::vocab::Id>) -> Option<String> {
-        self.memory().get_temp::<String>(id)
+        self.memory().get_temp::<String>(id.into())
     }
 
     /// Write a frame-temporary `String` keyed by `id`.
     pub fn set_temp_string(&mut self, id: impl Into<crate::vocab::Id>, value: String) {
-        self.memory().set_temp(id, value);
+        self.memory().set_temp(id.into(), value);
     }
 
     /// Paint a single tree row. Mirrors [`tree_row`] verbatim.
@@ -1338,7 +1308,15 @@ impl<'a> TreeBody<'a> {
         slots: &mut [TreeIconSlot<'_>],
     ) -> TreeRowResponse {
         tree_row(
-            self.ui, id_salt, depth, expanded, icon, label, selected, accent, slots,
+            &mut *self.backend,
+            id_salt,
+            depth,
+            expanded,
+            icon,
+            label,
+            selected,
+            accent,
+            slots,
         )
     }
 
@@ -1361,7 +1339,7 @@ impl<'a> TreeBody<'a> {
         accent: impl Into<crate::vocab::Color32> + Copy,
     ) -> TreeActionRowResponse {
         tree_action_row(
-            self.ui,
+            &mut *self.backend,
             id_salt,
             depth,
             expanded,
@@ -1395,7 +1373,7 @@ impl<'a> TreeBody<'a> {
         accent: impl Into<crate::vocab::Color32> + Copy,
     ) -> TreeActionRowResponse {
         tree_action_row_with_guide(
-            self.ui,
+            &mut *self.backend,
             id_salt,
             depth,
             expanded,

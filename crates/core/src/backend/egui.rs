@@ -44,8 +44,6 @@ pub(crate) struct EguiUiBackend<'a> {
     deferred_slots: Vec<ShapeIdx>,
 }
 
-pub(crate) struct DeferredPaintSlot(ShapeIdx);
-
 impl<'a> EguiUiBackend<'a> {
     pub(crate) fn new(ui: &'a mut egui::Ui) -> Self {
         Self {
@@ -66,29 +64,6 @@ impl<'a> EguiUiBackend<'a> {
     /// Mutable access to the hosted egui `Ui`. See [`Self::ui`].
     pub(crate) fn ui_mut(&mut self) -> &mut egui::Ui {
         &mut *self.ui
-    }
-}
-
-pub(crate) fn reserve_deferred_paint_cmd_slot(ui: &mut egui::Ui) -> DeferredPaintSlot {
-    DeferredPaintSlot(ui.painter().add(egui::Shape::Noop))
-}
-
-pub(crate) fn fill_deferred_paint_cmd_slot(
-    ui: &egui::Ui,
-    slot: DeferredPaintSlot,
-    cmd: Option<PaintCmd>,
-) {
-    let shape = cmd.map(shape_from_paint_cmd).unwrap_or(egui::Shape::Noop);
-    ui.painter().set(slot.0, shape);
-}
-
-pub(crate) fn paint_cmd_for_ui(ui: &egui::Ui, cmd: PaintCmd) {
-    render_paint_cmd(ui.painter(), cmd);
-}
-
-pub(crate) fn paint_cmds_for_ui(ui: &egui::Ui, commands: impl IntoIterator<Item = PaintCmd>) {
-    for cmd in commands {
-        paint_cmd_for_ui(ui, cmd);
     }
 }
 

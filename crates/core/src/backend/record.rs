@@ -242,6 +242,32 @@ mod golden {
         golden_check("button", &backend.paints);
     }
 
+    /// A tree row renders headlessly through the converted `tree_row`
+    /// — proof the whole widget (indent guides, chevron, label, gutter
+    /// slots) lowers to `PaintCmd` with zero egui in the call path.
+    #[test]
+    fn golden_tree_row() {
+        let mut backend = frame();
+        let mut expanded = true;
+        let mut eye_on = true;
+        let mut slots = [crate::widget::tree::TreeIconSlot::new(
+            crate::widget::tree::TreeIconKind::Eye,
+            &mut eye_on,
+        )];
+        let _ = crate::widget::tree::tree_row(
+            &mut backend,
+            "node",
+            1,
+            Some(&mut expanded),
+            Some("folder"),
+            "assets",
+            true,
+            ACCENT,
+            &mut slots,
+        );
+        golden_check("tree_row", &backend.paints);
+    }
+
     /// The Phase 3 exit gate: a full `MaraUi` — the sealed surface app
     /// code uses — renders label/button/toggle/slider over the
     /// recording backend with zero egui in the call path.

@@ -1119,7 +1119,7 @@ impl<'a> MaraUi<'a> {
     /// Recursive tree built from Mara tree rows. The closure only
     /// sees [`TreeBody`].
     pub fn tree(&mut self, body: impl FnOnce(&mut TreeBody<'_>)) {
-        let mut tb = TreeBody::new(self.egui_ui());
+        let mut tb = TreeBody::new(&mut self.backend);
         body(&mut tb);
     }
 

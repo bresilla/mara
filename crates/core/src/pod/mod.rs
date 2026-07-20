@@ -1415,7 +1415,8 @@ impl Pod {
         F: FnOnce(&mut crate::widget::TreeBody) + Send + Sync + 'static,
     {
         self.with_custom_units(units, move |ui| {
-            let mut tb = crate::widget::TreeBody::new(ui);
+            let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
+            let mut tb = crate::widget::TreeBody::new(&mut backend);
             body(&mut tb);
         })
     }

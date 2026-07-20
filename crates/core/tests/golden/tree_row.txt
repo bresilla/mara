@@ -1,0 +1,210 @@
+[
+    RectFilled {
+        rect: Rect {
+            min: Pos2 {
+                x: 0.0,
+                y: 0.0,
+            },
+            max: Pos2 {
+                x: 320.0,
+                y: 20.0,
+            },
+        },
+        corner: CornerRadius(
+            CornerRadius {
+                nw: 3,
+                ne: 3,
+                sw: 3,
+                se: 3,
+            },
+        ),
+        fill: Color32(
+            #4E_6B_94_FF,
+        ),
+    },
+    Line {
+        a: Pos2 {
+            x: 10.0,
+            y: 0.0,
+        },
+        b: Pos2 {
+            x: 10.0,
+            y: 20.0,
+        },
+        stroke: Stroke {
+            width: 1.0,
+            color: Color32(
+                #05_05_06_5A,
+            ),
+        },
+    },
+    Polyline {
+        points: [
+            Pos2 {
+                x: 19.25,
+                y: 8.25,
+            },
+            Pos2 {
+                x: 22.0,
+                y: 11.75,
+            },
+            Pos2 {
+                x: 24.75,
+                y: 8.25,
+            },
+        ],
+        stroke: Stroke {
+            width: 1.2,
+            color: Color32(
+                #E6_E6_E8_FF,
+            ),
+        },
+    },
+    Clip {
+        rect: Rect {
+            min: Pos2 {
+                x: 46.0,
+                y: 0.0,
+            },
+            max: Pos2 {
+                x: 300.0,
+                y: 20.0,
+            },
+        },
+        children: [
+            Text {
+                pos: Pos2 {
+                    x: 46.0,
+                    y: 10.0,
+                },
+                anchor: Align2(
+                    Align2(Min, Center),
+                ),
+                text: "assets",
+                size: 12.0,
+                color: Color32(
+                    #E6_E6_E8_FF,
+                ),
+                mono: false,
+            },
+        ],
+    },
+    Polyline {
+        points: [
+            Pos2 {
+                x: 302.5,
+                y: 10.0,
+            },
+            Pos2 {
+                x: 303.6,
+                y: 11.152006,
+            },
+            Pos2 {
+                x: 304.7,
+                y: 12.048009,
+            },
+            Pos2 {
+                x: 305.8,
+                y: 12.687994,
+            },
+            Pos2 {
+                x: 306.9,
+                y: 13.071999,
+            },
+            Pos2 {
+                x: 308.0,
+                y: 13.2,
+            },
+            Pos2 {
+                x: 309.1,
+                y: 13.071999,
+            },
+            Pos2 {
+                x: 310.2,
+                y: 12.687994,
+            },
+            Pos2 {
+                x: 311.3,
+                y: 12.048009,
+            },
+            Pos2 {
+                x: 312.4,
+                y: 11.152006,
+            },
+            Pos2 {
+                x: 313.5,
+                y: 10.0,
+            },
+        ],
+        stroke: Stroke {
+            width: 1.1,
+            color: Color32(
+                #E6_E6_E8_FF,
+            ),
+        },
+    },
+    Polyline {
+        points: [
+            Pos2 {
+                x: 302.5,
+                y: 10.0,
+            },
+            Pos2 {
+                x: 303.6,
+                y: 8.847994,
+            },
+            Pos2 {
+                x: 304.7,
+                y: 7.951991,
+            },
+            Pos2 {
+                x: 305.8,
+                y: 7.3120055,
+            },
+            Pos2 {
+                x: 306.9,
+                y: 6.9280014,
+            },
+            Pos2 {
+                x: 308.0,
+                y: 6.8,
+            },
+            Pos2 {
+                x: 309.1,
+                y: 6.9280014,
+            },
+            Pos2 {
+                x: 310.2,
+                y: 7.3120055,
+            },
+            Pos2 {
+                x: 311.3,
+                y: 7.951991,
+            },
+            Pos2 {
+                x: 312.4,
+                y: 8.847994,
+            },
+            Pos2 {
+                x: 313.5,
+                y: 10.0,
+            },
+        ],
+        stroke: Stroke {
+            width: 1.1,
+            color: Color32(
+                #E6_E6_E8_FF,
+            ),
+        },
+    },
+    CircleFilled {
+        center: Pos2 {
+            x: 308.0,
+            y: 10.0,
+        },
+        radius: 1.6,
+        fill: Color32(
+            #E6_E6_E8_FF,
+        ),
+    },
+]
