@@ -90,6 +90,13 @@ label = "Mara Example"
 name = "native"
 path = "src/native.rs"
 
+# Minimal enforcement test: an eframe-hosted app that draws one Mara
+# surface and nothing else — the enforced theme/layout/top-bar must
+# appear on their own. `cargo run -p mara_example --bin enforced`.
+[[bin]]
+name = "enforced"
+path = "src/enforced.rs"
+
 [[bin]]
 name = "web"
 path = "src/web.rs"

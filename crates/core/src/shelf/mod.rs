@@ -661,6 +661,7 @@ pub fn __internal_show_shelves_egui<'a>(
     shelves: Vec<ShelfDef<'a>>,
     state: &mut ShelfState,
 ) {
+    crate::enforce::__internal_enforce_defaults(ctx);
     assert_unique_shelf_ids(&shelves);
     __internal_publish_shelf_layout(ctx, layout);
     publish_shelf_presence(ctx, shelf_presence_for(&shelves, state));
@@ -1392,6 +1393,9 @@ fn resolve_visible_active_container(
 /// does this automatically for real shelf chrome.
 #[doc(hidden)]
 pub fn __internal_publish_shelf_layout(ctx: &egui::Context, layout: ShelfLayout) {
+    // Record the app/host publish (no-op while the enforcement baseline
+    // itself publishes) so `crate::enforce` doesn't stomp a real layout.
+    crate::enforce::mark_app_shelf_published(ctx);
     let pass = ctx.cumulative_pass_nr();
     ctx.data_mut(|d| {
         d.insert_temp(shelf_layout_key(), layout);

@@ -260,6 +260,11 @@ impl<A: WindowApp> AndroidWinitApp<A> {
             host.publish_full_shelf_layout();
             app.update(&mut host);
 
+            // Honor the explicit per-frame shell opt-out, mirroring the
+            // desktop runner.
+            if mara_core::enforce::__internal_shell_opted_out(ctx) {
+                return;
+            }
             app.configure_shell(shell);
             for event in shell.show(ctx, shell_open, shell_placement, shell_drag) {
                 // Close/maximize are not meaningful on Android (the OS

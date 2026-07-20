@@ -144,6 +144,7 @@ pub fn __internal_command_palette_egui(
     items: &[PaletteItem],
     accent: impl Into<MaraColor32>,
 ) -> Option<&'static str> {
+    crate::enforce::__internal_enforce_defaults(ctx);
     let accent = accent.into();
     validate_palette_items(items);
     if !state.open {

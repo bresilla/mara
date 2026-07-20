@@ -3,10 +3,19 @@
 //! The permanent top bar (app-menu + view switcher + window controls)
 //! is **UI**, not window chrome, so it lives here in `mara_core` and is
 //! identical on every host. Each host adapter — the Bevy plugin, the
-//! `mara::window` eframe runner — renders it once per frame by calling
-//! [`ShellBar::show`] and reacting to the returned [`ShellEvent`]s.
-//! That is what makes the bar *enforced* and *cross-platform*: there is
-//! one implementation, invoked by the host, not the app.
+//! `mara::window`/`mara::android` runners — renders it once per frame
+//! by calling [`ShellBar::show`] and reacting to the returned
+//! [`ShellEvent`]s. That is what makes the bar *enforced* and
+//! *cross-platform*: there is one implementation, invoked by the host,
+//! not the app.
+//!
+//! The bar is enforced: if neither the host nor the app rendered a
+//! `ShellBar` in a pass, [`crate::enforce`] renders a Mara-owned
+//! fallback bar the moment any Mara surface draws. An app that wants
+//! the *functional* bar (views, menu, events) renders it through this
+//! API, which suppresses the fallback. The single deliberate escape
+//! hatch is the per-frame host opt-out (`opt_out_shell_bar`) — there is
+//! no passive flag to forget the bar with.
 //!
 //! The bar is responsive (the slot renderer reflows it per
 //! [`Breakpoint`](crate::style::Breakpoint)) and adaptive: the window
@@ -50,13 +59,14 @@ impl ShellView {
 /// Configuration + selection state for the enforced permanent top bar.
 ///
 /// On Bevy this is a `Resource`; the eframe runner stores it on the
-/// app. Set `enabled = false` to opt out of the bar entirely (the
-/// single, explicit escape hatch).
+/// app. The bar has no disable flag — if nothing renders it,
+/// [`crate::enforce`] renders a fallback bar. The single deliberate
+/// escape hatch is the per-frame host opt-out
+/// ([`crate::enforce::__internal_opt_out_shell`], exposed as
+/// `MaraHostCtx::opt_out_shell_bar`).
 #[cfg_attr(feature = "bevy", derive(bevy::prelude::Resource))]
 #[derive(Clone, Debug)]
 pub struct ShellBar {
-    /// Render the permanent top bar at all. Default `true`.
-    pub enabled: bool,
     /// Show the left-edge application-menu button.
     pub app_menu: bool,
     /// View-switcher buttons. Rendered centred in the bar (Middle
@@ -72,7 +82,6 @@ pub struct ShellBar {
 impl Default for ShellBar {
     fn default() -> Self {
         Self {
-            enabled: true,
             app_menu: true,
             views: Vec::new(),
             active: None,
@@ -122,9 +131,9 @@ impl ShellBar {
         placement: &mut RibbonPlacement,
         drag: &mut RibbonDrag,
     ) -> Vec<ShellEvent> {
-        if !self.enabled {
-            return Vec::new();
-        }
+        // Mark the app as having rendered the bar this pass so the
+        // enforcement fallback stays out of the way.
+        crate::enforce::mark_app_shell_shown(ctx);
         let accent = crate::style::active_accent();
         let view_ids: Vec<&'static str> = self.views.iter().map(|v| v.id).collect();
 
@@ -267,11 +276,12 @@ mod tests {
         assert!(events.is_empty());
     }
 
-    /// A disabled bar renders nothing and emits nothing.
+    /// `ShellBar::show` always renders — the bar has no disable flag.
+    /// (The explicit per-frame opt-out lives in `crate::enforce` and is
+    /// tested there.)
     #[test]
-    fn disabled_shell_bar_is_inert() {
+    fn shell_bar_show_always_renders() {
         let mut bar = ShellBar {
-            enabled: false,
             views: vec![ShellView::new("v", "cube", "V")],
             ..Default::default()
         };
@@ -281,7 +291,11 @@ mod tests {
         let mut drag = RibbonDrag::default();
         ctx.begin_pass(egui::RawInput::default());
         let events = bar.show(&ctx, &mut open, &mut placement, &mut drag);
-        let _ = ctx.end_pass();
+        let output = ctx.end_pass();
         assert!(events.is_empty());
+        assert!(
+            !output.shapes.is_empty(),
+            "the bar must render unconditionally"
+        );
     }
 }

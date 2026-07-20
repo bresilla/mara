@@ -549,6 +549,11 @@ pub fn __internal_install_fonts(ctx: &egui::Context, body: FontWeight, title: Fo
 pub fn __internal_apply_theme(ctx: &egui::Context, accent: AccentColor, opacity: GlassOpacity) {
     use core::sync::atomic::{AtomicU32, AtomicUsize};
 
+    // Record that a theme was applied this pass (no-op while the
+    // enforcement fallback itself applies it) so `crate::enforce`
+    // doesn't override an app/host-applied theme.
+    crate::enforce::mark_app_theme_applied(ctx);
+
     // Packed (r, g, b, a) cache. `u32::MAX` is used as the
     // "never-applied" sentinel — no real colour hashes to that,
     // so the first call always passes the dedup check.

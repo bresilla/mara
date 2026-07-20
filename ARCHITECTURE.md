@@ -326,6 +326,31 @@ before they can tile.
   (`ShellBar::show` → `Vec<ShellEvent>`). Web/android advertise no window
   capabilities, so those buttons simply drop out.
 
+### Enforced defaults (`enforce.rs`)
+
+Mara's contract is that *using the toolkit at all* yields a correct Mara
+app. Every surface entry point (panes, shelves, ribbons, views, command
+palette, root body) first calls `enforce::__internal_enforce_defaults`,
+whose rule per default is: **if the app did it this pass or the previous
+pass, Mara stays out of the way; otherwise Mara does it.**
+
+- **Theme** — the active Mara theme is applied unless the app applied one
+  (opt-out = apply your own).
+- **Shelf-layout baseline** — a full-viewport no-shelf layout is published
+  unless the app published one (opt-out = publish a real layout).
+- **Top bar** — if no `ShellBar` rendered, Mara renders the default
+  fallback bar. There is **no passive disable flag** (`ShellBar::enabled`
+  was removed; old code fails to compile). Apps wanting the functional bar
+  render it via `ShellBar::show`, which suppresses the fallback. The one
+  deliberate escape hatch is `MaraHostCtx::opt_out_shell_bar()` — an
+  explicit *per-frame* call (honored by the runners too); stop calling it
+  and the bar comes back.
+
+The one-pass hysteresis exists because hosts render the bar *after* app
+content each frame; the first pass a context is seen is a grace pass for
+the same reason. This is what guarantees the bar on consumers that drive
+`mara::ui` from their own egui host and never opted into a runner.
+
 ---
 
 ## 8. Theme & style runtime

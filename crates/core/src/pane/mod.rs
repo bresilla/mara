@@ -581,6 +581,7 @@ impl Pane {
         ctx: &egui::Context,
         body: impl FnOnce(&mut PaneBody<'_, 'spec>),
     ) {
+        crate::enforce::__internal_enforce_defaults(ctx);
         assert_pane_has_ribbon_button(ctx, self.id);
         let (align, offset) = layout::anchor_align(self.anchor);
         let area_id = self.id.with("pane2_area");

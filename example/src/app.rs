@@ -1998,11 +1998,10 @@ fn shell_active_view_id(root_view: DemoRootView) -> &'static str {
 }
 
 /// Populate a [`ShellBar`](mara_core::ShellBar) from demo state. Shared
-/// by both hosts so the bar is identical everywhere. The bar hides
-/// while a widget is fullscreen (the demo shows its own restore rail
-/// then).
-fn configure_demo_shell(bar: &mut mara_core::ShellBar, root_view: DemoRootView, fs_active: bool) {
-    bar.enabled = !fs_active;
+/// by both hosts so the bar is identical everywhere. The bar is
+/// enforced and always renders — including over fullscreen widgets,
+/// which paint full-bleed behind the glass bar.
+fn configure_demo_shell(bar: &mut mara_core::ShellBar, root_view: DemoRootView, _fs_active: bool) {
     bar.app_menu = true;
     bar.views = demo_shell_views();
     bar.active = Some(shell_active_view_id(root_view));
