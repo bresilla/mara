@@ -72,7 +72,10 @@ check:
 	@! grep -n 'raw-egui' crates/core/Cargo.toml mara/Cargo.toml
 	@! grep -RInE 'cfg[(]feature[[:space:]]*=[[:space:]]*"raw-egui"|^[[:space:]]*pub[[:space:]]+use[[:space:]]+egui([:;]|$$)|^[[:space:]]*pub[[:space:]]+fn[[:space:]]+(from_raw|raw_ui_mut|raw|egui|egui_ctx|ctx)[(]' crates/core/src mara/src
 	@! grep -nE '^pub type .*=[[:space:]]*egui::' crates/core/src/vocab.rs
-	@! grep -nE '^(mara_core|mara_(map|canvas|image|code|graph|3d|bevy)|egui)[[:space:]]*=' example/Cargo.toml
+	@! grep -nE '^(mara_core|mara_(map|canvas|image|code|graph|3d|bevy))[[:space:]]*=' example/Cargo.toml
+# The demo example may depend on egui directly: it always reached egui via
+# eframe's re-export, and the android target has no eframe to re-export it.
+# The sealed-consumer proof is example/sealed (checked above), not the demo.
 	@! grep -RInE 'MaraUi::from_raw|host\.egui\(\)' example/src
 	@! grep -RInE 'ViewCtx::new[(]ctx|host[.]__internal_egui[(][)][.]clone[(][)]|bevy_view[.]show[(]host[.]__internal_egui|canvas_root_view[(]host[.]__internal_egui|fn canvas_root_view[(][[:space:]]*ctx:[[:space:]]*&egui::Context' example/src/app.rs
 	@! grep -nE '^[[:space:]]*(pub\\(crate\\)[[:space:]]+)?[A-Za-z_][A-Za-z0-9_]*:[[:space:]]*egui::Response,' crates/core/src/mui/mod.rs
