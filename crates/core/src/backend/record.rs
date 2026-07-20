@@ -212,7 +212,7 @@ mod golden {
     #[test]
     fn golden_button() {
         let mut backend = frame();
-        let _ = crate::widget::button::button_backend(&mut backend, "apply", ACCENT.into(), 24.0);
+        let _ = crate::widget::button::button_backend(&mut backend, "apply", ACCENT, 24.0);
         golden_check("button", &backend.paints);
     }
 }
