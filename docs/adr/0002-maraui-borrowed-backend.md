@@ -1,6 +1,14 @@
 # ADR 0002: `MaraUi` borrows its backend (layout-engine prerequisite)
 
-- **Status**: Proposed (2026-07-21)
+- **Status**: Implemented (2026-07-21) — `MaraUi<'a>` holds
+  `&'a mut dyn UiBackend`. A blanket `impl<T: UiBackend + ?Sized>
+  UiBackend for &mut T` lets every widget `*_backend(&mut …)` call
+  compile unchanged; the egui escape is the object-safe trait methods
+  `egui_ui_mut`/`egui_ui_ref` (single lifetime, no invariance wall —
+  cleaner than the two-lifetime enum this ADR originally proposed).
+  `__internal_from_raw` split into `__internal_backend_from_raw` +
+  `__internal_over`. Commit `61d3b63`.
+- **Status (original)**: Proposed (2026-07-21)
 - **Deciders**: repo maintainer
 - **Related**: `PLAN.md` Phase 4, ADR 0001, `docs/history/PLAN-first-pass.md`
 
