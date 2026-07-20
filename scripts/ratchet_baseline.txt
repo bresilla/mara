@@ -2,6 +2,6 @@
 # Counts may only decrease; edit a value ONLY in the same commit that
 # deletes the counted code. Measured at branch feature/backend-independence.
 egui_files 57
-state_bypass 127
+state_bypass 61
 egui_ui_fns 65
 ui_escapes 25
