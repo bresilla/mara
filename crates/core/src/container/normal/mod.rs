@@ -7,7 +7,7 @@
 //! Layout is plain egui (no flex). Title strip hit-testing goes
 //! through the Mara backend contract; the body is rendered into a child UI
 //! whose `max_rect` is the FULL body extent and whose `clip_rect`
-//! lerps with `ctx.animate_bool(...)` — same recipe egui's
+//! lerps with the memory contract's `animate_bool(...)` — same recipe egui's
 //! `CollapsingState::show_body_unindented` uses.
 //!
 //! ```ignore
@@ -1631,22 +1631,21 @@ fn active_tab_id_key(active_idx_key: Id) -> Id {
 
 fn resolve_active_tab_idx(ctx: &egui::Context, active_idx_key: Id, tab_ids: &[Id]) -> usize {
     debug_assert!(!tab_ids.is_empty());
-    ctx.data_mut(|d| {
-        if let Some(active_id) = d.get_persisted::<Id>(active_tab_id_key(active_idx_key))
-            && let Some(idx) = tab_ids.iter().position(|id| *id == active_id)
-        {
-            d.insert_persisted(active_idx_key, idx);
-            return idx;
-        }
+    let mut memory = crate::memory::MaraMemoryCtx::new(ctx);
+    if let Some(active_id) = memory.get_persisted::<Id>(active_tab_id_key(active_idx_key))
+        && let Some(idx) = tab_ids.iter().position(|id| *id == active_id)
+    {
+        memory.set_persisted(active_idx_key, idx);
+        return idx;
+    }
 
-        let stored = d.get_persisted::<usize>(active_idx_key).unwrap_or(0);
-        let clamped = stored.min(tab_ids.len() - 1);
-        if clamped != stored {
-            d.insert_persisted(active_idx_key, clamped);
-        }
-        d.insert_persisted(active_tab_id_key(active_idx_key), tab_ids[clamped]);
-        clamped
-    })
+    let stored = memory.get_persisted::<usize>(active_idx_key).unwrap_or(0);
+    let clamped = stored.min(tab_ids.len() - 1);
+    if clamped != stored {
+        memory.set_persisted(active_idx_key, clamped);
+    }
+    memory.set_persisted(active_tab_id_key(active_idx_key), tab_ids[clamped]);
+    clamped
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -3711,15 +3710,19 @@ mod active_tab_tests {
         let first = Id::new("first");
         let moved = Id::new("moved");
         let last = Id::new("last");
-        ctx.data_mut(|d| {
-            d.insert_persisted(key, 0usize);
-            d.insert_persisted(active_tab_id_key(key), moved);
-        });
+        {
+            let mut memory = crate::memory::MaraMemoryCtx::new(&ctx);
+            memory.set_persisted(key, 0usize);
+            memory.set_persisted(active_tab_id_key(key), moved);
+        };
 
         let idx = resolve_active_tab_idx(&ctx, key, &[first, moved, last]);
 
         assert_eq!(idx, 1);
-        assert_eq!(ctx.data_mut(|d| d.get_persisted::<usize>(key)), Some(1));
+        assert_eq!(
+            crate::memory::MaraMemoryCtx::new(&ctx).get_persisted::<usize>(key),
+            Some(1)
+        );
     }
 
     #[test]
@@ -3727,14 +3730,17 @@ mod active_tab_tests {
         let ctx = egui::Context::default();
         let key = Id::new("active-tabs");
         let only = Id::new("only");
-        ctx.data_mut(|d| d.insert_persisted(key, 99usize));
+        crate::memory::MaraMemoryCtx::new(&ctx).set_persisted(key, 99usize);
 
         let idx = resolve_active_tab_idx(&ctx, key, &[only]);
 
         assert_eq!(idx, 0);
-        assert_eq!(ctx.data_mut(|d| d.get_persisted::<usize>(key)), Some(0));
         assert_eq!(
-            ctx.data_mut(|d| d.get_persisted::<Id>(active_tab_id_key(key))),
+            crate::memory::MaraMemoryCtx::new(&ctx).get_persisted::<usize>(key),
+            Some(0)
+        );
+        assert_eq!(
+            crate::memory::MaraMemoryCtx::new(&ctx).get_persisted::<Id>(active_tab_id_key(key)),
             Some(only)
         );
     }

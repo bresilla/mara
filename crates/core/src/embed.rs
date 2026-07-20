@@ -118,7 +118,7 @@ fn pending_restore_fullscreen_key() -> egui::Id {
 pub fn __internal_fullscreen_owner(ctx: &egui::Context) -> Option<MaraId> {
     let global_key = egui::Id::new("mara_maximize_global");
     let pass_nr = ctx.cumulative_pass_nr();
-    let stored: Option<(u64, MaraId)> = ctx.data(|d| d.get_temp(global_key));
+    let stored: Option<(u64, MaraId)> = crate::memory::MaraMemoryCtx::new(ctx).get_temp(global_key);
     match stored {
         Some((f, id)) if f == pass_nr || f + 1 == pass_nr => Some(id),
         _ => None,
@@ -139,9 +139,10 @@ fn suppress_fullscreen_minimize_chip_key() -> egui::Id {
 /// first-party host adapters.
 #[doc(hidden)]
 pub fn __internal_set_fullscreen_minimize_chip_visible(ctx: &egui::Context, visible: bool) {
-    ctx.data_mut(|d| {
-        d.insert_temp::<bool>(suppress_fullscreen_minimize_chip_key(), !visible);
-    });
+    {
+        let mut memory = crate::memory::MaraMemoryCtx::new(ctx);
+        memory.set_temp::<bool>(suppress_fullscreen_minimize_chip_key(), !visible);
+    };
 }
 
 /// Internal fullscreen restore request for first-party host adapters.
@@ -152,9 +153,10 @@ pub fn __internal_restore_fullscreen(ctx: &egui::Context) -> bool {
     let Some(owner) = __internal_fullscreen_owner(ctx) else {
         return false;
     };
-    ctx.data_mut(|d| {
-        d.insert_temp::<MaraId>(pending_restore_fullscreen_key(), owner);
-    });
+    {
+        let mut memory = crate::memory::MaraMemoryCtx::new(ctx);
+        memory.set_temp::<MaraId>(pending_restore_fullscreen_key(), owner);
+    };
     true
 }
 
@@ -534,13 +536,15 @@ fn fullscreen_minimize_button(
     // Persisted user-chosen anchor (set on drag-release). When
     // empty, fall back to the caller-supplied `opts`.
     let anchor_key = egui::Id::new("mara_maximize_chip_anchor").with(id_salt);
-    let stored: Option<(RibbonEdge, RibbonCluster)> = ctx.data(|d| d.get_temp(anchor_key));
+    let stored: Option<(RibbonEdge, RibbonCluster)> =
+        crate::memory::MaraMemoryCtx::new(ctx).get_temp(anchor_key);
     let active_anchor = stored.unwrap_or((opts.minimize_edge, opts.minimize_cluster));
     // While the user is mid-drag, override the chip position with
     // the cursor (so the chip follows the pointer) — keyed by the
     // SAME id so the value clears on release.
     let drag_pos_key = egui::Id::new("mara_maximize_chip_drag_pos").with(id_salt);
-    let drag_cursor: Option<MaraPos2> = ctx.data(|d| d.get_temp(drag_pos_key));
+    let drag_cursor: Option<MaraPos2> =
+        crate::memory::MaraMemoryCtx::new(ctx).get_temp(drag_pos_key);
     let chip_pos: MaraPos2 = if let Some(c) = drag_cursor {
         MaraPos2::new(c.x - btn_size * 0.5, c.y - btn_size * 0.5)
     } else {

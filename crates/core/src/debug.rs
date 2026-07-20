@@ -71,12 +71,15 @@ fn best_id() -> Id {
 
 /// `true` when the inspector is on. Cheap — single ctx-data read.
 pub fn is_enabled(ctx: &egui::Context) -> bool {
-    ctx.data(|d| d.get_temp::<bool>(enabled_id()).unwrap_or(false))
+    {
+        let memory = crate::memory::MaraMemoryCtx::new(ctx);
+        memory.get_temp::<bool>(enabled_id()).unwrap_or(false)
+    }
 }
 
 /// Toggle the inspector overlay globally for this `ctx`.
 pub fn set_enabled(ctx: &egui::Context, on: bool) {
-    ctx.data_mut(|d| d.insert_temp(enabled_id(), on));
+    crate::memory::MaraMemoryCtx::new(ctx).set_temp(enabled_id(), on);
 }
 
 /// Register a hover-triggered debug entry. When the inspector is on
@@ -125,7 +128,9 @@ pub fn paint(ctx: &egui::Context) {
     if !is_enabled(ctx) {
         return;
     }
-    let best: Option<Best> = ctx.data_mut(|d| d.remove_temp::<Best>(best_id()));
+    let mut memory = crate::memory::MaraMemoryCtx::new(ctx);
+    let best: Option<Best> = memory.get_temp::<Best>(best_id());
+    memory.remove_temp::<Best>(best_id());
     let Some(best) = best else {
         return;
     };

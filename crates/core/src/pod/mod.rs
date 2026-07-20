@@ -743,7 +743,9 @@ impl Pod {
     ) -> String {
         let pod_id: Id = pod_id.into().into();
         let key = pod_id.with(("mara_pod_search_buf", search_idx));
-        ctx.data(|d| d.get_temp::<String>(key)).unwrap_or_default()
+        crate::memory::MaraMemoryCtx::new(ctx)
+            .get_temp::<String>(key)
+            .unwrap_or_default()
     }
 
     /// Ctx-data key the container writes the fill pod's computed

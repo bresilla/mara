@@ -310,7 +310,8 @@ pub(crate) fn chrome_bounds_key() -> egui::Id {
 }
 
 fn chrome_rect(ctx: &egui::Context) -> MaraRect {
-    ctx.data(|d| d.get_temp::<MaraRect>(chrome_bounds_key()))
+    crate::memory::MaraMemoryCtx::new(ctx)
+        .get_temp::<MaraRect>(chrome_bounds_key())
         .unwrap_or_else(|| crate::backend::egui::context_content_rect(ctx))
 }
 
@@ -361,10 +362,12 @@ fn main_bar_empty_drag_started_id() -> egui::Id {
 
 #[must_use]
 pub(crate) fn main_bar_empty_drag_started(ctx: &egui::Context) -> bool {
-    ctx.data(|d| {
-        d.get_temp::<bool>(main_bar_empty_drag_started_id())
+    {
+        let memory = crate::memory::MaraMemoryCtx::new(ctx);
+        memory
+            .get_temp::<bool>(main_bar_empty_drag_started_id())
             .unwrap_or(false)
-    })
+    }
 }
 
 fn effective_cluster(mode: RibbonMode, item: RibbonCluster) -> RibbonCluster {
@@ -801,9 +804,10 @@ pub fn draw_unified_ribbon_chrome(
 ) -> Vec<egui::Id> {
     let insets = compute_side_insets(ribbons);
     let chrome = fresh_chrome_bounds(ctx);
-    ctx.data_mut(|d| {
-        d.insert_temp(chrome_bounds_key(), chrome);
-        d.insert_temp::<[bool; 4]>(
+    {
+        let mut memory = crate::memory::MaraMemoryCtx::new(ctx);
+        memory.set_temp(chrome_bounds_key(), chrome);
+        memory.set_temp::<[bool; 4]>(
             egui::Id::new("mara_published_ribbon_edges"),
             [
                 edge_has_ribbon(ribbons, RibbonEdge::Left),
@@ -812,7 +816,7 @@ pub fn draw_unified_ribbon_chrome(
                 edge_has_ribbon(ribbons, RibbonEdge::Bottom),
             ],
         );
-    });
+    };
 
     let mut flat = Vec::new();
     for (r_idx, ribbon) in ribbons.iter().enumerate() {
@@ -1235,12 +1239,13 @@ pub fn draw_unified_ribbon_chrome(
             crate::style::theme().window_chrome,
         );
     }
-    ctx.data_mut(|d| {
-        d.insert_temp(
+    {
+        let mut memory = crate::memory::MaraMemoryCtx::new(ctx);
+        memory.set_temp(
             main_bar_empty_drag_started_id(),
             empty_main_bar_drag_started,
         );
-    });
+    };
 
     let mut clicks = Vec::new();
     for (idx, fired) in click_flags.iter().copied().enumerate() {
@@ -1368,7 +1373,7 @@ mod tests {
 
     fn test_ctx_with_chrome(rect: egui::Rect) -> egui::Context {
         let ctx = egui::Context::default();
-        ctx.data_mut(|data| data.insert_temp(chrome_bounds_key(), MaraRect::from(rect)));
+        crate::memory::MaraMemoryCtx::new(&ctx).set_temp(chrome_bounds_key(), MaraRect::from(rect));
         ctx
     }
 
@@ -1378,7 +1383,8 @@ mod tests {
             screen_rect: Some(screen),
             ..Default::default()
         });
-        ctx.data_mut(|data| data.insert_temp(chrome_bounds_key(), MaraRect::from(chrome)));
+        crate::memory::MaraMemoryCtx::new(&ctx)
+            .set_temp(chrome_bounds_key(), MaraRect::from(chrome));
         ctx
     }
 
@@ -1484,7 +1490,7 @@ mod tests {
         );
         // Simulate the renderer writing the key (what froze it before).
         let first = fresh_chrome_bounds(&ctx);
-        ctx.data_mut(|d| d.insert_temp(chrome_bounds_key(), first));
+        crate::memory::MaraMemoryCtx::new(&ctx).set_temp(chrome_bounds_key(), first);
         let _ = ctx.end_pass();
 
         // Window grows on the next pass.

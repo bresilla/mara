@@ -168,7 +168,7 @@ fn mara_code_theme(accent: egui::Color32) -> ColorTheme {
 impl crate::pod::Pod {
     /// Append a mara-themed code editor to this pod. The editor's
     /// text lives in backend memory under `text_id` — pre-seed it
-    /// (`ctx.data_mut(|d| d.insert_temp(text_id, "default".to_string()))`)
+    /// (`crate::memory::MaraMemoryCtx::new(ctx).set_temp(text_id, "default".to_string())`)
     /// or rely on `default_text` to seed on first render.
     ///
     /// Uses `mara_core::style::active_accent()` for the inline
