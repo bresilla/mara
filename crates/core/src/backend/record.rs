@@ -132,3 +132,73 @@ impl UiBackend for RecordingBackend {
         self.paints.push(cmd);
     }
 }
+
+/// Golden paint tests — PLAN.md Phase 1.2.
+///
+/// Each test renders one widget through its `*_backend` fn against a
+/// [`RecordingBackend`] and compares the `{:#?}` of the captured
+/// [`PaintCmd`] stream to a committed snapshot in
+/// `crates/core/tests/golden/`. Regenerate with
+/// `MARA_UPDATE_GOLDEN=1 cargo test -p mara_core golden`.
+///
+/// Goldens render under the process-default theme (`theme_pro` dark);
+/// they deliberately do not call `set_theme` (a parallel test doing so
+/// mid-render would race — only `style.rs`'s own test does, and it
+/// restores the default before finishing).
+#[cfg(test)]
+mod golden {
+    use super::*;
+    use crate::vocab::{Color32, Pos2};
+
+    fn golden_check(name: &str, paints: &[PaintCmd]) {
+        let path = format!(
+            "{}/tests/golden/{name}.txt",
+            env!("CARGO_MANIFEST_DIR")
+        );
+        let actual = format!("{:#?}\n", paints);
+        if std::env::var("MARA_UPDATE_GOLDEN").is_ok() {
+            std::fs::create_dir_all(format!("{}/tests/golden", env!("CARGO_MANIFEST_DIR")))
+                .expect("create golden dir");
+            std::fs::write(&path, &actual).expect("write golden");
+            return;
+        }
+        let expected = std::fs::read_to_string(&path).unwrap_or_else(|_| {
+            panic!("missing golden snapshot {path}; regenerate with MARA_UPDATE_GOLDEN=1")
+        });
+        assert_eq!(
+            expected, actual,
+            "golden mismatch for '{name}'; if the change is intentional regenerate with MARA_UPDATE_GOLDEN=1"
+        );
+    }
+
+    fn frame() -> RecordingBackend {
+        RecordingBackend::at(Rect::from_min_size(
+            Pos2::new(0.0, 0.0),
+            Vec2::new(320.0, 64.0),
+        ))
+    }
+
+    const ACCENT: Color32 = Color32::from_rgb(120, 180, 255);
+
+    #[test]
+    fn golden_label() {
+        let mut backend = frame();
+        let _ = crate::widget::label::label_backend(&mut backend, "mara", Color32::WHITE);
+        golden_check("label", &backend.paints);
+    }
+
+    #[test]
+    fn golden_toggle_off() {
+        let mut backend = frame();
+        let mut on = false;
+        let _ = crate::widget::toggle::toggle_backend(&mut backend, "dark", &mut on, ACCENT, 24.0);
+        golden_check("toggle_off", &backend.paints);
+    }
+
+    #[test]
+    fn golden_button() {
+        let mut backend = frame();
+        let _ = crate::widget::button::button_backend(&mut backend, "apply", ACCENT.into(), 24.0);
+        golden_check("button", &backend.paints);
+    }
+}

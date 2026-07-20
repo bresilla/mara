@@ -208,3 +208,46 @@ mechanism proven, and the two probe attempts documented (pass or blocked).
   CLAUDE.md when convenient.
 - The frozen `measure_text` constants are a contract; changing them
   invalidates every golden — never "tune" them casually.
+
+---
+
+## Spike findings (executed 2026-07-20, branch feature/backend-independence)
+
+**Done:** shared `RecordingBackend` + `RecordingMemory` live in
+`crates/core/src/backend/record.rs` (19 test-local backend defs and 3
+memory defs deleted). Golden framework + 3 leaf goldens
+(`label`, `toggle_off`, `button`) in `record.rs::golden`, snapshots in
+`crates/core/tests/golden/`, regeneration via `MARA_UPDATE_GOLDEN=1` —
+verified deterministic. Deviation from this plan: goldens are crate-internal
+unit tests, not `tests/golden_paint.rs` — the `*_backend` fns are
+`pub(crate)`-reachable only; no visibility was widened.
+
+**Probe 1 — `MaraUi` over `RecordingBackend`: BLOCKED.**
+- `mui/mod.rs:560-567` — `MaraUi.backend` is the concrete
+  `EguiUiBackend<'a>`; both constructors (`new` :570,
+  `__internal_from_raw` :593) take `&mut egui::Ui`. No `MaraUi` can exist
+  over a non-egui backend. → PLAN.md Phase 3.2.
+- `mui/mod.rs` — 22 `ui_mut()` sites route widget methods to
+  `backend::egui::*_for_ui` helpers; even with a `dyn` field these need
+  the missing twins (tree, context_menu, color picker, foldable body) or
+  the counted downcast escape. → Phase 3.1/3.3.
+- `mui/mod.rs:639-641` — `MaraUi::memory()` reaches through
+  `backend.ui()` to build `MaraMemoryCtx`; needs `UiBackend::memory()`
+  (object-safe store). → Phase 2.2.
+- Animation reaches `backend::egui::animate_*` free fns
+  (`backend/egui.rs:369-413`) + one raw `ctx.animate_bool_with_time`
+  (`pane/mod.rs:109`). → Phase 2.1.
+
+**Probe 2 — Pod over `RecordingBackend`: BLOCKED (deeper).**
+- The pod render path enters container chrome typed on egui:
+  `container/normal/mod.rs:779` (`show_raw(self, ui: &mut Ui, …)`) and
+  lowers paint via `paint_cmd(ui, …)` / `paint_cmd_clipped`
+  (`container/normal/mod.rs:2891-2896`). Headless pods need the chrome
+  migration. → Phase 4.
+- Chrome state is direct `ctx.data*` (139 ratcheted sites). → Phase 2.3.
+
+**Verdict:** the trait carries leaf widgets today (3 goldens prove it);
+the blockers are exactly PLAN.md's Phases 2-4 in dependency order — no
+trait-design flaw surfaced, no ADR revision needed. Recommended next:
+Phase 2.1/2.2 (animation + object-safe memory), then 3.2 unblocks
+Probe 1 end-to-end.
