@@ -96,12 +96,13 @@ struct FallbackShell {
 /// the enforced work never counts as "the app did it" and entry points
 /// reached from inside enforcement don't recurse.
 pub(crate) fn enforcing(ctx: &egui::Context) -> bool {
-    ctx.data(|d| d.get_temp::<bool>(enforcing_key()))
+    crate::memory::MaraMemoryCtx::new(ctx)
+        .get_temp::<bool>(enforcing_key())
         .unwrap_or(false)
 }
 
 fn set_enforcing(ctx: &egui::Context, on: bool) {
-    ctx.data_mut(|d| d.insert_temp(enforcing_key(), on));
+    crate::memory::MaraMemoryCtx::new(ctx).set_temp(enforcing_key(), on);
 }
 
 fn stamp(ctx: &egui::Context, key: egui::Id) {
@@ -109,7 +110,7 @@ fn stamp(ctx: &egui::Context, key: egui::Id) {
         return;
     }
     let pass = ctx.cumulative_pass_nr();
-    ctx.data_mut(|d| d.insert_temp(key, pass));
+    crate::memory::MaraMemoryCtx::new(ctx).set_temp(key, pass);
 }
 
 /// Stamp read: `true` when the app performed the action this pass or
@@ -117,7 +118,8 @@ fn stamp(ctx: &egui::Context, key: egui::Id) {
 /// docs).
 fn fresh(ctx: &egui::Context, key: egui::Id) -> bool {
     let pass = ctx.cumulative_pass_nr();
-    ctx.data(|d| d.get_temp::<u64>(key))
+    crate::memory::MaraMemoryCtx::new(ctx)
+        .get_temp::<u64>(key)
         .is_some_and(|s| s.saturating_add(1) >= pass)
 }
 
@@ -143,7 +145,7 @@ pub(crate) fn mark_app_shelf_published(ctx: &egui::Context) {
 #[doc(hidden)]
 #[must_use]
 pub fn __internal_shell_enforced_pass(ctx: &egui::Context) -> Option<u64> {
-    ctx.data(|d| d.get_temp::<u64>(enforced_shell_pass_key()))
+    crate::memory::MaraMemoryCtx::new(ctx).get_temp::<u64>(enforced_shell_pass_key())
 }
 
 /// Explicit, deliberate opt-out from the enforced top bar **for the
@@ -156,7 +158,7 @@ pub fn __internal_shell_enforced_pass(ctx: &egui::Context) -> Option<u64> {
 #[doc(hidden)]
 pub fn __internal_opt_out_shell(ctx: &egui::Context) {
     let pass = ctx.cumulative_pass_nr();
-    ctx.data_mut(|d| d.insert_temp(shell_opt_out_pass_key(), pass));
+    crate::memory::MaraMemoryCtx::new(ctx).set_temp(shell_opt_out_pass_key(), pass);
 }
 
 /// `true` when the app opted out of the enforced bar this pass (or the
@@ -207,10 +209,11 @@ pub fn __internal_enforce_defaults(ctx: &egui::Context) {
     // Record the first pass enforcement ever ran on this context —
     // unconditionally, so early-outs below (app bar fresh, opt-out)
     // never make a later pass masquerade as the first one.
-    let first_seen = match ctx.data(|d| d.get_temp::<u64>(grace_pass_key())) {
+    let first_seen = match crate::memory::MaraMemoryCtx::new(ctx).get_temp::<u64>(grace_pass_key())
+    {
         Some(first) => first,
         None => {
-            ctx.data_mut(|d| d.insert_temp(grace_pass_key(), pass));
+            crate::memory::MaraMemoryCtx::new(ctx).set_temp(grace_pass_key(), pass);
             pass
         }
     };
@@ -238,10 +241,11 @@ pub fn __internal_enforce_defaults(ctx: &egui::Context) {
     let _ = state
         .bar
         .show(ctx, &mut state.open, &mut state.placement, &mut state.drag);
-    ctx.data_mut(|d| {
-        d.insert_temp(fallback_state_key(), state);
-        d.insert_temp(enforced_shell_pass_key(), pass);
-    });
+    {
+        let mut memory = crate::memory::MaraMemoryCtx::new(ctx);
+        memory.set_temp(fallback_state_key(), state);
+        memory.set_temp(enforced_shell_pass_key(), pass);
+    };
     set_enforcing(ctx, false);
 }
 
