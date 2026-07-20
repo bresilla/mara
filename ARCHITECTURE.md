@@ -73,9 +73,24 @@ On top of these sits the **sealed widget surface**:
 
 - **`MaraUi`** (`mui/mod.rs`) — what every widget and pane body receives. It
   holds an `EguiUiBackend`, *not* an `egui::Ui`, and exposes Mara-shaped
-  primitives (`MaraResponse`, `MaraInput`, `MaraPainter`, `MaraKey`). All ~40
-  internal call sites route through the backend, so the egui dependency is
-  contained in one adapter.
+  primitives (`MaraResponse`, `MaraInput`, `MaraPainter`, `MaraKey`).
+
+**How far the seam actually goes today** (measured 2026-07-20; tracked by the
+coupling ratchet in `make check` and scheduled for reduction by `PLAN.md`):
+
+- The seam is **real at the paint/measure/interact layer**: widget logic
+  expresses painting as `PaintCmd` and drives `*_backend` functions over the
+  `UiBackend` trait; `backend/egui.rs` is the only *lowering* code. Seven
+  widget families (label, toggle, readout, chip, badge, keybinding,
+  progressbar) are fully backend-routed.
+- The seam is **not yet real at the signature/runtime layer**: widget entry
+  points in all 10 `widget/` files are still typed on `&mut egui::Ui` and
+  construct `EguiUiBackend` locally; `egui::` is referenced in 57 core
+  files; `MaraUi` stores the concrete `EguiUiBackend` (with 24 `ui_mut()`
+  escape sites), and per-id state/animation mostly hits egui's data store
+  directly (~139 sites) rather than `MaraMemory`. A second backend cannot
+  run Mara today. `docs/adr/0001-backend-seam-scope.md` records the decided
+  direction; `PLAN.md` Phases 0–3 are the closure work.
 
 A handful of **backend-neutral state machines** live alongside, each a pure
 `MaraMemory`-backed core that any backend could reuse:
@@ -434,9 +449,15 @@ allocation + pipeline compile); the inline-`PaintCmd` modules do not.
   adapters.
 - Don't add Bevy-only logic for behavior that should also work on egui/eframe or
   web. One core, many hosts.
-- Widgets emit `PaintCmd` and go through `MaraUi`/`UiBackend` — don't reach for
-  `egui::Ui` outside the `backend/egui.rs` adapter (or the `raw-egui` hatch).
-- egui's data store is **type-keyed**; persisted state goes through
-  `MaraMemory`, and atlas-affecting work (fonts/theme) must be deduped.
+- Widgets emit `PaintCmd` and go through `MaraUi`/`UiBackend` — **new code
+  must not add `egui::Ui`-typed entry points or direct `ctx.data*` access**
+  (the coupling ratchet in `make check` enforces no-increase). Existing
+  egui-typed entries are being migrated per `PLAN.md`; each migrated surface
+  deletes its old entry in the same change (greenfield rule — see
+  `docs/adr/0001-backend-seam-scope.md`).
+- egui's data store is **type-keyed**; `MaraMemory` is the sanctioned store
+  for widget state. Today chrome-level state (pane/shelf/container/ribbon/
+  enforce, ~139 sites) still uses `ctx.data*` directly — scheduled migration,
+  not a pattern to copy. Atlas-affecting work (fonts/theme) must be deduped.
 - Run the gates under the repo Nix shell:
   `nix develop --impure -c make check` and `… make test-all`.
