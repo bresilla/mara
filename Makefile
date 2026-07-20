@@ -345,6 +345,7 @@ check:
 	@! grep -RInE 'line_segment|convex_polygon|painter[.]add' crates/core/src/embed.rs
 	@! grep -RIn 'rect_filled(rect, 0.0, fill)' crates/core/src/shelf/mod.rs
 	@! grep -RInE 'ui\.painter[(][)][.](rect|rect_filled|line_segment)' crates/core/src/shelf/mod.rs
+	@scripts/ratchet.sh
 
 harden:
 	@git diff --check
