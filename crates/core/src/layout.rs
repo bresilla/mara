@@ -784,6 +784,16 @@ pub trait UiBackend {
     fn egui_ui_ref(&self) -> Option<&egui::Ui> {
         None
     }
+
+    /// Run `body` in a child region inset by `inset_left` px from the
+    /// current region's left edge (an indent). Content flows inside the
+    /// child; afterwards the parent's layout continues below it. This
+    /// is the backend-neutral nesting primitive chrome uses to lay out
+    /// bodies inside frames (PLAN.md Phase 4). Object-safe: the closure
+    /// takes `&mut dyn UiBackend`, so `MaraUi` (which holds
+    /// `&mut dyn UiBackend`) can wrap the child. `id` salts the child
+    /// scope's persisted state.
+    fn in_child(&mut self, id: Id, inset_left: f32, body: &mut dyn FnMut(&mut dyn UiBackend));
 }
 
 /// Blanket impl so a `&mut` to any backend (notably `&mut dyn
@@ -856,6 +866,9 @@ impl<T: UiBackend + ?Sized> UiBackend for &mut T {
     }
     fn egui_ui_ref(&self) -> Option<&egui::Ui> {
         (**self).egui_ui_ref()
+    }
+    fn in_child(&mut self, id: Id, inset_left: f32, body: &mut dyn FnMut(&mut dyn UiBackend)) {
+        (**self).in_child(id, inset_left, body)
     }
 }
 

@@ -197,6 +197,27 @@ impl UiBackend for RecordingBackend {
     fn memory(&self) -> crate::memory::BackendMemory<'_> {
         crate::memory::BackendMemory::Recording(&self.memory)
     }
+
+    fn in_child(
+        &mut self,
+        _id: Id,
+        inset_left: f32,
+        body: &mut dyn FnMut(&mut dyn crate::layout::UiBackend),
+    ) {
+        let saved_available = self.available;
+        let saved_cursor = self.cursor;
+        // Scope to an indented sub-region flowing from the cursor.
+        self.available = Rect::from_min_max(
+            Pos2::new(self.available.min.x + inset_left, self.cursor.y),
+            self.available.max,
+        );
+        self.cursor = self.available.min;
+        body(self);
+        // Restore the parent region; continue flow below the child.
+        let child_end_y = self.cursor.y;
+        self.available = saved_available;
+        self.cursor = Pos2::new(saved_cursor.x, child_end_y.max(saved_cursor.y));
+    }
 }
 
 /// Golden paint tests — PLAN.md Phase 1.2.
@@ -263,6 +284,31 @@ mod golden {
         let mut backend = frame();
         let _ = crate::widget::button::button_backend(&mut backend, "apply", ACCENT, 24.0);
         golden_check("button", &backend.paints);
+    }
+
+    #[test]
+    fn in_child_indents_body_and_resumes_parent_flow() {
+        use crate::layout::{Sense, UiBackend};
+        let mut backend = frame();
+        let _outer = backend.allocate(Vec2::new(100.0, 10.0), Sense::Hover); // y 0..10
+        let mut child_first_min = Pos2::ZERO;
+        backend.in_child(Id::new("sec"), 16.0, &mut |child| {
+            // Child content is inset by 16px and flows below the outer.
+            let r = child.allocate(Vec2::new(50.0, 20.0), Sense::Hover);
+            child_first_min = r.rect.min;
+        });
+        assert_eq!(
+            child_first_min,
+            Pos2::new(16.0, 10.0),
+            "indented + below outer"
+        );
+        // Parent flow resumes below the child region.
+        let after = backend.allocate(Vec2::new(100.0, 10.0), Sense::Hover);
+        assert_eq!(
+            after.rect.min,
+            Pos2::new(0.0, 30.0),
+            "parent resumes past child"
+        );
     }
 
     #[test]

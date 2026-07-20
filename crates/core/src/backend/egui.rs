@@ -227,6 +227,20 @@ impl UiBackend for EguiUiBackend<'_> {
     fn egui_ui_ref(&self) -> Option<&egui::Ui> {
         Some(self.ui)
     }
+
+    fn in_child(
+        &mut self,
+        id: vocab::Id,
+        _inset_left: f32,
+        body: &mut dyn FnMut(&mut dyn UiBackend),
+    ) {
+        // egui applies its own theme indent spacing for the visual;
+        // `inset_left` is honoured by headless backends.
+        self.ui.indent(Into::<egui::Id>::into(id), |child_ui| {
+            let mut child = EguiUiBackend::new(child_ui);
+            body(&mut child);
+        });
+    }
 }
 
 pub(crate) fn egui_sense(sense: Sense) -> egui::Sense {

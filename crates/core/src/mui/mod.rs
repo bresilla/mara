@@ -699,6 +699,17 @@ impl crate::layout::UiBackend for MaraBackend<'_> {
             Self::Recording(b) => b.egui_ui_ref(),
         }
     }
+    fn in_child(
+        &mut self,
+        id: vocab::Id,
+        inset_left: f32,
+        body: &mut dyn FnMut(&mut dyn UiBackend),
+    ) {
+        match self {
+            Self::Egui(b) => b.in_child(id, inset_left, body),
+            Self::Recording(b) => b.in_child(id, inset_left, body),
+        }
+    }
 }
 
 /// Opaque owned backend handle for host plugins — created by
