@@ -24,9 +24,7 @@
 use std::{cell::RefCell, ops::RangeInclusive, rc::Rc};
 
 use crate::backend;
-use crate::layout::{
-    CanvasRectSpec, CanvasSlotSpec, PaintSurfaceSpec, Sense as MaraSense, SpaceSpec, UiBackend,
-};
+use crate::layout::{PaintSurfaceSpec, Sense as MaraSense, SpaceSpec, UiBackend};
 use crate::paint::{PaintCmd, PaintList};
 use crate::pod::{Pod, PodResponse};
 use crate::vocab;
@@ -1188,9 +1186,13 @@ impl<'a> MaraUi<'a> {
     /// `allocate_painter` — the primitive for gauges, plots, and
     /// other bespoke visuals.
     pub fn canvas(&mut self, desired_size: impl Into<vocab::Vec2>) -> (MaraPainter, MaraResponse) {
-        let spec = CanvasSlotSpec::new(desired_size.into(), MaraSense::ClickAndDrag);
-        let (painter, response) = backend::egui::allocate_canvas_slot_for_ui(self.egui_ui(), spec);
-        (MaraPainter::new(painter), response)
+        let response = self
+            .backend
+            .allocate(desired_size.into(), MaraSense::ClickAndDrag);
+        let painter = self
+            .backend
+            .make_painter(PaintSurfaceSpec::clipped(response.rect));
+        (painter, response)
     }
 
     /// Interactive custom-drawing surface over an exact screen-space
@@ -1199,13 +1201,10 @@ impl<'a> MaraUi<'a> {
     /// [`MaraUi::canvas`], this does not advance the layout cursor.
     pub fn canvas_at(&mut self, rect: impl Into<vocab::Rect>) -> (MaraPainter, MaraResponse) {
         let rect = rect.into();
-        let spec = CanvasRectSpec::new(
-            canvas_at_id(self.backend.id(), rect),
-            rect,
-            MaraSense::ClickAndDrag,
-        );
-        let (painter, response) = backend::egui::interact_canvas_rect_for_ui(self.egui_ui(), spec);
-        (MaraPainter::new(painter), response)
+        let id = canvas_at_id(self.backend.id(), rect);
+        let response = self.backend.interact(rect, id, MaraSense::ClickAndDrag);
+        let painter = self.backend.make_painter(PaintSurfaceSpec::clipped(rect));
+        (painter, response)
     }
 
     /// A painter over the remaining available rect, without

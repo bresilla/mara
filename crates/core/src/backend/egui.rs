@@ -4,10 +4,10 @@ use egui::{FontId, layers::ShapeIdx};
 
 use crate::{
     layout::{
-        AreaHost, AreaSlotSpec, CanvasRectSpec, CanvasSlotSpec, ChildRegion, ColorPickerAlpha,
-        ContainerBodySpec, CursorIcon, FrameHostSpec, InlinePickerSpec, ItemSpacingSpec, Layer,
-        PaintSurfaceRegion, PaintSurfaceSpec, PaneBodyScrollAxis, PaneBodyScrollSpec, PaneFlexSpec,
-        PopupAlign, PopupListSpec, PopupSpec, PopupTrigger, ScrollAxis, ScrollRegion, Sense,
+        AreaHost, AreaSlotSpec, ChildRegion, ColorPickerAlpha, ContainerBodySpec, CursorIcon,
+        FrameHostSpec, InlinePickerSpec, ItemSpacingSpec, Layer, PaintSurfaceRegion,
+        PaintSurfaceSpec, PaneBodyScrollAxis, PaneBodyScrollSpec, PaneFlexSpec, PopupAlign,
+        PopupListSpec, PopupSpec, PopupTrigger, ScrollAxis, ScrollRegion, Sense,
         SlotRibbonLayoutSpec, SpaceSpec, StackAlign, StackDirection, TextEditRegion, TextEditSpec,
         TextMeasureSpec, UiBackend,
     },
@@ -1019,43 +1019,6 @@ pub(crate) fn ui_available_height(ui: &egui::Ui) -> f32 {
 
 pub(crate) fn ui_id(ui: &egui::Ui) -> vocab::Id {
     ui.id().into()
-}
-
-pub(crate) fn interact_for_ui_rect(
-    ui: &mut egui::Ui,
-    rect: vocab::Rect,
-    id: vocab::Id,
-    sense: Sense,
-) -> MaraResponse {
-    ui.interact(rect.into(), id.into(), egui_sense(sense))
-        .into()
-}
-
-pub(crate) fn allocate_canvas_slot_for_ui(
-    ui: &mut egui::Ui,
-    spec: CanvasSlotSpec,
-) -> (egui::Painter, MaraResponse) {
-    let response = {
-        let mut backend = EguiUiBackend::new(ui);
-        backend.allocate(spec.size, spec.sense)
-    };
-    let painter = painter_for_ui_rect(ui, response.rect);
-    (painter, response)
-}
-
-pub(crate) fn interact_canvas_rect_for_ui(
-    ui: &mut egui::Ui,
-    spec: CanvasRectSpec,
-) -> (egui::Painter, MaraResponse) {
-    let response = interact_for_ui_rect(ui, spec.rect, spec.id, spec.sense);
-    let painter = painter_for_ui_clip(ui, spec.rect);
-    (painter, response)
-}
-
-pub(crate) fn painter_for_ui_rect(ui: &egui::Ui, rect: vocab::Rect) -> egui::Painter {
-    let rect: egui::Rect = rect.into();
-    ui.painter_at(rect)
-        .with_clip_rect(rect.intersect(ui.clip_rect()))
 }
 
 pub(crate) fn painter_for_ui_clip(ui: &egui::Ui, rect: vocab::Rect) -> egui::Painter {
