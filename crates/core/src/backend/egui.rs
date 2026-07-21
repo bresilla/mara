@@ -265,6 +265,13 @@ impl UiBackend for EguiUiBackend<'_> {
     fn request_repaint(&self) {
         self.ui.ctx().request_repaint();
     }
+
+    fn scroll_region(&mut self, region: ScrollRegion, body: &mut dyn FnMut(&mut dyn UiBackend)) {
+        show_vertical_scroll_region(self.ui, region, |ui| {
+            let mut child = EguiUiBackend::new(ui);
+            body(&mut child);
+        });
+    }
 }
 
 pub(crate) fn egui_sense(sense: Sense) -> egui::Sense {

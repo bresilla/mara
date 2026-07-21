@@ -349,6 +349,22 @@ mod golden {
     }
 
     #[test]
+    fn scroll_region_runs_body_as_flow_headless() {
+        use crate::layout::{ScrollRegion, Sense, UiBackend};
+        let mut backend = frame();
+        let region = ScrollRegion::new(Id::new("results"), [false, false], 200.0, 2.0);
+        let mut a = Pos2::ZERO;
+        let mut b = Pos2::ZERO;
+        backend.scroll_region(region, &mut |view| {
+            a = view.allocate(Vec2::new(50.0, 10.0), Sense::Hover).rect.min;
+            b = view.allocate(Vec2::new(50.0, 10.0), Sense::Hover).rect.min;
+        });
+        // Headless: no clip/offset — content just flows top-down.
+        assert_eq!(a, Pos2::new(0.0, 0.0));
+        assert_eq!(b, Pos2::new(0.0, 10.0));
+    }
+
+    #[test]
     fn in_scope_horizontal_flows_right_then_parent_resumes_below() {
         use crate::layout::{Sense, UiBackend};
         let mut backend = frame();

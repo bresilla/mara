@@ -733,6 +733,16 @@ impl crate::layout::UiBackend for MaraBackend<'_> {
             Self::Recording(b) => b.request_repaint(),
         }
     }
+    fn scroll_region(
+        &mut self,
+        region: crate::layout::ScrollRegion,
+        body: &mut dyn FnMut(&mut dyn UiBackend),
+    ) {
+        match self {
+            Self::Egui(b) => b.scroll_region(region, body),
+            Self::Recording(b) => b.scroll_region(region, body),
+        }
+    }
 }
 
 /// Opaque owned backend handle for host plugins — created by

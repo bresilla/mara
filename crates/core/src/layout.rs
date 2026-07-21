@@ -824,6 +824,16 @@ pub trait UiBackend {
     /// Ask the host to schedule another frame (e.g. an animation is in
     /// flight). No-op on backends without an event loop.
     fn request_repaint(&self) {}
+
+    /// Run `body` inside a vertical scroll viewport described by
+    /// `region`. The egui backend clips and offsets a real scroll area;
+    /// the default just runs `body` as normal flow (no clipping), which
+    /// is correct for headless/measuring backends. Same object-safe
+    /// shape as [`UiBackend::in_child`].
+    fn scroll_region(&mut self, region: ScrollRegion, body: &mut dyn FnMut(&mut dyn UiBackend)) {
+        let _ = region;
+        self.in_scope(false, body);
+    }
 }
 
 /// Blanket impl so a `&mut` to any backend (notably `&mut dyn
@@ -911,6 +921,9 @@ impl<T: UiBackend + ?Sized> UiBackend for &mut T {
     }
     fn request_repaint(&self) {
         (**self).request_repaint()
+    }
+    fn scroll_region(&mut self, region: ScrollRegion, body: &mut dyn FnMut(&mut dyn UiBackend)) {
+        (**self).scroll_region(region, body)
     }
 }
 
