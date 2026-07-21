@@ -813,6 +813,17 @@ pub trait UiBackend {
         };
         crate::mui::MaraPainter::recording(clip)
     }
+
+    /// Current time in seconds from the host's frame clock, for
+    /// animation timing. Defaults to `0.0` for clockless backends
+    /// (a first slice of the Phase 5 host-services contract).
+    fn now(&self) -> f64 {
+        0.0
+    }
+
+    /// Ask the host to schedule another frame (e.g. an animation is in
+    /// flight). No-op on backends without an event loop.
+    fn request_repaint(&self) {}
 }
 
 /// Blanket impl so a `&mut` to any backend (notably `&mut dyn
@@ -894,6 +905,12 @@ impl<T: UiBackend + ?Sized> UiBackend for &mut T {
     }
     fn make_painter(&self, spec: PaintSurfaceSpec) -> crate::mui::MaraPainter {
         (**self).make_painter(spec)
+    }
+    fn now(&self) -> f64 {
+        (**self).now()
+    }
+    fn request_repaint(&self) {
+        (**self).request_repaint()
     }
 }
 

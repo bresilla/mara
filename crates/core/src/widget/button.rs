@@ -29,7 +29,7 @@ use crate::style::{
 };
 use crate::{
     layout::{Sense, UiBackend},
-    memory::{MaraMemory, MaraMemoryCtx},
+    memory::MaraMemory,
     mui::MaraResponse,
     paint::PaintCmd,
     vocab::{
@@ -407,13 +407,23 @@ impl<'a> Button<'a> {
     /// interaction snapshot.
     pub fn show(self, ui: &mut crate::mui::MaraUi<'_>) -> MaraResponse {
         let accent = ui.accent();
-        self.show_egui(ui.egui_ui(), accent)
+        self.show_backend(&mut ui.backend, accent)
     }
 
-    /// Current egui-backend adapter used by first-party internals.
+    /// egui-backend adapter retained for the pod render path.
     pub(crate) fn show_egui(
         self,
         ui: &mut egui::Ui,
+        accent: impl Into<MaraColor32>,
+    ) -> MaraResponse {
+        let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
+        self.show_backend(&mut backend, accent)
+    }
+
+    /// Backend-neutral renderer.
+    pub(crate) fn show_backend<B: UiBackend>(
+        self,
+        backend: &mut B,
         accent: impl Into<MaraColor32>,
     ) -> MaraResponse {
         let accent = accent.into();
@@ -425,9 +435,8 @@ impl<'a> Button<'a> {
             button.row_h
         });
         if self.animation.is_none() {
-            let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
             return button_content_backend(
-                &mut backend,
+                backend,
                 self.label,
                 self.subtitle,
                 self.glyph,
@@ -435,27 +444,18 @@ impl<'a> Button<'a> {
                 height,
             );
         }
-        let resp = {
-            let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
-            button_allocate_backend(&mut backend, height, Sense::Click)
-        };
+        let resp = button_allocate_backend(backend, height, Sense::Click);
 
         // No press-shrink — buttons keep their footprint on hold so a
-        // long press doesn't ripple layout around them. The
-        // `press_depress_amount` helper is still defined below for
-        // any future widget that wants the effect (the tree's
-        // hide/show layering is a more natural fit).
+        // long press doesn't ripple layout around them.
         let painted_rect = resp.rect;
+        let active = resp.hovered() || resp.pointer_button_down();
 
-        let pressed = resp.pointer_button_down();
-        let active = resp.hovered() || pressed;
-
-        // Smoothed hover/press signal. Drives bg lerp, border lerp,
-        // and the FillStyle overlay position. Same id/duration in
-        // both paths so the visuals can't drift.
+        // Smoothed hover/press signal driving bg/border lerp and the
+        // FillStyle overlay position.
         let hover_t = if th.animations_enabled {
             let dur = 0.25 * th.button_anim_scale.max(0.01);
-            crate::backend::egui::memory_ctx_for_ui(ui).animate_bool(
+            backend.memory().animate_bool(
                 resp.backend_response_id().with("mara_button_hover"),
                 active,
                 dur,
@@ -465,23 +465,19 @@ impl<'a> Button<'a> {
         } else {
             0.0
         };
-        let ctx = crate::backend::egui::context_for_ui(ui);
 
-        {
-            let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
-            paint_animated_button_backend(
-                &mut backend,
-                painted_rect,
-                self.label,
-                self.subtitle,
-                self.glyph,
-                accent,
-                self.animation
-                    .expect("animated branch requires animation style"),
-                hover_t,
-            );
-            paint_click_pulse(&ctx, &mut backend, &resp, painted_rect, accent);
-        }
+        paint_animated_button_backend(
+            backend,
+            painted_rect,
+            self.label,
+            self.subtitle,
+            self.glyph,
+            accent,
+            self.animation
+                .expect("animated branch requires animation style"),
+            hover_t,
+        );
+        paint_click_pulse(backend, &resp, painted_rect, accent);
         resp
     }
 }
@@ -818,9 +814,8 @@ fn with_alpha(solid: MaraColor32, alpha: u8) -> MaraColor32 {
 /// Reads as the button "firing off." `painter` should already be
 /// expanded past `rect` by enough margin for the maximum inflate
 /// (≈ 10 px) so the pulse isn't sliced by its own clip rect.
-fn paint_click_pulse(
-    ctx: &egui::Context,
-    backend: &mut impl UiBackend,
+fn paint_click_pulse<B: UiBackend + ?Sized>(
+    backend: &mut B,
     resp: &MaraResponse,
     rect: MaraRect,
     accent: MaraColor32,
@@ -831,16 +826,12 @@ fn paint_click_pulse(
     }
     let click_id = button_click_pulse_memory_id(resp.backend_response_id());
     if resp.clicked {
-        let now = crate::backend::egui::input_time(ctx);
-        let mut memory = MaraMemoryCtx::new(ctx);
-        record_button_click_pulse(&mut memory, click_id, true, now);
+        let now = backend.now();
+        record_button_click_pulse(&mut backend.memory(), click_id, true, now);
     }
-    let click_at = {
-        let memory = MaraMemoryCtx::new(ctx);
-        button_click_pulse_started_at(&memory, click_id)
-    };
+    let click_at = button_click_pulse_started_at(&backend.memory(), click_id);
     if let Some(t0) = click_at {
-        let now = crate::backend::egui::input_time(ctx);
+        let now = backend.now();
         let elapsed = (now - t0) as f32;
         if let Some(cmd) = button_click_pulse_paint_cmd(
             rect,
@@ -850,7 +841,7 @@ fn paint_click_pulse(
             MaraCornerRadius::same(th.radius_widget),
         ) {
             backend.paint(cmd);
-            crate::backend::egui::request_repaint(ctx);
+            backend.request_repaint();
         }
     }
 }

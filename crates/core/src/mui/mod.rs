@@ -721,6 +721,18 @@ impl crate::layout::UiBackend for MaraBackend<'_> {
             Self::Recording(b) => b.make_painter(spec),
         }
     }
+    fn now(&self) -> f64 {
+        match self {
+            Self::Egui(b) => b.now(),
+            Self::Recording(b) => b.now(),
+        }
+    }
+    fn request_repaint(&self) {
+        match self {
+            Self::Egui(b) => b.request_repaint(),
+            Self::Recording(b) => b.request_repaint(),
+        }
+    }
 }
 
 /// Opaque owned backend handle for host plugins — created by

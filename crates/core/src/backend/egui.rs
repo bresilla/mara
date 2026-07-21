@@ -257,6 +257,14 @@ impl UiBackend for EguiUiBackend<'_> {
     fn make_painter(&self, spec: PaintSurfaceSpec) -> crate::mui::MaraPainter {
         crate::mui::MaraPainter::new(painter_for_ui_surface(self.ui, spec))
     }
+
+    fn now(&self) -> f64 {
+        input_time(self.ui.ctx())
+    }
+
+    fn request_repaint(&self) {
+        self.ui.ctx().request_repaint();
+    }
 }
 
 pub(crate) fn egui_sense(sense: Sense) -> egui::Sense {
@@ -393,10 +401,6 @@ pub(crate) fn request_repaint_after_ms(ctx: &egui::Context, ms: u64) {
 
 pub(crate) fn unstable_dt(ctx: &egui::Context) -> f32 {
     ctx.input(|input| input.unstable_dt).max(0.0)
-}
-
-pub(crate) fn context_for_ui(ui: &egui::Ui) -> egui::Context {
-    ui.ctx().clone()
 }
 
 pub(crate) fn context_painter_for_layer(
