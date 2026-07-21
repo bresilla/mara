@@ -253,6 +253,10 @@ impl UiBackend for EguiUiBackend<'_> {
             self.ui.vertical(run);
         }
     }
+
+    fn make_painter(&self, spec: PaintSurfaceSpec) -> crate::mui::MaraPainter {
+        crate::mui::MaraPainter::new(painter_for_ui_surface(self.ui, spec))
+    }
 }
 
 pub(crate) fn egui_sense(sense: Sense) -> egui::Sense {

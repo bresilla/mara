@@ -800,6 +800,19 @@ pub trait UiBackend {
     /// layout continues below the scope. Same object-safe shape as
     /// [`UiBackend::in_child`].
     fn in_scope(&mut self, horizontal: bool, body: &mut dyn FnMut(&mut dyn UiBackend));
+
+    /// A [`MaraPainter`](crate::mui::MaraPainter) drawing into the
+    /// surface described by `spec` (the remaining region or an explicit
+    /// clip). The default records into an internal command list (its
+    /// output is discarded on non-rasterising backends); the egui
+    /// backend returns a painter over its live `Ui`.
+    fn make_painter(&self, spec: PaintSurfaceSpec) -> crate::mui::MaraPainter {
+        let clip = match spec.region {
+            PaintSurfaceRegion::ClipRect(rect) => rect,
+            PaintSurfaceRegion::RemainingAvailable => self.available_rect(),
+        };
+        crate::mui::MaraPainter::recording(clip)
+    }
 }
 
 /// Blanket impl so a `&mut` to any backend (notably `&mut dyn
@@ -878,6 +891,9 @@ impl<T: UiBackend + ?Sized> UiBackend for &mut T {
     }
     fn in_scope(&mut self, horizontal: bool, body: &mut dyn FnMut(&mut dyn UiBackend)) {
         (**self).in_scope(horizontal, body)
+    }
+    fn make_painter(&self, spec: PaintSurfaceSpec) -> crate::mui::MaraPainter {
+        (**self).make_painter(spec)
     }
 }
 

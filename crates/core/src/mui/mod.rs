@@ -213,8 +213,8 @@ pub enum MaraKey {
 #[derive(Clone)]
 enum MaraPainterSink {
     Egui(egui::Painter),
-    /// Retained sink for tests today and future non-egui backend flushes.
-    #[allow(dead_code)]
+    /// Records draw commands instead of rasterising — used by non-egui
+    /// backends and tests.
     Commands {
         commands: Rc<RefCell<PaintList>>,
         clip: vocab::Rect,
@@ -250,7 +250,9 @@ impl MaraPainter {
         }
     }
 
-    #[cfg(test)]
+    /// A painter that records into an internal command list rather than
+    /// an egui painter — used by non-egui backends (their painter output
+    /// isn't rasterised, so it's discarded) and by tests.
     pub(crate) fn recording(clip: impl Into<vocab::Rect>) -> Self {
         Self {
             sink: MaraPainterSink::Commands {
@@ -715,6 +717,12 @@ impl crate::layout::UiBackend for MaraBackend<'_> {
             Self::Recording(b) => b.in_scope(horizontal, body),
         }
     }
+    fn make_painter(&self, spec: crate::layout::PaintSurfaceSpec) -> MaraPainter {
+        match self {
+            Self::Egui(b) => b.make_painter(spec),
+            Self::Recording(b) => b.make_painter(spec),
+        }
+    }
 }
 
 /// Opaque owned backend handle for host plugins — created by
@@ -758,12 +766,6 @@ impl<'a> MaraUi<'a> {
     pub(crate) fn egui_ui(&mut self) -> &mut egui::Ui {
         self.backend
             .egui_ui_mut()
-            .expect("this MaraUi operation requires the egui backend")
-    }
-
-    fn egui_ui_readonly(&self) -> &egui::Ui {
-        self.backend
-            .egui_ui_ref()
             .expect("this MaraUi operation requires the egui backend")
     }
 
@@ -1210,10 +1212,8 @@ impl<'a> MaraUi<'a> {
     /// allocating it (drawing only, no interaction).
     #[must_use]
     pub fn painter(&self) -> MaraPainter {
-        MaraPainter::new(backend::egui::painter_for_ui_surface(
-            self.egui_ui_readonly(),
-            PaintSurfaceSpec::remaining_available(),
-        ))
+        self.backend
+            .make_painter(PaintSurfaceSpec::remaining_available())
     }
 }
 
