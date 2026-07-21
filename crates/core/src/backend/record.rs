@@ -122,6 +122,12 @@ pub struct RecordingBackend {
     pub interaction: Option<MaraResponse>,
     /// Headless state store vended through [`UiBackend::memory`].
     pub memory: std::cell::RefCell<RecordingMemory>,
+    /// When set (inside an [`UiBackend::in_scope`] horizontal scope),
+    /// `allocate` advances the cursor rightward instead of downward.
+    pub flow_horizontal: bool,
+    /// Deepest bottom edge reached in the current horizontal row, so
+    /// the parent can resume flow below the tallest item.
+    pub row_bottom: f32,
 }
 
 impl RecordingBackend {
@@ -134,6 +140,19 @@ impl RecordingBackend {
             ..Self::default()
         }
     }
+
+    /// Place `size` at the cursor and advance it along the current flow
+    /// axis (down by default, right inside a horizontal scope).
+    fn advance(&mut self, size: Vec2) -> Rect {
+        let rect = Rect::from_min_size(self.cursor, size);
+        if self.flow_horizontal {
+            self.cursor.x += size.x;
+            self.row_bottom = self.row_bottom.max(rect.max.y);
+        } else {
+            self.cursor.y += size.y;
+        }
+        rect
+    }
 }
 
 impl UiBackend for RecordingBackend {
@@ -143,15 +162,11 @@ impl UiBackend for RecordingBackend {
     }
 
     fn allocate(&mut self, size: Vec2, _sense: Sense) -> MaraResponse {
-        let rect = Rect::from_min_size(self.cursor, size);
-        self.cursor.y += size.y;
-        MaraResponse::synthetic(rect)
+        MaraResponse::synthetic(self.advance(size))
     }
 
     fn reserve_space(&mut self, size: Vec2) -> Rect {
-        let rect = Rect::from_min_size(self.cursor, size);
-        self.cursor.y += size.y;
-        rect
+        self.advance(size)
     }
 
     fn add_space(&mut self, spec: crate::layout::SpaceSpec) {
@@ -217,6 +232,28 @@ impl UiBackend for RecordingBackend {
         let child_end_y = self.cursor.y;
         self.available = saved_available;
         self.cursor = Pos2::new(saved_cursor.x, child_end_y.max(saved_cursor.y));
+    }
+
+    fn in_scope(
+        &mut self,
+        horizontal: bool,
+        body: &mut dyn FnMut(&mut dyn crate::layout::UiBackend),
+    ) {
+        if !horizontal {
+            body(self);
+            return;
+        }
+        let saved_cursor = self.cursor;
+        let saved_flow = self.flow_horizontal;
+        let saved_row = self.row_bottom;
+        self.flow_horizontal = true;
+        self.row_bottom = self.cursor.y;
+        body(self);
+        let bottom = self.row_bottom;
+        self.flow_horizontal = saved_flow;
+        self.row_bottom = saved_row;
+        // Parent resumes below the tallest item in the row.
+        self.cursor = Pos2::new(saved_cursor.x, bottom.max(saved_cursor.y));
     }
 }
 
@@ -309,6 +346,23 @@ mod golden {
             Pos2::new(0.0, 30.0),
             "parent resumes past child"
         );
+    }
+
+    #[test]
+    fn in_scope_horizontal_flows_right_then_parent_resumes_below() {
+        use crate::layout::{Sense, UiBackend};
+        let mut backend = frame();
+        let mut a = Pos2::ZERO;
+        let mut b = Pos2::ZERO;
+        backend.in_scope(true, &mut |row| {
+            a = row.allocate(Vec2::new(40.0, 12.0), Sense::Hover).rect.min;
+            b = row.allocate(Vec2::new(30.0, 20.0), Sense::Hover).rect.min;
+        });
+        assert_eq!(a, Pos2::new(0.0, 0.0));
+        assert_eq!(b, Pos2::new(40.0, 0.0), "second item flows to the right");
+        // Parent resumes below the tallest item in the row (20px).
+        let after = backend.allocate(Vec2::new(10.0, 10.0), Sense::Hover);
+        assert_eq!(after.rect.min, Pos2::new(0.0, 20.0));
     }
 
     #[test]

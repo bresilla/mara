@@ -25,8 +25,7 @@ use std::{cell::RefCell, ops::RangeInclusive, rc::Rc};
 
 use crate::backend;
 use crate::layout::{
-    CanvasRectSpec, CanvasSlotSpec, PaintSurfaceSpec, Sense as MaraSense, SpaceSpec,
-    StackScopeSpec, UiBackend,
+    CanvasRectSpec, CanvasSlotSpec, PaintSurfaceSpec, Sense as MaraSense, SpaceSpec, UiBackend,
 };
 use crate::paint::{PaintCmd, PaintList};
 use crate::pod::{Pod, PodResponse};
@@ -710,6 +709,12 @@ impl crate::layout::UiBackend for MaraBackend<'_> {
             Self::Recording(b) => b.in_child(id, inset_left, body),
         }
     }
+    fn in_scope(&mut self, horizontal: bool, body: &mut dyn FnMut(&mut dyn UiBackend)) {
+        match self {
+            Self::Egui(b) => b.in_scope(horizontal, body),
+            Self::Recording(b) => b.in_scope(horizontal, body),
+        }
+    }
 }
 
 /// Opaque owned backend handle for host plugins — created by
@@ -860,19 +865,25 @@ impl<'a> MaraUi<'a> {
     }
 
     pub fn horizontal<R>(&mut self, body: impl FnOnce(&mut MaraUi<'_>) -> R) -> R {
-        let accent = self.accent;
-        backend::egui::show_stack_scope_for_ui(self.egui_ui(), StackScopeSpec::horizontal(), |ui| {
-            let mut backend = MaraBackend::Egui(backend::egui::EguiUiBackend::new(ui));
-            body(&mut MaraUi::over(&mut backend, accent))
-        })
+        self.stack_scope(true, body)
     }
 
     pub fn vertical<R>(&mut self, body: impl FnOnce(&mut MaraUi<'_>) -> R) -> R {
+        self.stack_scope(false, body)
+    }
+
+    fn stack_scope<R>(&mut self, horizontal: bool, body: impl FnOnce(&mut MaraUi<'_>) -> R) -> R {
         let accent = self.accent;
-        backend::egui::show_stack_scope_for_ui(self.egui_ui(), StackScopeSpec::vertical(), |ui| {
-            let mut backend = MaraBackend::Egui(backend::egui::EguiUiBackend::new(ui));
-            body(&mut MaraUi::over(&mut backend, accent))
-        })
+        let mut body_opt = Some(body);
+        let mut result = None;
+        self.backend
+            .in_scope(horizontal, &mut |child: &mut dyn UiBackend| {
+                let mut ui = MaraUi::over(child, accent);
+                if let Some(body) = body_opt.take() {
+                    result = Some(body(&mut ui));
+                }
+            });
+        result.expect("in_scope runs the body exactly once")
     }
 
     // ── text ─────────────────────────────────────────────────────

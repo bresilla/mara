@@ -8,8 +8,8 @@ use crate::{
         ContainerBodySpec, CursorIcon, FrameHostSpec, InlinePickerSpec, ItemSpacingSpec, Layer,
         PaintSurfaceRegion, PaintSurfaceSpec, PaneBodyScrollAxis, PaneBodyScrollSpec, PaneFlexSpec,
         PopupAlign, PopupListSpec, PopupSpec, PopupTrigger, ScrollAxis, ScrollRegion, Sense,
-        SlotRibbonLayoutSpec, SpaceSpec, StackAlign, StackDirection, StackScopeSpec,
-        TextEditRegion, TextEditSpec, TextMeasureSpec, UiBackend,
+        SlotRibbonLayoutSpec, SpaceSpec, StackAlign, StackDirection, TextEditRegion, TextEditSpec,
+        TextMeasureSpec, UiBackend,
     },
     memory::MaraMemoryCtx,
     mui::{MaraInput, MaraKey, MaraResponse},
@@ -240,6 +240,18 @@ impl UiBackend for EguiUiBackend<'_> {
             let mut child = EguiUiBackend::new(child_ui);
             body(&mut child);
         });
+    }
+
+    fn in_scope(&mut self, horizontal: bool, body: &mut dyn FnMut(&mut dyn UiBackend)) {
+        let run = |child_ui: &mut egui::Ui| {
+            let mut child = EguiUiBackend::new(child_ui);
+            body(&mut child);
+        };
+        if horizontal {
+            self.ui.horizontal(run);
+        } else {
+            self.ui.vertical(run);
+        }
     }
 }
 
@@ -934,24 +946,6 @@ pub(crate) fn add_space_for_spec(ui: &mut egui::Ui, spec: SpaceSpec) {
 
 pub(crate) fn apply_item_spacing_spec(ui: &mut egui::Ui, spec: ItemSpacingSpec) {
     ui.spacing_mut().item_spacing = spec.item_spacing.into();
-}
-
-pub(crate) fn show_stack_scope_for_ui<R>(
-    ui: &mut egui::Ui,
-    spec: StackScopeSpec,
-    body: impl FnOnce(&mut egui::Ui) -> R,
-) -> R {
-    match spec.direction {
-        StackDirection::LeftToRight => ui.horizontal(body).inner,
-        StackDirection::TopDown => ui.vertical(body).inner,
-        StackDirection::RightToLeft | StackDirection::BottomUp => {
-            ui.with_layout(
-                egui_layout_for_stack_direction(spec.direction, StackAlign::Min),
-                body,
-            )
-            .inner
-        }
-    }
 }
 
 pub(crate) fn stack_direction_for_ui(ui: &egui::Ui) -> StackDirection {

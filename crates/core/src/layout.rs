@@ -794,6 +794,12 @@ pub trait UiBackend {
     /// `&mut dyn UiBackend`) can wrap the child. `id` salts the child
     /// scope's persisted state.
     fn in_child(&mut self, id: Id, inset_left: f32, body: &mut dyn FnMut(&mut dyn UiBackend));
+
+    /// Run `body` in a sub-scope that flows horizontally (left→right)
+    /// when `horizontal`, else vertically. Afterwards the parent's
+    /// layout continues below the scope. Same object-safe shape as
+    /// [`UiBackend::in_child`].
+    fn in_scope(&mut self, horizontal: bool, body: &mut dyn FnMut(&mut dyn UiBackend));
 }
 
 /// Blanket impl so a `&mut` to any backend (notably `&mut dyn
@@ -869,6 +875,9 @@ impl<T: UiBackend + ?Sized> UiBackend for &mut T {
     }
     fn in_child(&mut self, id: Id, inset_left: f32, body: &mut dyn FnMut(&mut dyn UiBackend)) {
         (**self).in_child(id, inset_left, body)
+    }
+    fn in_scope(&mut self, horizontal: bool, body: &mut dyn FnMut(&mut dyn UiBackend)) {
+        (**self).in_scope(horizontal, body)
     }
 }
 
