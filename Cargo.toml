@@ -1,6 +1,7 @@
 [workspace]
 resolver = "3"
 members = [
+    "crates/gpu",
     "mara",
     "mara/plugin/bevy",
     "crates/core",
@@ -53,6 +54,7 @@ bevy = { version = "0.19", default-features = false }
 # theme, embed mechanism). Package id is `mara_core`, which avoids
 # shadowing Rust's std `core` in derive expansions.
 mara_core = { path = "crates/core" }
+mara_gpu = { path = "crates/gpu" }
 # `mara_graph` — standalone vendored node-graph crate (forked from
 # `egui-snarl`, see `crates/modules/graph/ACKNOWLEDGEMENTS.md`
 # for upstream attribution). Usable in any egui app; ships

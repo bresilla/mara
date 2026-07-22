@@ -7,6 +7,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+mara_gpu = { workspace = true }
 mara_canvas = { workspace = true, optional = true }
 mara_board = { workspace = true, optional = true }
 mara_code = { workspace = true, optional = true }

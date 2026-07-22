@@ -3604,6 +3604,7 @@ dependencies = [
  "mara_canvas",
  "mara_code",
  "mara_core",
+ "mara_gpu",
  "mara_graph",
  "mara_image",
  "mara_map",
@@ -3633,6 +3634,7 @@ dependencies = [
  "egui",
  "egui-wgpu",
  "mara_core",
+ "mara_gpu",
  "wgpu",
 ]
 
@@ -3688,6 +3690,13 @@ dependencies = [
  "wasm-bindgen-futures",
  "web-sys",
  "wgpu",
+]
+
+[[package]]
+name = "mara_gpu"
+version = "0.4.1"
+dependencies = [
+ "egui-wgpu",
 ]
 
 [[package]]

@@ -1,0 +1,10 @@
+[package]
+name = "mara_gpu"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Opaque GPU render-state handle shared by Mara hosts and GPU modules (ADR 0002)"
+
+[dependencies]
+egui-wgpu = { workspace = true }

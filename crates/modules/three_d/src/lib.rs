@@ -3070,7 +3070,8 @@ impl View3d {
     /// painter. Grid, dots, gizmo, camera math, and Mara's technical
     /// shading remain the same as the CPU preview path.
     #[cfg(feature = "gpu-preview")]
-    pub fn set_gpu_render_state(&mut self, render_state: Option<&egui_wgpu::RenderState>) {
+    #[doc(hidden)]
+    pub fn __internal_set_gpu_render_state(&mut self, render_state: Option<&egui_wgpu::RenderState>) {
         self.gpu_target_format = render_state.map(|state| state.target_format);
     }
 

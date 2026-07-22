@@ -252,6 +252,14 @@ impl<'a> MaraHostCtx<'a> {
         self.render_state
     }
 
+    /// Opaque GPU handle for GPU-module `show` calls (Bevy viewport,
+    /// 3D). Sealed: the app passes it through without ever seeing the
+    /// underlying egui-wgpu types (ADR 0002).
+    #[must_use]
+    pub fn gpu(&self) -> Option<mara_gpu::MaraRenderState<'a>> {
+        self.render_state.map(mara_gpu::MaraRenderState::__internal_new)
+    }
+
     /// Render the enforced shell top bar and return its events — the
     /// sealed path for hosts without a runner/plugin doing it for them
     /// (e.g. plain eframe/web shells). Wraps the bar's internal egui

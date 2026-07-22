@@ -141,9 +141,13 @@ impl MaraBevyViewport {
     pub fn show(
         &mut self,
         ctx: &mut ViewCtx<'_>,
-        render_state: Option<&egui_wgpu::RenderState>,
+        render_state: Option<mara_gpu::MaraRenderState<'_>>,
         accent: impl Into<MaraColor32>,
     ) -> Option<MaraColor32> {
+        // Unwrap the opaque host handle at the module boundary — sealed
+        // callers pass `MaraRenderState` around without seeing egui-wgpu.
+        let render_state: Option<&egui_wgpu::RenderState> =
+            render_state.map(|state| state.__internal_raw());
         let accent = accent.into();
         self.set_active(true);
         let mut picked_color = None;
