@@ -78,7 +78,7 @@ use mara_core::extras::graph::{
     Graph, InPin, InPinId, NodePin, NodeViewState, NodeViewer, OutPin, OutPinId, PinInfo,
 };
 use mara_core::vocab::Id as MaraId;
-use mara_core::{Layout, MaraView, MultiView, RibbonAvoidance, ViewId, WorkspaceStack};
+use mara_core::{Layout, MaraView, RibbonAvoidance, ViewNode, WorkspaceStack};
 
 // ─── Ribbon / pane ids ──────────────────────────────────────────────
 
@@ -1550,7 +1550,7 @@ impl Default for BoardViewState {
 // "Multiview" view: split in half; the right half split again → three
 // different child views (a Canvas, an Image, a Board).
 struct MultiViewState {
-    view: MultiView,
+    node: ViewNode,
     workspace: WorkspaceStack,
 }
 
@@ -1570,30 +1570,28 @@ impl Default for MultiViewState {
                 ),
             ],
         );
-        let view = MultiView::new(ViewId::new("demo-multi"), "Multiview", layout)
-            .with_icon("grid")
-            .with_margin(gap)
-            .with_content_avoidance(RibbonAvoidance::all())
-            .view(
+        let node = ViewNode::split("demo-multi", layout)
+            .margin(gap)
+            .cell(
                 "left",
-                Box::new(CanvasSurface::new(
+                ViewNode::leaf(CanvasSurface::new(
                     "mv.canvas",
                     CanvasDocument::new("Sketch"),
                 )),
             )
-            .view(
+            .cell(
                 "rt",
-                Box::new(ImageSurface::new("mv.image", ImageDocument::empty("Image"))),
+                ViewNode::leaf(ImageSurface::new("mv.image", ImageDocument::empty("Image"))),
             )
-            .view(
+            .cell(
                 "rb",
-                Box::new(
+                ViewNode::leaf(
                     Board::new("mv.board", "Gauge")
                         .on_draw(|b: BoardPaint| draw_gauge_at(b.painter, b.rect, b.accent)),
                 ),
             );
         Self {
-            view,
+            node,
             workspace: WorkspaceStack::new("demo-multi-workspace"),
         }
     }
@@ -3043,9 +3041,8 @@ fn board_root_view(host: &MaraHostCtx<'_>, accent: MaraColor32, board: &mut Boar
 }
 
 fn multi_root_view(host: &MaraHostCtx<'_>, accent: MaraColor32, multi: &mut MultiViewState) {
-    let avoidance = multi.view.content_avoidance();
-    let mut view_ctx = host.view_ctx(&mut multi.workspace, accent, avoidance);
-    multi.view.show(&mut view_ctx);
+    let mut view_ctx = host.view_ctx(&mut multi.workspace, accent, RibbonAvoidance::all());
+    multi.node.render(&mut view_ctx);
 }
 
 // ─── Canvas root view ──────────────────────────────────────────────

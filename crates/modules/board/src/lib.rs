@@ -11,7 +11,7 @@
 //! — splitting itself into named cells the draw callback fills. That is
 //! enough to build an entire ISOBUS virtual terminal *inside one Board*
 //! (a data-mask cell + soft-key cells). Splitting across *several*
-//! Boards instead is a separate concern — that is `mara_core::MultiView`.
+//! Boards instead is a separate concern — that is `mara_core::ViewNode`.
 //!
 //! Mara stays GUI-only: a Board owns the surface and the draw calls, not
 //! the data model. The consumer (e.g. a VT driver that decoded an object

@@ -3,7 +3,7 @@
 //!
 //! This is shared, deliberately, by two independent features:
 //!
-//! * [`MultiView`](crate::MultiView) — split one *view* into several
+//! * [`ViewNode`](crate::ViewNode) — split one *view* into several
 //!   child views, one per cell.
 //! * a Board's *internal* layout — split one drawing surface into cells
 //!   the board draws into.

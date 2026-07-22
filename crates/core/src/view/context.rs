@@ -19,7 +19,7 @@ pub struct ViewCtx<'a> {
     pub accent: MaraColor32,
     pub content_avoidance: RibbonAvoidance,
     /// The rect this node renders into — the whole window for the root,
-    /// or a cell rect for a child of a parent `Split`/`MultiView`. Every
+    /// or a cell rect for a child of a parent `Split`/`ViewNode`. Every
     /// method (painter, input, panes, body) scopes to this region, so a
     /// node is a self-contained surface (PLAN.md Phase 1 / ADR 0001).
     region: MaraRect,
@@ -50,7 +50,7 @@ impl<'a> ViewCtx<'a> {
     }
 
     /// Build a child context scoped to a fixed `rect` (one cell of a
-    /// [`MultiView`](crate::MultiView)), with its own `workspace`. Its
+    /// [`ViewNode`](crate::ViewNode)), with its own `workspace`. Its
     /// `content_rect`/`screen_rect` report that rect, so the hosted view
     /// lays out inside the cell. First-party hook.
     #[must_use]
