@@ -2305,7 +2305,11 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
     // view's item set. Canvas now carries the same four-edge demo
     // ribbon layout as the Bevy view, with only the top ribbon being
     // persistent.
-    let current_ribbon_items: &[RibbonButtonSpec] = if fs_active && graph_fs {
+    let current_ribbon_items: &[RibbonButtonSpec] = if *root_view == DemoRootView::Multi {
+        // The multiview's cells own their own per-view ribbons
+        // (ViewNode leaves), so the app draws no window-level rails here.
+        &[]
+    } else if fs_active && graph_fs {
         RIBBON_ITEMS_FS_GRAPH
     } else if fs_active && code_fs {
         RIBBON_ITEMS_FS_CODE
@@ -2320,7 +2324,13 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
     } else {
         RIBBON_ITEMS
     };
-    let current_ribbons: &[RibbonSpec] = if fs_active { RIBBONS_FS } else { RIBBONS };
+    let current_ribbons: &[RibbonSpec] = if *root_view == DemoRootView::Multi {
+        &[]
+    } else if fs_active {
+        RIBBONS_FS
+    } else {
+        RIBBONS
+    };
     publish_current_pane_ribbon_buttons(host, current_ribbon_items, fs_active);
 
     let is_open_in = |items: &[RibbonButtonSpec], id: &'static str| -> bool {
