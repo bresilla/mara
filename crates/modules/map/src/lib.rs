@@ -552,20 +552,31 @@ impl<'a> MaraMap<'a> {
     }
 
     pub fn show(self, ctx: &mut ViewCtx<'_>) -> MaraMapResponse {
-        self.__internal_show(ctx.__internal_egui_ctx())
+        // Render into this node's REGION, not a window-grabbing panel
+        // (ADR 0002 / PLAN WS6): a map hosted as a split cell draws and
+        // interacts inside its cell rect, so it tiles like any other
+        // leaf. Whole-window is just the one-leaf tree.
+        let region: egui::Rect = ctx.content_rect().into();
+        self.__internal_show_in(ctx.__internal_egui_ctx(), region)
     }
 
     #[doc(hidden)]
     pub(crate) fn __internal_show(self, ctx: &egui::Context) -> MaraMapResponse {
+        let region = ctx.available_rect();
+        self.__internal_show_in(ctx, region)
+    }
+
+    fn __internal_show_in(self, ctx: &egui::Context, region: egui::Rect) -> MaraMapResponse {
         let mut output = MaraMapResponse::default();
-        #[allow(deprecated)]
-        {
-            egui::CentralPanel::default()
-                .frame(egui::Frame::new().fill(egui::Color32::TRANSPARENT))
-                .show(ctx, |ui| {
-                    output = paint_map(ui, self.surface, self.interaction);
-                });
-        }
+        egui::Area::new(egui::Id::new(("mara_map_view", self.surface.id)))
+            .order(egui::Order::Background)
+            .fixed_pos(region.min)
+            .show(ctx, |ui| {
+                ui.set_clip_rect(region);
+                ui.set_min_size(region.size());
+                ui.set_max_size(region.size());
+                output = paint_map(ui, self.surface, self.interaction);
+            });
         output
     }
 }
