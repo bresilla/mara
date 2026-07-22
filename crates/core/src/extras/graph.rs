@@ -493,7 +493,7 @@ impl<'ui, 'spec> crate::pane::PaneBody<'ui, 'spec> {
     #[allow(clippy::too_many_arguments)]
     pub fn add_node_graph<T, V>(
         &mut self,
-        id: impl Into<egui::Id>,
+        id: impl Into<crate::vocab::Id>,
         title: impl Into<String>,
         icon: &'static str,
         state: &'spec mut NodeViewState,
@@ -505,6 +505,7 @@ impl<'ui, 'spec> crate::pane::PaneBody<'ui, 'spec> {
         V: NodeViewer<T>,
         T: 'spec,
     {
+        let id: egui::Id = id.into().into();
         // Enqueue as a `ContainerSpec::raw_internal` so the graph
         // participates in the same drag-reorder flow as `add_normal`
         // / `add_tabbed` (snapshot push, inline ghost gap, section

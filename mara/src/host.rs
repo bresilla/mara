@@ -533,7 +533,7 @@ impl<'a> MaraHostCtx<'a> {
     /// has a native egui-wgpu render state available.
     #[cfg(feature = "graph")]
     pub fn node_view_backend(&self) -> Option<EframeNodeViewBackend<'a>> {
-        self.render_state.map(EframeNodeViewBackend::new)
+        self.gpu().map(EframeNodeViewBackend::new)
     }
 }
 
@@ -725,8 +725,12 @@ pub struct EframeNodeViewBackend<'a> {
 
 #[cfg(feature = "graph")]
 impl<'a> EframeNodeViewBackend<'a> {
-    pub fn new(render_state: &'a egui_wgpu::RenderState) -> Self {
-        Self { render_state }
+    /// Build from the opaque host GPU handle (`MaraHostCtx::gpu()`),
+    /// so wiring the graph backend never touches egui-wgpu types.
+    pub fn new(render_state: mara_gpu::MaraRenderState<'a>) -> Self {
+        Self {
+            render_state: render_state.__internal_raw(),
+        }
     }
 }
 

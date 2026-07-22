@@ -47,7 +47,7 @@ impl Default for NativeOptions {
 /// Creation data passed to a Mara-owned window app.
 pub struct CreationContext<'a> {
     pub(crate) egui_ctx: &'a egui::Context,
-    pub render_state: Option<&'a egui_wgpu::RenderState>,
+    pub(crate) render_state: Option<&'a egui_wgpu::RenderState>,
     pub host: MaraHostCtx<'a>,
 }
 
@@ -56,6 +56,14 @@ impl CreationContext<'_> {
     /// and not semver-stable.
     #[doc(hidden)]
     #[must_use]
+    /// Internal first-party accessor — raw egui-wgpu render state.
+    /// Sealed apps use `host.gpu()` for the opaque handle instead.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn __internal_render_state(&self) -> Option<&egui_wgpu::RenderState> {
+        self.render_state
+    }
+
     pub fn __internal_egui_ctx(&self) -> &egui::Context {
         self.egui_ctx
     }

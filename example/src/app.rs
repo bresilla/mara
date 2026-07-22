@@ -2402,7 +2402,7 @@ use mara::window::{CreationContext as RunnerCreationContext, WindowApp as Runner
 #[cfg(not(target_arch = "wasm32"))]
 impl RunnerWindowApp for DemoApp {
     fn new(ctx: RunnerCreationContext<'_>) -> Self {
-        Self::new_winit(ctx.render_state)
+        Self::new_winit(ctx.__internal_render_state())
     }
 
     fn update(&mut self, host: &mut MaraHostCtx<'_>) {

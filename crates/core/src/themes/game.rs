@@ -91,9 +91,9 @@ pub(crate) const GAME_LIGHT_BG_INPUT: crate::vocab::Color32 =
 pub fn theme_game(mode: Mode) -> Theme {
     let dark = matches!(mode, Mode::Dark);
     let lerp_target = if dark {
-        egui::Color32::BLACK
+        MaraColor32::BLACK
     } else {
-        egui::Color32::WHITE
+        MaraColor32::WHITE
     };
     let lerp_factor = if dark { 0.22 } else { 0.18 };
     Theme {

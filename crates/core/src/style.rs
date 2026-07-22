@@ -1415,7 +1415,7 @@ pub enum ColorMode {
     /// accent-tinted GAME light panel.
     FromAccent {
         lerp_factor: f32,
-        lerp_target: egui::Color32,
+        lerp_target: crate::vocab::Color32,
     },
 }
 
@@ -2844,6 +2844,7 @@ fn resolve_color(mode: ColorMode, fallback: egui::Color32, accent: egui::Color32
         } => {
             let f = lerp_factor.clamp(0.0, 1.0);
             let lerp = |a: u8, b: u8| ((a as f32) * (1.0 - f) + (b as f32) * f).round() as u8;
+            let lerp_target: egui::Color32 = lerp_target.into();
             egui::Color32::from_rgb(
                 lerp(lerp_target.r(), accent.r()),
                 lerp(lerp_target.g(), accent.g()),
@@ -3328,6 +3329,7 @@ pub fn subsection_fill(accent: impl Into<MaraColor32>) -> MaraColor32 {
             lerp_factor,
             lerp_target,
         } => {
+            let lerp_target: egui::Color32 = lerp_target.into();
             let base = lerp_rgb(lerp_target, accent, lerp_factor);
             lerp_rgb(base, raise_target(lerp_target), 0.06)
         }
@@ -3405,6 +3407,7 @@ pub fn track_fill(accent: impl Into<MaraColor32>) -> MaraColor32 {
             // panels raise toward white and light panels raise
             // toward black. Either way the input reads as one tier
             // up from the surrounding panel.
+            let lerp_target: egui::Color32 = lerp_target.into();
             let panel_color = lerp_rgb(lerp_target, accent, lerp_factor);
             lerp_rgb(panel_color, raise_target(lerp_target), 0.10)
         }
@@ -3431,6 +3434,7 @@ pub fn popup_fill(accent: impl Into<MaraColor32>) -> MaraColor32 {
             // Popup sits one tier ABOVE the panel — raises toward
             // the opposite of the panel's `lerp_target` so it works
             // identically in dark and light modes.
+            let lerp_target: egui::Color32 = lerp_target.into();
             let panel_color = lerp_rgb(lerp_target, accent, lerp_factor);
             lerp_rgb(panel_color, raise_target(lerp_target), 0.18)
         }

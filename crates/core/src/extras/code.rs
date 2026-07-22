@@ -179,7 +179,7 @@ impl crate::pod::Pod {
     #[must_use]
     pub fn with_code_editor(
         self,
-        text_id: egui::Id,
+        text_id: impl Into<crate::vocab::Id>,
         syntax: Syntax,
         default_text: impl Into<String>,
     ) -> Self {
@@ -197,11 +197,12 @@ impl crate::pod::Pod {
     #[must_use]
     pub fn with_code_editor_opts(
         self,
-        text_id: egui::Id,
+        text_id: impl Into<crate::vocab::Id>,
         syntax: Syntax,
         default_text: impl Into<String>,
         fs_opts: OverlayOpts,
     ) -> Self {
+        let text_id: egui::Id = text_id.into().into();
         let default = default_text.into();
         self.with_custom_units(10, move |ui| {
             let mut text: String = ui
