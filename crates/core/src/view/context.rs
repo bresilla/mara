@@ -3,7 +3,7 @@ use crate::layout::{AreaHost, Layer};
 use crate::memory::MaraMemoryCtx;
 use crate::mui::{MaraInput, MaraPainter, MaraUi};
 use crate::pane::{Pane, PaneBody};
-use crate::ribbon::{RibbonAvoidance, ribbon_avoiding_rect};
+use crate::ribbon::{RibbonAvoidance, RibbonSlotClick, RibbonSlotDef, ribbon_avoiding_rect};
 use crate::shelf::{__internal_show_shelves_egui, ShelfDef, ShelfLayout, ShelfState};
 use crate::vocab::{Color32 as MaraColor32, Id as MaraId, Rect as MaraRect};
 use crate::workspace::WorkspaceStack;
@@ -208,6 +208,20 @@ impl<'a> ViewCtx<'a> {
             )
             .inner
         })
+    }
+
+    /// Render this view node's own left/right/bottom ribbons, anchored to
+    /// its region (a leaf owns its ribbons; a narrow cell gets its own
+    /// rails). The top edge belongs to the shell bar, not a view, so pass
+    /// only left/right/bottom ribbon defs here. Returns the clicks for the
+    /// caller to dispatch (PLAN.md Phase 3).
+    pub fn show_ribbons(&self, ribbons: &[RibbonSlotDef]) -> Vec<RibbonSlotClick> {
+        crate::ribbon::slot_paint::__internal_draw_view_ribbons(
+            self.egui_ctx,
+            self.region,
+            self.accent,
+            ribbons,
+        )
     }
 
     /// Show a floating/anchored pane. The closure receives the

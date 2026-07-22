@@ -2,9 +2,10 @@ use egui::Context;
 
 use super::{
     RibbonAction, RibbonCluster, RibbonDrag, RibbonEdge, RibbonOpen, RibbonPlacement, RibbonScope,
-    RibbonSlotItem,
+    RibbonSlotDef, RibbonSlotItem,
     chrome::draw_unified_ribbon_chrome,
     paint::{paint_ribbon_glyph, ribbon_button_fg, ribbon_button_paint_cmds},
+    resolve_slot_items,
 };
 use crate::layout::{Layer, Sense as MaraSense, SlotRibbonLayoutSpec, UiBackend};
 use crate::vocab::{
@@ -111,6 +112,79 @@ pub fn __internal_draw_slot_ribbons_featureful_no_system_egui(
     drag: &mut RibbonDrag,
 ) -> Vec<RibbonSlotClick> {
     draw_slot_ribbons_featureful_inner(ctx, accent.into(), ribbons, open, placement, drag, false)
+}
+
+/// Resolve one leaf's [`RibbonSlotDef`] into a drawable
+/// [`ResolvedSlotRibbon`]. A leaf owns its ribbons directly, so there are
+/// no override layers to apply. Returns `None` when the def resolves to
+/// no items (nothing to draw).
+pub(crate) fn resolve_leaf_ribbon(def: &RibbonSlotDef) -> Option<ResolvedSlotRibbon> {
+    let items: Vec<RibbonSlotItem> = def
+        .slots
+        .iter()
+        .flat_map(|slot| resolve_slot_items(slot, &[]))
+        .collect();
+    if items.is_empty() {
+        return None;
+    }
+    Some(ResolvedSlotRibbon {
+        id: MaraId::new((def.id, def.cluster)),
+        chrome_id: def.chrome_id,
+        scope: def.scope,
+        edge: def.edge,
+        role: def.role,
+        mode: def.mode,
+        cluster: def.cluster,
+        accepts: def.accepts,
+        items,
+    })
+}
+
+/// Draw a single view node's own ribbons (left/right/bottom), anchored to
+/// its `region` rather than the window. Per-view open/placement/drag
+/// state is stored in the context keyed by the region, so each cell keeps
+/// its own ribbon state. No system chrome is injected — only the shell
+/// bar owns window controls. Returns the clicks the caller dispatches.
+pub(crate) fn __internal_draw_view_ribbons(
+    ctx: &Context,
+    region: MaraRect,
+    accent: MaraColor32,
+    defs: &[RibbonSlotDef],
+) -> Vec<RibbonSlotClick> {
+    let ribbons: Vec<ResolvedSlotRibbon> = defs.iter().filter_map(resolve_leaf_ribbon).collect();
+    if ribbons.is_empty() {
+        return Vec::new();
+    }
+    let key = |name: &str| egui::Id::new((name, region.min.x.to_bits(), region.min.y.to_bits()));
+    let mut open: RibbonOpen = ctx
+        .data(|d| d.get_temp(key("mara_view_ribbon_open")))
+        .unwrap_or_default();
+    let mut placement: RibbonPlacement = ctx
+        .data(|d| d.get_temp(key("mara_view_ribbon_placement")))
+        .unwrap_or_default();
+    let mut drag: RibbonDrag = ctx
+        .data(|d| d.get_temp(key("mara_view_ribbon_drag")))
+        .unwrap_or_default();
+
+    // Publish the region so the shared renderer anchors these ribbons to
+    // the node's rect (see `chrome::ribbon_rect`).
+    let clicks = crate::embed::__internal_with_node_region(ctx, region, || {
+        __internal_draw_slot_ribbons_featureful_no_system_egui(
+            ctx,
+            accent,
+            &ribbons,
+            &mut open,
+            &mut placement,
+            &mut drag,
+        )
+    });
+
+    ctx.data_mut(|d| {
+        d.insert_temp(key("mara_view_ribbon_open"), open);
+        d.insert_temp(key("mara_view_ribbon_placement"), placement);
+        d.insert_temp(key("mara_view_ribbon_drag"), drag);
+    });
+    clicks
 }
 
 fn draw_slot_ribbons_featureful_inner(
@@ -763,6 +837,30 @@ fn glyph_for_item(item: &RibbonSlotItem) -> super::RibbonGlyph {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn resolve_leaf_ribbon_none_when_no_items() {
+        use crate::ribbon::{
+            RibbonOverridePolicy, RibbonScope, RibbonSlot, RibbonSlotDef, RibbonSlotId,
+        };
+        use crate::vocab::Id;
+
+        // A slot with no default item resolves to nothing → no drawable
+        // ribbon (so an empty leaf ribbon set draws nothing).
+        let empty_slot = RibbonSlot::new(
+            RibbonSlotId::new("empty.slot"),
+            None,
+            RibbonOverridePolicy::Fixed,
+        );
+        let def = RibbonSlotDef::new(
+            Id::new("empty"),
+            RibbonScope::Permanent,
+            RibbonEdge::Right,
+            RibbonCluster::Middle,
+            vec![empty_slot],
+        );
+        assert!(resolve_leaf_ribbon(&def).is_none());
+    }
 
     fn presence(left: bool, right: bool, bottom: bool) -> crate::shelf::ShelfPresence {
         crate::shelf::ShelfPresence {
