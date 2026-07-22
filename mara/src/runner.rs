@@ -52,10 +52,6 @@ pub struct CreationContext<'a> {
 }
 
 impl CreationContext<'_> {
-    /// Internal first-party accessor — NOT part of the public API
-    /// and not semver-stable.
-    #[doc(hidden)]
-    #[must_use]
     /// Internal first-party accessor — raw egui-wgpu render state.
     /// Sealed apps use `host.gpu()` for the opaque handle instead.
     #[doc(hidden)]
@@ -64,6 +60,10 @@ impl CreationContext<'_> {
         self.render_state
     }
 
+    /// Internal first-party accessor — NOT part of the public API
+    /// and not semver-stable.
+    #[doc(hidden)]
+    #[must_use]
     pub fn __internal_egui_ctx(&self) -> &egui::Context {
         self.egui_ctx
     }

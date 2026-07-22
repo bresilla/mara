@@ -570,7 +570,7 @@ impl<'a> MaraMap<'a> {
 
     #[doc(hidden)]
     pub(crate) fn __internal_show(self, ctx: &egui::Context) -> MaraMapResponse {
-        let region = ctx.available_rect();
+        let region = ctx.content_rect();
         self.__internal_show_in(ctx, region)
     }
 
