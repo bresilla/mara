@@ -7044,3 +7044,67 @@ pub mod prelude {
         TextureId, Transform3d, Vec3, View3d, Viewport3d,
     };
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Characterization tests (plans/012): pin the current behaviour of
+    // the retained scene state machine and CPU geometry so later rework
+    // has a regression net. `three_d` renders through wgpu, not
+    // `PaintCmd`, so this is *not* a headless-portability proof — it is a
+    // behaviour freeze of the parts that need no GPU/window.
+
+    #[test]
+    fn scene_new_seeds_one_material_two_lights_no_objects() {
+        let scene = Scene3d::new("Test");
+        assert_eq!(scene.objects.len(), 0);
+        assert_eq!(scene.materials.len(), 1);
+        assert_eq!(scene.lights.len(), 2);
+        assert!(scene.material(MaterialId(1)).is_some());
+        assert!(scene.material(MaterialId(999)).is_none());
+    }
+
+    #[test]
+    fn scene_add_object_allocates_incrementing_ids_and_retrieves() {
+        let mut scene = Scene3d::new("Test");
+        let base = MaterialId(1);
+        let first = scene.add_object("a", Primitive3d::square(1.0), base);
+        let second = scene.add_object(
+            "b",
+            Primitive3d::triangle([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]),
+            base,
+        );
+        assert_eq!(first, ObjectId(1));
+        assert_eq!(second, ObjectId(2));
+        assert_eq!(scene.objects.len(), 2);
+        assert!(scene.object(first).is_some());
+        assert!(scene.object(ObjectId(999)).is_none());
+    }
+
+    #[test]
+    fn scene_add_material_allocates_from_two_and_retrieves() {
+        let mut scene = Scene3d::new("Test");
+        let added = scene.add_material("Custom", MaraColor32::WHITE);
+        assert_eq!(added, MaterialId(2));
+        assert!(scene.material(added).is_some());
+        assert_eq!(scene.materials.len(), 2);
+    }
+
+    #[test]
+    fn primitive_plane_lowers_to_four_vertex_two_triangle_mesh() {
+        let Primitive3d::Triangles(mesh) = Primitive3d::square(2.0);
+        assert_eq!(mesh.vertices.len(), 4);
+        assert_eq!(mesh.indices.len(), 2);
+    }
+
+    #[test]
+    fn triangle_mesh_new_keeps_supplied_geometry() {
+        let mesh = TriangleMesh3d::new(
+            vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+            vec![[0, 1, 2]],
+        );
+        assert_eq!(mesh.vertices.len(), 3);
+        assert_eq!(mesh.indices.len(), 1);
+    }
+}
