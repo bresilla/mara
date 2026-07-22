@@ -18,10 +18,11 @@ pub struct ViewCtx<'a> {
     pub workspace: &'a mut WorkspaceStack,
     pub accent: MaraColor32,
     pub content_avoidance: RibbonAvoidance,
-    /// When set, this view is scoped to a fixed rect (a cell of a parent
-    /// [`MultiView`](crate::MultiView)) instead of the ribbon-avoiding
-    /// window area.
-    explicit_content: Option<MaraRect>,
+    /// The rect this node renders into — the whole window for the root,
+    /// or a cell rect for a child of a parent `Split`/`MultiView`. Every
+    /// method (painter, input, panes, body) scopes to this region, so a
+    /// node is a self-contained surface (PLAN.md Phase 1 / ADR 0001).
+    region: MaraRect,
 }
 
 impl<'a> ViewCtx<'a> {
@@ -40,11 +41,11 @@ impl<'a> ViewCtx<'a> {
         content_avoidance: RibbonAvoidance,
     ) -> Self {
         Self {
+            region: backend::egui::context_content_rect(egui_ctx),
             egui_ctx,
             workspace,
             accent: accent.into(),
             content_avoidance,
-            explicit_content: None,
         }
     }
 
@@ -65,7 +66,7 @@ impl<'a> ViewCtx<'a> {
             workspace,
             accent: accent.into(),
             content_avoidance: RibbonAvoidance::none(),
-            explicit_content: Some(rect),
+            region: rect,
         }
     }
 
@@ -79,17 +80,20 @@ impl<'a> ViewCtx<'a> {
 
     #[must_use]
     pub fn content_rect(&self) -> MaraRect {
-        self.explicit_content
-            .unwrap_or_else(|| ribbon_avoiding_rect(self.egui_ctx, self.content_avoidance))
+        // The node's region minus any ribbons overlapping it. For the
+        // root, `region` is the whole window and the intersection yields
+        // the ribbon-avoiding area; for an interior cell, the window
+        // ribbons fall outside the cell so the intersection is the cell.
+        self.region
+            .intersect(ribbon_avoiding_rect(self.egui_ctx, self.content_avoidance))
     }
 
-    /// The full window/screen rect — for views that paint an
-    /// edge-to-edge backdrop behind the ribbons. For a scoped (cell)
-    /// view this is the cell rect.
+    /// The node's full rect — for views that paint an edge-to-edge
+    /// backdrop behind the ribbons. The whole window for the root, or the
+    /// cell rect for a scoped child.
     #[must_use]
     pub fn screen_rect(&self) -> MaraRect {
-        self.explicit_content
-            .unwrap_or_else(|| backend::egui::context_content_rect(self.egui_ctx))
+        self.region
     }
 
     #[must_use]
@@ -97,10 +101,22 @@ impl<'a> ViewCtx<'a> {
         ribbon_avoiding_rect(self.egui_ctx, avoidance)
     }
 
-    /// Per-frame input snapshot for custom view interaction.
+    /// Per-frame input snapshot for custom view interaction, scoped to
+    /// this node's region: pointer positions outside the region read as
+    /// absent, so sibling cells only see the pointer over themselves.
     #[must_use]
     pub fn input(&self) -> MaraInput {
-        backend::egui::input_snapshot(self.egui_ctx)
+        let mut snapshot = backend::egui::input_snapshot(self.egui_ctx);
+        if snapshot.pointer.is_some_and(|p| !self.region.contains(p)) {
+            snapshot.pointer = None;
+        }
+        if snapshot
+            .interact_pointer
+            .is_some_and(|p| !self.region.contains(p))
+        {
+            snapshot.interact_pointer = None;
+        }
+        snapshot
     }
 
     /// Backend-neutral memory facade for view-level UI state.
@@ -138,29 +154,38 @@ impl<'a> ViewCtx<'a> {
         crate::embed::__internal_restore_fullscreen(self.egui_ctx)
     }
 
-    /// Typed painter over the full screen on the background layer —
-    /// the view backdrop surface.
+    /// Typed painter over this node's region on the background layer —
+    /// the view backdrop surface. Clipped to the region and keyed by it,
+    /// so sibling cells paint their own backdrops without colliding.
     #[must_use]
     pub fn painter(&self) -> MaraPainter {
-        let rect = backend::egui::context_content_rect(self.egui_ctx);
         MaraPainter::new(backend::egui::context_painter_for_layer(
             self.egui_ctx,
             Layer::Background,
-            MaraId::new("mara_view_background"),
-            rect,
+            self.region_layer_id("mara_view_background"),
+            self.region,
         ))
     }
 
-    /// Typed painter over the full screen on the foreground layer —
+    /// Typed painter over this node's region on the foreground layer —
     /// for overlays above panes and shelves.
     #[must_use]
     pub fn overlay_painter(&self) -> MaraPainter {
-        let rect = backend::egui::context_content_rect(self.egui_ctx);
         MaraPainter::new(backend::egui::context_painter_for_layer(
             self.egui_ctx,
             Layer::Foreground,
-            MaraId::new("mara_view_overlay"),
-            rect,
+            self.region_layer_id("mara_view_overlay"),
+            self.region,
+        ))
+    }
+
+    /// A layer id unique to this node's region, so sibling cells get
+    /// distinct paint layers.
+    fn region_layer_id(&self, base: &str) -> MaraId {
+        MaraId::new((
+            base,
+            self.region.min.x.to_bits(),
+            self.region.min.y.to_bits(),
         ))
     }
 
