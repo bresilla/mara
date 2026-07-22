@@ -89,6 +89,150 @@ impl Layout {
     }
 }
 
+/// One draggable boundary between two adjacent children of a `Split`,
+/// resolved against a concrete rect: everything needed to hit-test the
+/// divider and convert a dragged pointer position back into the two
+/// children's weights (the interactive face of the splitter model).
+#[derive(Clone, Debug)]
+pub(crate) struct SplitDivider {
+    /// Child indices from the layout root down to the owning `Split`.
+    pub path: Vec<usize>,
+    /// Boundary between child `boundary` and `boundary + 1`.
+    pub boundary: usize,
+    /// `true` when the divider line runs vertically (side-by-side cells).
+    pub vertical_line: bool,
+    /// Screen-space pointer hit strip centered on the shared edge.
+    pub strip: Rect,
+    /// Axis start of the first child of the pair.
+    pub span_min: f32,
+    /// Axis end of the second child of the pair.
+    pub span_max: f32,
+    /// Px available to ALL children on the axis (rect minus gaps), and
+    /// the split's total weight — the px→weight conversion factors as of
+    /// resolve time.
+    pub avail: f32,
+    pub total_weight: f32,
+}
+
+/// Half-width of a divider's pointer hit strip, in points.
+pub(crate) const DIVIDER_HIT_HALF_WIDTH: f32 = 4.0;
+
+impl Layout {
+    /// Every draggable divider in this layout resolved against `rect`,
+    /// including nested splits.
+    #[must_use]
+    pub(crate) fn dividers(&self, rect: Rect) -> Vec<SplitDivider> {
+        let mut out = Vec::new();
+        dividers_into(self, rect, &mut Vec::new(), &mut out);
+        out
+    }
+
+    /// Move `divider` so its line sits at axis position `pos`,
+    /// re-weighting the two adjacent children. Cells never shrink below
+    /// a minimum. Returns whether the weights changed.
+    pub(crate) fn set_divider_pos(&mut self, divider: &SplitDivider, pos: f32) -> bool {
+        const MIN_CELL: f32 = 48.0;
+        let mut node = self;
+        for &idx in &divider.path {
+            let Layout::Split { children, .. } = node else {
+                return false;
+            };
+            let Some((_, child)) = children.get_mut(idx) else {
+                return false;
+            };
+            node = child;
+        }
+        let Layout::Split { gap, children, .. } = node else {
+            return false;
+        };
+        let i = divider.boundary;
+        if i + 1 >= children.len() || divider.avail <= 0.0 {
+            return false;
+        }
+        let pair = (divider.span_max - divider.span_min - *gap).max(0.0);
+        if pair <= MIN_CELL * 2.0 {
+            return false;
+        }
+        let left = (pos - *gap * 0.5 - divider.span_min).clamp(MIN_CELL, pair - MIN_CELL);
+        let right = pair - left;
+        children[i].0 = left / divider.avail * divider.total_weight;
+        children[i + 1].0 = right / divider.avail * divider.total_weight;
+        true
+    }
+}
+
+fn dividers_into(node: &Layout, rect: Rect, path: &mut Vec<usize>, out: &mut Vec<SplitDivider>) {
+    let Layout::Split {
+        axis,
+        gap,
+        children,
+    } = node
+    else {
+        return;
+    };
+    if children.is_empty() {
+        return;
+    }
+    let total_weight = children
+        .iter()
+        .map(|(w, _)| w.max(0.0))
+        .sum::<f32>()
+        .max(f32::EPSILON);
+    let total_gap = gap * (children.len() - 1) as f32;
+    let avail = match axis {
+        SplitAxis::Horizontal => (rect.width() - total_gap).max(0.0),
+        SplitAxis::Vertical => (rect.height() - total_gap).max(0.0),
+    };
+    let sizes: Vec<f32> = children
+        .iter()
+        .map(|(weight, _)| avail * (weight.max(0.0) / total_weight))
+        .collect();
+    let mut cursor = match axis {
+        SplitAxis::Horizontal => rect.left(),
+        SplitAxis::Vertical => rect.top(),
+    };
+    for (i, (_, child)) in children.iter().enumerate() {
+        let size = sizes[i];
+        let child_rect = match axis {
+            SplitAxis::Horizontal => Rect::from_min_max(
+                Pos2::new(cursor, rect.top()),
+                Pos2::new(cursor + size, rect.bottom()),
+            ),
+            SplitAxis::Vertical => Rect::from_min_max(
+                Pos2::new(rect.left(), cursor),
+                Pos2::new(rect.right(), cursor + size),
+            ),
+        };
+        if i + 1 < children.len() {
+            let line = cursor + size + gap * 0.5;
+            let strip = match axis {
+                SplitAxis::Horizontal => Rect::from_min_max(
+                    Pos2::new(line - DIVIDER_HIT_HALF_WIDTH, rect.top()),
+                    Pos2::new(line + DIVIDER_HIT_HALF_WIDTH, rect.bottom()),
+                ),
+                SplitAxis::Vertical => Rect::from_min_max(
+                    Pos2::new(rect.left(), line - DIVIDER_HIT_HALF_WIDTH),
+                    Pos2::new(rect.right(), line + DIVIDER_HIT_HALF_WIDTH),
+                ),
+            };
+            out.push(SplitDivider {
+                path: path.clone(),
+                boundary: i,
+                vertical_line: matches!(axis, SplitAxis::Horizontal),
+                strip,
+                span_min: cursor,
+                span_max: cursor + size + gap + sizes[i + 1],
+                avail,
+                total_weight,
+            });
+        }
+        path.push(i);
+        dividers_into(child, child_rect, path, out);
+        path.pop();
+        cursor += size + gap;
+    }
+}
+
 fn resolve_into(node: &Layout, rect: Rect, out: &mut Vec<(CellId, Rect)>) {
     match node {
         Layout::Cell(id) => out.push((*id, rect)),

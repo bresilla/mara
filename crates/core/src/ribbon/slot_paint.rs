@@ -8,9 +8,10 @@ use super::{
     resolve_slot_items,
 };
 use crate::layout::{Layer, Sense as MaraSense, SlotRibbonLayoutSpec, UiBackend};
-use crate::vocab::{
-    Color32 as MaraColor32, Id as MaraId, Pos2 as MaraPos2, Rect as MaraRect, Vec2 as MaraVec2,
-};
+use crate::vocab::{Color32 as MaraColor32, Id as MaraId, Rect as MaraRect};
+
+#[cfg(test)]
+use crate::vocab::{Pos2 as MaraPos2, Vec2 as MaraVec2};
 
 const LEFT_SHELF_RIBBON_CHROME_ID: &str = "mara.system.left_shelf.ribbon";
 const LEFT_SHELF_ITEM_CHROME_ID: &str = "mara.system.left_shelf.item";
@@ -70,7 +71,7 @@ fn draw_slot_ribbons_inner(
     assert_resolved_ribbon_icons(ribbons);
     let mut clicks = Vec::new();
     for ribbon in ribbons {
-        draw_one_slot_ribbon(ctx, accent, ribbon, &mut clicks);
+        draw_one_slot_ribbon(ctx, accent, ribbon, ribbons, &mut clicks);
     }
     clicks
 }
@@ -141,21 +142,37 @@ pub(crate) fn resolve_leaf_ribbon(def: &RibbonSlotDef) -> Option<ResolvedSlotRib
 }
 
 /// Draw a single view node's own ribbons (left/right/bottom), anchored to
-/// its `region` rather than the window. Per-view open/placement/drag
-/// state is stored in the context keyed by the region, so each cell keeps
-/// its own ribbon state. No system chrome is injected — only the shell
-/// bar owns window controls. Returns the clicks the caller dispatches.
+/// its `region` rather than the window: the ribbons are children of the
+/// view — when the view moves or shrinks, they move WITH it. Per-view
+/// open/placement/drag state is keyed by `salt` (the node's stable
+/// identity, e.g. its workspace id), NOT by screen coordinates, so the
+/// state also travels with the view across resizes and re-layouts. No
+/// system chrome is injected — only the shell bar owns window controls.
+/// Returns the clicks the caller dispatches.
 pub(crate) fn __internal_draw_view_ribbons(
     ctx: &Context,
     region: MaraRect,
+    salt: MaraId,
     accent: MaraColor32,
     defs: &[RibbonSlotDef],
 ) -> Vec<RibbonSlotClick> {
-    let ribbons: Vec<ResolvedSlotRibbon> = defs.iter().filter_map(resolve_leaf_ribbon).collect();
+    let ribbons: Vec<ResolvedSlotRibbon> = defs
+        .iter()
+        .filter_map(resolve_leaf_ribbon)
+        .map(|mut ribbon| {
+            // Per-view ribbons exist on left/right/bottom ONLY — the top
+            // edge belongs to the shell bar. A leaf declaring Top is
+            // remapped to Bottom so it can never stack under the top bar.
+            if ribbon.edge == RibbonEdge::Top {
+                ribbon.edge = RibbonEdge::Bottom;
+            }
+            ribbon
+        })
+        .collect();
     if ribbons.is_empty() {
         return Vec::new();
     }
-    let key = |name: &str| egui::Id::new((name, region.min.x.to_bits(), region.min.y.to_bits()));
+    let key = |name: &'static str| egui::Id::new((name, salt));
     let mut open: RibbonOpen = ctx
         .data(|d| d.get_temp(key("mara_view_ribbon_open")))
         .unwrap_or_default();
@@ -166,9 +183,39 @@ pub(crate) fn __internal_draw_view_ribbons(
         .data(|d| d.get_temp(key("mara_view_ribbon_drag")))
         .unwrap_or_default();
 
-    // Publish the region so the shared renderer anchors these ribbons to
-    // the node's rect (see `chrome::ribbon_rect`).
-    let clicks = crate::embed::__internal_with_node_region(ctx, region, || {
+    if crate::probe::__internal_enabled(ctx) {
+        crate::probe::__internal_record(
+            ctx,
+            crate::probe::ElementPose::new("view-ribbon-region", region).with_id(salt),
+        );
+    }
+
+    // ONE anchoring backend for ALL rails: a view's ribbons anchor to
+    // its region intersected with the window chrome bounds — the exact
+    // same bounds the window-level rail pass lays out against (top-bar
+    // strip + shelf reservation, see `chrome::fresh_chrome_bounds`). A
+    // full-window leaf (a solo view — the one-leaf tree) therefore
+    // aligns its rails IDENTICALLY to a window rail pass, and a cell
+    // deeper in the tree clips to its own rect. No per-path special
+    // cases. The body/backdrop still uses the full region — only the
+    // button anchoring is bounded.
+    let chrome_bounds = super::chrome::fresh_chrome_bounds(ctx);
+    let mut anchor = region.intersect(chrome_bounds);
+    if anchor.width() <= 0.0 || anchor.height() <= 0.0 {
+        anchor = region;
+    } else if anchor.min.y > chrome_bounds.min.y {
+        // Side rails start flush at the anchor's top because the chrome
+        // bound already carries breathing room below the top bar. When
+        // the anchor's top is an INTERIOR split line instead (a lower
+        // cell of a horizontal split), inset it by the standard edge
+        // margin — the same EDGE_GAP every rail keeps from the bottom
+        // edge — so the first button clears the divider identically.
+        anchor.min.y = (anchor.min.y + super::paint::EDGE_GAP).min(anchor.max.y);
+    }
+
+    // Publish the anchor region so the shared renderer anchors these
+    // ribbons to the node's rect (see `chrome::ribbon_rect`).
+    let clicks = crate::embed::__internal_with_node_region(ctx, anchor, || {
         __internal_draw_slot_ribbons_featureful_no_system_egui(
             ctx,
             accent,
@@ -180,8 +227,10 @@ pub(crate) fn __internal_draw_view_ribbons(
     });
 
     // Publish which edges this node's ribbons occupy, so the node's
-    // `content_rect` can shrink its body away from them (region-local
-    // avoidance, keyed by region so each cell is independent).
+    // `content_rect` can shrink its body away from them (view-local
+    // avoidance, keyed by the node's identity so each cell is
+    // independent). Stamped with the pass number so a stale entry (an
+    // earlier tab, an old layout) can never leak into a later pass.
     let has = |edge: RibbonEdge| ribbons.iter().any(|r| r.edge == edge);
     let edges = [
         has(RibbonEdge::Left),
@@ -190,27 +239,30 @@ pub(crate) fn __internal_draw_view_ribbons(
         has(RibbonEdge::Bottom),
     ];
 
+    // Read the pass number BEFORE taking the data write lock: egui's
+    // `Context` is one lock, and `cumulative_pass_nr()` inside
+    // `data_mut` re-enters it → self-deadlock on the UI thread.
+    let pass_nr = ctx.cumulative_pass_nr();
     ctx.data_mut(|d| {
         d.insert_temp(key("mara_view_ribbon_open"), open);
         d.insert_temp(key("mara_view_ribbon_placement"), placement);
         d.insert_temp(key("mara_view_ribbon_drag"), drag);
-        d.insert_temp::<[bool; 4]>(key("mara_view_ribbon_edges"), edges);
+        d.insert_temp::<(u64, [bool; 4])>(key("mara_view_ribbon_edges"), (pass_nr, edges));
     });
     clicks
 }
 
-/// Which edges (`[left, right, top, bottom]`) the view ribbons at
-/// `region` occupy this frame, if any were drawn there. Used by
+/// Which edges (`[left, right, top, bottom]`) the node identified by
+/// `salt` drew its own ribbons on THIS pass, if any. Used by
 /// `ViewCtx::content_rect` to inset the body away from the node's own
-/// ribbons.
-pub(crate) fn view_ribbon_edges(ctx: &Context, region: MaraRect) -> Option<[bool; 4]> {
-    ctx.data(|d| {
-        d.get_temp::<[bool; 4]>(egui::Id::new((
-            "mara_view_ribbon_edges",
-            region.min.x.to_bits(),
-            region.min.y.to_bits(),
-        )))
-    })
+/// ribbons. Entries from earlier passes are ignored — a view that
+/// stopped drawing ribbons (or a tab that went inactive) must not keep
+/// shrinking anyone's content rect.
+pub(crate) fn view_ribbon_edges(ctx: &Context, salt: MaraId) -> Option<[bool; 4]> {
+    let (pass, edges) = ctx.data(|d| {
+        d.get_temp::<(u64, [bool; 4])>(egui::Id::new(("mara_view_ribbon_edges", salt)))
+    })?;
+    (pass == ctx.cumulative_pass_nr()).then_some(edges)
 }
 
 fn draw_slot_ribbons_featureful_inner(
@@ -743,42 +795,63 @@ fn can_use_featureful_chrome(ribbons: &[ResolvedSlotRibbon]) -> bool {
     })
 }
 
+/// Paint one resolved ribbon's buttons through the SAME placement
+/// engine as the featureful renderer — `compute_side_insets` /
+/// `insets_for_ribbon` / `place_button` / `screen_rect` in
+/// `ribbon::chrome` — so a rail is positioned identically whether it is
+/// a window rail, a solo view's rail (the one-leaf tree), or a split
+/// cell's rail, and whether or not it carries featureful chrome ids.
+/// This frontend only omits the featureful extras (drag/reorder,
+/// placement overrides, panel-open state); the geometry is one backend.
 fn draw_one_slot_ribbon(
     ctx: &Context,
     accent: MaraColor32,
     ribbon: &ResolvedSlotRibbon,
+    all_ribbons: &[ResolvedSlotRibbon],
     clicks: &mut Vec<RibbonSlotClick>,
 ) {
+    use super::chrome::{compute_side_insets, effective_cluster, insets_for_ribbon, place_button};
+    use super::paint::{SIDE_BTN_GAP, SIDE_BTN_SIZE};
+
     if ribbon.items.is_empty() {
         return;
     }
 
-    let screen = crate::backend::egui::context_content_rect(ctx);
-    let chrome = chrome_for_scope(ribbon.scope);
-    let vertical = ribbon.edge.is_vertical();
-    let size = {
-        let count = ribbon.items.len() as f32;
-        let span = count * chrome.button_size + (count - 1.0).max(0.0) * chrome.button_gap;
-        if vertical {
-            MaraVec2::new(chrome.button_size, span)
-        } else {
-            MaraVec2::new(span, chrome.button_size)
+    let insets = insets_for_ribbon(all_ribbons, ribbon, compute_side_insets(all_ribbons));
+    let cluster = effective_cluster(ribbon.mode, ribbon.cluster);
+    let total = ribbon.items.len() as u32;
+    for (idx, item) in ribbon.items.iter().enumerate() {
+        let rect = super::chrome::screen_rect(place_button(
+            ctx,
+            ribbon,
+            cluster,
+            idx as u32,
+            total,
+            insets,
+        ));
+        if crate::probe::__internal_enabled(ctx) {
+            crate::probe::__internal_record(
+                ctx,
+                crate::probe::ElementPose::new("slot-ribbon-btn", rect).with_label(format!(
+                    "{:?}/{:?} '{}' node-region={}",
+                    ribbon.edge,
+                    cluster,
+                    item.tooltip,
+                    crate::embed::current_node_region(ctx).is_some(),
+                )),
+            );
         }
-    };
-    let pos = ribbon_origin(screen, ribbon.edge, ribbon.cluster, size, chrome.edge_gap);
-    let spec = SlotRibbonLayoutSpec::new(
-        MaraId::new(("mara_slot_ribbon", ribbon.id)),
-        pos,
-        vertical,
-        ribbon.items.len(),
-        chrome.button_size,
-        chrome.button_gap,
-    );
-
-    crate::backend::egui::show_slot_ribbon_area(ctx, spec, Layer::Foreground, |ui| {
-        for (idx, item) in ribbon.items.iter().enumerate() {
-            let Some(rect) = spec.item_screen_rect(idx) else {
-                continue;
+        let spec = SlotRibbonLayoutSpec::new(
+            MaraId::new(("mara_slot_ribbon", ribbon.id, item.id)),
+            rect.min,
+            true,
+            1,
+            SIDE_BTN_SIZE,
+            SIDE_BTN_GAP,
+        );
+        crate::backend::egui::show_slot_ribbon_area(ctx, spec, Layer::Foreground, |ui| {
+            let Some(rect) = spec.item_screen_rect(0) else {
+                return;
             };
             let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
             let response = backend.interact(
@@ -804,51 +877,7 @@ fn draw_one_slot_ribbon(
                     action: item.action,
                 });
             }
-        }
-    });
-}
-
-fn chrome_for_scope(scope: RibbonScope) -> crate::style::RibbonChromeTheme {
-    let ribbon = crate::style::theme().ribbon;
-    match scope {
-        RibbonScope::Permanent => ribbon.permanent,
-        RibbonScope::View(_) => ribbon.view_local,
-        RibbonScope::WorkspaceLevel(_) => ribbon.workspace,
-    }
-}
-
-fn ribbon_origin(
-    screen: MaraRect,
-    edge: RibbonEdge,
-    cluster: RibbonCluster,
-    size: MaraVec2,
-    margin: f32,
-) -> MaraPos2 {
-    match edge {
-        RibbonEdge::Left => {
-            let y = cluster_axis_pos(screen.top(), screen.bottom(), size.y, cluster, margin);
-            MaraPos2::new(screen.left() + margin, y)
-        }
-        RibbonEdge::Right => {
-            let y = cluster_axis_pos(screen.top(), screen.bottom(), size.y, cluster, margin);
-            MaraPos2::new(screen.right() - margin - size.x, y)
-        }
-        RibbonEdge::Top => {
-            let x = cluster_axis_pos(screen.left(), screen.right(), size.x, cluster, margin);
-            MaraPos2::new(x, screen.top() + margin)
-        }
-        RibbonEdge::Bottom => {
-            let x = cluster_axis_pos(screen.left(), screen.right(), size.x, cluster, margin);
-            MaraPos2::new(x, screen.bottom() - margin - size.y)
-        }
-    }
-}
-
-fn cluster_axis_pos(min: f32, max: f32, span: f32, cluster: RibbonCluster, margin: f32) -> f32 {
-    match cluster {
-        RibbonCluster::Start => min + margin,
-        RibbonCluster::Middle => (min + max - span) * 0.5,
-        RibbonCluster::End => max - margin - span,
+        });
     }
 }
 
@@ -886,6 +915,75 @@ mod tests {
             vec![empty_slot],
         );
         assert!(resolve_leaf_ribbon(&def).is_none());
+    }
+
+    /// PROOF: a leaf's ribbon renders INSIDE the node's region — the
+    /// area egui actually places must be contained by the cell rect,
+    /// nowhere near the window edges.
+    #[test]
+    #[allow(deprecated)]
+    fn view_ribbons_land_inside_the_node_region() {
+        use crate::ribbon::{RibbonOverridePolicy, RibbonSlot, RibbonSlotDef, RibbonSlotId};
+        use crate::vocab::Id;
+
+        let ctx = egui::Context::default();
+        // Cell in the middle-right of a 1600x900 window.
+        let region =
+            MaraRect::from_min_size(MaraPos2::new(600.0, 100.0), MaraVec2::new(500.0, 600.0));
+
+        let pen = super::super::RibbonSlotItem::new(
+            Id::new("pen"),
+            "pen",
+            "Pen",
+            "tip",
+            RibbonAction::Command(Id::new("pen.cmd")),
+        );
+        let def = RibbonSlotDef::new(
+            Id::new("test.view.ribbon"),
+            RibbonScope::Permanent,
+            RibbonEdge::Left,
+            RibbonCluster::Middle,
+            vec![RibbonSlot::new(
+                RibbonSlotId::new("pen.slot"),
+                Some(pen),
+                RibbonOverridePolicy::Fixed,
+            )],
+        );
+
+        let mut input = egui::RawInput::default();
+        input.screen_rect = Some(egui::Rect::from_min_size(
+            egui::Pos2::ZERO,
+            egui::vec2(1600.0, 900.0),
+        ));
+        let _ = ctx.run(input, |ctx| {
+            let _ = __internal_draw_view_ribbons(
+                ctx,
+                region,
+                MaraId::new("test.view.salt"),
+                MaraColor32::WHITE,
+                std::slice::from_ref(&def),
+            );
+        });
+
+        let ribbon_id = MaraId::new((def.id, def.cluster));
+        let area_id: egui::Id =
+            MaraId::new(("mara_slot_ribbon", ribbon_id, Id::new("pen"))).into();
+        let rect = ctx
+            .memory(|m| m.area_rect(area_id))
+            .expect("leaf ribbon area must exist after the pass");
+        let rect: MaraRect = rect.into();
+        assert!(
+            rect.min.x >= region.min.x
+                && rect.min.y >= region.min.y
+                && rect.max.x <= region.max.x
+                && rect.max.y <= region.max.y,
+            "leaf ribbon rendered at {rect:?}, OUTSIDE its region {region:?}"
+        );
+        // And specifically hugging the region's LEFT edge, not the window's.
+        assert!(
+            rect.min.x < region.min.x + 40.0,
+            "left-edge ribbon should hug the cell's left edge, got {rect:?}"
+        );
     }
 
     fn presence(left: bool, right: bool, bottom: bool) -> crate::shelf::ShelfPresence {

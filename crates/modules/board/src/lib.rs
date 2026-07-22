@@ -138,10 +138,16 @@ impl MaraView for Board {
     }
 
     fn show(&mut self, ctx: &mut ViewCtx<'_>) {
-        let rect = ctx.content_rect();
+        // The board surface fills the WHOLE region, edge to edge — its
+        // drawing is the view's backdrop and the per-view ribbons sit on
+        // top of it, so the surface is never gapped from its own
+        // buttons. The region painter is used because the body Ui is
+        // clipped to the ribbon-avoiding content rect.
+        let rect = ctx.screen_rect();
+        let painter = ctx.painter();
         ctx.body(|mui| {
             let accent = mui.accent();
-            let (painter, response) = mui.canvas_at(rect);
+            let (_, response) = mui.canvas_at(rect);
             self.paint(&painter, &response, rect, accent);
         });
     }

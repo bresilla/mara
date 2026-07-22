@@ -92,19 +92,22 @@ impl<'a> ViewCtx<'a> {
 
     #[must_use]
     pub fn content_rect(&self) -> MaraRect {
-        // If this node drew its own ribbons (a leaf via `show_ribbons`),
-        // inset the body away from exactly those edges of the region.
-        if let Some(edges) =
-            crate::ribbon::slot_paint::view_ribbon_edges(self.egui_ctx, self.region)
-        {
-            return shrink_region_by_ribbon_edges(self.region, edges);
+        // The node's region, minus the ribbons this node drew itself
+        // this pass (a leaf via `show_ribbons`): the leaf's rails are
+        // children of the leaf, so the body insets from them inside the
+        // region — wherever the region is, however small it gets.
+        let mut rect = self.region;
+        if let Some(edges) = crate::ribbon::slot_paint::view_ribbon_edges(
+            self.egui_ctx,
+            self.workspace.current().id,
+        ) {
+            rect = shrink_region_by_ribbon_edges(rect, edges);
         }
-        // Otherwise the node's region minus window-level ribbons. For the
-        // root, `region` is the whole window and the intersection yields
-        // the ribbon-avoiding area; for an interior cell, the window
-        // ribbons fall outside the cell so the intersection is the cell.
-        self.region
-            .intersect(ribbon_avoiding_rect(self.egui_ctx, self.content_avoidance))
+        // Then window-level rails: for the root, the intersection trims
+        // the region under rails that actually exist; for an interior
+        // cell the window rails fall outside the cell, so the
+        // intersection is the cell itself.
+        rect.intersect(ribbon_avoiding_rect(self.egui_ctx, self.content_avoidance))
     }
 
     /// The node's full rect — for views that paint an edge-to-edge
@@ -174,14 +177,17 @@ impl<'a> ViewCtx<'a> {
     }
 
     /// Typed painter over this node's region on the background layer —
-    /// the view backdrop surface. Clipped to the region and keyed by it,
-    /// so sibling cells paint their own backdrops without colliding.
+    /// the view backdrop surface. Clipped to the region and keyed by the
+    /// node's stable identity (its workspace id), so sibling cells paint
+    /// distinct layers AND the layer keeps its z-slot when the region
+    /// moves/resizes. Registered as a real area so later-opened
+    /// Background panes stack ABOVE the backdrop, never behind it.
     #[must_use]
     pub fn painter(&self) -> MaraPainter {
-        MaraPainter::new(backend::egui::context_painter_for_layer(
+        MaraPainter::new(backend::egui::area_registered_painter(
             self.egui_ctx,
             Layer::Background,
-            self.region_layer_id("mara_view_background"),
+            self.node_layer_id("mara_view_background"),
             self.region,
         ))
     }
@@ -190,22 +196,19 @@ impl<'a> ViewCtx<'a> {
     /// for overlays above panes and shelves.
     #[must_use]
     pub fn overlay_painter(&self) -> MaraPainter {
-        MaraPainter::new(backend::egui::context_painter_for_layer(
+        MaraPainter::new(backend::egui::area_registered_painter(
             self.egui_ctx,
             Layer::Foreground,
-            self.region_layer_id("mara_view_overlay"),
+            self.node_layer_id("mara_view_overlay"),
             self.region,
         ))
     }
 
-    /// A layer id unique to this node's region, so sibling cells get
-    /// distinct paint layers.
-    fn region_layer_id(&self, base: &str) -> MaraId {
-        MaraId::new((
-            base,
-            self.region.min.x.to_bits(),
-            self.region.min.y.to_bits(),
-        ))
+    /// A paint-layer id unique and STABLE per node (workspace-keyed, not
+    /// region-keyed): sibling cells get distinct layers, and a cell keeps
+    /// the same layer — and z-order slot — across moves and resizes.
+    fn node_layer_id(&self, base: &str) -> MaraId {
+        MaraId::new((base, self.workspace.current().id))
     }
 
     /// Lay a sealed widget surface over the view's content rect
@@ -238,6 +241,7 @@ impl<'a> ViewCtx<'a> {
         crate::ribbon::slot_paint::__internal_draw_view_ribbons(
             self.egui_ctx,
             self.region,
+            self.workspace.current().id,
             self.accent,
             ribbons,
         )

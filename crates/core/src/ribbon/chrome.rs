@@ -129,16 +129,17 @@ pub const fn ribbon_clearance() -> f32 {
 
 #[must_use]
 pub(crate) fn ribbon_avoiding_rect(ctx: &egui::Context, avoidance: RibbonAvoidance) -> MaraRect {
-    // Top + the two side ribbons reserve space exactly as requested. The
-    // bottom is gated on whether a bottom ribbon actually exists — with
-    // none (the usual case), avoiding the bottom reserves nothing, so the
-    // view runs to the bottom window edge. (Only the bottom is gated, so
-    // the side avoidance never regresses.)
-    let [_, _, _, has_bottom] = crate::pane::published_ribbon_edges(ctx);
+    // Every edge is gated on a window rail actually existing there this
+    // frame: avoidance reserves clearance for real rails only. Per-view
+    // ribbons render inside their own leaf's region (PLAN Phase 3), so a
+    // tab whose views carry their own rails gets the full tab region —
+    // no phantom gutters on edges with no window rail. Before the first
+    // publish the edges default to all-present (conservative).
+    let [has_left, has_right, has_top, has_bottom] = crate::pane::published_ribbon_edges(ctx);
     let effective = RibbonAvoidance {
-        left: avoidance.left,
-        right: avoidance.right,
-        top: avoidance.top,
+        left: avoidance.left && has_left,
+        right: avoidance.right && has_right,
+        top: avoidance.top && has_top,
         bottom: avoidance.bottom && has_bottom,
     };
     effective.apply_to_rect(crate::backend::egui::context_content_rect(ctx))
@@ -326,7 +327,7 @@ fn chrome_rect(ctx: &egui::Context) -> MaraRect {
 /// the "side rail / panes stop tracking window resize" bug, and it
 /// bit hosts that never did anything wrong (a single stale write
 /// stuck forever). See [`crate::shelf::__internal_publish_shelf_layout`].
-fn fresh_chrome_bounds(ctx: &egui::Context) -> MaraRect {
+pub(crate) fn fresh_chrome_bounds(ctx: &egui::Context) -> MaraRect {
     let rect = crate::shelf::__internal_shelf_layout(ctx)
         .map(|layout| layout.viewport)
         .unwrap_or_else(|| crate::backend::egui::context_content_rect(ctx));
@@ -348,16 +349,17 @@ fn fresh_chrome_bounds(ctx: &egui::Context) -> MaraRect {
 }
 
 fn ribbon_rect(ctx: &egui::Context, ribbon: &ResolvedSlotRibbon) -> MaraRect {
+    // A ribbon rendered inside a view node belongs to that node: it
+    // anchors to the node's region on ANY edge (including top), so a
+    // leaf's own ribbons stay inside the leaf, not on the window.
+    if let Some(region) = crate::embed::current_node_region(ctx) {
+        return region;
+    }
+    // Outside any node render (the shell bar / the app-level ribbon
+    // pass): the permanent top bar spans the whole window; every other
+    // rail uses the post-shelf chrome bounds.
     if ribbon.edge == RibbonEdge::Top {
-        // The top bar is window chrome — always the full window.
         crate::backend::egui::context_content_rect(ctx)
-    } else if let Some(region) = crate::embed::current_node_region(ctx) {
-        // A left/right/bottom ribbon rendered inside a view node anchors
-        // to that node's region, so it belongs to the leaf, not the
-        // window (PLAN.md Phase 3). Outside any node render (e.g. the
-        // shell bar, or the app-level ribbon pass) there is no region, so
-        // it falls back to the window chrome.
-        region
     } else {
         chrome_rect(ctx)
     }
@@ -375,7 +377,7 @@ pub(crate) fn main_bar_empty_drag_started(ctx: &egui::Context) -> bool {
     })
 }
 
-fn effective_cluster(mode: RibbonMode, item: RibbonCluster) -> RibbonCluster {
+pub(crate) fn effective_cluster(mode: RibbonMode, item: RibbonCluster) -> RibbonCluster {
     match mode {
         RibbonMode::Centered => RibbonCluster::Middle,
         RibbonMode::OneSided(end) => end,
@@ -403,7 +405,7 @@ fn clusters_for_mode(mode: RibbonMode) -> &'static [RibbonCluster] {
 }
 
 #[derive(Clone, Copy, Default)]
-struct SideInsets {
+pub(crate) struct SideInsets {
     left: f32,
     right: f32,
     top: f32,
@@ -418,7 +420,7 @@ fn item_id(item: &RibbonSlotItem) -> Option<&'static str> {
     item.chrome_id
 }
 
-fn compute_side_insets(ribbons: &[ResolvedSlotRibbon]) -> SideInsets {
+pub(crate) fn compute_side_insets(ribbons: &[ResolvedSlotRibbon]) -> SideInsets {
     // Keep the exact old assembly spacing: when a perpendicular
     // rail exists, reserve its edge gap + button + one inter-button
     // gap. Do not add a second edge gap here, or side ribbons drift
@@ -482,7 +484,7 @@ fn close_opposite_side_panes(
     }
 }
 
-fn insets_for_ribbon(
+pub(crate) fn insets_for_ribbon(
     ribbons: &[ResolvedSlotRibbon],
     ribbon: &ResolvedSlotRibbon,
     base: SideInsets,
@@ -642,13 +644,13 @@ fn cluster_region(
 }
 
 #[derive(Clone, Copy)]
-struct ButtonPlacement {
+pub(crate) struct ButtonPlacement {
     screen: MaraRect,
     anchor: MaraAlign2,
     offset: MaraVec2,
 }
 
-fn place_button(
+pub(crate) fn place_button(
     ctx: &egui::Context,
     ribbon: &ResolvedSlotRibbon,
     cluster: RibbonCluster,
@@ -741,7 +743,7 @@ fn place_button(
     }
 }
 
-fn screen_rect(placement: ButtonPlacement) -> MaraRect {
+pub(crate) fn screen_rect(placement: ButtonPlacement) -> MaraRect {
     let screen = placement.screen;
     let size = MaraVec2::new(SIDE_BTN_SIZE, SIDE_BTN_SIZE);
     let anchor = placement.anchor;
@@ -808,19 +810,29 @@ pub fn draw_unified_ribbon_chrome(
     active: impl Fn(&'static str) -> bool,
 ) -> Vec<egui::Id> {
     let insets = compute_side_insets(ribbons);
-    let chrome = fresh_chrome_bounds(ctx);
-    ctx.data_mut(|d| {
-        d.insert_temp(chrome_bounds_key(), chrome);
-        d.insert_temp::<[bool; 4]>(
-            egui::Id::new("mara_published_ribbon_edges"),
-            [
-                edge_has_ribbon(ribbons, RibbonEdge::Left),
-                edge_has_ribbon(ribbons, RibbonEdge::Right),
-                edge_has_ribbon(ribbons, RibbonEdge::Top),
-                edge_has_ribbon(ribbons, RibbonEdge::Bottom),
-            ],
-        );
-    });
+    // Window-pass only: publish the chrome bounds and which WINDOW edges
+    // carry rails. A node-scoped render (a leaf drawing its own ribbons
+    // inside its region) must not stomp the window's published state —
+    // its edges belong to its region and are recorded per-view by
+    // `slot_paint::__internal_draw_view_ribbons`. An EMPTY draw publishes
+    // nothing either: "this call drew no rails" must not overwrite what
+    // the shell bar (or the app rail pass) published this frame — draw
+    // order between the two must not decide whether the top edge exists.
+    if !ribbons.is_empty() && crate::embed::current_node_region(ctx).is_none() {
+        let chrome = fresh_chrome_bounds(ctx);
+        ctx.data_mut(|d| {
+            d.insert_temp(chrome_bounds_key(), chrome);
+            d.insert_temp::<[bool; 4]>(
+                egui::Id::new("mara_published_ribbon_edges"),
+                [
+                    edge_has_ribbon(ribbons, RibbonEdge::Left),
+                    edge_has_ribbon(ribbons, RibbonEdge::Right),
+                    edge_has_ribbon(ribbons, RibbonEdge::Top),
+                    edge_has_ribbon(ribbons, RibbonEdge::Bottom),
+                ],
+            );
+        });
+    }
 
     let mut flat = Vec::new();
     for (r_idx, ribbon) in ribbons.iter().enumerate() {

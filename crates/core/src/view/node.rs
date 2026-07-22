@@ -184,12 +184,13 @@ impl ViewNode {
                 view.show(ctx);
             }
             ViewNodeKind::Split {
+                salt,
                 layout,
                 margin,
                 cells,
-                ..
             } => {
-                let rects = layout.resolve(ctx.content_rect().shrink(*margin));
+                let tree_rect = ctx.content_rect().shrink(*margin);
+                let rects = layout.resolve(tree_rect);
                 let accent = ctx.accent;
                 for cell in cells.iter_mut() {
                     let Some((_, rect)) = rects.iter().find(|(id, _)| *id == cell.id).copied()
@@ -199,8 +200,82 @@ impl ViewNode {
                     let mut child = ctx.__internal_scoped(rect, &mut cell.workspace, accent);
                     cell.node.render(&mut child);
                 }
+                // Draggable dividers: hovering a shared cell border shows
+                // a resize cursor, dragging it re-weights the two
+                // adjacent children (the interactive face of the
+                // `set_child_weight` splitter model). Rendered after the
+                // cells so the strips sit on top of cell chrome.
+                let salt = *salt;
+                for divider in layout.dividers(tree_rect) {
+                    if let Some(pos) = show_split_divider(ctx, salt, &divider) {
+                        layout.set_divider_pos(&divider, pos);
+                    }
+                }
             }
         }
+    }
+}
+
+/// Show one split divider: an invisible drag strip over the shared cell
+/// border. Hover/drag shows a resize cursor and an accent line; while
+/// dragging, returns the pointer's axis position for the caller to feed
+/// into [`Layout::set_divider_pos`].
+fn show_split_divider(
+    ctx: &ViewCtx<'_>,
+    salt: MaraId,
+    divider: &super::layout::SplitDivider,
+) -> Option<f32> {
+    use crate::layout::{AreaHost, AreaSlotSpec, CursorIcon, Layer, Sense, UiBackend};
+
+    let egui_ctx = ctx.__internal_egui_ctx();
+    let id = MaraId::new(("mara_split_divider", salt, &divider.path, divider.boundary));
+    let strip = divider.strip;
+    let vertical_line = divider.vertical_line;
+    let response = crate::backend::egui::show_area_slot(
+        egui_ctx,
+        AreaSlotSpec::new(AreaHost::new(id, strip.min, Layer::Foreground), strip.size()),
+        |ui| {
+            let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
+            let response = backend.interact(strip, id.with("hit"), Sense::ClickAndDrag);
+            if response.hovered() || response.dragged() {
+                crate::backend::egui::set_cursor_icon_for_ui(
+                    ui,
+                    if vertical_line {
+                        CursorIcon::ResizeHorizontal
+                    } else {
+                        CursorIcon::ResizeVertical
+                    },
+                );
+                let center = strip.center();
+                let (a, b) = if vertical_line {
+                    (
+                        crate::vocab::Pos2::new(center.x, strip.top()),
+                        crate::vocab::Pos2::new(center.x, strip.bottom()),
+                    )
+                } else {
+                    (
+                        crate::vocab::Pos2::new(strip.left(), center.y),
+                        crate::vocab::Pos2::new(strip.right(), center.y),
+                    )
+                };
+                crate::backend::egui::render_paint_cmd_ui(
+                    ui,
+                    crate::paint::PaintCmd::Polyline {
+                        points: vec![a, b],
+                        stroke: crate::vocab::Stroke::new(2.0, crate::style::active_accent()),
+                    },
+                );
+            }
+            response
+        },
+    )
+    .inner;
+    if response.dragged() {
+        response
+            .interact_pointer
+            .map(|p| if vertical_line { p.x } else { p.y })
+    } else {
+        None
     }
 }
 

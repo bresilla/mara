@@ -85,6 +85,19 @@ impl CanvasSurface {
     }
 
     fn paint_canvas(&mut self, mui: &mut mara_core::MaraUi<'_>, min_size: impl Into<MaraVec2>) {
+        self.paint_canvas_surface(mui, min_size, true);
+    }
+
+    /// The stroke surface + interaction. `framed` draws the surface's own
+    /// fill + border (inline/pane embeds); a `ViewNode` leaf passes
+    /// `false` because the view already painted its frame over the whole
+    /// region and the strokes draw directly on that surface.
+    fn paint_canvas_surface(
+        &mut self,
+        mui: &mut mara_core::MaraUi<'_>,
+        min_size: impl Into<MaraVec2>,
+        framed: bool,
+    ) {
         let min_size = min_size.into();
         let desired = MaraVec2::new(
             mui.available_width().max(min_size.x),
@@ -95,16 +108,18 @@ impl CanvasSurface {
         let accent = mara_core::style::active_accent();
         let radius = mara_core::style::radius_for(mara_core::style::RadiusRole::Section);
 
-        painter.rect_filled(
-            rect,
-            radius,
-            mara_core::style::fill_for(mara_core::style::FillRole::Pane, accent),
-        );
-        painter.rect_stroke(
-            rect,
-            radius,
-            mara_core::style::stroke_for(mara_core::style::StrokeRole::WidgetBorder, accent),
-        );
+        if framed {
+            painter.rect_filled(
+                rect,
+                radius,
+                mara_core::style::fill_for(mara_core::style::FillRole::Pane, accent),
+            );
+            painter.rect_stroke(
+                rect,
+                radius,
+                mara_core::style::stroke_for(mara_core::style::StrokeRole::WidgetBorder, accent),
+            );
+        }
 
         if response.drag_started() {
             let mut stroke = CanvasStroke::new(accent, self.pen_width);
@@ -155,7 +170,7 @@ impl CanvasSurface {
     fn tool_ribbon(&self, scope: RibbonScope) -> RibbonSlotDef {
         let pen = RibbonSlotItem::new(
             mara_core::vocab::Id::new(("canvas.pen", self.id)),
-            "draw",
+            "pen",
             "Pen",
             "Use pen tool",
             RibbonAction::Command(mara_core::vocab::Id::new(("canvas.pen.command", self.id))),
@@ -198,7 +213,7 @@ impl MaraView for CanvasSurface {
     }
 
     fn icon(&self) -> &'static str {
-        "draw"
+        "pen"
     }
 
     fn ribbons(&mut self) -> Vec<RibbonSlotDef> {
@@ -210,8 +225,29 @@ impl MaraView for CanvasSurface {
     }
 
     fn show(&mut self, ctx: &mut ViewCtx<'_>) {
+        // The view's framed surface covers the WHOLE region, edge to
+        // edge — the ribbons sit ON this surface, inside the border, so
+        // they are visually children of the view. Square corners: tiled
+        // cells meet flush, and the border is the dividing line between
+        // views. The stroke area (`body`) then insets away from the
+        // ribbons.
+        let region = ctx.screen_rect();
+        let accent = mara_core::style::active_accent();
+        {
+            let painter = ctx.painter();
+            painter.rect_filled(
+                region,
+                0.0,
+                mara_core::style::fill_for(mara_core::style::FillRole::Pane, accent),
+            );
+            painter.rect_stroke(
+                region,
+                0.0,
+                mara_core::style::stroke_for(mara_core::style::StrokeRole::WidgetBorder, accent),
+            );
+        }
         ctx.body(|mui| {
-            self.paint_canvas(mui, MaraVec2::new(420.0, 300.0));
+            self.paint_canvas_surface(mui, MaraVec2::new(120.0, 80.0), false);
         });
     }
 }
@@ -226,7 +262,7 @@ impl MaraModule for CanvasSurface {
     }
 
     fn icon(&self) -> &'static str {
-        "draw"
+        "pen"
     }
 
     fn inline(
@@ -264,7 +300,7 @@ impl MaraModule for CanvasSurface {
             .with_item(WorkspaceBarItem::command(
                 egui::Id::new(("canvas.workspace.pen", self.id)),
                 "Pen",
-                Some("draw"),
+                Some("pen"),
             ))
             .with_item(WorkspaceBarItem::command(
                 egui::Id::new(("canvas.workspace.clear", self.id)),
@@ -289,7 +325,7 @@ mod tests {
         assert_view(&surface);
         assert_module(&surface);
         assert_eq!(MaraView::title(&surface), "Whiteboard");
-        assert_eq!(MaraModule::icon(&surface), "draw");
+        assert_eq!(MaraModule::icon(&surface), "pen");
     }
 
     #[test]

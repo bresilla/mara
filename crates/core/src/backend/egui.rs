@@ -512,6 +512,29 @@ pub(crate) fn show_area_for_host<R>(
     inner
 }
 
+/// A painter whose layer is a REGISTERED egui `Area` (empty,
+/// non-interactive) rather than a free `layer_painter` layer. Within one
+/// egui order, registered areas composite in registration order and free
+/// layers composite after ALL registered areas — so a view backdrop
+/// painted on a free layer would cover every Background-order pane. An
+/// area-registered painter keeps its registration slot (first-seen
+/// order), letting later-opened areas (panes) stack above it.
+pub(crate) fn area_registered_painter(
+    ctx: &egui::Context,
+    layer: Layer,
+    id: vocab::Id,
+    clip: vocab::Rect,
+) -> egui::Painter {
+    let clip_rect: egui::Rect = clip.into();
+    let painter = egui::Area::new(id.into())
+        .order(egui_order_for_layer(layer))
+        .fixed_pos(clip_rect.min)
+        .interactable(false)
+        .show(ctx, |ui| ui.painter().clone())
+        .inner;
+    painter.with_clip_rect(clip_rect)
+}
+
 pub(crate) fn show_area_slot<R>(
     ctx: &egui::Context,
     spec: AreaSlotSpec,

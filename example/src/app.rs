@@ -1439,6 +1439,19 @@ fn publish_current_pane_ribbon_buttons(
             pane_ids.push(MaraId::new(item.id));
         }
     }
+    // The multiview cells' demo panel buttons (RibbonDemoView) open
+    // per-view panes; register their pane ids so the pane guard accepts
+    // them. Ids must mirror `RibbonDemoView::show`'s Pane ids exactly.
+    for salt in ["mv.canvas", "mv.image", "mv.board"] {
+        for (_, _, edge_name, cluster_name, _) in demo_ribbon_combos() {
+            pane_ids.push(MaraId::new((
+                "demo.view.pane",
+                salt,
+                edge_name,
+                cluster_name,
+            )));
+        }
+    }
     host.publish_ribbon_pane_ids(pane_ids);
 }
 
@@ -1515,7 +1528,9 @@ struct BoardViewState {
 
 impl Default for BoardViewState {
     fn default() -> Self {
-        let gap = 12.0;
+        // No gaps: the board's cells tile flush and each cell's border
+        // is the dividing line — same look as the multiview tiles.
+        let gap = 0.0;
         let column = |keys: &[&'static str]| {
             Layout::col(gap, keys.iter().map(|k| (1.0, Layout::cell(*k))).collect())
         };
@@ -1549,6 +1564,201 @@ impl Default for BoardViewState {
     }
 }
 
+// Demo decorator for multiview leaves: fills every FREE per-view ribbon
+// spot — Left/Right/Bottom edge × Start/Middle/End cluster — with a
+// PANEL button: clicking toggles a pane anchored to that rail zone,
+// inside the view's own region. Spots the wrapped view already uses
+// keep the real buttons.
+struct RibbonDemoView<V: MaraView> {
+    salt: &'static str,
+    inner: V,
+    /// Open demo panels, keyed by (edge, cluster).
+    open: std::collections::HashSet<(mara_core::RibbonEdge, mara_core::RibbonCluster)>,
+}
+
+/// The nine per-view rail spots: edge × cluster, with stable name parts
+/// (for ids) and a distinct icon per cluster.
+fn demo_ribbon_combos() -> [(
+    mara_core::RibbonEdge,
+    mara_core::RibbonCluster,
+    &'static str,
+    &'static str,
+    &'static str,
+); 9] {
+    use mara_core::{RibbonCluster, RibbonEdge};
+    let clusters = [
+        (RibbonCluster::Start, "start", "star"),
+        (RibbonCluster::Middle, "middle", "circle"),
+        (RibbonCluster::End, "end", "flag"),
+    ];
+    let edges = [
+        (RibbonEdge::Left, "left"),
+        (RibbonEdge::Right, "right"),
+        (RibbonEdge::Bottom, "bottom"),
+    ];
+    let mut out = [(RibbonEdge::Left, RibbonCluster::Start, "", "", ""); 9];
+    let mut i = 0;
+    for (edge, edge_name) in edges {
+        for (cluster, cluster_name, icon) in clusters {
+            out[i] = (edge, cluster, edge_name, cluster_name, icon);
+            i += 1;
+        }
+    }
+    out
+}
+
+impl<V: MaraView> RibbonDemoView<V> {
+    fn new(salt: &'static str, inner: V) -> Self {
+        Self {
+            salt,
+            inner,
+            open: std::collections::HashSet::new(),
+        }
+    }
+
+    /// The toggle-command id for one rail spot's panel button.
+    fn panel_command_id(&self, edge_name: &'static str, cluster_name: &'static str) -> MaraId {
+        MaraId::new(("demo.view.panel", self.salt, edge_name, cluster_name))
+    }
+}
+
+impl<V: MaraView> MaraView for RibbonDemoView<V> {
+    fn id(&self) -> mara_core::ViewId {
+        self.inner.id()
+    }
+
+    fn title(&self) -> &str {
+        self.inner.title()
+    }
+
+    fn icon(&self) -> &'static str {
+        self.inner.icon()
+    }
+
+    fn shared_surface(&self) -> Option<mara_core::SharedSurfaceId> {
+        self.inner.shared_surface()
+    }
+
+    fn ribbons(&mut self) -> Vec<mara_core::RibbonSlotDef> {
+        use mara_core::{
+            RibbonAction, RibbonCluster, RibbonEdge, RibbonOverridePolicy, RibbonScope,
+            RibbonSlot, RibbonSlotDef, RibbonSlotId, RibbonSlotItem,
+        };
+        let mut defs = self.inner.ribbons();
+        let taken: Vec<(RibbonEdge, RibbonCluster)> =
+            defs.iter().map(|def| (def.edge, def.cluster)).collect();
+        let view = self.inner.id();
+        for (edge, cluster, edge_name, cluster_name, icon) in demo_ribbon_combos() {
+            if taken.contains(&(edge, cluster)) {
+                continue;
+            }
+            let mut item = RibbonSlotItem::new(
+                MaraId::new(("demo.view.ribbon.item", self.salt, edge_name, cluster_name)),
+                icon,
+                "Demo",
+                "Toggle demo panel",
+                RibbonAction::Command(self.panel_command_id(edge_name, cluster_name)),
+            );
+            item.active = self.open.contains(&(edge, cluster));
+            defs.push(RibbonSlotDef::new(
+                MaraId::new(("demo.view.ribbon", self.salt, edge_name, cluster_name)),
+                RibbonScope::View(view),
+                edge,
+                cluster,
+                vec![RibbonSlot::new(
+                    RibbonSlotId::new((
+                        "demo.view.ribbon.slot",
+                        self.salt,
+                        edge_name,
+                        cluster_name,
+                    )),
+                    Some(item),
+                    RibbonOverridePolicy::Fixed,
+                )],
+            ));
+        }
+        defs
+    }
+
+    fn on_ribbon_click(&mut self, action: &mara_core::RibbonAction) {
+        if let mara_core::RibbonAction::Command(id) = action {
+            for (edge, cluster, edge_name, cluster_name, _) in demo_ribbon_combos() {
+                if *id == self.panel_command_id(edge_name, cluster_name) {
+                    if !self.open.remove(&(edge, cluster)) {
+                        self.open.insert((edge, cluster));
+                    }
+                    return;
+                }
+            }
+        }
+        self.inner.on_ribbon_click(action);
+    }
+
+    fn ribbon_overrides(&mut self) -> mara_core::RibbonOverrideLayer {
+        self.inner.ribbon_overrides()
+    }
+
+    fn content_avoidance(&self) -> RibbonAvoidance {
+        self.inner.content_avoidance()
+    }
+
+    fn show(&mut self, ctx: &mut mara_core::ViewCtx<'_>) {
+        use mara_core::{RibbonCluster, RibbonEdge};
+        self.inner.show(ctx);
+        // Open demo panels: one pane per toggled rail spot, anchored to
+        // that spot INSIDE this view's region (show_pane scopes panes to
+        // the node), so each cell owns its own panels.
+        for (edge, cluster, edge_name, cluster_name, _) in demo_ribbon_combos() {
+            if !self.open.contains(&(edge, cluster)) {
+                continue;
+            }
+            let zone = match cluster {
+                RibbonCluster::Start => RailZone::Start,
+                RibbonCluster::Middle => RailZone::Middle,
+                RibbonCluster::End => RailZone::End,
+            };
+            let anchor = match edge {
+                RibbonEdge::Left => PaneAnchor::LeftRail(zone),
+                RibbonEdge::Right => PaneAnchor::RightRail(zone),
+                RibbonEdge::Top | RibbonEdge::Bottom => PaneAnchor::BottomRail(zone),
+            };
+            ctx.show_pane(
+                Pane::new(
+                    MaraId::new(("demo.view.pane", self.salt, edge_name, cluster_name)),
+                    format!("{edge_name} {cluster_name}"),
+                    anchor,
+                    mara_core::style::active_accent(),
+                ),
+                |body| {
+                    body.add_normal(
+                        MaraId::new(("demo.view.pane.c", self.salt, edge_name, cluster_name)),
+                        "Demo panel",
+                        "info",
+                        vec![
+                            Pod::new(MaraId::new((
+                                "demo.view.pane.pod",
+                                self.salt,
+                                edge_name,
+                                cluster_name,
+                            )))
+                            .with_separator(SeparatorStyle::Line)
+                            .with_readout("view", self.salt),
+                            Pod::new(MaraId::new((
+                                "demo.view.pane.pod2",
+                                self.salt,
+                                edge_name,
+                                cluster_name,
+                            )))
+                            .with_separator(SeparatorStyle::None)
+                            .with_readout("zone", format!("{edge_name} / {cluster_name}")),
+                        ],
+                    );
+                },
+            );
+        }
+    }
+}
+
 // "Multiview" view: split in half; the right half split again → three
 // different child views (a Canvas, an Image, a Board).
 struct MultiViewState {
@@ -1558,7 +1768,9 @@ struct MultiViewState {
 
 impl Default for MultiViewState {
     fn default() -> Self {
-        let gap = 12.0;
+        // No gaps, no margin: cells tile edge-to-edge and each cell's
+        // square border provides the dividing line between views.
+        let gap = 0.0;
         let layout = Layout::row(
             gap,
             vec![
@@ -1573,24 +1785,27 @@ impl Default for MultiViewState {
             ],
         );
         let node = ViewNode::split("demo-multi", layout)
-            .margin(gap)
             .cell(
                 "left",
-                ViewNode::leaf(CanvasSurface::new(
+                ViewNode::leaf(RibbonDemoView::new(
                     "mv.canvas",
-                    CanvasDocument::new("Sketch"),
+                    CanvasSurface::new("mv.canvas", CanvasDocument::new("Sketch")),
                 )),
             )
             .cell(
                 "rt",
-                ViewNode::leaf(ImageSurface::new("mv.image", ImageDocument::empty("Image"))),
+                ViewNode::leaf(RibbonDemoView::new(
+                    "mv.image",
+                    ImageSurface::new("mv.image", ImageDocument::empty("Image")),
+                )),
             )
             .cell(
                 "rb",
-                ViewNode::leaf(
+                ViewNode::leaf(RibbonDemoView::new(
+                    "mv.board",
                     Board::new("mv.board", "Gauge")
                         .on_draw(|b: BoardPaint| draw_gauge_at(b.painter, b.rect, b.accent)),
-                ),
+                )),
             );
         Self {
             node,
@@ -1602,8 +1817,14 @@ impl Default for MultiViewState {
 /// Draw a data-mask gauge (frame + arc gauge + sample ellipse) into `rect`.
 fn draw_gauge_at(p: &mara_core::MaraPainter, rect: mara_core::vocab::Rect, accent: MaraColor32) {
     use mara_core::vocab::{Align2, Color32, Pos2, Rect, Stroke, Vec2};
-    p.rect_filled(rect, 12, Color32::from_rgb(24, 28, 36));
-    p.rect_stroke(rect, 12, Stroke::new(1.5, Color32::from_gray(80)));
+    p.rect_filled(rect, 0, Color32::from_rgb(24, 28, 36));
+    // Same border as every other view surface (canvas/image use the
+    // theme WidgetBorder stroke), so tiled cells read as one family.
+    p.rect_stroke(
+        rect,
+        0,
+        mara_core::style::stroke_for(mara_core::style::StrokeRole::WidgetBorder, accent),
+    );
     p.text(
         Pos2::new(rect.center().x, rect.top() + 18.0),
         Align2::CENTER_TOP,
@@ -1647,9 +1868,18 @@ fn draw_gauge_at(p: &mara_core::MaraPainter, rect: mara_core::vocab::Rect, accen
 
 /// Draw one VT soft key (rounded fill + border + label) into `rect`.
 fn draw_key_at(p: &mara_core::MaraPainter, rect: mara_core::vocab::Rect, label: &str) {
-    use mara_core::vocab::{Align2, Color32, Stroke};
-    p.rect_filled(rect, 12, Color32::from_rgb(40, 46, 58));
-    p.rect_stroke(rect, 12, Stroke::new(1.5, Color32::from_gray(90)));
+    use mara_core::vocab::{Align2, Color32};
+    // Square, flush key caps — the shared border stroke is the divider,
+    // matching the view-surface look everywhere else.
+    p.rect_filled(rect, 0, Color32::from_rgb(40, 46, 58));
+    p.rect_stroke(
+        rect,
+        0,
+        mara_core::style::stroke_for(
+            mara_core::style::StrokeRole::WidgetBorder,
+            mara_core::style::active_accent(),
+        ),
+    );
     p.text(
         rect.center(),
         Align2::CENTER_CENTER,
@@ -2066,6 +2296,8 @@ impl DemoApp {
                 .and_then(|v| match v.as_str() {
                     "canvas" => Some(DemoRootView::Canvas),
                     "threed" => Some(DemoRootView::ThreeD),
+                    "board" => Some(DemoRootView::Board),
+                    "multi" => Some(DemoRootView::Multi),
                     "zones" => Some(DemoRootView::CorevizZones),
                     "mgmt" => Some(DemoRootView::CorevizManagement),
                     _ => None,
@@ -3051,7 +3283,9 @@ fn board_root_view(host: &MaraHostCtx<'_>, accent: MaraColor32, board: &mut Boar
 }
 
 fn multi_root_view(host: &MaraHostCtx<'_>, accent: MaraColor32, multi: &mut MultiViewState) {
-    let mut view_ctx = host.view_ctx(&mut multi.workspace, accent, RibbonAvoidance::all());
+    // No avoidance at all: the view tree fills the window from the very
+    // top — the glass top bar draws over the cells, not above them.
+    let mut view_ctx = host.view_ctx(&mut multi.workspace, accent, RibbonAvoidance::none());
     multi.node.render(&mut view_ctx);
 }
 
