@@ -743,6 +743,12 @@ impl crate::layout::UiBackend for MaraBackend<'_> {
             Self::Recording(b) => b.scroll_region(region, body),
         }
     }
+    fn in_id_scope(&mut self, salt: vocab::Id, body: &mut dyn FnMut(&mut dyn UiBackend)) {
+        match self {
+            Self::Egui(b) => b.in_id_scope(salt, body),
+            Self::Recording(b) => b.in_id_scope(salt, body),
+        }
+    }
 }
 
 /// Opaque owned backend handle for host plugins — created by

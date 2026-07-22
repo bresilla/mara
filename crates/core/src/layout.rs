@@ -834,6 +834,13 @@ pub trait UiBackend {
         let _ = region;
         self.in_scope(false, body);
     }
+
+    /// Run `body` in a nested id scope salted by `salt`, so widget ids
+    /// derived from [`UiBackend::id`] inside it are unique per scope
+    /// (egui's `push_id`). Used by containers (e.g. pods) to keep the
+    /// Nth slot's widgets from colliding with a same-labelled widget in
+    /// a sibling. Object-safe like [`UiBackend::in_child`].
+    fn in_id_scope(&mut self, salt: Id, body: &mut dyn FnMut(&mut dyn UiBackend));
 }
 
 /// Blanket impl so a `&mut` to any backend (notably `&mut dyn
@@ -924,6 +931,9 @@ impl<T: UiBackend + ?Sized> UiBackend for &mut T {
     }
     fn scroll_region(&mut self, region: ScrollRegion, body: &mut dyn FnMut(&mut dyn UiBackend)) {
         (**self).scroll_region(region, body)
+    }
+    fn in_id_scope(&mut self, salt: Id, body: &mut dyn FnMut(&mut dyn UiBackend)) {
+        (**self).in_id_scope(salt, body)
     }
 }
 

@@ -128,6 +128,9 @@ pub struct RecordingBackend {
     /// Deepest bottom edge reached in the current horizontal row, so
     /// the parent can resume flow below the tallest item.
     pub row_bottom: f32,
+    /// Nested id-scope salts pushed by [`UiBackend::in_id_scope`], so
+    /// `id()` yields unique ids per scope (egui's id stack, headless).
+    pub id_stack: Vec<Id>,
 }
 
 impl RecordingBackend {
@@ -207,6 +210,20 @@ impl UiBackend for RecordingBackend {
         if let (Some(cmd), Some(existing)) = (cmd, self.paints.get_mut(slot.0)) {
             *existing = cmd;
         }
+    }
+
+    fn id(&self) -> Id {
+        let mut id = Id::new("mara-record-backend");
+        for salt in &self.id_stack {
+            id = id.with(*salt);
+        }
+        id
+    }
+
+    fn in_id_scope(&mut self, salt: Id, body: &mut dyn FnMut(&mut dyn crate::layout::UiBackend)) {
+        self.id_stack.push(salt);
+        body(self);
+        self.id_stack.pop();
     }
 
     fn memory(&self) -> crate::memory::BackendMemory<'_> {
@@ -346,6 +363,21 @@ mod golden {
             Pos2::new(0.0, 30.0),
             "parent resumes past child"
         );
+    }
+
+    #[test]
+    fn in_id_scope_makes_ids_unique_per_scope() {
+        use crate::layout::UiBackend;
+        let mut backend = frame();
+        let base = backend.id();
+        let mut a = base;
+        let mut b = base;
+        backend.in_id_scope(Id::new(0u32), &mut |s| a = s.id());
+        backend.in_id_scope(Id::new(1u32), &mut |s| b = s.id());
+        assert_ne!(a, base, "scope changes the id");
+        assert_ne!(a, b, "sibling scopes get distinct ids");
+        // Scope is popped afterward — back to the base id.
+        assert_eq!(backend.id(), base);
     }
 
     #[test]

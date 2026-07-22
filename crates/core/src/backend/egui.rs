@@ -272,6 +272,13 @@ impl UiBackend for EguiUiBackend<'_> {
             body(&mut child);
         });
     }
+
+    fn in_id_scope(&mut self, salt: vocab::Id, body: &mut dyn FnMut(&mut dyn UiBackend)) {
+        self.ui.push_id(Into::<egui::Id>::into(salt), |ui| {
+            let mut child = EguiUiBackend::new(ui);
+            body(&mut child);
+        });
+    }
 }
 
 pub(crate) fn egui_sense(sense: Sense) -> egui::Sense {
