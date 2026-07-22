@@ -111,7 +111,16 @@ impl ViewNode {
     /// scoped to its cell rect.
     pub fn render(&mut self, ctx: &mut ViewCtx<'_>) {
         match &mut self.kind {
-            ViewNodeKind::Leaf(view) => view.show(ctx),
+            ViewNodeKind::Leaf(view) => {
+                // A leaf owns its ribbons: render them at its region edges,
+                // deliver their clicks to the view, then draw its content
+                // (which `content_rect` insets away from those ribbons).
+                let ribbons = view.ribbons();
+                for click in ctx.show_ribbons(&ribbons) {
+                    view.on_ribbon_click(&click.action);
+                }
+                view.show(ctx);
+            }
             ViewNodeKind::Split {
                 layout,
                 margin,

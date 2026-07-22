@@ -25,6 +25,18 @@ pub struct ViewCtx<'a> {
     region: MaraRect,
 }
 
+/// Inset `region` by one ribbon rail's clearance on each edge that has a
+/// ribbon (`[left, right, top, bottom]`).
+fn shrink_region_by_ribbon_edges(region: MaraRect, edges: [bool; 4]) -> MaraRect {
+    let c = crate::ribbon::ribbon_clearance();
+    let [left, right, top, bottom] = edges;
+    let pick = |on: bool| if on { c } else { 0.0 };
+    MaraRect::from_min_max(
+        crate::vocab::Pos2::new(region.min.x + pick(left), region.min.y + pick(top)),
+        crate::vocab::Pos2::new(region.max.x - pick(right), region.max.y - pick(bottom)),
+    )
+}
+
 impl<'a> ViewCtx<'a> {
     /// Build a view context from the current egui backend.
     ///
@@ -80,7 +92,14 @@ impl<'a> ViewCtx<'a> {
 
     #[must_use]
     pub fn content_rect(&self) -> MaraRect {
-        // The node's region minus any ribbons overlapping it. For the
+        // If this node drew its own ribbons (a leaf via `show_ribbons`),
+        // inset the body away from exactly those edges of the region.
+        if let Some(edges) =
+            crate::ribbon::slot_paint::view_ribbon_edges(self.egui_ctx, self.region)
+        {
+            return shrink_region_by_ribbon_edges(self.region, edges);
+        }
+        // Otherwise the node's region minus window-level ribbons. For the
         // root, `region` is the whole window and the intersection yields
         // the ribbon-avoiding area; for an interior cell, the window
         // ribbons fall outside the cell so the intersection is the cell.

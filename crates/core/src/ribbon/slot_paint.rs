@@ -179,12 +179,38 @@ pub(crate) fn __internal_draw_view_ribbons(
         )
     });
 
+    // Publish which edges this node's ribbons occupy, so the node's
+    // `content_rect` can shrink its body away from them (region-local
+    // avoidance, keyed by region so each cell is independent).
+    let has = |edge: RibbonEdge| ribbons.iter().any(|r| r.edge == edge);
+    let edges = [
+        has(RibbonEdge::Left),
+        has(RibbonEdge::Right),
+        has(RibbonEdge::Top),
+        has(RibbonEdge::Bottom),
+    ];
+
     ctx.data_mut(|d| {
         d.insert_temp(key("mara_view_ribbon_open"), open);
         d.insert_temp(key("mara_view_ribbon_placement"), placement);
         d.insert_temp(key("mara_view_ribbon_drag"), drag);
+        d.insert_temp::<[bool; 4]>(key("mara_view_ribbon_edges"), edges);
     });
     clicks
+}
+
+/// Which edges (`[left, right, top, bottom]`) the view ribbons at
+/// `region` occupy this frame, if any were drawn there. Used by
+/// `ViewCtx::content_rect` to inset the body away from the node's own
+/// ribbons.
+pub(crate) fn view_ribbon_edges(ctx: &Context, region: MaraRect) -> Option<[bool; 4]> {
+    ctx.data(|d| {
+        d.get_temp::<[bool; 4]>(egui::Id::new((
+            "mara_view_ribbon_edges",
+            region.min.x.to_bits(),
+            region.min.y.to_bits(),
+        )))
+    })
 }
 
 fn draw_slot_ribbons_featureful_inner(
