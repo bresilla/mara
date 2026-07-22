@@ -4,7 +4,7 @@
 //! is **UI**, not window chrome, so it lives here in `mara_core` and is
 //! identical on every host. Each host adapter — the Bevy plugin, the
 //! `mara::window`/`mara::android` runners — renders it once per frame
-//! by calling [`ShellBar::show`] and reacting to the returned
+//! by rendering it through the host facade and reacting to the returned
 //! [`ShellEvent`]s. That is what makes the bar *enforced* and
 //! *cross-platform*: there is one implementation, invoked by the host,
 //! not the app.
@@ -74,7 +74,7 @@ pub struct ShellBar {
     /// window controls.
     pub views: Vec<ShellView>,
     /// Currently active view id, highlighted in the switcher. Updated
-    /// automatically when [`ShellBar::show`] reports a
+    /// automatically when the bar render reports a
     /// [`ShellEvent::ViewSelected`].
     pub active: Option<&'static str>,
 }
@@ -124,7 +124,13 @@ impl ShellBar {
     /// eframe). The accent is read from the active theme. `active` is
     /// updated in place when a view is selected, so the host doesn't
     /// have to echo it back.
-    pub fn show(
+    ///
+    /// First-party egui hook: takes the shared `egui::Context`, so it
+    /// is hidden — apps render the bar through their host facade
+    /// (`MaraHostCtx::show_shell_bar` or the runner/plugin), never by
+    /// holding the raw backend context.
+    #[doc(hidden)]
+    pub fn __internal_show_egui(
         &mut self,
         ctx: &egui::Context,
         open: &mut RibbonOpen,
@@ -270,13 +276,13 @@ mod tests {
         let mut drag = RibbonDrag::default();
         ctx.begin_pass(egui::RawInput::default());
         let mut bar = bar;
-        let events = bar.show(&ctx, &mut open, &mut placement, &mut drag);
+        let events = bar.__internal_show_egui(&ctx, &mut open, &mut placement, &mut drag);
         let _ = ctx.end_pass();
         // No interaction in a headless pass → no events.
         assert!(events.is_empty());
     }
 
-    /// `ShellBar::show` always renders — the bar has no disable flag.
+    /// The bar render always paints — the bar has no disable flag.
     /// (The explicit per-frame opt-out lives in `crate::enforce` and is
     /// tested there.)
     #[test]
@@ -290,7 +296,7 @@ mod tests {
         let mut placement = RibbonPlacement::default();
         let mut drag = RibbonDrag::default();
         ctx.begin_pass(egui::RawInput::default());
-        let events = bar.show(&ctx, &mut open, &mut placement, &mut drag);
+        let events = bar.__internal_show_egui(&ctx, &mut open, &mut placement, &mut drag);
         let output = ctx.end_pass();
         assert!(events.is_empty());
         assert!(

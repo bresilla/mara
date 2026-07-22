@@ -2344,8 +2344,8 @@ impl DemoApp {
         // without a borrow conflict.
         let mut bar = std::mem::take(&mut self.shell);
         configure_demo_shell(&mut bar, self.root_view, self.last_fs_active);
-        let events = bar.show(
-            ctx,
+        let events = host.show_shell_bar(
+            &mut bar,
             &mut self.shell_open,
             &mut self.shell_placement,
             &mut self.shell_drag,
@@ -2475,7 +2475,7 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
     // top-level window owner.
     if bevy_view_active {
         let mut bevy_ctx = host.view_ctx(bevy_workspace, accent_col, RibbonAvoidance::all());
-        if let Some(color) = bevy_view.show(&mut bevy_ctx, host.render_state(), accent_col) {
+        if let Some(color) = bevy_view.show(&mut bevy_ctx, host.__internal_render_state(), accent_col) {
             accent.0 = color;
             host.apply_theme(*accent, *glass);
             accent_col = mara_core::style::active_accent();

@@ -45,7 +45,7 @@ impl ImageDocument {
 
 #[derive(Clone, Debug)]
 pub struct ImageSurface {
-    id: egui::Id,
+    id: mara_core::vocab::Id,
     doc: ImageDocument,
 }
 
@@ -53,7 +53,7 @@ impl ImageSurface {
     #[must_use]
     pub fn new(id: impl std::hash::Hash, doc: ImageDocument) -> Self {
         Self {
-            id: egui::Id::new(id),
+            id: mara_core::vocab::Id::new(id),
             doc,
         }
     }
@@ -105,7 +105,7 @@ impl ImageSurface {
 
 impl MaraView for ImageSurface {
     fn id(&self) -> ViewId {
-        ViewId::from(self.id)
+        ViewId(self.id)
     }
 
     fn title(&self) -> &str {
@@ -126,7 +126,7 @@ impl MaraView for ImageSurface {
         );
         vec![RibbonSlotDef::new(
             mara_core::vocab::Id::new(("image.view.ribbon", self.id)),
-            RibbonScope::View(ViewId::from(self.id)),
+            RibbonScope::View(ViewId(self.id)),
             RibbonEdge::Bottom,
             RibbonCluster::Middle,
             vec![RibbonSlot::new(
@@ -191,14 +191,7 @@ impl MaraModule for ImageSurface {
         ctx: ModuleInlineCtx<'_>,
     ) -> ModuleResponse {
         mui.label(&format!("Image: {}", self.doc.title));
-        match &self.doc.source {
-            ImageSource::Empty => {
-                mui.label("No image loaded");
-            }
-            ImageSource::Uri(uri) => {
-                mui.label(uri);
-            }
-        };
+        Self::paint_placeholder(mui, &self.doc);
         if ctx.can_enter_workspace() && mui.button("Open image workspace").clicked() {
             ModuleResponse::enter_workspace()
         } else {
@@ -208,7 +201,7 @@ impl MaraModule for ImageSurface {
 
     fn workspace(&mut self, ws: &mut WorkspaceCtx<'_>) {
         ws.add_bar(mara_core::WorkspaceBar::new(
-            egui::Id::new(("image.workspace.bar", self.id)),
+            mara_core::vocab::Id::new(("image.workspace.bar", self.id)),
             mara_core::WorkspaceBarEdge::Top,
             mara_core::WorkspaceBarCluster::Middle,
         ));

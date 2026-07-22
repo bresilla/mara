@@ -1594,7 +1594,7 @@ fn paint_widgets(
                 .expect("in_id_scope body runs exactly once");
             match spec {
                 WidgetSpec::Search(cfg) => {
-                    if let Some(ui) = backend.egui_ui_mut() {
+                    if let Some(ui) = backend.__internal_egui_ui_mut() {
                         let buf_key = pod_id.with(("mara_pod_search_buf", search_idx));
                         let mut buf: String = ui
                             .ctx()
@@ -1811,7 +1811,7 @@ fn paint_widgets(
                     drag_value_idx += 1;
                 }
                 WidgetSpec::Dropdown(cfg) => {
-                    if let Some(ui) = backend.egui_ui_mut() {
+                    if let Some(ui) = backend.__internal_egui_ui_mut() {
                         let val_key = pod_id.with(("mara_pod_dropdown_idx", dropdown_idx));
                         let mut sel: usize = ui
                             .ctx()
@@ -1926,7 +1926,7 @@ fn paint_widgets(
                     hybrid_select_idx += 1;
                 }
                 WidgetSpec::Color(cfg) => {
-                    if let Some(ui) = backend.egui_ui_mut() {
+                    if let Some(ui) = backend.__internal_egui_ui_mut() {
                         let val_key = pod_id.with(("mara_pod_color_val", color_idx));
                         let mut rgba: [f32; 4] = ui
                             .ctx()
@@ -2082,7 +2082,7 @@ fn paint_widgets(
                 }
                 WidgetSpec::Tags(cfg) => {
                     let mut clicked: Option<usize> = None;
-                    if let Some(ui) = backend.egui_ui_mut() {
+                    if let Some(ui) = backend.__internal_egui_ui_mut() {
                         ui.horizontal_wrapped(|ui| {
                             crate::backend::egui::apply_item_spacing_spec(
                                 ui,
@@ -2169,7 +2169,7 @@ fn paint_widgets(
                     module_idx += 1;
                 }
                 WidgetSpec::Custom { paint, .. } => {
-                    if let Some(ui) = backend.egui_ui_mut() {
+                    if let Some(ui) = backend.__internal_egui_ui_mut() {
                         paint(ui);
                     }
                 }

@@ -59,7 +59,7 @@ impl CanvasDocument {
 /// Simple whiteboard surface that can be routed as a View or embedded as a Module.
 #[derive(Clone, Debug)]
 pub struct CanvasSurface {
-    id: egui::Id,
+    id: mara_core::vocab::Id,
     doc: CanvasDocument,
     pen_width: f32,
 }
@@ -68,7 +68,7 @@ impl CanvasSurface {
     #[must_use]
     pub fn new(id: impl std::hash::Hash, doc: CanvasDocument) -> Self {
         Self {
-            id: egui::Id::new(id),
+            id: mara_core::vocab::Id::new(id),
             doc,
             pen_width: 2.0,
         }
@@ -205,7 +205,7 @@ impl CanvasSurface {
 
 impl MaraView for CanvasSurface {
     fn id(&self) -> ViewId {
-        ViewId::from(self.id)
+        ViewId(self.id)
     }
 
     fn title(&self) -> &str {
@@ -217,7 +217,7 @@ impl MaraView for CanvasSurface {
     }
 
     fn ribbons(&mut self) -> Vec<RibbonSlotDef> {
-        vec![self.tool_ribbon(RibbonScope::View(ViewId::from(self.id)))]
+        vec![self.tool_ribbon(RibbonScope::View(ViewId(self.id)))]
     }
 
     fn ribbon_overrides(&mut self) -> RibbonOverrideLayer {
@@ -296,17 +296,17 @@ impl MaraModule for CanvasSurface {
     fn workspace(&mut self, ws: &mut WorkspaceCtx<'_>) {
         ws.add_bar(
             WorkspaceBar::new(
-                egui::Id::new(("canvas.workspace.bar", self.id)),
+                mara_core::vocab::Id::new(("canvas.workspace.bar", self.id)),
                 WorkspaceBarEdge::Top,
                 WorkspaceBarCluster::Middle,
             )
             .with_item(WorkspaceBarItem::command(
-                egui::Id::new(("canvas.workspace.pen", self.id)),
+                mara_core::vocab::Id::new(("canvas.workspace.pen", self.id)),
                 "Pen",
                 Some("pen"),
             ))
             .with_item(WorkspaceBarItem::command(
-                egui::Id::new(("canvas.workspace.clear", self.id)),
+                mara_core::vocab::Id::new(("canvas.workspace.clear", self.id)),
                 "Clear",
                 Some("dismiss"),
             )),

@@ -62,6 +62,7 @@ use crate::style::{
     WidgetTheme,
     WindowChromeTheme,
 };
+use crate::vocab::Color32 as MaraColor32;
 
 /// GAME Light surface palette — bright accent-tinted surfaces, dark
 /// text. Text colours flow through the shared `TEXT_*_LIGHT`
@@ -104,29 +105,29 @@ pub fn theme_game(mode: Mode) -> Theme {
         is_light: !dark,
         palette: PaletteTheme {
             bg_window: if dark {
-                egui::Color32::from_rgb(0x08, 0x0A, 0x12)
+                MaraColor32::from_rgb(0x08, 0x0A, 0x12)
             } else {
-                GAME_LIGHT_BG_WINDOW.into()
+                GAME_LIGHT_BG_WINDOW
             },
             bg_panel: if dark {
-                egui::Color32::from_rgb(0x10, 0x14, 0x1F)
+                MaraColor32::from_rgb(0x10, 0x14, 0x1F)
             } else {
-                GAME_LIGHT_BG_PANEL.into()
+                GAME_LIGHT_BG_PANEL
             },
             bg_raised: if dark {
-                egui::Color32::from_rgb(0x16, 0x1B, 0x29)
+                MaraColor32::from_rgb(0x16, 0x1B, 0x29)
             } else {
-                GAME_LIGHT_BG_RAISED.into()
+                GAME_LIGHT_BG_RAISED
             },
             bg_hover: if dark {
-                egui::Color32::from_rgb(0x1F, 0x26, 0x38)
+                MaraColor32::from_rgb(0x1F, 0x26, 0x38)
             } else {
-                GAME_LIGHT_BG_HOVER.into()
+                GAME_LIGHT_BG_HOVER
             },
             bg_input: if dark {
-                egui::Color32::from_rgb(0x06, 0x08, 0x0E)
+                MaraColor32::from_rgb(0x06, 0x08, 0x0E)
             } else {
-                GAME_LIGHT_BG_INPUT.into()
+                GAME_LIGHT_BG_INPUT
             },
             text_primary: (if dark {
                 TEXT_PRIMARY
@@ -147,11 +148,11 @@ pub fn theme_game(mode: Mode) -> Theme {
             })
             .into(),
             border_subtle: if dark {
-                egui::Color32::from_rgb(0x80, 0x80, 0x80)
+                MaraColor32::from_rgb(0x80, 0x80, 0x80)
             } else {
-                egui::Color32::from_rgb(0x6B, 0x70, 0x78)
+                MaraColor32::from_rgb(0x6B, 0x70, 0x78)
             },
-            border_inner: egui::Color32::from_rgb(0x1F, 0x26, 0x38),
+            border_inner: MaraColor32::from_rgb(0x1F, 0x26, 0x38),
         },
         stroke: StrokeTheme {
             border_alpha: if dark { 35 } else { 0 },
@@ -236,29 +237,29 @@ pub fn theme_game(mode: Mode) -> Theme {
             inline_workspace_button_label: "Open workspace",
         },
         bg_window: if dark {
-            egui::Color32::from_rgb(0x08, 0x0A, 0x12)
+            MaraColor32::from_rgb(0x08, 0x0A, 0x12)
         } else {
-            GAME_LIGHT_BG_WINDOW.into()
+            GAME_LIGHT_BG_WINDOW
         },
         bg_panel: if dark {
-            egui::Color32::from_rgb(0x10, 0x14, 0x1F)
+            MaraColor32::from_rgb(0x10, 0x14, 0x1F)
         } else {
-            GAME_LIGHT_BG_PANEL.into()
+            GAME_LIGHT_BG_PANEL
         },
         bg_raised: if dark {
-            egui::Color32::from_rgb(0x16, 0x1B, 0x29)
+            MaraColor32::from_rgb(0x16, 0x1B, 0x29)
         } else {
-            GAME_LIGHT_BG_RAISED.into()
+            GAME_LIGHT_BG_RAISED
         },
         bg_hover: if dark {
-            egui::Color32::from_rgb(0x1F, 0x26, 0x38)
+            MaraColor32::from_rgb(0x1F, 0x26, 0x38)
         } else {
-            GAME_LIGHT_BG_HOVER.into()
+            GAME_LIGHT_BG_HOVER
         },
         bg_input: if dark {
-            egui::Color32::from_rgb(0x06, 0x08, 0x0E)
+            MaraColor32::from_rgb(0x06, 0x08, 0x0E)
         } else {
-            GAME_LIGHT_BG_INPUT.into()
+            GAME_LIGHT_BG_INPUT
         },
         panel_fill_mode: ColorMode::FromAccent {
             lerp_factor,
@@ -576,11 +577,11 @@ pub fn theme_game(mode: Mode) -> Theme {
             body_inner_end_pad: 12.0,
         },
         border_subtle: if dark {
-            egui::Color32::from_rgb(0x80, 0x80, 0x80)
+            MaraColor32::from_rgb(0x80, 0x80, 0x80)
         } else {
-            egui::Color32::from_rgb(0x6B, 0x70, 0x78)
+            MaraColor32::from_rgb(0x6B, 0x70, 0x78)
         },
-        border_inner: egui::Color32::from_rgb(0x1F, 0x26, 0x38),
+        border_inner: MaraColor32::from_rgb(0x1F, 0x26, 0x38),
         border_alpha: if dark { 35 } else { 0 },
         border_accent_tint: 0.0,
         border_width: if dark { 0.63 } else { 0.0 },

@@ -3647,7 +3647,6 @@ dependencies = [
 name = "mara_canvas"
 version = "0.4.1"
 dependencies = [
- "egui",
  "mara_core",
 ]
 
@@ -3708,7 +3707,6 @@ dependencies = [
 name = "mara_image"
 version = "0.4.1"
 dependencies = [
- "egui",
  "mara_core",
 ]
 

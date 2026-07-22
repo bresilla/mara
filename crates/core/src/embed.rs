@@ -6,7 +6,7 @@
 //! module provides exactly that, in a widget-agnostic form:
 //!
 //! ```ignore
-//! maximizable(ui, "my_widget", accent, mara::ui::vocab::Vec2::new(w, 300.0), |ui| {
+//! __internal_maximizable_egui(ui, "my_widget", accent, mara::ui::vocab::Vec2::new(w, 300.0), |ui| {
 //!     // Render your widget into this inner `ui` — it's either
 //!     // the inline rect the caller wanted, or a full-window
 //!     // overlay depending on the maximise state.
@@ -99,7 +99,7 @@ impl OverlayOpts {
     }
 }
 
-/// The egui data key that [`maximizable`] uses to store the
+/// The egui data key that [`__internal_maximizable_egui`] uses to store the
 /// maximise-flag for a given `id_salt`. Exposed so callers can do
 /// context-sensitive routing without poking inside the widget.
 pub fn maximize_state_key(id_salt: impl std::hash::Hash) -> MaraId {
@@ -208,21 +208,27 @@ pub fn __internal_restore_fullscreen(ctx: &egui::Context) -> bool {
 /// Call once per frame with the same `id_salt`. `min_size` is the
 /// rect the body renders into while inline; when maximised the
 /// body fills the host content rect instead.
-pub fn maximizable(
+///
+/// First-party egui hook: takes and yields a raw `egui::Ui`, so it is
+/// hidden — sealed consumers reach maximise behaviour through the
+/// widgets that embed it (graph/code extras), never directly.
+#[doc(hidden)]
+pub fn __internal_maximizable_egui(
     ui: &mut egui::Ui,
     id_salt: impl Hash + Copy,
     accent: impl Into<MaraColor32>,
     min_size: impl Into<MaraVec2>,
     body: impl FnOnce(&mut egui::Ui),
 ) {
-    maximizable_with_opts(ui, id_salt, accent, min_size, OverlayOpts::default(), body)
+    __internal_maximizable_with_opts_egui(ui, id_salt, accent, min_size, OverlayOpts::default(), body)
 }
 
-/// Same as [`maximizable`] but accepts [`OverlayOpts`] to control
+/// Same as [`__internal_maximizable_egui`] but accepts [`OverlayOpts`] to control
 /// where the minimize button lands on the fullscreen overlay. Use
 /// this when you want a non-default position — e.g. minimize on
 /// the bottom-left corner instead of the top-right.
-pub fn maximizable_with_opts(
+#[doc(hidden)]
+pub fn __internal_maximizable_with_opts_egui(
     ui: &mut egui::Ui,
     id_salt: impl Hash + Copy,
     accent: impl Into<MaraColor32>,

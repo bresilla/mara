@@ -96,7 +96,7 @@ pub fn mara_code_editor_with_opts(
     let accent = accent.into();
     let min_size = min_size.into();
     let accent_egui = crate::backend::egui::color32_for_backend(accent);
-    crate::embed::maximizable_with_opts(ui, id_salt, accent, min_size, fs_opts, |ui| {
+    crate::embed::__internal_maximizable_with_opts_egui(ui, id_salt, accent, min_size, fs_opts, |ui| {
         let id = format!("mara_code_editor_{:?}", ui.id());
         let code = crate::style::theme().code;
         let line_h = code.font_size * code.line_height_factor;
@@ -146,13 +146,13 @@ fn mara_code_theme(accent: egui::Color32) -> ColorTheme {
         // pane fill, so they stay readable on PRO's dark and GAME's
         // accent-coloured panels alike.
         comments: on_panel_dim().into(),
-        functions: code.functions,
+        functions: code.functions.into(),
         keywords: accent,
-        literals: code.literals,
-        numerics: code.numerics,
+        literals: code.literals.into(),
+        numerics: code.numerics.into(),
         punctuation: on_panel_dim().into(),
-        strs: code.strings,
-        types: code.types,
+        strs: code.strings.into(),
+        types: code.types.into(),
         special: accent,
     }
 }

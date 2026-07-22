@@ -362,7 +362,7 @@ pub fn mara_node_graph_with_opts<T, V: NodeViewer<T>>(
     // target size so the secondary egui context renders at the
     // exact pixel dimensions of whichever surface owns the pane
     // this frame.
-    crate::embed::maximizable_with_opts(
+    crate::embed::__internal_maximizable_with_opts_egui(
         ui,
         id_for_graph_base,
         accent,

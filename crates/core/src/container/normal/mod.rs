@@ -1877,7 +1877,7 @@ fn paint_folder_tabs(
         Color32::WHITE
     };
     let inactive_base = match theme.tabs.inactive_glyph_color {
-        style::TabInactiveGlyphColor::TextSecondary => theme.text_secondary,
+        style::TabInactiveGlyphColor::TextSecondary => theme.text_secondary.into(),
         style::TabInactiveGlyphColor::HighContrast => game_glyph_col,
     };
     // Inactive cells paint their icon at REDUCED alpha across all

@@ -727,7 +727,7 @@ pub fn __internal_apply_theme_to(
     visuals.extreme_bg_color = track_fill(accent_col).into();
     visuals.faint_bg_color = glass_card.into();
     visuals.code_bg_color = glass_card.into();
-    visuals.override_text_color = Some(th.palette.text_primary);
+    visuals.override_text_color = Some(th.palette.text_primary.into());
     // Force the gamma-correct (linear) coverage→alpha curve for text in
     // both modes. egui's dark-mode default is `TwoCoverageMinusCoverageSq`,
     // which deliberately fattens glyph edges to make light text on dark
@@ -764,20 +764,24 @@ pub fn __internal_apply_theme_to(
     let glass_input = glass_fill(input_bg, accent_col, glass_alpha_card());
     visuals.widgets.noninteractive = widget(
         glass_panel.into(),
-        th.palette.text_secondary,
+        th.palette.text_secondary.into(),
         unified_border,
     );
-    visuals.widgets.inactive = widget(glass_input.into(), th.palette.text_primary, unified_border);
+    visuals.widgets.inactive = widget(
+        glass_input.into(),
+        th.palette.text_primary.into(),
+        unified_border,
+    );
     visuals.widgets.hovered = widget(
         glass_hover.into(),
-        th.palette.text_primary,
-        th.palette.border_inner,
+        th.palette.text_primary.into(),
+        th.palette.border_inner.into(),
     );
-    visuals.widgets.active = widget(accent_col, th.palette.text_primary, accent_col);
+    visuals.widgets.active = widget(accent_col, th.palette.text_primary.into(), accent_col);
     visuals.widgets.open = widget(
         glass_hover.into(),
-        th.palette.text_primary,
-        th.palette.border_inner,
+        th.palette.text_primary.into(),
+        th.palette.border_inner.into(),
     );
 
     let mut style = (*ctx.global_style()).clone();
@@ -1832,16 +1836,16 @@ pub struct IconTheme {
 
 #[derive(Copy, Clone, Debug)]
 pub struct PaletteTheme {
-    pub bg_window: egui::Color32,
-    pub bg_panel: egui::Color32,
-    pub bg_raised: egui::Color32,
-    pub bg_hover: egui::Color32,
-    pub bg_input: egui::Color32,
-    pub text_primary: egui::Color32,
-    pub text_secondary: egui::Color32,
-    pub text_disabled: egui::Color32,
-    pub border_subtle: egui::Color32,
-    pub border_inner: egui::Color32,
+    pub bg_window: MaraColor32,
+    pub bg_panel: MaraColor32,
+    pub bg_raised: MaraColor32,
+    pub bg_hover: MaraColor32,
+    pub bg_input: MaraColor32,
+    pub text_primary: MaraColor32,
+    pub text_secondary: MaraColor32,
+    pub text_disabled: MaraColor32,
+    pub border_subtle: MaraColor32,
+    pub border_inner: MaraColor32,
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -1918,11 +1922,11 @@ pub struct CodeTheme {
     pub line_height_factor: f32,
     pub min_rows: usize,
     pub force_dark: bool,
-    pub functions: egui::Color32,
-    pub literals: egui::Color32,
-    pub numerics: egui::Color32,
-    pub strings: egui::Color32,
-    pub types: egui::Color32,
+    pub functions: MaraColor32,
+    pub literals: MaraColor32,
+    pub numerics: MaraColor32,
+    pub strings: MaraColor32,
+    pub types: MaraColor32,
 }
 
 /// Theme-owned fullscreen/maximize overlay chrome.
@@ -1976,11 +1980,11 @@ pub struct Theme {
     pub modules: ModuleTheme,
 
     // ── Surfaces — palette ──
-    pub bg_window: egui::Color32,
-    pub bg_panel: egui::Color32,
-    pub bg_raised: egui::Color32,
-    pub bg_hover: egui::Color32,
-    pub bg_input: egui::Color32,
+    pub bg_window: MaraColor32,
+    pub bg_panel: MaraColor32,
+    pub bg_raised: MaraColor32,
+    pub bg_hover: MaraColor32,
+    pub bg_input: MaraColor32,
 
     // ── Surfaces — fill mode ──
     /// How [`pane_fill`] resolves. PRO uses `FromBg` (dark panel);
@@ -2081,9 +2085,9 @@ pub struct Theme {
     pub pane_fade_scale: f32,
 
     // ── Text ──
-    pub text_primary: egui::Color32,
-    pub text_secondary: egui::Color32,
-    pub text_disabled: egui::Color32,
+    pub text_primary: MaraColor32,
+    pub text_secondary: MaraColor32,
+    pub text_disabled: MaraColor32,
     /// How the section / pane title colour is resolved.
     pub title_color_mode: TextColorMode,
     /// Lerp fraction toward the title's surface applied AFTER
@@ -2234,9 +2238,9 @@ pub struct Theme {
 
     // ── Borders / strokes ──
     /// Base border colour (before the accent tint blend).
-    pub border_subtle: egui::Color32,
+    pub border_subtle: MaraColor32,
     /// Inner-frame stroke colour for hover / active states.
-    pub border_inner: egui::Color32,
+    pub border_inner: MaraColor32,
     /// Alpha applied to [`widget_border`] strokes.
     pub border_alpha: u8,
     /// Fraction of the accent colour blended into [`widget_border`].
@@ -2856,7 +2860,7 @@ fn resolve_color(mode: ColorMode, fallback: egui::Color32, accent: egui::Color32
 pub fn pane_fill(accent: impl Into<MaraColor32>) -> MaraColor32 {
     let accent: egui::Color32 = accent.into().into();
     let th = theme();
-    resolve_color(th.panel_fill_mode, th.bg_panel, accent).into()
+    resolve_color(th.panel_fill_mode, th.bg_panel.into(), accent).into()
 }
 
 /// The opaque base fill colour for a section card. Only consulted
@@ -2866,7 +2870,7 @@ pub fn pane_fill(accent: impl Into<MaraColor32>) -> MaraColor32 {
 pub fn section_fill(accent: impl Into<MaraColor32>) -> MaraColor32 {
     let accent: egui::Color32 = accent.into().into();
     let th = theme();
-    resolve_color(th.container.fill_mode, th.bg_raised, accent).into()
+    resolve_color(th.container.fill_mode, th.bg_raised.into(), accent).into()
 }
 
 /// Resolve the active theme's title colour against the runtime
@@ -2886,8 +2890,8 @@ pub fn section_title_color(accent: impl Into<MaraColor32>) -> MaraColor32 {
         // with the user's raw accent. Trust the user; if they pick
         // a low-contrast accent they accept the visual.
         TextColorMode::Accent => (title_accent, pane_fill(accent).into()),
-        TextColorMode::Primary => (th.palette.text_primary, pane_fill(accent).into()),
-        TextColorMode::Secondary => (th.palette.text_secondary, pane_fill(accent).into()),
+        TextColorMode::Primary => (th.palette.text_primary.into(), pane_fill(accent).into()),
+        TextColorMode::Secondary => (th.palette.text_secondary.into(), pane_fill(accent).into()),
         TextColorMode::ContrastWithPanel => {
             let surface: egui::Color32 = pane_fill(accent).into();
             (contrast_text_for(surface).into(), surface)
@@ -3327,7 +3331,7 @@ pub fn subsection_fill(accent: impl Into<MaraColor32>) -> MaraColor32 {
             let base = lerp_rgb(lerp_target, accent, lerp_factor);
             lerp_rgb(base, raise_target(lerp_target), 0.06)
         }
-        ColorMode::FromBg => th.bg_hover,
+        ColorMode::FromBg => th.bg_hover.into(),
     };
     out.into()
 }
@@ -3404,7 +3408,7 @@ pub fn track_fill(accent: impl Into<MaraColor32>) -> MaraColor32 {
             let panel_color = lerp_rgb(lerp_target, accent, lerp_factor);
             lerp_rgb(panel_color, raise_target(lerp_target), 0.10)
         }
-        ColorMode::FromBg => th.bg_input,
+        ColorMode::FromBg => th.bg_input.into(),
     };
     out.into()
 }
@@ -3430,7 +3434,7 @@ pub fn popup_fill(accent: impl Into<MaraColor32>) -> MaraColor32 {
             let panel_color = lerp_rgb(lerp_target, accent, lerp_factor);
             lerp_rgb(panel_color, raise_target(lerp_target), 0.18)
         }
-        ColorMode::FromBg => th.bg_raised,
+        ColorMode::FromBg => th.bg_raised.into(),
     };
     out.into()
 }

@@ -775,13 +775,18 @@ pub trait UiBackend {
     /// downcast can't reach `EguiUiBackend`, which is not `'static`.
     /// Tracked by the coupling ratchet's `ui_escapes` metric. Returns
     /// `None` by default so non-egui backends need not implement it.
-    fn egui_ui_mut(&mut self) -> Option<&mut egui::Ui> {
+    /// First-party hook — hidden and `__internal_` like every other
+    /// seal escape; consumer code must never reach a raw `egui::Ui`.
+    #[doc(hidden)]
+    fn __internal_egui_ui_mut(&mut self) -> Option<&mut egui::Ui> {
         None
     }
 
     /// Shared reference to the concrete `egui::Ui`, if this is the egui
-    /// backend. See [`UiBackend::egui_ui_mut`].
-    fn egui_ui_ref(&self) -> Option<&egui::Ui> {
+    /// backend. See [`UiBackend::__internal_egui_ui_mut`]. First-party
+    /// hook — hidden like every other seal escape.
+    #[doc(hidden)]
+    fn __internal_egui_ui_ref(&self) -> Option<&egui::Ui> {
         None
     }
 
@@ -908,11 +913,11 @@ impl<T: UiBackend + ?Sized> UiBackend for &mut T {
     fn is_rect_visible(&self, rect: Rect) -> bool {
         (**self).is_rect_visible(rect)
     }
-    fn egui_ui_mut(&mut self) -> Option<&mut egui::Ui> {
-        (**self).egui_ui_mut()
+    fn __internal_egui_ui_mut(&mut self) -> Option<&mut egui::Ui> {
+        (**self).__internal_egui_ui_mut()
     }
-    fn egui_ui_ref(&self) -> Option<&egui::Ui> {
-        (**self).egui_ui_ref()
+    fn __internal_egui_ui_ref(&self) -> Option<&egui::Ui> {
+        (**self).__internal_egui_ui_ref()
     }
     fn in_child(&mut self, id: Id, inset_left: f32, body: &mut dyn FnMut(&mut dyn UiBackend)) {
         (**self).in_child(id, inset_left, body)

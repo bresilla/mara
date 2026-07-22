@@ -709,16 +709,16 @@ impl crate::layout::UiBackend for MaraBackend<'_> {
             Self::Recording(b) => b.is_rect_visible(rect),
         }
     }
-    fn egui_ui_mut(&mut self) -> Option<&mut egui::Ui> {
+    fn __internal_egui_ui_mut(&mut self) -> Option<&mut egui::Ui> {
         match self {
-            Self::Egui(b) => b.egui_ui_mut(),
-            Self::Recording(b) => b.egui_ui_mut(),
+            Self::Egui(b) => b.__internal_egui_ui_mut(),
+            Self::Recording(b) => b.__internal_egui_ui_mut(),
         }
     }
-    fn egui_ui_ref(&self) -> Option<&egui::Ui> {
+    fn __internal_egui_ui_ref(&self) -> Option<&egui::Ui> {
         match self {
-            Self::Egui(b) => b.egui_ui_ref(),
-            Self::Recording(b) => b.egui_ui_ref(),
+            Self::Egui(b) => b.__internal_egui_ui_ref(),
+            Self::Recording(b) => b.__internal_egui_ui_ref(),
         }
     }
     fn in_child(
@@ -820,7 +820,7 @@ pub struct MaraUi<'a> {
     /// reference so nested/child regions can lend a scoped view of the
     /// same backend (PLAN.md Phase 4 / ADR 0002). Operations not yet
     /// promoted to the contract reach egui through
-    /// [`crate::layout::UiBackend::egui_ui_mut`] (tracked by the
+    /// [`crate::layout::UiBackend::__internal_egui_ui_mut`] (tracked by the
     /// coupling ratchet).
     pub(crate) backend: &'a mut dyn UiBackend,
     accent: vocab::Color32,
@@ -844,7 +844,7 @@ impl<'a> MaraUi<'a> {
     /// escape.
     pub(crate) fn egui_ui(&mut self) -> &mut egui::Ui {
         self.backend
-            .egui_ui_mut()
+            .__internal_egui_ui_mut()
             .expect("this MaraUi operation requires the egui backend")
     }
 

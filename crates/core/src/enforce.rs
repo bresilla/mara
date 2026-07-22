@@ -238,9 +238,12 @@ pub fn __internal_enforce_defaults(ctx: &egui::Context) {
     let mut state = ctx
         .data(|d| d.get_temp::<FallbackShell>(fallback_state_key()))
         .unwrap_or_default();
-    let _ = state
-        .bar
-        .show(ctx, &mut state.open, &mut state.placement, &mut state.drag);
+    let _ = state.bar.__internal_show_egui(
+        ctx,
+        &mut state.open,
+        &mut state.placement,
+        &mut state.drag,
+    );
     {
         let mut memory = crate::memory::MaraMemoryCtx::new(ctx);
         memory.set_temp(fallback_state_key(), state);
@@ -316,7 +319,7 @@ mod tests {
             run_pass(&ctx, || {
                 // Content first, bar last — the common host pattern.
                 __internal_enforce_defaults(&ctx);
-                let _ = bar.show(&ctx, &mut open, &mut placement, &mut drag);
+                let _ = bar.__internal_show_egui(&ctx, &mut open, &mut placement, &mut drag);
             });
         }
         assert!(
@@ -367,7 +370,7 @@ mod tests {
         for _ in 0..2 {
             run_pass(&ctx, || {
                 __internal_enforce_defaults(&ctx);
-                let _ = bar.show(&ctx, &mut open, &mut placement, &mut drag);
+                let _ = bar.__internal_show_egui(&ctx, &mut open, &mut placement, &mut drag);
             });
         }
         // App goes silent; hysteresis covers one pass, then Mara draws.

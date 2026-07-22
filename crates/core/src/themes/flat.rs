@@ -13,18 +13,19 @@ use crate::style::{
     TabTheme, TextColorMode, TextTheme, Theme, ThemeId, ToggleTheme, TreeTheme, ViewSwitcherLayout,
     ViewTheme, WidgetTheme, WindowChromeTheme,
 };
+use crate::vocab::Color32 as MaraColor32;
 
-pub(crate) const FLAT_DARK_BG_WINDOW: egui::Color32 = egui::Color32::from_rgb(0x00, 0x00, 0x00);
-pub(crate) const FLAT_DARK_BG_PANEL: egui::Color32 = egui::Color32::from_rgb(0x10, 0x10, 0x10);
-pub(crate) const FLAT_DARK_BG_RAISED: egui::Color32 = egui::Color32::from_rgb(0x1C, 0x1C, 0x1C);
-pub(crate) const FLAT_DARK_BG_HOVER: egui::Color32 = egui::Color32::from_rgb(0x28, 0x28, 0x28);
-pub(crate) const FLAT_DARK_BG_INPUT: egui::Color32 = egui::Color32::from_rgb(0x08, 0x08, 0x08);
+pub(crate) const FLAT_DARK_BG_WINDOW: MaraColor32 = MaraColor32::from_rgb(0x00, 0x00, 0x00);
+pub(crate) const FLAT_DARK_BG_PANEL: MaraColor32 = MaraColor32::from_rgb(0x10, 0x10, 0x10);
+pub(crate) const FLAT_DARK_BG_RAISED: MaraColor32 = MaraColor32::from_rgb(0x1C, 0x1C, 0x1C);
+pub(crate) const FLAT_DARK_BG_HOVER: MaraColor32 = MaraColor32::from_rgb(0x28, 0x28, 0x28);
+pub(crate) const FLAT_DARK_BG_INPUT: MaraColor32 = MaraColor32::from_rgb(0x08, 0x08, 0x08);
 
-pub(crate) const FLAT_LIGHT_BG_WINDOW: egui::Color32 = egui::Color32::from_rgb(0xF8, 0xF8, 0xF8);
-pub(crate) const FLAT_LIGHT_BG_PANEL: egui::Color32 = egui::Color32::from_rgb(0xFF, 0xFF, 0xFF);
-pub(crate) const FLAT_LIGHT_BG_RAISED: egui::Color32 = egui::Color32::from_rgb(0xEB, 0xEB, 0xEB);
-pub(crate) const FLAT_LIGHT_BG_HOVER: egui::Color32 = egui::Color32::from_rgb(0xDD, 0xDD, 0xDD);
-pub(crate) const FLAT_LIGHT_BG_INPUT: egui::Color32 = egui::Color32::from_rgb(0xF2, 0xF2, 0xF2);
+pub(crate) const FLAT_LIGHT_BG_WINDOW: MaraColor32 = MaraColor32::from_rgb(0xF8, 0xF8, 0xF8);
+pub(crate) const FLAT_LIGHT_BG_PANEL: MaraColor32 = MaraColor32::from_rgb(0xFF, 0xFF, 0xFF);
+pub(crate) const FLAT_LIGHT_BG_RAISED: MaraColor32 = MaraColor32::from_rgb(0xEB, 0xEB, 0xEB);
+pub(crate) const FLAT_LIGHT_BG_HOVER: MaraColor32 = MaraColor32::from_rgb(0xDD, 0xDD, 0xDD);
+pub(crate) const FLAT_LIGHT_BG_INPUT: MaraColor32 = MaraColor32::from_rgb(0xF2, 0xF2, 0xF2);
 
 pub const fn theme_flat(mode: Mode) -> Theme {
     let dark = matches!(mode, Mode::Dark);
@@ -54,24 +55,24 @@ pub const fn theme_flat(mode: Mode) -> Theme {
         FLAT_LIGHT_BG_INPUT
     };
     let text_primary = if dark {
-        egui::Color32::WHITE
+        MaraColor32::WHITE
     } else {
-        egui::Color32::BLACK
+        MaraColor32::BLACK
     };
     let text_secondary = if dark {
-        egui::Color32::from_rgb(0xC8, 0xC8, 0xC8)
+        MaraColor32::from_rgb(0xC8, 0xC8, 0xC8)
     } else {
-        egui::Color32::from_rgb(0x30, 0x30, 0x30)
+        MaraColor32::from_rgb(0x30, 0x30, 0x30)
     };
     let text_disabled = if dark {
-        egui::Color32::from_rgb(0x70, 0x70, 0x70)
+        MaraColor32::from_rgb(0x70, 0x70, 0x70)
     } else {
-        egui::Color32::from_rgb(0x90, 0x90, 0x90)
+        MaraColor32::from_rgb(0x90, 0x90, 0x90)
     };
     let border = if dark {
-        egui::Color32::from_rgb(0xE0, 0xE0, 0xE0)
+        MaraColor32::from_rgb(0xE0, 0xE0, 0xE0)
     } else {
-        egui::Color32::from_rgb(0x20, 0x20, 0x20)
+        MaraColor32::from_rgb(0x20, 0x20, 0x20)
     };
 
     Theme {
@@ -147,29 +148,29 @@ pub const fn theme_flat(mode: Mode) -> Theme {
             min_rows: 6,
             force_dark: false,
             functions: if dark {
-                egui::Color32::from_rgb(0x7F, 0xFF, 0x7F)
+                MaraColor32::from_rgb(0x7F, 0xFF, 0x7F)
             } else {
-                egui::Color32::from_rgb(0x00, 0x70, 0x00)
+                MaraColor32::from_rgb(0x00, 0x70, 0x00)
             },
             literals: if dark {
-                egui::Color32::from_rgb(0xFF, 0x7F, 0x7F)
+                MaraColor32::from_rgb(0xFF, 0x7F, 0x7F)
             } else {
-                egui::Color32::from_rgb(0xA0, 0x00, 0x00)
+                MaraColor32::from_rgb(0xA0, 0x00, 0x00)
             },
             numerics: if dark {
-                egui::Color32::from_rgb(0xFF, 0x7F, 0x7F)
+                MaraColor32::from_rgb(0xFF, 0x7F, 0x7F)
             } else {
-                egui::Color32::from_rgb(0xA0, 0x00, 0x00)
+                MaraColor32::from_rgb(0xA0, 0x00, 0x00)
             },
             strings: if dark {
-                egui::Color32::from_rgb(0xFF, 0xFF, 0x7F)
+                MaraColor32::from_rgb(0xFF, 0xFF, 0x7F)
             } else {
-                egui::Color32::from_rgb(0x80, 0x70, 0x00)
+                MaraColor32::from_rgb(0x80, 0x70, 0x00)
             },
             types: if dark {
-                egui::Color32::from_rgb(0x7F, 0xD0, 0xFF)
+                MaraColor32::from_rgb(0x7F, 0xD0, 0xFF)
             } else {
-                egui::Color32::from_rgb(0x00, 0x50, 0xA0)
+                MaraColor32::from_rgb(0x00, 0x50, 0xA0)
             },
         },
         overlay: OverlayTheme {

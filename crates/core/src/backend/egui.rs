@@ -220,11 +220,11 @@ impl UiBackend for EguiUiBackend<'_> {
         self.ui.is_rect_visible(rect.into())
     }
 
-    fn egui_ui_mut(&mut self) -> Option<&mut egui::Ui> {
+    fn __internal_egui_ui_mut(&mut self) -> Option<&mut egui::Ui> {
         Some(self.ui)
     }
 
-    fn egui_ui_ref(&self) -> Option<&egui::Ui> {
+    fn __internal_egui_ui_ref(&self) -> Option<&egui::Ui> {
         Some(self.ui)
     }
 

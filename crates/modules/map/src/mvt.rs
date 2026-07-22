@@ -948,7 +948,7 @@ impl MapPalette {
         let accent: egui::Color32 = mara_core::style::active_accent().into();
         if theme.is_light {
             Self {
-                background: theme.palette.bg_window,
+                background: theme.palette.bg_window.into(),
                 land_default: tint(rgba(0xc9, 0xda, 0xb2, 150), accent, 0.055),
                 forest: tint(rgb(0xb7, 0xd2, 0xa3), accent, 0.055),
                 grass: tint(rgb(0xc9, 0xe1, 0xb5), accent, 0.055),
@@ -989,7 +989,7 @@ impl MapPalette {
             }
         } else {
             Self {
-                background: theme.palette.bg_window,
+                background: theme.palette.bg_window.into(),
                 land_default: dark_style(rgba(0x18, 0x1f, 0x23, 238), accent, 0.05),
                 forest: dark_style(rgb(0x20, 0x30, 0x28), accent, 0.24),
                 grass: dark_style(rgb(0x27, 0x35, 0x2b), accent, 0.28),

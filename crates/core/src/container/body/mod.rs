@@ -83,7 +83,7 @@ impl Body {
     /// regardless — the body's main axis is always Y because we
     /// force `top_down`. `max_flow` is still available for callers
     /// that need to bound the body's perpendicular extent.
-    pub fn paint<R>(&self, ui: &mut Ui, body: impl FnOnce(&mut Ui) -> R) -> (R, f32) {
+    pub(crate) fn paint<R>(&self, ui: &mut Ui, body: impl FnOnce(&mut Ui) -> R) -> (R, f32) {
         crate::backend::egui::show_container_body_slot(
             ui,
             ContainerBodySpec::new(

@@ -243,8 +243,27 @@ impl<'a> MaraHostCtx<'a> {
         self.egui
     }
 
-    pub fn render_state(&self) -> Option<&'a egui_wgpu::RenderState> {
+    /// Internal first-party accessor — exposes the raw egui-wgpu render
+    /// state, so it is hidden and not semver-stable. Sealed consumers
+    /// get GPU wiring through the published context state
+    /// (`view_ctx` publishes the target format) instead.
+    #[doc(hidden)]
+    pub fn __internal_render_state(&self) -> Option<&'a egui_wgpu::RenderState> {
         self.render_state
+    }
+
+    /// Render the enforced shell top bar and return its events — the
+    /// sealed path for hosts without a runner/plugin doing it for them
+    /// (e.g. plain eframe/web shells). Wraps the bar's internal egui
+    /// hook so the app never holds the backend context itself.
+    pub fn show_shell_bar(
+        &self,
+        bar: &mut mara_core::ShellBar,
+        open: &mut mara_core::RibbonOpen,
+        placement: &mut mara_core::RibbonPlacement,
+        drag: &mut mara_core::RibbonDrag,
+    ) -> Vec<mara_core::ShellEvent> {
+        bar.__internal_show_egui(self.egui, open, placement, drag)
     }
 
     pub fn window(&self) -> MaraWindowHost {

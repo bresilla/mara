@@ -353,7 +353,7 @@ impl<A: WindowApp> NativeWinitApp<A> {
                 return;
             }
             app.configure_shell(shell);
-            for event in shell.show(ctx, shell_open, shell_placement, shell_drag) {
+            for event in shell.__internal_show_egui(ctx, shell_open, shell_placement, shell_drag) {
                 match event {
                     ShellEvent::CloseRequested => {
                         ctx.send_viewport_cmd(ViewportCommand::Close);
@@ -414,7 +414,7 @@ impl<A: WindowApp> NativeWinitApp<A> {
         // bar). Drive it from the active theme so it tracks light/dark
         // instead of being a fixed dark color.
         let clear_color = {
-            let bg: egui::Color32 = mara_core::style::theme().palette.bg_window;
+            let bg: egui::Color32 = mara_core::style::theme().palette.bg_window.into();
             egui::Rgba::from(bg).to_array()
         };
         painter.paint_and_update_textures(
