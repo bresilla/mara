@@ -52,29 +52,29 @@ bevy = { version = "0.19", default-features = false }
 # `mara_core` — UI core (panes, ribbons, containers, pods, widgets,
 # theme, embed mechanism). Package id is `mara_core`, which avoids
 # shadowing Rust's std `core` in derive expansions.
-mara_core = { path = "crates/core", version = "0.3.0" }
+mara_core = { path = "crates/core" }
 # `mara_graph` — standalone vendored node-graph crate (forked from
 # `egui-snarl`, see `crates/modules/graph/ACKNOWLEDGEMENTS.md`
 # for upstream attribution). Usable in any egui app; ships
 # sensible defaults, no mara-theming dep.
-mara_graph = { path = "crates/modules/graph", version = "0.3.0" }
+mara_graph = { path = "crates/modules/graph" }
 # `mara_code` — standalone vendored egui_code_editor. Usable in
 # any egui app; ships sensible defaults, no mara-theming dep.
-mara_code = { path = "crates/modules/code", version = "0.3.0" }
+mara_code = { path = "crates/modules/code" }
 # `mara_image` — lightweight image viewer/editor proof module for
 # the new View + Module architecture.
-mara_image = { path = "crates/modules/image", version = "0.3.0" }
+mara_image = { path = "crates/modules/image" }
 # `mara_canvas` — retained-stroke whiteboard proof module for
 # recursive View + Module workspaces.
-mara_canvas = { path = "crates/modules/canvas", version = "0.3.0" }
+mara_canvas = { path = "crates/modules/canvas" }
 # `mara_board` — pixel-drawing Board surface/view for the multiview layer.
-mara_board = { path = "crates/modules/board", version = "0.3.0" }
+mara_board = { path = "crates/modules/board" }
 # `mara_map` — retained f64 map annotations and a Mara map component.
-mara_map = { path = "crates/modules/map", version = "0.3.0" }
+mara_map = { path = "crates/modules/map" }
 # `mara_3d` — retained scene/camera/object 3D module surface backed by three-d.
-mara_3d = { path = "crates/modules/three_d", version = "0.3.0" }
+mara_3d = { path = "crates/modules/three_d" }
 # `mara_bevy` — embedded Bevy viewport module for egui/Mara hosts.
-mara_bevy = { path = "crates/modules/bevy", version = "0.3.0" }
+mara_bevy = { path = "crates/modules/bevy" }
 
 # ── Build profile tuning ────────────────────────────────────────────
 #
