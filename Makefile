@@ -14,7 +14,7 @@ APP_BIN ?= native
 APP_PKG ?= mara_example
 APP_TARGET := -p $(APP_PKG) --bin $(APP_BIN)
 TARGET ?= native
-RUN_WITH ?= nixVulkan
+RUN_WITH := nixLavapipe
 TYPE ?= patch
 HAS_REL := $(shell command -v git-rel 2>/dev/null)
 

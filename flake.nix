@@ -49,6 +49,27 @@
           mkdir -p $out/bin
           ln -s ${nixglPkgs.nixVulkanNvidia}/bin/nixVulkanNvidia-${nvidiaVersion} $out/bin/nixVulkan
         '';
+        lavapipeAlias = pkgs.writeShellScriptBin "nixLavapipe" ''
+          set -eu
+
+          icd_dir=${pkgs.mesa}/share/vulkan/icd.d
+          icd=
+          for candidate in "$icd_dir"/lvp_icd.*.json; do
+            if [ -f "$candidate" ]; then
+              icd="$candidate"
+              break
+            fi
+          done
+
+          if [ -z "$icd" ]; then
+            echo "nixLavapipe: unable to find the Lavapipe Vulkan ICD in $icd_dir" >&2
+            exit 1
+          fi
+
+          export VK_DRIVER_FILES="$icd"
+          export WGPU_BACKEND=vulkan
+          exec "$@"
+        '';
 
         bevyLibs = with pkgs; [
           alsa-lib
@@ -107,6 +128,7 @@
 
             nixGLAlias
             nixVulkanAlias
+            lavapipeAlias
             nixglPkgs.nixGLNvidia
             nixglPkgs.nixVulkanNvidia
             nixglPkgs.nixGLIntel
