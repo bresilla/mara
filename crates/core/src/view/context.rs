@@ -238,11 +238,12 @@ impl<'a> ViewCtx<'a> {
             .into()
     }
 
-    /// Current responsive size class for this frame. Views consult
-    /// this to reflow on small screens (collapse chrome, stack panes).
+    /// Current responsive size class for this node's region. Views
+    /// consult this to reflow on small surfaces (collapse chrome, stack
+    /// panes) — a narrow cell reflows like a phone even on a wide window.
     #[must_use]
     pub fn breakpoint(&self) -> crate::style::Breakpoint {
-        crate::style::screen_class()
+        crate::style::Breakpoint::from_width(self.region.width())
     }
 
     /// Convenience: phone-class (the most aggressive reflow tier).
