@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.4.1] - 2026-07-22
+
+### <!-- 1 -->🐛 Bug Fixes
+
+- Version path deps via workspace only
+
 ## [0.4.0] - 2026-07-22
 
 ### <!-- 0 -->⛰️  Features
