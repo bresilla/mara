@@ -122,6 +122,15 @@ impl MaraResponse {
         }
     }
 
+    /// Headless-test harness: an inert response at `rect`, for driving a
+    /// module's paint path outside a live backend. Doc-hidden; not a
+    /// stable API.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn __internal_synthetic(rect: vocab::Rect) -> Self {
+        Self::synthetic(rect)
+    }
+
     #[must_use]
     pub fn clicked(&self) -> bool {
         self.clicked
@@ -260,8 +269,21 @@ impl MaraPainter {
         }
     }
 
-    #[cfg(test)]
-    pub(crate) fn recorded_commands(&self) -> Vec<PaintCmd> {
+    /// Headless-test harness: a command-recording painter. Lets module
+    /// crates (Board, Canvas, …) drive their `PaintCmd`-only draw path
+    /// with no egui in scope and assert what they emit — the concrete
+    /// proof a module is backend-portable. Doc-hidden; not a stable API.
+    #[doc(hidden)]
+    pub fn __internal_recording(clip: impl Into<vocab::Rect>) -> Self {
+        Self::recording(clip)
+    }
+
+    /// Headless-test harness: the `PaintCmd`s this painter has recorded.
+    /// Empty for an egui-backed painter (its output rasterises straight
+    /// to the GPU). Doc-hidden; not a stable API.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn __internal_recorded_commands(&self) -> Vec<PaintCmd> {
         match &self.sink {
             MaraPainterSink::Egui(_) => Vec::new(),
             MaraPainterSink::Commands { commands, .. } => commands.borrow().commands().to_vec(),
@@ -1275,7 +1297,7 @@ mod tests {
             vocab::Stroke::new(2.0, vocab::Color32::WHITE),
         );
 
-        let commands = painter.recorded_commands();
+        let commands = painter.__internal_recorded_commands();
         let [
             PaintCmd::Clip {
                 rect: recorded_clip,
@@ -1310,7 +1332,7 @@ mod tests {
 
         assert_eq!(clipped.clip_rect(), sub_clip);
 
-        let commands = painter.recorded_commands();
+        let commands = painter.__internal_recorded_commands();
         let [
             PaintCmd::Clip {
                 rect: recorded_clip,
@@ -1353,7 +1375,7 @@ mod tests {
 
         assert_eq!(painted, vocab::Rect::from_min_size(pos, vocab::Vec2::ZERO));
 
-        let commands = painter.recorded_commands();
+        let commands = painter.__internal_recorded_commands();
         let [
             PaintCmd::Clip {
                 rect: recorded_clip,
