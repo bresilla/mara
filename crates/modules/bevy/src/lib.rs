@@ -797,7 +797,6 @@ impl BevyViewportRenderer {
         if images.insert(src_image.id(), render_target_image).is_err() {
             return false;
         }
-        drop(images);
 
         if let Some(render_device) = world.get_resource::<RenderDevice>().cloned() {
             let size = Extent3d {

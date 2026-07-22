@@ -31,10 +31,12 @@ pub(crate) fn show_sticky_scroll_area<R>(
     });
 
     if pointer_inside {
-        ctx.data_mut(|d| d.insert_persisted(sticky_scroll_active_key(), (output.id, now)));
+        crate::memory::MaraMemoryCtx::new(&ctx)
+            .set_persisted(sticky_scroll_active_key(), (output.id, now));
     }
 
-    let active = ctx.data_mut(|d| d.get_persisted::<(Id, f64)>(sticky_scroll_active_key()));
+    let active = crate::memory::MaraMemoryCtx::new(&ctx)
+        .get_persisted::<(Id, f64)>(sticky_scroll_active_key());
     let active_here = active.is_some_and(|(id, t)| id == output.id && now - t < 0.75);
     if active_here && !pointer_inside && scroll_delta.abs() > 0.0 {
         let axis_idx = match axis {
@@ -46,12 +48,14 @@ pub(crate) fn show_sticky_scroll_area<R>(
         output.state.offset[axis_idx] =
             (output.state.offset[axis_idx] - scroll_delta).clamp(0.0, max_offset);
         output.state.store(&ctx, output.id);
-        ctx.data_mut(|d| d.insert_persisted(sticky_scroll_active_key(), (output.id, now)));
+        crate::memory::MaraMemoryCtx::new(&ctx)
+            .set_persisted(sticky_scroll_active_key(), (output.id, now));
         ctx.request_repaint();
     } else if scroll_delta.abs() <= 0.0
         && active.is_some_and(|(id, t)| id == output.id && now - t >= 0.75)
     {
-        ctx.data_mut(|d| d.remove::<(Id, f64)>(sticky_scroll_active_key()));
+        crate::memory::MaraMemoryCtx::new(&ctx)
+            .remove_temp::<(Id, f64)>(sticky_scroll_active_key());
     }
 
     output

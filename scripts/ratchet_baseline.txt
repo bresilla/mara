@@ -1,0 +1,7 @@
+# Coupling-ratchet baselines — see scripts/ratchet.sh and ADR 0001.
+# Counts may only decrease; edit a value ONLY in the same commit that
+# deletes the counted code. Measured at branch feature/backend-independence.
+egui_files 54
+state_bypass 0
+egui_ui_fns 45
+ui_escapes 7

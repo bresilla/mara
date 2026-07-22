@@ -66,47 +66,14 @@ fn paint_readout(backend: &mut impl UiBackend, rect: Rect, label: &str, value: &
 mod tests {
     use super::*;
 
-    #[derive(Default)]
-    struct RecordingBackend {
-        available: Rect,
-        paints: Vec<PaintCmd>,
-    }
-
-    impl UiBackend for RecordingBackend {
-        fn begin_area(&mut self, _host: crate::layout::AreaHost, rect: Rect) {
-            self.available = rect;
-        }
-
-        fn allocate(&mut self, size: Vec2, _sense: Sense) -> MaraResponse {
-            MaraResponse::synthetic(Rect::from_min_size(self.available.min, size))
-        }
-
-        fn interact(&mut self, rect: Rect, _id: crate::vocab::Id, _sense: Sense) -> MaraResponse {
-            MaraResponse::synthetic(rect)
-        }
-
-        fn available_rect(&self) -> Rect {
-            self.available
-        }
-
-        fn push_clip(&mut self, _rect: Rect) {}
-
-        fn pop_clip(&mut self) {}
-
-        fn measure_text(&self, text: &str, size: f32, _mono: bool) -> Vec2 {
-            Vec2::new(text.len() as f32 * size * 0.5, size)
-        }
-
-        fn paint(&mut self, cmd: PaintCmd) {
-            self.paints.push(cmd);
-        }
-    }
+    use crate::backend::record::RecordingBackend;
 
     #[test]
     fn readout_backend_emits_label_and_value_text_commands() {
         let mut backend = RecordingBackend {
             available: Rect::from_min_size(Pos2::ZERO, Vec2::new(180.0, READOUT_ROW_H)),
             paints: Vec::new(),
+            ..Default::default()
         };
 
         let response = readout_backend(&mut backend, "status", "ok", READOUT_ROW_H);

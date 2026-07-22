@@ -90,7 +90,8 @@ fn container_initial_flow_key(cid: Id) -> Id {
 /// default in that case).
 pub(crate) fn container_initial_flow(ctx: &egui::Context, cid: impl Into<MaraId>) -> Option<f32> {
     let cid: Id = cid.into().into();
-    ctx.data_mut(|d| d.get_persisted::<f32>(container_initial_flow_key(cid)))
+    crate::memory::MaraMemoryCtx::new(ctx)
+        .get_persisted::<f32>(container_initial_flow_key(cid))
         .filter(|value| value.is_finite())
         .map(|value| value.clamp(CONTAINER_MIN_FLOW, CONTAINER_MAX_FLOW))
 }
@@ -106,7 +107,7 @@ pub(crate) fn set_container_initial_flow(ctx: &egui::Context, cid: impl Into<Mar
     } else {
         f32::NAN
     };
-    ctx.data_mut(|d| d.insert_persisted(container_initial_flow_key(cid), v));
+    crate::memory::MaraMemoryCtx::new(ctx).set_persisted(container_initial_flow_key(cid), v);
 }
 
 /// Read the flow-axis size the container should render at. The
@@ -142,7 +143,9 @@ pub(crate) fn container_flow(
 ) -> f32 {
     let cid: Id = cid.into().into();
     let (min_v, max_v) = container_flow_bounds(is_horizontal_strip);
-    if let Some(user) = ctx.data_mut(|d| d.get_persisted::<f32>(container_flow_key(cid))) {
+    if let Some(user) =
+        crate::memory::MaraMemoryCtx::new(ctx).get_persisted::<f32>(container_flow_key(cid))
+    {
         let fallback = if is_horizontal_strip {
             CONTAINER_DEFAULT_FLOW
         } else {
@@ -150,7 +153,7 @@ pub(crate) fn container_flow(
         };
         let repaired = sanitize_flow(user, fallback, min_v, max_v);
         if repaired != user {
-            ctx.data_mut(|d| d.insert_persisted(container_flow_key(cid), repaired));
+            crate::memory::MaraMemoryCtx::new(ctx).set_persisted(container_flow_key(cid), repaired);
         }
         return repaired;
     }
@@ -164,13 +167,14 @@ pub(crate) fn container_flow(
     // runaway body doesn't dominate the whole pane.
     let override_default = container_initial_flow(ctx, cid);
     if is_horizontal_strip {
-        if let Some(intrinsic) =
-            ctx.data_mut(|d| d.get_persisted::<f32>(container_intrinsic_key(cid)))
+        if let Some(intrinsic) = crate::memory::MaraMemoryCtx::new(ctx)
+            .get_persisted::<f32>(container_intrinsic_key(cid))
         {
             let fallback = override_default.unwrap_or(CONTAINER_DEFAULT_FLOW);
             let repaired = sanitize_flow(intrinsic, fallback, min_v, max_v);
             if repaired != intrinsic {
-                ctx.data_mut(|d| d.insert_persisted(container_intrinsic_key(cid), repaired));
+                crate::memory::MaraMemoryCtx::new(ctx)
+                    .set_persisted(container_intrinsic_key(cid), repaired);
             }
             return repaired;
         }
@@ -206,7 +210,7 @@ pub(crate) fn set_container_flow(
         CONTAINER_HORIZONTAL_DEFAULT_FLOW
     };
     let v = sanitize_flow(value, fallback, min_v, max_v);
-    ctx.data_mut(|d| d.insert_persisted(container_flow_key(cid), v));
+    crate::memory::MaraMemoryCtx::new(ctx).set_persisted(container_flow_key(cid), v);
 }
 
 /// `(min, max)` bounds for a container's flow size based on the
@@ -231,7 +235,7 @@ pub(crate) fn record_container_intrinsic(ctx: &egui::Context, cid: impl Into<Mar
     } else {
         CONTAINER_DEFAULT_FLOW
     };
-    ctx.data_mut(|d| d.insert_persisted(container_intrinsic_key(cid), v));
+    crate::memory::MaraMemoryCtx::new(ctx).set_persisted(container_intrinsic_key(cid), v);
 }
 
 fn sanitize_flow(value: f32, fallback: f32, min: f32, max: f32) -> f32 {

@@ -390,11 +390,10 @@ pub fn mara_node_graph_with_opts<T, V: NodeViewer<T>>(
             );
 
             let parent_ctx = inner_ui.ctx().clone();
-            let mut version: u32 = parent_ctx.data(|d| d.get_temp(version_id)).unwrap_or(0);
-            let last_sz: Option<MaraVec2> = parent_ctx.data(|d| d.get_temp::<MaraVec2>(last_sz_id));
-            let settle_left: u32 = parent_ctx
-                .data(|d| d.get_temp::<u32>(settle_id))
-                .unwrap_or(0);
+            let mut memory = crate::memory::MaraMemoryCtx::new(&parent_ctx);
+            let mut version: u32 = memory.get_temp(version_id).unwrap_or(0);
+            let last_sz: Option<MaraVec2> = memory.get_temp::<MaraVec2>(last_sz_id);
+            let settle_left: u32 = memory.get_temp::<u32>(settle_id).unwrap_or(0);
             let size_usable = size.x >= 10.0 && size.y >= 10.0;
             let natural_bump = size_usable
                 && match last_sz {
@@ -416,11 +415,9 @@ pub fn mara_node_graph_with_opts<T, V: NodeViewer<T>>(
                 settle_left.saturating_sub(1)
             };
             if size_usable {
-                parent_ctx.data_mut(|d| {
-                    d.insert_temp::<u32>(version_id, version);
-                    d.insert_temp::<MaraVec2>(last_sz_id, size);
-                    d.insert_temp::<u32>(settle_id, new_settle);
-                });
+                memory.set_temp::<u32>(version_id, version);
+                memory.set_temp::<MaraVec2>(last_sz_id, size);
+                memory.set_temp::<u32>(settle_id, new_settle);
                 if should_bump || new_settle > 0 {
                     parent_ctx.request_repaint();
                 }

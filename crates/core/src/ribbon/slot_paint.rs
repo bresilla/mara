@@ -55,6 +55,7 @@ pub fn __internal_draw_slot_ribbons_egui(
     accent: impl Into<MaraColor32>,
     ribbons: &[ResolvedSlotRibbon],
 ) -> Vec<RibbonSlotClick> {
+    crate::enforce::__internal_enforce_defaults(ctx);
     let accent: MaraColor32 = accent.into();
     let augmented = shelf_augmented_ribbons(ctx, ribbons, ShelfButtonOrder::Simple);
     let base = augmented.as_deref().unwrap_or(ribbons);
@@ -96,6 +97,7 @@ pub fn __internal_draw_slot_ribbons_featureful_egui(
     placement: &mut RibbonPlacement,
     drag: &mut RibbonDrag,
 ) -> Vec<RibbonSlotClick> {
+    crate::enforce::__internal_enforce_defaults(ctx);
     draw_slot_ribbons_featureful_inner(ctx, accent.into(), ribbons, open, placement, drag, true)
 }
 
@@ -112,6 +114,7 @@ pub fn __internal_draw_slot_ribbons_featureful_no_system_egui(
     placement: &mut RibbonPlacement,
     drag: &mut RibbonDrag,
 ) -> Vec<RibbonSlotClick> {
+    crate::enforce::__internal_enforce_defaults(ctx);
     draw_slot_ribbons_featureful_inner(ctx, accent.into(), ribbons, open, placement, drag, false)
 }
 

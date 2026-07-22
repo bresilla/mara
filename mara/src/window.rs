@@ -346,7 +346,12 @@ impl<A: WindowApp> NativeWinitApp<A> {
             // the app. The app only configures it (views/active) and
             // reacts to app-level events; the runner owns the window
             // actions. Drawn after the app body so it reads the live
-            // theme/capabilities/shelf layout the app published.
+            // theme/capabilities/shelf layout the app published. The
+            // one exception: the app called the explicit per-frame
+            // opt-out during update — honor it for this frame.
+            if mara_core::enforce::__internal_shell_opted_out(ctx) {
+                return;
+            }
             app.configure_shell(shell);
             for event in shell.show(ctx, shell_open, shell_placement, shell_drag) {
                 match event {

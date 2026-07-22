@@ -219,7 +219,7 @@ pub fn __internal_publish_window_chrome_regions(
         drag_regions: drag_regions.into_iter().collect(),
         exclusion_rects: exclusion_rects.into_iter().collect(),
     };
-    ctx.data_mut(|data| data.insert_temp(regions_key(), regions));
+    crate::memory::MaraMemoryCtx::new(ctx).set_temp(regions_key(), regions);
 }
 
 /// Read the latest published native-window chrome regions.
@@ -229,10 +229,9 @@ pub fn __internal_publish_window_chrome_regions(
 #[must_use]
 #[doc(hidden)]
 pub fn __internal_window_chrome_regions(ctx: &egui::Context) -> WindowChromeRegions {
-    ctx.data(|data| {
-        data.get_temp::<WindowChromeRegions>(regions_key())
-            .unwrap_or_default()
-    })
+    crate::memory::MaraMemoryCtx::new(ctx)
+        .get_temp::<WindowChromeRegions>(regions_key())
+        .unwrap_or_default()
 }
 
 /// Publish the native-window capabilities for this frame.
@@ -245,7 +244,7 @@ pub fn __internal_publish_window_chrome_host_capabilities(
     ctx: &egui::Context,
     capabilities: WindowChromeHostCapabilities,
 ) {
-    ctx.data_mut(|data| data.insert_temp(host_capabilities_key(), capabilities));
+    crate::memory::MaraMemoryCtx::new(ctx).set_temp(host_capabilities_key(), capabilities);
 }
 
 /// Read the current frame's host native-window capabilities.
@@ -256,17 +255,14 @@ pub fn __internal_publish_window_chrome_host_capabilities(
 pub fn __internal_window_chrome_host_capabilities(
     ctx: &egui::Context,
 ) -> WindowChromeHostCapabilities {
-    ctx.data(|data| {
-        data.get_temp::<WindowChromeHostCapabilities>(host_capabilities_key())
-            .unwrap_or_default()
-    })
+    crate::memory::MaraMemoryCtx::new(ctx)
+        .get_temp::<WindowChromeHostCapabilities>(host_capabilities_key())
+        .unwrap_or_default()
 }
 
 /// Clear published native-window chrome regions.
 pub(crate) fn clear_window_chrome_regions(ctx: &egui::Context) {
-    ctx.data_mut(|data| {
-        data.remove::<WindowChromeRegions>(regions_key());
-    });
+    crate::memory::MaraMemoryCtx::new(ctx).remove_temp::<WindowChromeRegions>(regions_key());
 }
 
 /// Hit-test only the diagonal resize corners.

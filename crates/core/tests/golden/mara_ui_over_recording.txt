@@ -1,0 +1,325 @@
+[
+    Text {
+        pos: Pos2 {
+            x: 0.0,
+            y: 9.0,
+        },
+        anchor: Align2(
+            Align2(Min, Center),
+        ),
+        text: "headless",
+        size: 12.0,
+        color: Color32(
+            #E6_E6_E8_FF,
+        ),
+        mono: false,
+    },
+    RectFilled {
+        rect: Rect {
+            min: Pos2 {
+                x: 0.0,
+                y: 18.0,
+            },
+            max: Pos2 {
+                x: 320.0,
+                y: 42.0,
+            },
+        },
+        corner: CornerRadius(
+            CornerRadius {
+                nw: 2,
+                ne: 2,
+                sw: 2,
+                se: 2,
+            },
+        ),
+        fill: Color32(
+            #2E_36_47_EB,
+        ),
+    },
+    RectStroke {
+        rect: Rect {
+            min: Pos2 {
+                x: 0.0,
+                y: 18.0,
+            },
+            max: Pos2 {
+                x: 320.0,
+                y: 42.0,
+            },
+        },
+        corner: CornerRadius(
+            CornerRadius {
+                nw: 2,
+                ne: 2,
+                sw: 2,
+                se: 2,
+            },
+        ),
+        stroke: Stroke {
+            width: 1.0,
+            color: Color32(
+                #25_26_27_46,
+            ),
+        },
+    },
+    Clip {
+        rect: Rect {
+            min: Pos2 {
+                x: 0.0,
+                y: 18.0,
+            },
+            max: Pos2 {
+                x: 320.0,
+                y: 42.0,
+            },
+        },
+        children: [
+            Text {
+                pos: Pos2 {
+                    x: 160.0,
+                    y: 30.0,
+                },
+                anchor: Align2(
+                    Align2(Center, Center),
+                ),
+                text: "apply",
+                size: 12.0,
+                color: Color32(
+                    #E6_E6_E8_FF,
+                ),
+                mono: false,
+            },
+        ],
+    },
+    Text {
+        pos: Pos2 {
+            x: 0.0,
+            y: 51.0,
+        },
+        anchor: Align2(
+            Align2(Min, Center),
+        ),
+        text: "dark",
+        size: 13.0,
+        color: Color32(
+            #E6_E6_E8_FF,
+        ),
+        mono: false,
+    },
+    RectFilled {
+        rect: Rect {
+            min: Pos2 {
+                x: 282.0,
+                y: 42.0,
+            },
+            max: Pos2 {
+                x: 320.0,
+                y: 60.0,
+            },
+        },
+        corner: CornerRadius(
+            CornerRadius {
+                nw: 3,
+                ne: 3,
+                sw: 3,
+                se: 3,
+            },
+        ),
+        fill: Color32(
+            #1F_2E_41_FF,
+        ),
+    },
+    RectStroke {
+        rect: Rect {
+            min: Pos2 {
+                x: 282.0,
+                y: 42.0,
+            },
+            max: Pos2 {
+                x: 320.0,
+                y: 60.0,
+            },
+        },
+        corner: CornerRadius(
+            CornerRadius {
+                nw: 3,
+                ne: 3,
+                sw: 3,
+                se: 3,
+            },
+        ),
+        stroke: Stroke {
+            width: 1.0,
+            color: Color32(
+                #25_26_27_46,
+            ),
+        },
+    },
+    RectFilled {
+        rect: Rect {
+            min: Pos2 {
+                x: 304.0,
+                y: 44.0,
+            },
+            max: Pos2 {
+                x: 318.0,
+                y: 58.0,
+            },
+        },
+        corner: CornerRadius(
+            CornerRadius {
+                nw: 3,
+                ne: 3,
+                sw: 3,
+                se: 3,
+            },
+        ),
+        fill: Color32(
+            #78_B4_FF_FF,
+        ),
+    },
+    RectStroke {
+        rect: Rect {
+            min: Pos2 {
+                x: 304.0,
+                y: 44.0,
+            },
+            max: Pos2 {
+                x: 318.0,
+                y: 58.0,
+            },
+        },
+        corner: CornerRadius(
+            CornerRadius {
+                nw: 3,
+                ne: 3,
+                sw: 3,
+                se: 3,
+            },
+        ),
+        stroke: Stroke {
+            width: 1.0,
+            color: Color32(
+                #25_26_27_46,
+            ),
+        },
+    },
+    Text {
+        pos: Pos2 {
+            x: 0.0,
+            y: 69.0,
+        },
+        anchor: Align2(
+            Align2(Min, Center),
+        ),
+        text: "gain",
+        size: 13.0,
+        color: Color32(
+            #9A_9A_A2_FF,
+        ),
+        mono: false,
+    },
+    RectFilled {
+        rect: Rect {
+            min: Pos2 {
+                x: 0.0,
+                y: 78.0,
+            },
+            max: Pos2 {
+                x: 320.0,
+                y: 96.0,
+            },
+        },
+        corner: CornerRadius(
+            CornerRadius {
+                nw: 2,
+                ne: 2,
+                sw: 2,
+                se: 2,
+            },
+        ),
+        fill: Color32(
+            #06_08_0C_FF,
+        ),
+    },
+    RectStroke {
+        rect: Rect {
+            min: Pos2 {
+                x: 0.0,
+                y: 78.0,
+            },
+            max: Pos2 {
+                x: 320.0,
+                y: 96.0,
+            },
+        },
+        corner: CornerRadius(
+            CornerRadius {
+                nw: 2,
+                ne: 2,
+                sw: 2,
+                se: 2,
+            },
+        ),
+        stroke: Stroke {
+            width: 1.0,
+            color: Color32(
+                #25_26_27_46,
+            ),
+        },
+    },
+    RectFilled {
+        rect: Rect {
+            min: Pos2 {
+                x: 0.0,
+                y: 78.0,
+            },
+            max: Pos2 {
+                x: 160.0,
+                y: 96.0,
+            },
+        },
+        corner: CornerRadius(
+            CornerRadius {
+                nw: 2,
+                ne: 2,
+                sw: 2,
+                se: 2,
+            },
+        ),
+        fill: Color32(
+            #78_B4_FF_FF,
+        ),
+    },
+    Text {
+        pos: Pos2 {
+            x: 160.0,
+            y: 87.0,
+        },
+        anchor: Align2(
+            Align2(Center, Center),
+        ),
+        text: "0.50",
+        size: 11.0,
+        color: Color32(
+            #E6_E6_E8_FF,
+        ),
+        mono: true,
+    },
+    Text {
+        pos: Pos2 {
+            x: 160.0,
+            y: 87.0,
+        },
+        anchor: Align2(
+            Align2(Center, Center),
+        ),
+        text: "0.50",
+        size: 11.0,
+        color: Color32(
+            #E6_E6_E8_FF,
+        ),
+        mono: true,
+    },
+]

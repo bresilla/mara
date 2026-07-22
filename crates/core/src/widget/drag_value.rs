@@ -25,45 +25,6 @@ pub const DRAG_VALUE_INPUT_WIDTH: f32 = 72.0;
 /// mixed rows in a pod line up.
 pub const DRAG_VALUE_ROW_H: f32 = 18.0;
 
-/// Labelled drag-value row.
-pub(crate) fn drag_value(
-    ui: &mut egui::Ui,
-    label: &str,
-    value: &mut f64,
-    speed: f64,
-    range: RangeInclusive<f64>,
-    decimals: usize,
-    suffix: &str,
-) -> MaraResponse {
-    let row_h = theme().widgets.drag_value.row_h;
-    drag_value_h(ui, label, value, speed, range, decimals, suffix, row_h)
-}
-
-/// Variable-height drag-value row — used by resizable pods.
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn drag_value_h(
-    ui: &mut egui::Ui,
-    label: &str,
-    value: &mut f64,
-    speed: f64,
-    range: RangeInclusive<f64>,
-    decimals: usize,
-    suffix: &str,
-    height: f32,
-) -> MaraResponse {
-    let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
-    drag_value_backend(
-        &mut backend,
-        label,
-        value,
-        speed,
-        range,
-        decimals,
-        suffix,
-        height,
-    )
-}
-
 /// Backend-neutral non-text-editing drag-value row.
 ///
 /// This keeps the immediate drag behavior but intentionally does not
@@ -208,47 +169,7 @@ fn paint_value_box(backend: &mut impl UiBackend, rect: Rect, text: &str, scale: 
 mod tests {
     use super::*;
 
-    #[derive(Default)]
-    struct RecordingBackend {
-        available: Rect,
-        paints: Vec<PaintCmd>,
-        clips: Vec<Rect>,
-        interaction: Option<MaraResponse>,
-    }
-
-    impl UiBackend for RecordingBackend {
-        fn begin_area(&mut self, _host: crate::layout::AreaHost, rect: Rect) {
-            self.available = rect;
-        }
-
-        fn allocate(&mut self, size: Vec2, _sense: Sense) -> MaraResponse {
-            MaraResponse::synthetic(Rect::from_min_size(self.available.min, size))
-        }
-
-        fn interact(&mut self, rect: Rect, _id: Id, _sense: Sense) -> MaraResponse {
-            self.interaction
-                .clone()
-                .unwrap_or_else(|| MaraResponse::synthetic(rect))
-        }
-
-        fn available_rect(&self) -> Rect {
-            self.available
-        }
-
-        fn push_clip(&mut self, rect: Rect) {
-            self.clips.push(rect);
-        }
-
-        fn pop_clip(&mut self) {}
-
-        fn measure_text(&self, text: &str, size: f32, _mono: bool) -> Vec2 {
-            Vec2::new(text.len() as f32 * size * 0.5, size)
-        }
-
-        fn paint(&mut self, cmd: PaintCmd) {
-            self.paints.push(cmd);
-        }
-    }
+    use crate::backend::record::RecordingBackend;
 
     #[test]
     fn drag_value_backend_emits_label_box_and_value_text() {
@@ -257,6 +178,7 @@ mod tests {
             paints: Vec::new(),
             clips: Vec::new(),
             interaction: None,
+            ..Default::default()
         };
         let mut value = 12.5;
 
@@ -305,6 +227,7 @@ mod tests {
             paints: Vec::new(),
             clips: Vec::new(),
             interaction: Some(interaction),
+            ..Default::default()
         };
         let mut value = 1.0;
 

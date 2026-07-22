@@ -277,8 +277,11 @@ impl MaraModule for CanvasSurface {
                 ui.label(format!("{} strokes", self.doc.strokes.len()));
             });
             {
-                let mut canvas_ui =
-                    mara_core::MaraUi::__internal_from_raw(ui, mara_core::style::active_accent());
+                let mut canvas_raw = mara_core::MaraUi::__internal_backend_from_raw(ui);
+                let mut canvas_ui = mara_core::MaraUi::__internal_over(
+                    &mut canvas_raw,
+                    mara_core::style::active_accent(),
+                );
                 self.paint_canvas(&mut canvas_ui, MaraVec2::new(180.0, 120.0));
             }
             if ctx.can_enter_workspace() && ui.button("Open whiteboard workspace").clicked() {
@@ -338,5 +341,31 @@ mod tests {
         assert_eq!(doc.strokes.len(), 1);
         doc.clear();
         assert!(doc.strokes.is_empty());
+    }
+
+    /// Portability proof: the canvas body draws only through
+    /// [`mara_core::MaraPainter`], so rendering it over a headless
+    /// recording backend — no egui `Ui`/`Context` — still emits
+    /// `PaintCmd`s (here at least the pane background + border).
+    #[test]
+    fn canvas_paints_over_recording_backend() {
+        use mara_core::mui::MaraRawBackend;
+
+        let rect = mara_core::vocab::Rect::from_min_size(
+            MaraPos2::new(0.0, 0.0),
+            MaraVec2::new(200.0, 120.0),
+        );
+        let mut surface = CanvasSurface::new("canvas", CanvasDocument::new("Sketch"));
+        let mut raw = MaraRawBackend::__internal_recording(rect);
+        {
+            let mut mui = mara_core::MaraUi::__internal_over(&mut raw, MaraColor32::WHITE);
+            surface.paint_canvas(&mut mui, MaraVec2::new(200.0, 120.0));
+        }
+
+        let cmds = raw.__internal_recorded_canvas_commands();
+        assert!(
+            !cmds.is_empty(),
+            "canvas body must emit PaintCmds headlessly — the portability contract"
+        );
     }
 }

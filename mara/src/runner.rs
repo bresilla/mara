@@ -75,8 +75,11 @@ pub trait WindowApp: Sized + 'static {
     /// The runner renders the [`ShellBar`] itself (it is *enforced*,
     /// not opt-in), then calls this so the app can set the view
     /// switcher / active selection. Leave it empty for the default
-    /// bar (app-menu + window controls); set `bar.enabled = false` to
-    /// opt out entirely.
+    /// bar (app-menu + window controls). There is no disable flag —
+    /// if nothing renders the bar, `mara_core::enforce` draws a
+    /// fallback. The single deliberate escape hatch is calling
+    /// `MaraHostCtx::opt_out_shell_bar()` in `update` — a per-frame
+    /// decision the runner honors for that frame only.
     fn configure_shell(&mut self, _bar: &mut ShellBar) {}
 
     /// React to a top-bar interaction the app owns (view switch, menu,

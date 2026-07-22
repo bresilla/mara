@@ -11,12 +11,47 @@ use crate::{
     vocab::{Color32, CornerRadius, Id, Pos2, Rect, Vec2},
 };
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+/// The z-ordering band an [`AreaHost`] paints and interacts in — the
+/// backend-neutral layer contract (PLAN.md Phase 4).
+///
+/// Bands paint back-to-front in variant order: **`Background` <
+/// `Middle` < `Foreground` < `Overlay`** ([`Layer::rank`] gives the
+/// numeric order). Areas in a higher band paint over — and take
+/// pointer input ahead of — every area in a lower band. Within one
+/// band, ties break by paint order (later wins), matching immediate
+/// mode. A backend MUST honour this ordering; the egui backend maps it
+/// onto `egui::Order` (`Overlay` → `Tooltip`, so floating palettes sit
+/// above foreground scrims).
+///
+/// Occlusion is governed by [`AreaHost::interactable`]: a
+/// non-interactive area paints but never consumes pointer input, so
+/// clicks fall through to whatever is beneath it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Layer {
+    /// Behind all content — backdrops, scrims, the root body fill.
     Background,
+    /// Default band for docked chrome (panes, shelves, ribbons).
     Middle,
+    /// Above docked chrome — drag ghosts, active-drag surfaces.
     Foreground,
+    /// Top transient UI — command palette, dropdown popups, tooltips,
+    /// context menus. Always paints and hit-tests above everything.
     Overlay,
+}
+
+impl Layer {
+    /// The layer's back-to-front rank (`Background` = 0 …
+    /// `Overlay` = 3). Backends without egui's `Order` sort areas by
+    /// this; the value equals the enum's `Ord` position.
+    #[must_use]
+    pub const fn rank(self) -> u8 {
+        match self {
+            Layer::Background => 0,
+            Layer::Middle => 1,
+            Layer::Foreground => 2,
+            Layer::Overlay => 3,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -684,6 +719,10 @@ pub trait UiBackend {
     fn input(&self) -> MaraInput {
         MaraInput::default()
     }
+    /// Backend-neutral persisted/temp state + animation clock for the
+    /// current scope. Widgets reach state ONLY through this — never a
+    /// raw backend context (PLAN.md Phase 2.2, ADR 0001).
+    fn memory(&self) -> crate::memory::BackendMemory<'_>;
     /// Advance the layout cursor by a fixed gap. No-op default for
     /// backends that do not track a flowing layout cursor.
     fn add_space(&mut self, _spec: SpaceSpec) {}
@@ -691,6 +730,222 @@ pub trait UiBackend {
     fn pop_clip(&mut self);
     fn measure_text(&self, text: &str, size: f32, mono: bool) -> Vec2;
     fn paint(&mut self, cmd: PaintCmd);
+
+    /// Reserve a paint slot at the current z-position, to be filled
+    /// later with [`UiBackend::fill_paint_slot`]. Lets a widget paint
+    /// a background *beneath* content drawn after the reservation
+    /// (e.g. a tree row's selection fill under its label). The default
+    /// degrades to inline painting (no z-deferral); backends with a
+    /// shape list override it.
+    fn reserve_paint_slot(&mut self) -> PaintSlot {
+        PaintSlot::INLINE
+    }
+
+    /// Fill (or clear, with `None`) a slot from
+    /// [`UiBackend::reserve_paint_slot`]. The default paints `cmd`
+    /// immediately at the current position.
+    fn fill_paint_slot(&mut self, slot: PaintSlot, cmd: Option<PaintCmd>) {
+        let _ = slot;
+        if let Some(cmd) = cmd {
+            self.paint(cmd);
+        }
+    }
+
+    /// Show hover-tooltip `text` for a previously-returned response.
+    /// No-op on backends without an overlay layer.
+    fn hover_text(&mut self, response: &MaraResponse, text: &str) {
+        let _ = (response, text);
+    }
+
+    /// Whether `rect` is within the visible viewport — a culling hint
+    /// widgets use to skip offscreen paint work. Defaults to always
+    /// visible for backends without a viewport.
+    fn is_rect_visible(&self, rect: Rect) -> bool {
+        let _ = rect;
+        true
+    }
+
+    /// The concrete `egui::Ui` this backend drives, if it is the egui
+    /// backend. `None` on every other backend.
+    ///
+    /// This is the object-safe escape hatch for the shrinking set of
+    /// `MaraUi` operations not yet promoted to the contract (stack
+    /// scopes, canvas, pod, context menu, painter, the raw hatch). It
+    /// keeps `MaraUi` able to hold `&mut dyn UiBackend` — a plain
+    /// downcast can't reach `EguiUiBackend`, which is not `'static`.
+    /// Tracked by the coupling ratchet's `ui_escapes` metric. Returns
+    /// `None` by default so non-egui backends need not implement it.
+    fn egui_ui_mut(&mut self) -> Option<&mut egui::Ui> {
+        None
+    }
+
+    /// Shared reference to the concrete `egui::Ui`, if this is the egui
+    /// backend. See [`UiBackend::egui_ui_mut`].
+    fn egui_ui_ref(&self) -> Option<&egui::Ui> {
+        None
+    }
+
+    /// Run `body` in a child region inset by `inset_left` px from the
+    /// current region's left edge (an indent). Content flows inside the
+    /// child; afterwards the parent's layout continues below it. This
+    /// is the backend-neutral nesting primitive chrome uses to lay out
+    /// bodies inside frames (PLAN.md Phase 4). Object-safe: the closure
+    /// takes `&mut dyn UiBackend`, so `MaraUi` (which holds
+    /// `&mut dyn UiBackend`) can wrap the child. `id` salts the child
+    /// scope's persisted state.
+    fn in_child(&mut self, id: Id, inset_left: f32, body: &mut dyn FnMut(&mut dyn UiBackend));
+
+    /// Run `body` in a sub-scope that flows horizontally (left→right)
+    /// when `horizontal`, else vertically. Afterwards the parent's
+    /// layout continues below the scope. Same object-safe shape as
+    /// [`UiBackend::in_child`].
+    fn in_scope(&mut self, horizontal: bool, body: &mut dyn FnMut(&mut dyn UiBackend));
+
+    /// A [`MaraPainter`](crate::mui::MaraPainter) drawing into the
+    /// surface described by `spec` (the remaining region or an explicit
+    /// clip). The default records into an internal command list (its
+    /// output is discarded on non-rasterising backends); the egui
+    /// backend returns a painter over its live `Ui`.
+    fn make_painter(&self, spec: PaintSurfaceSpec) -> crate::mui::MaraPainter {
+        let clip = match spec.region {
+            PaintSurfaceRegion::ClipRect(rect) => rect,
+            PaintSurfaceRegion::RemainingAvailable => self.available_rect(),
+        };
+        crate::mui::MaraPainter::recording(clip)
+    }
+
+    /// Current time in seconds from the host's frame clock, for
+    /// animation timing. Defaults to `0.0` for clockless backends
+    /// (a first slice of the Phase 5 host-services contract).
+    fn now(&self) -> f64 {
+        0.0
+    }
+
+    /// Ask the host to schedule another frame (e.g. an animation is in
+    /// flight). No-op on backends without an event loop.
+    fn request_repaint(&self) {}
+
+    /// Run `body` inside a vertical scroll viewport described by
+    /// `region`. The egui backend clips and offsets a real scroll area;
+    /// the default just runs `body` as normal flow (no clipping), which
+    /// is correct for headless/measuring backends. Same object-safe
+    /// shape as [`UiBackend::in_child`].
+    fn scroll_region(&mut self, region: ScrollRegion, body: &mut dyn FnMut(&mut dyn UiBackend)) {
+        let _ = region;
+        self.in_scope(false, body);
+    }
+
+    /// Run `body` in a nested id scope salted by `salt`, so widget ids
+    /// derived from [`UiBackend::id`] inside it are unique per scope
+    /// (egui's `push_id`). Used by containers (e.g. pods) to keep the
+    /// Nth slot's widgets from colliding with a same-labelled widget in
+    /// a sibling. Object-safe like [`UiBackend::in_child`].
+    fn in_id_scope(&mut self, salt: Id, body: &mut dyn FnMut(&mut dyn UiBackend));
+}
+
+/// Blanket impl so a `&mut` to any backend (notably `&mut dyn
+/// UiBackend`, which `MaraUi` holds) is itself a [`UiBackend`]. Lets
+/// widget `*_backend(&mut impl UiBackend, …)` functions accept the
+/// backend `MaraUi` carries without every one becoming `?Sized`.
+impl<T: UiBackend + ?Sized> UiBackend for &mut T {
+    fn begin_area(&mut self, host: AreaHost, rect: Rect) {
+        (**self).begin_area(host, rect)
+    }
+    fn allocate(&mut self, size: Vec2, sense: Sense) -> MaraResponse {
+        (**self).allocate(size, sense)
+    }
+    fn reserve_space(&mut self, size: Vec2) -> Rect {
+        (**self).reserve_space(size)
+    }
+    fn reserve_rect(&mut self, rect: Rect, sense: Sense) -> MaraResponse {
+        (**self).reserve_rect(rect, sense)
+    }
+    fn interact(&mut self, rect: Rect, id: Id, sense: Sense) -> MaraResponse {
+        (**self).interact(rect, id, sense)
+    }
+    fn available_rect(&self) -> Rect {
+        (**self).available_rect()
+    }
+    fn id(&self) -> Id {
+        (**self).id()
+    }
+    fn available_width(&self) -> f32 {
+        (**self).available_width()
+    }
+    fn available_height(&self) -> f32 {
+        (**self).available_height()
+    }
+    fn input(&self) -> MaraInput {
+        (**self).input()
+    }
+    fn memory(&self) -> crate::memory::BackendMemory<'_> {
+        (**self).memory()
+    }
+    fn add_space(&mut self, spec: SpaceSpec) {
+        (**self).add_space(spec)
+    }
+    fn push_clip(&mut self, rect: Rect) {
+        (**self).push_clip(rect)
+    }
+    fn pop_clip(&mut self) {
+        (**self).pop_clip()
+    }
+    fn measure_text(&self, text: &str, size: f32, mono: bool) -> Vec2 {
+        (**self).measure_text(text, size, mono)
+    }
+    fn paint(&mut self, cmd: PaintCmd) {
+        (**self).paint(cmd)
+    }
+    fn reserve_paint_slot(&mut self) -> PaintSlot {
+        (**self).reserve_paint_slot()
+    }
+    fn fill_paint_slot(&mut self, slot: PaintSlot, cmd: Option<PaintCmd>) {
+        (**self).fill_paint_slot(slot, cmd)
+    }
+    fn hover_text(&mut self, response: &MaraResponse, text: &str) {
+        (**self).hover_text(response, text)
+    }
+    fn is_rect_visible(&self, rect: Rect) -> bool {
+        (**self).is_rect_visible(rect)
+    }
+    fn egui_ui_mut(&mut self) -> Option<&mut egui::Ui> {
+        (**self).egui_ui_mut()
+    }
+    fn egui_ui_ref(&self) -> Option<&egui::Ui> {
+        (**self).egui_ui_ref()
+    }
+    fn in_child(&mut self, id: Id, inset_left: f32, body: &mut dyn FnMut(&mut dyn UiBackend)) {
+        (**self).in_child(id, inset_left, body)
+    }
+    fn in_scope(&mut self, horizontal: bool, body: &mut dyn FnMut(&mut dyn UiBackend)) {
+        (**self).in_scope(horizontal, body)
+    }
+    fn make_painter(&self, spec: PaintSurfaceSpec) -> crate::mui::MaraPainter {
+        (**self).make_painter(spec)
+    }
+    fn now(&self) -> f64 {
+        (**self).now()
+    }
+    fn request_repaint(&self) {
+        (**self).request_repaint()
+    }
+    fn scroll_region(&mut self, region: ScrollRegion, body: &mut dyn FnMut(&mut dyn UiBackend)) {
+        (**self).scroll_region(region, body)
+    }
+    fn in_id_scope(&mut self, salt: Id, body: &mut dyn FnMut(&mut dyn UiBackend)) {
+        (**self).in_id_scope(salt, body)
+    }
+}
+
+/// Opaque handle to a paint slot reserved via
+/// [`UiBackend::reserve_paint_slot`]. The inner index is
+/// backend-interpreted; [`PaintSlot::INLINE`] is the sentinel the
+/// default (non-deferring) implementation returns.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PaintSlot(pub(crate) usize);
+
+impl PaintSlot {
+    pub(crate) const INLINE: PaintSlot = PaintSlot(usize::MAX);
 }
 
 /// Hidden egui measurement adapter for first-party crates that have
@@ -706,46 +961,7 @@ mod tests {
     use super::*;
     use crate::vocab::{Color32, Pos2, Stroke};
 
-    #[derive(Default)]
-    struct RecordingBackend {
-        available: Rect,
-        clips: Vec<Rect>,
-        paints: Vec<PaintCmd>,
-    }
-
-    impl UiBackend for RecordingBackend {
-        fn begin_area(&mut self, _host: AreaHost, rect: Rect) {
-            self.available = rect;
-        }
-
-        fn allocate(&mut self, size: Vec2, _sense: Sense) -> MaraResponse {
-            MaraResponse::synthetic(Rect::from_min_size(self.available.min, size))
-        }
-
-        fn interact(&mut self, rect: Rect, _id: Id, _sense: Sense) -> MaraResponse {
-            MaraResponse::synthetic(rect)
-        }
-
-        fn available_rect(&self) -> Rect {
-            self.available
-        }
-
-        fn push_clip(&mut self, rect: Rect) {
-            self.clips.push(rect);
-        }
-
-        fn pop_clip(&mut self) {
-            let _ = self.clips.pop();
-        }
-
-        fn measure_text(&self, text: &str, size: f32, _mono: bool) -> Vec2 {
-            Vec2::new(text.chars().count() as f32 * size * 0.5, size)
-        }
-
-        fn paint(&mut self, cmd: PaintCmd) {
-            self.paints.push(cmd);
-        }
-    }
+    use crate::backend::record::RecordingBackend;
 
     #[test]
     fn backend_contract_allocates_and_records_paint_without_egui() {
@@ -756,6 +972,8 @@ mod tests {
             area,
         );
 
+        // Top-down flow: the first allocation sits at the region
+        // origin, the next flows directly below it.
         let response = backend.allocate(Vec2::new(12.0, 8.0), Sense::ClickAndDrag);
         assert_eq!(
             response.rect,
@@ -763,7 +981,13 @@ mod tests {
         );
 
         let space = backend.reserve_space(Vec2::new(24.0, 16.0));
-        assert_eq!(space, Rect::from_min_size(area.min, Vec2::new(24.0, 16.0)));
+        assert_eq!(
+            space,
+            Rect::from_min_size(
+                Pos2::new(area.min.x, area.min.y + 8.0),
+                Vec2::new(24.0, 16.0)
+            )
+        );
 
         let reserved = backend.reserve_rect(
             Rect::from_min_size(Pos2::new(20.0, 30.0), Vec2::new(40.0, 50.0)),
@@ -794,6 +1018,25 @@ mod tests {
 
         let passive = host.non_interactive();
         assert!(!passive.interactable);
+    }
+
+    #[test]
+    fn layer_ranks_form_the_documented_total_order() {
+        // Back-to-front: Background < Middle < Foreground < Overlay.
+        let order = [
+            Layer::Background,
+            Layer::Middle,
+            Layer::Foreground,
+            Layer::Overlay,
+        ];
+        for (i, layer) in order.iter().enumerate() {
+            assert_eq!(layer.rank() as usize, i, "rank must equal position");
+        }
+        // rank() agrees with the derived Ord, and every band is distinct.
+        for pair in order.windows(2) {
+            assert!(pair[0] < pair[1], "Ord must match documented order");
+            assert!(pair[0].rank() < pair[1].rank());
+        }
     }
 
     #[test]

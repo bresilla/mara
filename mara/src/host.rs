@@ -292,6 +292,7 @@ impl<'a> MaraHostCtx<'a> {
         accent: impl Into<mara_core::vocab::Color32>,
         body: impl FnOnce(&mut mara_core::MaraUi<'_>, mara_core::vocab::Rect) -> R,
     ) -> R {
+        mara_core::enforce::__internal_enforce_defaults(self.egui);
         let accent = accent.into();
         // The body gets the FULL content rect (edge to edge, top to
         // bottom) so a root surface can paint full-bleed *behind* the
@@ -304,7 +305,8 @@ impl<'a> MaraHostCtx<'a> {
                 .frame(egui::Frame::new().fill(egui::Color32::TRANSPARENT))
                 .show(self.egui, |ui| {
                     let screen_rect = ui.max_rect().into();
-                    let mut mui = mara_core::MaraUi::__internal_from_raw(ui, accent);
+                    let mut __raw = mara_core::MaraUi::__internal_backend_from_raw(ui);
+                    let mut mui = mara_core::MaraUi::__internal_over(&mut __raw, accent);
                     body(&mut mui, screen_rect)
                 })
                 .inner
@@ -470,6 +472,19 @@ impl<'a> MaraHostCtx<'a> {
                 system_close: self.window.system_close(),
             },
         );
+    }
+
+    /// Explicit, deliberate opt-out from the enforced top bar **for
+    /// this frame only**.
+    ///
+    /// The Mara top bar is enforced: if nothing renders a `ShellBar`,
+    /// Mara renders a fallback. This is the single escape hatch, and it
+    /// is intentionally a *repeated per-frame decision* — call it every
+    /// frame the app should run bar-less (e.g. a kiosk view). Stop
+    /// calling it and the bar comes back. Host runners honor it too:
+    /// they skip their own bar render for an opted-out frame.
+    pub fn opt_out_shell_bar(&self) {
+        mara_core::enforce::__internal_opt_out_shell(self.egui);
     }
 
     /// Request the top-level host window to close.

@@ -549,6 +549,11 @@ pub fn __internal_install_fonts(ctx: &egui::Context, body: FontWeight, title: Fo
 pub fn __internal_apply_theme(ctx: &egui::Context, accent: AccentColor, opacity: GlassOpacity) {
     use core::sync::atomic::{AtomicU32, AtomicUsize};
 
+    // Record that a theme was applied this pass (no-op while the
+    // enforcement fallback itself applies it) so `crate::enforce`
+    // doesn't override an app/host-applied theme.
+    crate::enforce::mark_app_theme_applied(ctx);
+
     // Packed (r, g, b, a) cache. `u32::MAX` is used as the
     // "never-applied" sentinel — no real colour hashes to that,
     // so the first call always passes the dedup check.
@@ -1029,16 +1034,19 @@ pub(crate) fn appearance_session(ctx: &egui::Context, id: impl Into<MaraId>) -> 
     let key_seen = id.with("mara_last_seen_pass");
     let key_sess = id.with("mara_session_count");
     let now = ctx.cumulative_pass_nr();
-    let last: Option<u64> = ctx.data(|d| d.get_temp(key_seen));
-    let mut sess: u64 = ctx.data(|d| d.get_temp(key_sess)).unwrap_or(0);
+    let last: Option<u64> = crate::memory::MaraMemoryCtx::new(ctx).get_temp(key_seen);
+    let mut sess: u64 = crate::memory::MaraMemoryCtx::new(ctx)
+        .get_temp(key_sess)
+        .unwrap_or(0);
     let bumped = !matches!(last, Some(p) if p + 1 == now);
     if bumped {
         sess = sess.wrapping_add(1);
     }
-    ctx.data_mut(|d| {
-        d.insert_temp(key_seen, now);
-        d.insert_temp(key_sess, sess);
-    });
+    {
+        let mut memory = crate::memory::MaraMemoryCtx::new(ctx);
+        memory.set_temp(key_seen, now);
+        memory.set_temp(key_sess, sess);
+    };
     sess
 }
 
@@ -1112,16 +1120,19 @@ pub(crate) fn scramble_text(
 
     let key_start = id.with("mara_scramble_start");
     let key_prev = id.with("mara_scramble_prev");
-    let prev: Option<String> = ctx.data(|d| d.get_temp(key_prev));
-    let mut start: f64 = ctx.data(|d| d.get_temp(key_start)).unwrap_or(now);
+    let prev: Option<String> = crate::memory::MaraMemoryCtx::new(ctx).get_temp(key_prev);
+    let mut start: f64 = crate::memory::MaraMemoryCtx::new(ctx)
+        .get_temp(key_start)
+        .unwrap_or(now);
     // Restart scramble whenever the text changes (or on first sight,
     // including the frame `active` first flips to true).
     if prev.as_deref() != Some(current) {
         start = now;
-        ctx.data_mut(|d| {
-            d.insert_temp(key_prev, current.to_string());
-            d.insert_temp(key_start, start);
-        });
+        {
+            let mut memory = crate::memory::MaraMemoryCtx::new(ctx);
+            memory.set_temp(key_prev, current.to_string());
+            memory.set_temp(key_start, start);
+        };
     }
 
     let elapsed = now - start;
@@ -1172,12 +1183,14 @@ pub(crate) fn scramble_active(
     const MIN_DUR: f64 = 0.65;
     let key_start = scramble_id.with("mara_scramble_start");
     let key_prev = scramble_id.with("mara_scramble_prev");
-    let prev: Option<String> = ctx.data(|d| d.get_temp(key_prev));
+    let prev: Option<String> = crate::memory::MaraMemoryCtx::new(ctx).get_temp(key_prev);
     if prev.as_deref() != Some(current) {
         return true;
     }
     let now = ctx.input(|i| i.time);
-    let start: f64 = ctx.data(|d| d.get_temp(key_start)).unwrap_or(now);
+    let start: f64 = crate::memory::MaraMemoryCtx::new(ctx)
+        .get_temp(key_start)
+        .unwrap_or(now);
     let elapsed = now - start;
     let total = MIN_DUR + (current.chars().count() as f64) * STAGGER;
     elapsed < total

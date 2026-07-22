@@ -212,4 +212,31 @@ mod tests {
         assert_eq!(MaraView::title(&surface), "Image");
         assert_eq!(MaraModule::icon(&surface), "image");
     }
+
+    /// Portability proof: the image placeholder draws only through
+    /// [`mara_core::MaraPainter`], so it renders over a headless
+    /// recording backend (no egui) and still emits `PaintCmd`s
+    /// (background + border + title text).
+    #[test]
+    fn image_placeholder_paints_over_recording_backend() {
+        use mara_core::mui::MaraRawBackend;
+
+        let rect = mara_core::vocab::Rect::from_min_size(
+            mara_core::vocab::Pos2::new(0.0, 0.0),
+            MaraVec2::new(200.0, 140.0),
+        );
+        let doc = ImageDocument::uri("Photo", "file://x.png");
+        let mut raw = MaraRawBackend::__internal_recording(rect);
+        {
+            let mut mui =
+                mara_core::MaraUi::__internal_over(&mut raw, mara_core::vocab::Color32::WHITE);
+            ImageSurface::paint_placeholder(&mut mui, &doc);
+        }
+
+        let cmds = raw.__internal_recorded_canvas_commands();
+        assert!(
+            !cmds.is_empty(),
+            "image placeholder must emit PaintCmds headlessly — the portability contract"
+        );
+    }
 }

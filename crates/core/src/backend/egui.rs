@@ -4,12 +4,12 @@ use egui::{FontId, layers::ShapeIdx};
 
 use crate::{
     layout::{
-        AreaHost, AreaSlotSpec, CanvasRectSpec, CanvasSlotSpec, ChildRegion, ColorPickerAlpha,
-        ContainerBodySpec, CursorIcon, FrameHostSpec, IndentedBodySpec, InlinePickerSpec,
-        ItemSpacingSpec, Layer, PaintSurfaceRegion, PaintSurfaceSpec, PaneBodyScrollAxis,
-        PaneBodyScrollSpec, PaneFlexSpec, PopupAlign, PopupListSpec, PopupSpec, PopupTrigger,
-        ScrollAxis, ScrollRegion, Sense, SlotRibbonLayoutSpec, SpaceSpec, StackAlign,
-        StackDirection, StackScopeSpec, TextEditRegion, TextEditSpec, TextMeasureSpec, UiBackend,
+        AreaHost, AreaSlotSpec, ChildRegion, ColorPickerAlpha, ContainerBodySpec, CursorIcon,
+        FrameHostSpec, InlinePickerSpec, ItemSpacingSpec, Layer, PaintSurfaceRegion,
+        PaintSurfaceSpec, PaneBodyScrollAxis, PaneBodyScrollSpec, PaneFlexSpec, PopupAlign,
+        PopupListSpec, PopupSpec, PopupTrigger, ScrollAxis, ScrollRegion, Sense,
+        SlotRibbonLayoutSpec, SpaceSpec, StackAlign, StackDirection, TextEditRegion, TextEditSpec,
+        TextMeasureSpec, UiBackend,
     },
     memory::MaraMemoryCtx,
     mui::{MaraInput, MaraKey, MaraResponse},
@@ -39,52 +39,18 @@ pub(crate) fn egui_frame_for_style_spec(spec: crate::style::FrameSpec) -> egui::
 pub(crate) struct EguiUiBackend<'a> {
     ui: &'a mut egui::Ui,
     clip_stack: Vec<egui::Rect>,
+    /// Maps `PaintSlot` indices to reserved egui shape ids, so
+    /// `reserve_paint_slot`/`fill_paint_slot` can defer a shape.
+    deferred_slots: Vec<ShapeIdx>,
 }
-
-pub(crate) struct DeferredPaintSlot(ShapeIdx);
 
 impl<'a> EguiUiBackend<'a> {
     pub(crate) fn new(ui: &'a mut egui::Ui) -> Self {
         Self {
             ui,
             clip_stack: Vec::new(),
+            deferred_slots: Vec::new(),
         }
-    }
-
-    /// Shared access to the hosted egui `Ui`. This is the migration
-    /// seam: `MaraUi` and first-party module code reach the concrete
-    /// backend `Ui` through here while individual operations have not
-    /// yet been promoted to `UiBackend`/spec contracts.
-    pub(crate) fn ui(&self) -> &egui::Ui {
-        &*self.ui
-    }
-
-    /// Mutable access to the hosted egui `Ui`. See [`Self::ui`].
-    pub(crate) fn ui_mut(&mut self) -> &mut egui::Ui {
-        &mut *self.ui
-    }
-}
-
-pub(crate) fn reserve_deferred_paint_cmd_slot(ui: &mut egui::Ui) -> DeferredPaintSlot {
-    DeferredPaintSlot(ui.painter().add(egui::Shape::Noop))
-}
-
-pub(crate) fn fill_deferred_paint_cmd_slot(
-    ui: &egui::Ui,
-    slot: DeferredPaintSlot,
-    cmd: Option<PaintCmd>,
-) {
-    let shape = cmd.map(shape_from_paint_cmd).unwrap_or(egui::Shape::Noop);
-    ui.painter().set(slot.0, shape);
-}
-
-pub(crate) fn paint_cmd_for_ui(ui: &egui::Ui, cmd: PaintCmd) {
-    render_paint_cmd(ui.painter(), cmd);
-}
-
-pub(crate) fn paint_cmds_for_ui(ui: &egui::Ui, commands: impl IntoIterator<Item = PaintCmd>) {
-    for cmd in commands {
-        paint_cmd_for_ui(ui, cmd);
     }
 }
 
@@ -201,6 +167,10 @@ impl UiBackend for EguiUiBackend<'_> {
         ui_available_height(self.ui)
     }
 
+    fn memory(&self) -> crate::memory::BackendMemory<'_> {
+        crate::memory::BackendMemory::Egui(MaraMemoryCtx::new(self.ui.ctx()))
+    }
+
     fn input(&self) -> MaraInput {
         input_snapshot_for_ui(self.ui)
     }
@@ -227,6 +197,87 @@ impl UiBackend for EguiUiBackend<'_> {
 
     fn paint(&mut self, cmd: PaintCmd) {
         render_paint_cmd_ui(self.ui, cmd);
+    }
+
+    fn reserve_paint_slot(&mut self) -> crate::layout::PaintSlot {
+        let idx = self.ui.painter().add(egui::Shape::Noop);
+        self.deferred_slots.push(idx);
+        crate::layout::PaintSlot(self.deferred_slots.len() - 1)
+    }
+
+    fn fill_paint_slot(&mut self, slot: crate::layout::PaintSlot, cmd: Option<PaintCmd>) {
+        if let Some(&idx) = self.deferred_slots.get(slot.0) {
+            let shape = cmd.map(shape_from_paint_cmd).unwrap_or(egui::Shape::Noop);
+            self.ui.painter().set(idx, shape);
+        }
+    }
+
+    fn hover_text(&mut self, response: &MaraResponse, text: &str) {
+        hover_text(self.ui.ctx(), response.backend_response_id(), text);
+    }
+
+    fn is_rect_visible(&self, rect: vocab::Rect) -> bool {
+        self.ui.is_rect_visible(rect.into())
+    }
+
+    fn egui_ui_mut(&mut self) -> Option<&mut egui::Ui> {
+        Some(self.ui)
+    }
+
+    fn egui_ui_ref(&self) -> Option<&egui::Ui> {
+        Some(self.ui)
+    }
+
+    fn in_child(
+        &mut self,
+        id: vocab::Id,
+        _inset_left: f32,
+        body: &mut dyn FnMut(&mut dyn UiBackend),
+    ) {
+        // egui applies its own theme indent spacing for the visual;
+        // `inset_left` is honoured by headless backends.
+        self.ui.indent(Into::<egui::Id>::into(id), |child_ui| {
+            let mut child = EguiUiBackend::new(child_ui);
+            body(&mut child);
+        });
+    }
+
+    fn in_scope(&mut self, horizontal: bool, body: &mut dyn FnMut(&mut dyn UiBackend)) {
+        let run = |child_ui: &mut egui::Ui| {
+            let mut child = EguiUiBackend::new(child_ui);
+            body(&mut child);
+        };
+        if horizontal {
+            self.ui.horizontal(run);
+        } else {
+            self.ui.vertical(run);
+        }
+    }
+
+    fn make_painter(&self, spec: PaintSurfaceSpec) -> crate::mui::MaraPainter {
+        crate::mui::MaraPainter::new(painter_for_ui_surface(self.ui, spec))
+    }
+
+    fn now(&self) -> f64 {
+        input_time(self.ui.ctx())
+    }
+
+    fn request_repaint(&self) {
+        self.ui.ctx().request_repaint();
+    }
+
+    fn scroll_region(&mut self, region: ScrollRegion, body: &mut dyn FnMut(&mut dyn UiBackend)) {
+        show_vertical_scroll_region(self.ui, region, |ui| {
+            let mut child = EguiUiBackend::new(ui);
+            body(&mut child);
+        });
+    }
+
+    fn in_id_scope(&mut self, salt: vocab::Id, body: &mut dyn FnMut(&mut dyn UiBackend)) {
+        self.ui.push_id(Into::<egui::Id>::into(salt), |ui| {
+            let mut child = EguiUiBackend::new(ui);
+            body(&mut child);
+        });
     }
 }
 
@@ -364,53 +415,6 @@ pub(crate) fn request_repaint_after_ms(ctx: &egui::Context, ms: u64) {
 
 pub(crate) fn unstable_dt(ctx: &egui::Context) -> f32 {
     ctx.input(|input| input.unstable_dt).max(0.0)
-}
-
-pub(crate) fn animate_value_with_time(
-    ctx: &egui::Context,
-    id: impl Into<vocab::Id>,
-    target: f32,
-    animation_time: f32,
-) -> f32 {
-    ctx.animate_value_with_time(id.into().into(), target, animation_time)
-}
-
-pub(crate) fn animate_bool_with_time(
-    ctx: &egui::Context,
-    id: impl Into<vocab::Id>,
-    value: bool,
-    animation_time: f32,
-) -> f32 {
-    ctx.animate_bool_with_time(id.into().into(), value, animation_time)
-}
-
-pub(crate) fn animate_bool_with_time_for_ui(
-    ui: &egui::Ui,
-    id: impl Into<vocab::Id>,
-    value: bool,
-    animation_time: f32,
-) -> f32 {
-    animate_bool_with_time(ui.ctx(), id, value, animation_time)
-}
-
-pub(crate) fn context_for_ui(ui: &egui::Ui) -> egui::Context {
-    ui.ctx().clone()
-}
-
-pub(crate) fn animate_bool_responsive(
-    ctx: &egui::Context,
-    id: impl Into<vocab::Id>,
-    value: bool,
-) -> f32 {
-    ctx.animate_bool_responsive(id.into().into(), value)
-}
-
-pub(crate) fn animate_bool_responsive_for_ui(
-    ui: &egui::Ui,
-    id: impl Into<vocab::Id>,
-    value: bool,
-) -> f32 {
-    animate_bool_responsive(ui.ctx(), id, value)
 }
 
 pub(crate) fn context_painter_for_layer(
@@ -910,14 +914,6 @@ pub(crate) fn show_inline_picker_scope<R>(
     .inner
 }
 
-pub(crate) fn show_indented_body_for_spec<R>(
-    ui: &mut egui::Ui,
-    spec: IndentedBodySpec,
-    body: impl FnOnce(&mut egui::Ui) -> R,
-) -> egui::InnerResponse<R> {
-    ui.indent(Into::<egui::Id>::into(spec.id), body)
-}
-
 pub(crate) fn show_frame_for_spec<R>(
     ui: &mut egui::Ui,
     spec: FrameHostSpec,
@@ -997,24 +993,6 @@ pub(crate) fn apply_item_spacing_spec(ui: &mut egui::Ui, spec: ItemSpacingSpec) 
     ui.spacing_mut().item_spacing = spec.item_spacing.into();
 }
 
-pub(crate) fn show_stack_scope_for_ui<R>(
-    ui: &mut egui::Ui,
-    spec: StackScopeSpec,
-    body: impl FnOnce(&mut egui::Ui) -> R,
-) -> R {
-    match spec.direction {
-        StackDirection::LeftToRight => ui.horizontal(body).inner,
-        StackDirection::TopDown => ui.vertical(body).inner,
-        StackDirection::RightToLeft | StackDirection::BottomUp => {
-            ui.with_layout(
-                egui_layout_for_stack_direction(spec.direction, StackAlign::Min),
-                body,
-            )
-            .inner
-        }
-    }
-}
-
 pub(crate) fn stack_direction_for_ui(ui: &egui::Ui) -> StackDirection {
     match ui.layout().main_dir() {
         egui::Direction::TopDown => StackDirection::TopDown,
@@ -1082,43 +1060,6 @@ pub(crate) fn ui_available_height(ui: &egui::Ui) -> f32 {
 
 pub(crate) fn ui_id(ui: &egui::Ui) -> vocab::Id {
     ui.id().into()
-}
-
-pub(crate) fn interact_for_ui_rect(
-    ui: &mut egui::Ui,
-    rect: vocab::Rect,
-    id: vocab::Id,
-    sense: Sense,
-) -> MaraResponse {
-    ui.interact(rect.into(), id.into(), egui_sense(sense))
-        .into()
-}
-
-pub(crate) fn allocate_canvas_slot_for_ui(
-    ui: &mut egui::Ui,
-    spec: CanvasSlotSpec,
-) -> (egui::Painter, MaraResponse) {
-    let response = {
-        let mut backend = EguiUiBackend::new(ui);
-        backend.allocate(spec.size, spec.sense)
-    };
-    let painter = painter_for_ui_rect(ui, response.rect);
-    (painter, response)
-}
-
-pub(crate) fn interact_canvas_rect_for_ui(
-    ui: &mut egui::Ui,
-    spec: CanvasRectSpec,
-) -> (egui::Painter, MaraResponse) {
-    let response = interact_for_ui_rect(ui, spec.rect, spec.id, spec.sense);
-    let painter = painter_for_ui_clip(ui, spec.rect);
-    (painter, response)
-}
-
-pub(crate) fn painter_for_ui_rect(ui: &egui::Ui, rect: vocab::Rect) -> egui::Painter {
-    let rect: egui::Rect = rect.into();
-    ui.painter_at(rect)
-        .with_clip_rect(rect.intersect(ui.clip_rect()))
 }
 
 pub(crate) fn painter_for_ui_clip(ui: &egui::Ui, rect: vocab::Rect) -> egui::Painter {
@@ -1397,6 +1338,7 @@ pub(crate) fn render_paint_cmd(painter: &egui::Painter, cmd: PaintCmd) {
                 .as_shape(rect.into(), Into::<egui::CornerRadius>::into(corner)),
             );
         }
+        PaintCmd::Noop => {}
         PaintCmd::Clip { rect, children } => {
             let clipped = painter_with_clip(painter, rect);
             for child in children {
@@ -1521,7 +1463,8 @@ pub(crate) fn shape_from_paint_cmd(cmd: PaintCmd) -> egui::Shape {
         | PaintCmd::TextRuns { .. }
         | PaintCmd::Image { .. }
         | PaintCmd::Svg { .. }
-        | PaintCmd::Clip { .. } => egui::Shape::Noop,
+        | PaintCmd::Clip { .. }
+        | PaintCmd::Noop => egui::Shape::Noop,
     }
 }
 
@@ -1672,6 +1615,25 @@ fn layout_job_for_text_runs(
 mod tests {
     use super::*;
     use crate::vocab::{Color32, CornerRadius, Pos2, Rect, Stroke, Vec2};
+
+    #[test]
+    fn egui_order_mapping_preserves_layer_rank() {
+        // The egui backend must honour the Layer contract: a
+        // higher-rank Mara layer maps to an egui order that paints
+        // no lower than a lower-rank one.
+        let layers = [
+            Layer::Background,
+            Layer::Middle,
+            Layer::Foreground,
+            Layer::Overlay,
+        ];
+        for pair in layers.windows(2) {
+            assert!(
+                egui_order_for_layer(pair[0]) <= egui_order_for_layer(pair[1]),
+                "egui order must be monotonic with Layer::rank"
+            );
+        }
+    }
 
     #[test]
     fn arc_polyline_hits_endpoints_and_scales_with_sweep() {

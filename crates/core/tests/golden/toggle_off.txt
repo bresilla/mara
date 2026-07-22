@@ -1,0 +1,115 @@
+[
+    Text {
+        pos: Pos2 {
+            x: 0.0,
+            y: 12.0,
+        },
+        anchor: Align2(
+            Align2(Min, Center),
+        ),
+        text: "dark",
+        size: 17.0,
+        color: Color32(
+            #E6_E6_E8_FF,
+        ),
+        mono: false,
+    },
+    RectFilled {
+        rect: Rect {
+            min: Pos2 {
+                x: 269.0,
+                y: 0.0,
+            },
+            max: Pos2 {
+                x: 320.0,
+                y: 24.0,
+            },
+        },
+        corner: CornerRadius(
+            CornerRadius {
+                nw: 3,
+                ne: 3,
+                sw: 3,
+                se: 3,
+            },
+        ),
+        fill: Color32(
+            #06_08_0C_FF,
+        ),
+    },
+    RectStroke {
+        rect: Rect {
+            min: Pos2 {
+                x: 269.0,
+                y: 0.0,
+            },
+            max: Pos2 {
+                x: 320.0,
+                y: 24.0,
+            },
+        },
+        corner: CornerRadius(
+            CornerRadius {
+                nw: 3,
+                ne: 3,
+                sw: 3,
+                se: 3,
+            },
+        ),
+        stroke: Stroke {
+            width: 1.0,
+            color: Color32(
+                #25_26_27_46,
+            ),
+        },
+    },
+    RectFilled {
+        rect: Rect {
+            min: Pos2 {
+                x: 271.0,
+                y: 2.0,
+            },
+            max: Pos2 {
+                x: 291.0,
+                y: 22.0,
+            },
+        },
+        corner: CornerRadius(
+            CornerRadius {
+                nw: 3,
+                ne: 3,
+                sw: 3,
+                se: 3,
+            },
+        ),
+        fill: Color32(
+            #E6_E6_E8_FF,
+        ),
+    },
+    RectStroke {
+        rect: Rect {
+            min: Pos2 {
+                x: 271.0,
+                y: 2.0,
+            },
+            max: Pos2 {
+                x: 291.0,
+                y: 22.0,
+            },
+        },
+        corner: CornerRadius(
+            CornerRadius {
+                nw: 3,
+                ne: 3,
+                sw: 3,
+                se: 3,
+            },
+        ),
+        stroke: Stroke {
+            width: 1.0,
+            color: Color32(
+                #25_26_27_46,
+            ),
+        },
+    },
+]

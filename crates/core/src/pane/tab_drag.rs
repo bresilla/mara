@@ -82,15 +82,15 @@ fn active_tab_id_key(container_id: Id) -> Id {
 // ─── Drag state accessors ──────────────────────────────────────────
 
 pub fn drag_state(ctx: &Context, pane_id: Id) -> Option<TabDragState> {
-    ctx.data(|d| d.get_temp::<TabDragState>(drag_key(pane_id)))
+    crate::memory::MaraMemoryCtx::new(ctx).get_temp::<TabDragState>(drag_key(pane_id))
 }
 
 pub fn set_drag(ctx: &Context, pane_id: Id, state: TabDragState) {
-    ctx.data_mut(|d| d.insert_temp(drag_key(pane_id), state));
+    crate::memory::MaraMemoryCtx::new(ctx).set_temp(drag_key(pane_id), state);
 }
 
 pub fn clear_drag(ctx: &Context, pane_id: Id) {
-    ctx.data_mut(|d| d.remove::<TabDragState>(drag_key(pane_id)));
+    crate::memory::MaraMemoryCtx::new(ctx).remove_temp::<TabDragState>(drag_key(pane_id));
 }
 
 // ─── Strip + button rect cache ─────────────────────────────────────
@@ -107,41 +107,43 @@ pub fn begin_frame(_ctx: &Context, _pane_id: Id) {}
 /// leave a stale entry in the cache and skew `find_drop_target`'s
 /// slot computation by one.
 pub fn reset_container_buttons(ctx: &Context, pane_id: Id, container_id: Id) {
-    ctx.data_mut(|d| {
-        let mut cache: Vec<TabButtonEntry> =
-            d.get_temp(button_cache_key(pane_id)).unwrap_or_default();
-        cache.retain(|e| e.container_id != container_id);
-        d.insert_temp(button_cache_key(pane_id), cache);
-    });
+    let mut memory = crate::memory::MaraMemoryCtx::new(ctx);
+    let mut cache: Vec<TabButtonEntry> = memory
+        .get_temp(button_cache_key(pane_id))
+        .unwrap_or_default();
+    cache.retain(|e| e.container_id != container_id);
+    memory.set_temp(button_cache_key(pane_id), cache);
 }
 
 pub fn push_strip(ctx: &Context, pane_id: Id, entry: TabStripEntry) {
-    ctx.data_mut(|d| {
-        let mut cache: Vec<TabStripEntry> =
-            d.get_temp(strip_cache_key(pane_id)).unwrap_or_default();
-        cache.retain(|e| e.container_id != entry.container_id);
-        cache.push(entry);
-        d.insert_temp(strip_cache_key(pane_id), cache);
-    });
+    let mut memory = crate::memory::MaraMemoryCtx::new(ctx);
+    let mut cache: Vec<TabStripEntry> = memory
+        .get_temp(strip_cache_key(pane_id))
+        .unwrap_or_default();
+    cache.retain(|e| e.container_id != entry.container_id);
+    cache.push(entry);
+    memory.set_temp(strip_cache_key(pane_id), cache);
 }
 
 pub fn push_button(ctx: &Context, pane_id: Id, entry: TabButtonEntry) {
-    ctx.data_mut(|d| {
-        let mut cache: Vec<TabButtonEntry> =
-            d.get_temp(button_cache_key(pane_id)).unwrap_or_default();
-        cache.retain(|e| !(e.container_id == entry.container_id && e.tab_id == entry.tab_id));
-        cache.push(entry);
-        d.insert_temp(button_cache_key(pane_id), cache);
-    });
+    let mut memory = crate::memory::MaraMemoryCtx::new(ctx);
+    let mut cache: Vec<TabButtonEntry> = memory
+        .get_temp(button_cache_key(pane_id))
+        .unwrap_or_default();
+    cache.retain(|e| !(e.container_id == entry.container_id && e.tab_id == entry.tab_id));
+    cache.push(entry);
+    memory.set_temp(button_cache_key(pane_id), cache);
 }
 
 pub fn strip_cache(ctx: &Context, pane_id: Id) -> Vec<TabStripEntry> {
-    ctx.data(|d| d.get_temp(strip_cache_key(pane_id)))
+    crate::memory::MaraMemoryCtx::new(ctx)
+        .get_temp(strip_cache_key(pane_id))
         .unwrap_or_default()
 }
 
 pub fn button_cache(ctx: &Context, pane_id: Id) -> Vec<TabButtonEntry> {
-    ctx.data(|d| d.get_temp(button_cache_key(pane_id)))
+    crate::memory::MaraMemoryCtx::new(ctx)
+        .get_temp(button_cache_key(pane_id))
         .unwrap_or_default()
 }
 
@@ -151,37 +153,40 @@ pub(crate) fn retain_containers(
     containers: impl IntoIterator<Item = Id>,
 ) {
     let keep: HashSet<Id> = containers.into_iter().collect();
-    ctx.data_mut(|d| {
-        let mut strips: Vec<TabStripEntry> =
-            d.get_temp(strip_cache_key(pane_id)).unwrap_or_default();
-        strips.retain(|entry| keep.contains(&entry.container_id));
-        d.insert_temp(strip_cache_key(pane_id), strips);
+    let mut memory = crate::memory::MaraMemoryCtx::new(ctx);
+    let mut strips: Vec<TabStripEntry> = memory
+        .get_temp(strip_cache_key(pane_id))
+        .unwrap_or_default();
+    strips.retain(|entry| keep.contains(&entry.container_id));
+    memory.set_temp(strip_cache_key(pane_id), strips);
 
-        let mut buttons: Vec<TabButtonEntry> =
-            d.get_temp(button_cache_key(pane_id)).unwrap_or_default();
-        buttons.retain(|entry| keep.contains(&entry.container_id));
-        d.insert_temp(button_cache_key(pane_id), buttons);
-    });
+    let mut buttons: Vec<TabButtonEntry> = memory
+        .get_temp(button_cache_key(pane_id))
+        .unwrap_or_default();
+    buttons.retain(|entry| keep.contains(&entry.container_id));
+    memory.set_temp(button_cache_key(pane_id), buttons);
 }
 
 // ─── Routing persistence ───────────────────────────────────────────
 
 fn read_owner(ctx: &Context, pane_id: Id) -> HashMap<Id, Id> {
-    ctx.data_mut(|d| d.get_persisted(owner_key(pane_id)))
+    crate::memory::MaraMemoryCtx::new(ctx)
+        .get_persisted(owner_key(pane_id))
         .unwrap_or_default()
 }
 
 fn write_owner(ctx: &Context, pane_id: Id, map: HashMap<Id, Id>) {
-    ctx.data_mut(|d| d.insert_persisted(owner_key(pane_id), map));
+    crate::memory::MaraMemoryCtx::new(ctx).set_persisted(owner_key(pane_id), map);
 }
 
 fn read_moved_out(ctx: &Context, container_id: Id) -> HashSet<Id> {
-    ctx.data_mut(|d| d.get_persisted(moved_out_key(container_id)))
+    crate::memory::MaraMemoryCtx::new(ctx)
+        .get_persisted(moved_out_key(container_id))
         .unwrap_or_default()
 }
 
 fn write_moved_out(ctx: &Context, container_id: Id, tabs: HashSet<Id>) {
-    ctx.data_mut(|d| d.insert_persisted(moved_out_key(container_id), tabs));
+    crate::memory::MaraMemoryCtx::new(ctx).set_persisted(moved_out_key(container_id), tabs);
 }
 
 fn mark_moved_out(ctx: &Context, source_container: Id, target_container: Id, tab_id: Id) {
@@ -197,7 +202,8 @@ fn mark_moved_out(ctx: &Context, source_container: Id, target_container: Id, tab
 }
 
 fn read_order(ctx: &Context, pane_id: Id) -> HashMap<Id, Vec<Id>> {
-    ctx.data_mut(|d| d.get_persisted(order_key(pane_id)))
+    crate::memory::MaraMemoryCtx::new(ctx)
+        .get_persisted(order_key(pane_id))
         .unwrap_or_default()
 }
 
@@ -216,7 +222,7 @@ fn write_order(ctx: &Context, pane_id: Id, map: HashMap<Id, Vec<Id>>) {
         .into_iter()
         .map(|(container_id, ids)| (container_id, dedupe_ids(ids)))
         .collect();
-    ctx.data_mut(|d| d.insert_persisted(order_key(pane_id), map));
+    crate::memory::MaraMemoryCtx::new(ctx).set_persisted(order_key(pane_id), map);
 }
 
 /// For one container: the ordered tab ids belonging to it, derived
@@ -373,8 +379,9 @@ pub fn commit_drop(
     target_order.insert(slot, tab_id);
     order.insert(target_container, target_order);
     write_order(ctx, pane_id, order);
-    ctx.data_mut(|d| d.insert_persisted(active_tab_key(target_container), slot));
-    ctx.data_mut(|d| d.insert_persisted(active_tab_id_key(target_container), tab_id));
+    crate::memory::MaraMemoryCtx::new(ctx).set_persisted(active_tab_key(target_container), slot);
+    crate::memory::MaraMemoryCtx::new(ctx)
+        .set_persisted(active_tab_id_key(target_container), tab_id);
 }
 
 // ─── Drop target detection ─────────────────────────────────────────
@@ -974,8 +981,10 @@ mod tests {
 
         commit_drop(&ctx, pane_id, dragged, source, target, 1);
 
-        let active = ctx.data_mut(|d| d.get_persisted::<usize>(active_tab_key(target)));
-        let active_id = ctx.data_mut(|d| d.get_persisted::<Id>(active_tab_id_key(target)));
+        let active =
+            crate::memory::MaraMemoryCtx::new(&ctx).get_persisted::<usize>(active_tab_key(target));
+        let active_id =
+            crate::memory::MaraMemoryCtx::new(&ctx).get_persisted::<Id>(active_tab_id_key(target));
         assert_eq!(
             active,
             Some(1),
@@ -1020,8 +1029,10 @@ mod tests {
 
         commit_drop(&ctx, pane_id, dragged, container, container, 2);
 
-        let active = ctx.data_mut(|d| d.get_persisted::<usize>(active_tab_key(container)));
-        let active_id = ctx.data_mut(|d| d.get_persisted::<Id>(active_tab_id_key(container)));
+        let active = crate::memory::MaraMemoryCtx::new(&ctx)
+            .get_persisted::<usize>(active_tab_key(container));
+        let active_id = crate::memory::MaraMemoryCtx::new(&ctx)
+            .get_persisted::<Id>(active_tab_id_key(container));
         assert_eq!(
             active,
             Some(2),

@@ -72,10 +72,35 @@ layer that makes the toolkit backend-swappable.
 On top of these sits the **sealed widget surface**:
 
 - **`MaraUi`** (`mui/mod.rs`) — what every widget and pane body receives. It
-  holds an `EguiUiBackend`, *not* an `egui::Ui`, and exposes Mara-shaped
-  primitives (`MaraResponse`, `MaraInput`, `MaraPainter`, `MaraKey`). All ~40
-  internal call sites route through the backend, so the egui dependency is
-  contained in one adapter.
+  holds a `MaraBackend` (a closed enum `{ Egui, Recording }` implementing
+  `UiBackend`), *not* a raw `egui::Ui`, and exposes Mara-shaped primitives
+  (`MaraResponse`, `MaraInput`, `MaraPainter`, `MaraKey`). Because the backend
+  is generic, the whole sealed surface can render over the headless recording
+  backend — golden paint tests (`backend/record.rs`) exercise exactly that.
+
+**How far the seam actually goes today** (measured 2026-07-20; tracked by the
+coupling ratchet in `make check`, driven down by `PLAN.md`):
+
+- **State/animation: fully backend-neutral.** All per-id persisted/temp state
+  and animation route through the `MaraMemory`/`MaraAnim` contracts
+  (`memory.rs`) — zero direct `ctx.data*`/`ctx.animate_*` outside
+  `backend/egui.rs` (the ratchet enforces this at 0). `UiBackend::memory()`
+  vends a `BackendMemory` enum so state works over any backend.
+- **Paint/measure/interact: real.** Widget logic expresses painting as
+  `PaintCmd` and drives `*_backend` functions over the `UiBackend` trait;
+  `backend/egui.rs` is the only *lowering* code. The core widget families
+  (label, toggle, readout, chip, badge, keybinding, progressbar, button,
+  slider, drag_value, select) render with zero egui in the call path.
+- **Signature layer: partially migrated.** `MaraUi` is backend-generic, but a
+  shrinking set of operations still reach egui through the single
+  `MaraUi::egui_ui()` downcast escape (tracked by the ratchet's `ui_escapes`
+  count): the ones needing egui's layout engine (stack scopes, `pod`, the
+  foldable-section frame/indent, `canvas`) or its popup/overlay system
+  (dropdown popup, `context_menu`, tooltips, the egui colour picker). These
+  are the work of `PLAN.md` Phase 4 (layout engine + layer model). A fully
+  headless *chrome* (panes/shelves) is not possible until then, but the
+  *widget surface* already is. `docs/adr/0001-backend-seam-scope.md` records
+  the decided direction.
 
 A handful of **backend-neutral state machines** live alongside, each a pure
 `MaraMemory`-backed core that any backend could reuse:
@@ -336,6 +361,31 @@ before they can tile.
   (`ShellBar::show` → `Vec<ShellEvent>`). Web/android advertise no window
   capabilities, so those buttons simply drop out.
 
+### Enforced defaults (`enforce.rs`)
+
+Mara's contract is that *using the toolkit at all* yields a correct Mara
+app. Every surface entry point (panes, shelves, ribbons, views, command
+palette, root body) first calls `enforce::__internal_enforce_defaults`,
+whose rule per default is: **if the app did it this pass or the previous
+pass, Mara stays out of the way; otherwise Mara does it.**
+
+- **Theme** — the active Mara theme is applied unless the app applied one
+  (opt-out = apply your own).
+- **Shelf-layout baseline** — a full-viewport no-shelf layout is published
+  unless the app published one (opt-out = publish a real layout).
+- **Top bar** — if no `ShellBar` rendered, Mara renders the default
+  fallback bar. There is **no passive disable flag** (`ShellBar::enabled`
+  was removed; old code fails to compile). Apps wanting the functional bar
+  render it via `ShellBar::show`, which suppresses the fallback. The one
+  deliberate escape hatch is `MaraHostCtx::opt_out_shell_bar()` — an
+  explicit *per-frame* call (honored by the runners too); stop calling it
+  and the bar comes back.
+
+The one-pass hysteresis exists because hosts render the bar *after* app
+content each frame; the first pass a context is seen is a grace pass for
+the same reason. This is what guarantees the bar on consumers that drive
+`mara::ui` from their own egui host and never opted into a runner.
+
 ---
 
 ## 8. Theme & style runtime
@@ -419,9 +469,15 @@ allocation + pipeline compile); the inline-`PaintCmd` modules do not.
   adapters.
 - Don't add Bevy-only logic for behavior that should also work on egui/eframe or
   web. One core, many hosts.
-- Widgets emit `PaintCmd` and go through `MaraUi`/`UiBackend` — don't reach for
-  `egui::Ui` outside the `backend/egui.rs` adapter (or the `raw-egui` hatch).
-- egui's data store is **type-keyed**; persisted state goes through
-  `MaraMemory`, and atlas-affecting work (fonts/theme) must be deduped.
+- Widgets emit `PaintCmd` and go through `MaraUi`/`UiBackend` — **new code
+  must not add `egui::Ui`-typed entry points or direct `ctx.data*` access**
+  (the coupling ratchet in `make check` enforces no-increase). Existing
+  egui-typed entries are being migrated per `PLAN.md`; each migrated surface
+  deletes its old entry in the same change (greenfield rule — see
+  `docs/adr/0001-backend-seam-scope.md`).
+- egui's data store is **type-keyed**; `MaraMemory` is the sanctioned store
+  for widget state. Today chrome-level state (pane/shelf/container/ribbon/
+  enforce, ~139 sites) still uses `ctx.data*` directly — scheduled migration,
+  not a pattern to copy. Atlas-affecting work (fonts/theme) must be deduped.
 - Run the gates under the repo Nix shell:
   `nix develop --impure -c make check` and `… make test-all`.

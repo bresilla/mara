@@ -303,49 +303,7 @@ mod tests {
     use super::*;
     use crate::vocab::Id;
 
-    #[derive(Default)]
-    struct RecordingBackend {
-        available: Rect,
-        paints: Vec<PaintCmd>,
-        clips: Vec<Rect>,
-        interaction: Option<MaraResponse>,
-    }
-
-    impl UiBackend for RecordingBackend {
-        fn begin_area(&mut self, _host: crate::layout::AreaHost, rect: Rect) {
-            self.available = rect;
-        }
-
-        fn allocate(&mut self, size: Vec2, _sense: Sense) -> MaraResponse {
-            self.interaction.clone().unwrap_or_else(|| {
-                MaraResponse::synthetic(Rect::from_min_size(self.available.min, size))
-            })
-        }
-
-        fn interact(&mut self, rect: Rect, _id: Id, _sense: Sense) -> MaraResponse {
-            self.interaction
-                .clone()
-                .unwrap_or_else(|| MaraResponse::synthetic(rect))
-        }
-
-        fn available_rect(&self) -> Rect {
-            self.available
-        }
-
-        fn push_clip(&mut self, rect: Rect) {
-            self.clips.push(rect);
-        }
-
-        fn pop_clip(&mut self) {}
-
-        fn measure_text(&self, text: &str, size: f32, _mono: bool) -> Vec2 {
-            Vec2::new(text.len() as f32 * size * 0.5, size)
-        }
-
-        fn paint(&mut self, cmd: PaintCmd) {
-            self.paints.push(cmd);
-        }
-    }
+    use crate::backend::record::RecordingBackend;
 
     #[test]
     fn dropdown_trigger_backend_emits_chrome_selected_text_and_chevron() {
@@ -354,6 +312,7 @@ mod tests {
             paints: Vec::new(),
             clips: Vec::new(),
             interaction: None,
+            ..Default::default()
         };
 
         let response =
@@ -382,6 +341,7 @@ mod tests {
             paints: Vec::new(),
             clips: Vec::new(),
             interaction: None,
+            ..Default::default()
         };
 
         let response = dropdown_popup_row_backend(&mut backend, "Option A", true, Color32::WHITE);
