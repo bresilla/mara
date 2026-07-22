@@ -564,10 +564,6 @@ impl Pane {
     /// [`crate::layout::Layer::Foreground`] when they intentionally
     /// render over fullscreen/module overlays.
     pub fn order(mut self, order: crate::layout::Layer) -> Self {
-        // Panes are floating chrome: they NEVER sink into the view
-        // band. A Background request is clamped to Middle so no host
-        // can accidentally let a clicked view raise itself over an
-        // open pane — panes stay visible until closed by their button.
         self.order = match order {
             crate::layout::Layer::Background => crate::layout::Layer::Middle,
             other => other,

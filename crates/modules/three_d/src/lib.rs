@@ -4573,10 +4573,6 @@ impl MaraView for View3d {
         {
             self.gpu_target_format = Some(format);
         }
-        // Render into this node's REGION, not a window-grabbing panel
-        // (ADR 0002 / PLAN WS6): a View3d hosted as a split cell draws
-        // and interacts inside its cell rect, so 3D views tile like any
-        // other leaf. The whole-window case is just the one-leaf tree.
         let region = ctx.screen_rect();
         let rect: egui::Rect = region.into();
         egui::Area::new(egui::Id::new(("mara_three_d_view", self.id)))

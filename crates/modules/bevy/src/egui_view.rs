@@ -163,17 +163,11 @@ impl MaraBevyViewport {
         render_state: Option<mara_gpu::MaraRenderState<'_>>,
         accent: impl Into<MaraColor32>,
     ) -> Option<MaraColor32> {
-        // Unwrap the opaque host handle at the module boundary — sealed
-        // callers pass `MaraRenderState` around without seeing egui-wgpu.
         let render_state: Option<&egui_wgpu::RenderState> =
             render_state.map(|state| state.__internal_raw());
         let accent = accent.into();
         self.set_active(true);
         let mut picked_color = None;
-        // Render into this node's REGION, not a window-grabbing panel
-        // (ADR 0002 / PLAN WS6): a Bevy viewport hosted as a split cell
-        // draws and interacts inside its cell rect, so it tiles like
-        // any other leaf. Whole-window is just the one-leaf tree.
         let region_rect: egui::Rect = ctx.screen_rect().into();
         {
             egui::Area::new(egui::Id::new(("mara_bevy_viewport_area", self.instance)))

@@ -560,10 +560,6 @@ impl<'a> MaraMap<'a> {
     }
 
     pub fn show(self, ctx: &mut ViewCtx<'_>) -> MaraMapResponse {
-        // Render into this node's REGION, not a window-grabbing panel
-        // (ADR 0002 / PLAN WS6): a map hosted as a split cell draws and
-        // interacts inside its cell rect, so it tiles like any other
-        // leaf. Whole-window is just the one-leaf tree.
         let region: egui::Rect = ctx.screen_rect().into();
         self.__internal_show_in(ctx.__internal_egui_ctx(), region)
     }
@@ -607,9 +603,6 @@ impl MaraView for MapSurface {
     }
 
     fn show(&mut self, ctx: &mut ViewCtx<'_>) {
-        // Persist the leaf interaction state across frames (tool,
-        // selection, multi-click draft) — a fresh Default here would
-        // reset the draft every frame and break line/polygon drawing.
         let mut interaction = std::mem::take(&mut self.leaf_interaction);
         let _ = MaraMap::new(self, &mut interaction).show(ctx);
         self.leaf_interaction = interaction;
