@@ -21,6 +21,7 @@
 use egui::{Id, Ui};
 
 use crate::container::SeparatorStyle;
+use crate::memory::MaraMemory;
 use crate::module::{MaraModule, ModuleInlineCtx, ModuleInlineOptions};
 use crate::style::{UNIT, theme};
 use crate::vocab::{Color32, Id as MaraId};
@@ -29,13 +30,13 @@ use crate::widget::{
     button::{Button, FillStyle},
     chip::{chip_colored_backend, chip_fill},
     color::{color_rgb, color_rgba},
-    drag_value::drag_value,
+    drag_value::drag_value_backend,
     dropdown::dropdown,
     keybinding::keybinding_row_backend,
     progressbar::progressbar_backend,
     readout::readout_backend,
-    select::{hybrid_select_row, select_row},
-    slider::slider,
+    select::{hybrid_select_row_backend, select_row_backend},
+    slider::slider_backend,
     text_input::text_input,
     toggle::toggle_backend,
 };
@@ -1508,7 +1509,8 @@ impl Pod {
                     .auto_shrink([false, false])
                     .min_scrolled_height(0.0)
                     .show(&mut child, |inner| {
-                        paint_widgets(widgets, inner, &mut response, pod_id);
+                        let mut backend = crate::backend::egui::EguiUiBackend::new(inner);
+                        paint_widgets(widgets, &mut backend, &mut response, pod_id);
                     });
             } else {
                 // Fill pods skip the ScrollArea — the slot is already
@@ -1523,10 +1525,12 @@ impl Pod {
                 // `paint_widgets` inside the clipped `child` is
                 // exactly what fill pods want: hard clip, no
                 // outer-scroll feedback.
-                paint_widgets(widgets, &mut child, &mut response, pod_id);
+                let mut backend = crate::backend::egui::EguiUiBackend::new(&mut child);
+                paint_widgets(widgets, &mut backend, &mut response, pod_id);
             }
         } else {
-            paint_widgets(self.widgets, ui, &mut response, pod_id);
+            let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
+            paint_widgets(self.widgets, &mut backend, &mut response, pod_id);
         }
         response
     }
@@ -1543,13 +1547,13 @@ pub const POD_WIDGET_SPACING: f32 = 4.0;
 /// rendering logic lives in exactly one place.
 fn paint_widgets(
     widgets: Vec<WidgetSpec>,
-    ui: &mut egui::Ui,
+    backend: &mut dyn crate::layout::UiBackend,
     response: &mut PodResponse,
     pod_id: Id,
 ) {
     let widget_spacing = theme().pod.widget_spacing;
     // Per-kind stable indices: the Nth `with_search` keeps its
-    // own ctx-data key independent of any buttons / toggles /
+    // own state key independent of any buttons / toggles /
     // progress bars declared between them.
     let mut search_idx = 0usize;
     let mut button_idx = 0usize;
@@ -1571,547 +1575,604 @@ fn paint_widgets(
     let mut module_idx = 0usize;
     for (slot_idx, spec) in widgets.into_iter().enumerate() {
         if slot_idx > 0 {
-            ui.add_space(widget_spacing);
+            backend.add_space(crate::layout::SpaceSpec::vertical(widget_spacing));
         }
         // Each widget slot gets its own pushed id chain. This
         // is what keeps an explicit id derivation like
-        // `ui.id().with(("mara_toggle", label))` from
-        // colliding across pods that happen to share the same
-        // label — the pushed id (= pod_id ⊕ slot_idx) is
-        // unique per (pod, widget slot), so every child id
-        // inherits uniqueness.
-        ui.push_id((pod_id, slot_idx), |ui| match spec {
-            WidgetSpec::Search(cfg) => {
-                let buf_key = pod_id.with(("mara_pod_search_buf", search_idx));
-                let mut buf: String = ui
-                    .ctx()
-                    .data(|d| d.get_temp::<String>(buf_key))
-                    .unwrap_or_default();
-                let resp = text_input(ui, &mut buf, &cfg.placeholder, cfg.accent);
-                let changed = resp.changed();
-                if changed {
-                    ui.ctx().data_mut(|d| d.insert_temp(buf_key, buf.clone()));
-                }
-                crate::debug::tag(
-                    ui,
-                    resp.rect.into(),
-                    format!("widget[text_input/search #{}]", search_idx),
-                );
-                response.searches.push(SearchResponse {
-                    query: buf,
-                    changed,
-                });
-                search_idx += 1;
-            }
-            WidgetSpec::Button(cfg) => {
-                let has_subtitle = cfg.subtitle.is_some();
-                // Card-shaped button (subtitle and/or glyph) gets
-                // its own height + result wire so callers can
-                // index them independently of plain buttons.
-                let mut builder = Button::new(&cfg.label);
-                if let Some(s) = &cfg.subtitle {
-                    builder = builder.subtitle(s);
-                }
-                if let Some(g) = &cfg.glyph {
-                    builder = builder.glyph(g);
-                }
-                if let Some(a) = cfg.animation {
-                    builder = builder.animation(a);
-                }
-                // No `.height()` override — let the Button
-                // builder pick its natural default (24 px plain
-                // / 39 px with subtitle). The pod's resize
-                // handle is no longer allowed to scale the
-                // button; if the pod's viewport is smaller than
-                // the button's natural size, the button gets
-                // clipped instead.
-                let resp = builder.show_egui(ui, cfg.accent);
-                if has_subtitle {
-                    crate::debug::tag(
-                        ui,
-                        resp.rect.into(),
-                        format!("widget[card_button #{}]", card_button_idx),
-                    );
-                    response.card_buttons.push(ButtonResponse {
-                        clicked: resp.clicked(),
-                    });
-                    card_button_idx += 1;
-                } else {
-                    crate::debug::tag(
-                        ui,
-                        resp.rect.into(),
-                        format!("widget[button #{}]", button_idx),
-                    );
-                    response.buttons.push(ButtonResponse {
-                        clicked: resp.clicked(),
-                    });
-                    button_idx += 1;
-                }
-            }
-            WidgetSpec::ActionButton(cfg) => {
-                let mut builder = crate::widget::ActionButton::new(&cfg.label, &cfg.action_glyph)
-                    .action_armed(cfg.action_armed);
-                if let Some(s) = &cfg.subtitle {
-                    builder = builder.subtitle(s);
-                }
-                if let Some(g) = &cfg.glyph {
-                    builder = builder.glyph(g);
-                }
-                if let Some(tip) = &cfg.action_tooltip {
-                    builder = builder.action_tooltip(tip);
-                }
-                let resp = builder.show_egui(ui, cfg.accent);
-                crate::debug::tag(
-                    ui,
-                    resp.body.rect.into(),
-                    format!("widget[action_button #{}]", action_button_idx),
-                );
-                response.action_buttons.push(ActionButtonPodResponse {
-                    body_clicked: resp.body.clicked,
-                    body_double_clicked: resp.body.double_clicked,
-                    action_clicked: resp.action.clicked,
-                });
-                action_button_idx += 1;
-            }
-            WidgetSpec::Toggle(cfg) => {
-                let state_key = pod_id.with(("mara_pod_toggle_state", toggle_idx));
-                let mut on: bool = ui.ctx().data_mut(|d| {
-                    if let Some(stored) = d.get_persisted::<bool>(state_key) {
-                        stored
-                    } else {
-                        let v = cfg.initial.unwrap_or(false);
-                        d.insert_persisted(state_key, v);
-                        v
-                    }
-                });
-                let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
-                let resp = toggle_backend(
-                    &mut backend,
-                    &cfg.label,
-                    &mut on,
-                    cfg.accent,
-                    theme().widgets.toggle.row_h,
-                );
-                let changed = resp.changed();
-                if changed {
-                    ui.ctx().data_mut(|d| d.insert_persisted(state_key, on));
-                }
-                crate::debug::tag(
-                    ui,
-                    resp.rect.into(),
-                    format!(
-                        "widget[toggle #{}{}]",
-                        toggle_idx,
-                        if cfg.label.is_empty() {
-                            String::new()
-                        } else {
-                            format!(" \"{}\"", cfg.label)
+        // `id.with(("mara_toggle", label))` from colliding across
+        // pods that happen to share the same label — the pushed
+        // id (= pod_id ⊕ slot_idx) is unique per (pod, widget
+        // slot), so every child id inherits uniqueness.
+        let salt: MaraId = egui::Id::new((pod_id, slot_idx)).into();
+        // `spec` is moved into the id-scope body; `in_id_scope`
+        // takes an `FnMut`, so bridge the one-shot move through an
+        // `Option::take`.
+        let mut spec_slot = Some(spec);
+        backend.in_id_scope(salt, &mut |mut backend| {
+            let spec = spec_slot
+                .take()
+                .expect("in_id_scope body runs exactly once");
+            match spec {
+                WidgetSpec::Search(cfg) => {
+                    if let Some(ui) = backend.egui_ui_mut() {
+                        let buf_key = pod_id.with(("mara_pod_search_buf", search_idx));
+                        let mut buf: String = ui
+                            .ctx()
+                            .data(|d| d.get_temp::<String>(buf_key))
+                            .unwrap_or_default();
+                        let resp = text_input(ui, &mut buf, &cfg.placeholder, cfg.accent);
+                        let changed = resp.changed();
+                        if changed {
+                            ui.ctx().data_mut(|d| d.insert_temp(buf_key, buf.clone()));
                         }
-                    ),
-                );
-                response.toggles.push(ToggleResponse { on, changed });
-                toggle_idx += 1;
-            }
-            WidgetSpec::Progress(cfg) => {
-                let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
-                let resp = progressbar_backend(
-                    &mut backend,
-                    &cfg.label,
-                    cfg.fraction,
-                    &cfg.text,
-                    cfg.accent,
-                    theme().widgets.progress.row_h,
-                );
-                crate::debug::tag(
-                    ui,
-                    resp.rect.into(),
-                    format!("widget[progress #{}]", progress_idx),
-                );
-                response.progress.push(ProgressResponse);
-                progress_idx += 1;
-            }
-            WidgetSpec::Slider(cfg) => {
-                // Persist the current value so user drags
-                // accumulate across frames without the caller
-                // having to thread state.
-                let val_key = pod_id.with(("mara_pod_slider_val", slider_idx));
-                let mut val: f64 = ui
-                    .ctx()
-                    .data_mut(|d| d.get_persisted::<f64>(val_key))
-                    .unwrap_or(cfg.value);
-                let resp = slider(
-                    ui,
-                    &cfg.label,
-                    &mut val,
-                    cfg.range.clone(),
-                    cfg.decimals,
-                    &cfg.suffix,
-                    cfg.accent,
-                );
-                let changed = resp.changed();
-                if changed {
-                    ui.ctx().data_mut(|d| d.insert_persisted(val_key, val));
+                        crate::debug::tag(
+                            ui,
+                            resp.rect.into(),
+                            format!("widget[text_input/search #{}]", search_idx),
+                        );
+                        response.searches.push(SearchResponse {
+                            query: buf,
+                            changed,
+                        });
+                    } else {
+                        response.searches.push(SearchResponse {
+                            query: String::new(),
+                            changed: false,
+                        });
+                    }
+                    search_idx += 1;
                 }
-                crate::debug::tag(
-                    ui,
-                    resp.rect.into(),
-                    format!("widget[slider #{}]", slider_idx),
-                );
-                response.sliders.push(SliderResponse {
-                    value: val,
-                    changed,
-                });
-                slider_idx += 1;
-            }
-            WidgetSpec::DragValue(cfg) => {
-                let val_key = pod_id.with(("mara_pod_drag_value_val", drag_value_idx));
-                let mut val: f64 = ui
-                    .ctx()
-                    .data_mut(|d| d.get_persisted::<f64>(val_key))
-                    .unwrap_or(cfg.value);
-                let resp = drag_value(
-                    ui,
-                    &cfg.label,
-                    &mut val,
-                    cfg.speed,
-                    cfg.range.clone(),
-                    cfg.decimals,
-                    &cfg.suffix,
-                );
-                let changed = resp.changed();
-                if changed {
-                    ui.ctx().data_mut(|d| d.insert_persisted(val_key, val));
+                WidgetSpec::Button(cfg) => {
+                    let has_subtitle = cfg.subtitle.is_some();
+                    // Card-shaped button (subtitle and/or glyph) gets
+                    // its own height + result wire so callers can
+                    // index them independently of plain buttons.
+                    let mut builder = Button::new(&cfg.label);
+                    if let Some(s) = &cfg.subtitle {
+                        builder = builder.subtitle(s);
+                    }
+                    if let Some(g) = &cfg.glyph {
+                        builder = builder.glyph(g);
+                    }
+                    if let Some(a) = cfg.animation {
+                        builder = builder.animation(a);
+                    }
+                    let resp = builder.show_backend(&mut backend, cfg.accent);
+                    if has_subtitle {
+                        crate::debug::tag_backend(
+                            &mut *backend,
+                            resp.rect,
+                            format!("widget[card_button #{}]", card_button_idx),
+                        );
+                        response.card_buttons.push(ButtonResponse {
+                            clicked: resp.clicked(),
+                        });
+                        card_button_idx += 1;
+                    } else {
+                        crate::debug::tag_backend(
+                            &mut *backend,
+                            resp.rect,
+                            format!("widget[button #{}]", button_idx),
+                        );
+                        response.buttons.push(ButtonResponse {
+                            clicked: resp.clicked(),
+                        });
+                        button_idx += 1;
+                    }
                 }
-                crate::debug::tag(
-                    ui,
-                    resp.rect.into(),
-                    format!("widget[drag_value #{}]", drag_value_idx),
-                );
-                response.drag_values.push(DragValueResponse {
-                    value: val,
-                    changed,
-                });
-                drag_value_idx += 1;
-            }
-            WidgetSpec::Dropdown(cfg) => {
-                let val_key = pod_id.with(("mara_pod_dropdown_idx", dropdown_idx));
-                let mut sel: usize = ui
-                    .ctx()
-                    .data_mut(|d| d.get_persisted::<usize>(val_key))
-                    .unwrap_or(cfg.initial)
-                    .min(cfg.options.len().saturating_sub(1));
-                let opts: Vec<&str> = cfg.options.iter().map(String::as_str).collect();
-                let resp = dropdown(
-                    ui,
-                    ("mara_pod_dropdown", dropdown_idx),
-                    &mut sel,
-                    &opts,
-                    cfg.accent,
-                );
-                let changed = resp.changed();
-                if changed {
-                    ui.ctx().data_mut(|d| d.insert_persisted(val_key, sel));
-                }
-                crate::debug::tag(
-                    ui,
-                    resp.rect.into(),
-                    format!("widget[dropdown #{}]", dropdown_idx),
-                );
-                response.dropdowns.push(DropdownResponse {
-                    selected: sel,
-                    changed,
-                });
-                dropdown_idx += 1;
-            }
-            WidgetSpec::Select(cfg) => {
-                let sel_key = pod_id.with(("mara_pod_select_sel", select_idx));
-                let mut selected: bool = ui
-                    .ctx()
-                    .data_mut(|d| d.get_persisted::<bool>(sel_key))
-                    .unwrap_or(cfg.selected_initial);
-                let resp = select_row(
-                    ui,
-                    ("mara_pod_select", select_idx),
-                    &cfg.label,
-                    cfg.trailing.as_deref(),
-                    selected,
-                    cfg.accent,
-                );
-                if resp.clicked() {
-                    selected = !selected;
-                    ui.ctx().data_mut(|d| d.insert_persisted(sel_key, selected));
-                }
-                crate::debug::tag(
-                    ui,
-                    resp.rect.into(),
-                    format!("widget[select #{}]", select_idx),
-                );
-                response.selects.push(SelectResponse {
-                    clicked: resp.clicked(),
-                    double_clicked: resp.double_clicked(),
-                    selected,
-                });
-                select_idx += 1;
-            }
-            WidgetSpec::HybridSelect(cfg) => {
-                let sel_key = pod_id.with(("mara_pod_hybrid_sel", hybrid_select_idx));
-                let radio_key = pod_id.with(("mara_pod_hybrid_radio", hybrid_select_idx));
-                let mut selected: bool = ui
-                    .ctx()
-                    .data_mut(|d| d.get_persisted::<bool>(sel_key))
-                    .unwrap_or(cfg.selected_initial);
-                let mut radio_on: bool = ui
-                    .ctx()
-                    .data_mut(|d| d.get_persisted::<bool>(radio_key))
-                    .unwrap_or(cfg.radio_initial);
-                let resp = hybrid_select_row(
-                    ui,
-                    ("mara_pod_hybrid", hybrid_select_idx),
-                    &cfg.label,
-                    cfg.trailing.as_deref(),
-                    selected,
-                    radio_on,
-                    cfg.accent,
-                );
-                if resp.body.clicked {
-                    selected = !selected;
-                    ui.ctx().data_mut(|d| d.insert_persisted(sel_key, selected));
-                }
-                if resp.radio.clicked {
-                    radio_on = !radio_on;
-                    ui.ctx()
-                        .data_mut(|d| d.insert_persisted(radio_key, radio_on));
-                }
-                crate::debug::tag(
-                    ui,
-                    resp.body.rect.into(),
-                    format!("widget[hybrid_select #{}]", hybrid_select_idx),
-                );
-                response.hybrid_selects.push(HybridSelectPodResponse {
-                    body_clicked: resp.body.clicked,
-                    body_double_clicked: resp.body.double_clicked,
-                    radio_clicked: resp.radio.clicked,
-                    selected,
-                    radio_on,
-                });
-                hybrid_select_idx += 1;
-            }
-            WidgetSpec::Color(cfg) => {
-                let val_key = pod_id.with(("mara_pod_color_val", color_idx));
-                let mut rgba: [f32; 4] = ui
-                    .ctx()
-                    .data_mut(|d| d.get_persisted::<[f32; 4]>(val_key))
-                    .unwrap_or(cfg.initial);
-                let changed = if cfg.alpha {
-                    let resp = color_rgba(ui, &cfg.label, &mut rgba, cfg.accent);
-                    crate::debug::tag(
-                        ui,
-                        resp.rect.into(),
-                        format!("widget[color_rgba #{}]", color_idx),
+                WidgetSpec::ActionButton(cfg) => {
+                    let mut builder =
+                        crate::widget::ActionButton::new(&cfg.label, &cfg.action_glyph)
+                            .action_armed(cfg.action_armed);
+                    if let Some(s) = &cfg.subtitle {
+                        builder = builder.subtitle(s);
+                    }
+                    if let Some(g) = &cfg.glyph {
+                        builder = builder.glyph(g);
+                    }
+                    if let Some(tip) = &cfg.action_tooltip {
+                        builder = builder.action_tooltip(tip);
+                    }
+                    let resp = builder.show_backend(&mut backend, cfg.accent);
+                    crate::debug::tag_backend(
+                        &mut *backend,
+                        resp.body.rect,
+                        format!("widget[action_button #{}]", action_button_idx),
                     );
-                    resp.changed()
-                } else {
-                    let mut rgb = [rgba[0], rgba[1], rgba[2]];
-                    let resp = color_rgb(ui, &cfg.label, &mut rgb, cfg.accent);
-                    rgba[0] = rgb[0];
-                    rgba[1] = rgb[1];
-                    rgba[2] = rgb[2];
-                    rgba[3] = 1.0;
-                    crate::debug::tag(
-                        ui,
-                        resp.rect.into(),
-                        format!("widget[color_rgb #{}]", color_idx),
-                    );
-                    resp.changed()
-                };
-                if changed {
-                    ui.ctx().data_mut(|d| d.insert_persisted(val_key, rgba));
+                    response.action_buttons.push(ActionButtonPodResponse {
+                        body_clicked: resp.body.clicked,
+                        body_double_clicked: resp.body.double_clicked,
+                        action_clicked: resp.action.clicked,
+                    });
+                    action_button_idx += 1;
                 }
-                response.colors.push(ColorResponse { rgba, changed });
-                color_idx += 1;
-            }
-            WidgetSpec::Readout(cfg) => {
-                let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
-                let resp = readout_backend(
-                    &mut backend,
-                    &cfg.label,
-                    &cfg.value,
-                    theme().widgets.readout.row_h,
-                );
-                crate::debug::tag(
-                    ui,
-                    resp.rect.into(),
-                    format!("widget[readout #{}]", readout_idx),
-                );
-                response.readouts.push(ReadoutResponse);
-                readout_idx += 1;
-            }
-            WidgetSpec::SelectList(cfg) => {
-                let sel_key = pod_id.with(("mara_pod_select_list_sel", select_list_idx));
-                let mut selected: Option<usize> = ui
-                    .ctx()
-                    .data_mut(|d| d.get_persisted::<Option<usize>>(sel_key))
-                    .unwrap_or(None);
-                let mut clicked: Option<usize> = None;
-                let mut double_clicked: Option<usize> = None;
-                for (i, label) in cfg.items.iter().enumerate() {
-                    let trailing = cfg.trailing.as_ref().map(|t| t[i].as_str());
-                    let resp = select_row(
-                        ui,
-                        ("mara_pod_select_list", select_list_idx, i),
-                        label,
-                        trailing,
-                        selected == Some(i),
+                WidgetSpec::Toggle(cfg) => {
+                    let state_key: MaraId =
+                        pod_id.with(("mara_pod_toggle_state", toggle_idx)).into();
+                    let mut on: bool = {
+                        let mut memory = backend.memory();
+                        if let Some(stored) = memory.get_persisted::<bool>(state_key) {
+                            stored
+                        } else {
+                            let v = cfg.initial.unwrap_or(false);
+                            memory.set_persisted(state_key, v);
+                            v
+                        }
+                    };
+                    let resp = toggle_backend(
+                        &mut backend,
+                        &cfg.label,
+                        &mut on,
                         cfg.accent,
+                        theme().widgets.toggle.row_h,
+                    );
+                    let changed = resp.changed();
+                    if changed {
+                        backend.memory().set_persisted(state_key, on);
+                    }
+                    crate::debug::tag_backend(
+                        &mut *backend,
+                        resp.rect,
+                        format!(
+                            "widget[toggle #{}{}]",
+                            toggle_idx,
+                            if cfg.label.is_empty() {
+                                String::new()
+                            } else {
+                                format!(" \"{}\"", cfg.label)
+                            }
+                        ),
+                    );
+                    response.toggles.push(ToggleResponse { on, changed });
+                    toggle_idx += 1;
+                }
+                WidgetSpec::Progress(cfg) => {
+                    let resp = progressbar_backend(
+                        &mut backend,
+                        &cfg.label,
+                        cfg.fraction,
+                        &cfg.text,
+                        cfg.accent,
+                        theme().widgets.progress.row_h,
+                    );
+                    crate::debug::tag_backend(
+                        &mut *backend,
+                        resp.rect,
+                        format!("widget[progress #{}]", progress_idx),
+                    );
+                    response.progress.push(ProgressResponse);
+                    progress_idx += 1;
+                }
+                WidgetSpec::Slider(cfg) => {
+                    // Persist the current value so user drags
+                    // accumulate across frames without the caller
+                    // having to thread state.
+                    let val_key: MaraId = pod_id.with(("mara_pod_slider_val", slider_idx)).into();
+                    let mut val: f64 = backend
+                        .memory()
+                        .get_persisted::<f64>(val_key)
+                        .unwrap_or(cfg.value);
+                    let resp = slider_backend(
+                        &mut backend,
+                        &cfg.label,
+                        &mut val,
+                        cfg.range.clone(),
+                        cfg.decimals,
+                        &cfg.suffix,
+                        cfg.accent,
+                        theme().widgets.slider.row_h,
+                    );
+                    let changed = resp.changed();
+                    if changed {
+                        backend.memory().set_persisted(val_key, val);
+                    }
+                    crate::debug::tag_backend(
+                        &mut *backend,
+                        resp.rect,
+                        format!("widget[slider #{}]", slider_idx),
+                    );
+                    response.sliders.push(SliderResponse {
+                        value: val,
+                        changed,
+                    });
+                    slider_idx += 1;
+                }
+                WidgetSpec::DragValue(cfg) => {
+                    let val_key: MaraId = pod_id
+                        .with(("mara_pod_drag_value_val", drag_value_idx))
+                        .into();
+                    let mut val: f64 = backend
+                        .memory()
+                        .get_persisted::<f64>(val_key)
+                        .unwrap_or(cfg.value);
+                    let resp = drag_value_backend(
+                        &mut backend,
+                        &cfg.label,
+                        &mut val,
+                        cfg.speed,
+                        cfg.range.clone(),
+                        cfg.decimals,
+                        &cfg.suffix,
+                        theme().widgets.drag_value.row_h,
+                    );
+                    let changed = resp.changed();
+                    if changed {
+                        backend.memory().set_persisted(val_key, val);
+                    }
+                    crate::debug::tag_backend(
+                        &mut *backend,
+                        resp.rect,
+                        format!("widget[drag_value #{}]", drag_value_idx),
+                    );
+                    response.drag_values.push(DragValueResponse {
+                        value: val,
+                        changed,
+                    });
+                    drag_value_idx += 1;
+                }
+                WidgetSpec::Dropdown(cfg) => {
+                    if let Some(ui) = backend.egui_ui_mut() {
+                        let val_key = pod_id.with(("mara_pod_dropdown_idx", dropdown_idx));
+                        let mut sel: usize = ui
+                            .ctx()
+                            .data_mut(|d| d.get_persisted::<usize>(val_key))
+                            .unwrap_or(cfg.initial)
+                            .min(cfg.options.len().saturating_sub(1));
+                        let opts: Vec<&str> = cfg.options.iter().map(String::as_str).collect();
+                        let resp = dropdown(
+                            ui,
+                            ("mara_pod_dropdown", dropdown_idx),
+                            &mut sel,
+                            &opts,
+                            cfg.accent,
+                        );
+                        let changed = resp.changed();
+                        if changed {
+                            ui.ctx().data_mut(|d| d.insert_persisted(val_key, sel));
+                        }
+                        crate::debug::tag(
+                            ui,
+                            resp.rect.into(),
+                            format!("widget[dropdown #{}]", dropdown_idx),
+                        );
+                        response.dropdowns.push(DropdownResponse {
+                            selected: sel,
+                            changed,
+                        });
+                    } else {
+                        response.dropdowns.push(DropdownResponse {
+                            selected: cfg.initial,
+                            changed: false,
+                        });
+                    }
+                    dropdown_idx += 1;
+                }
+                WidgetSpec::Select(cfg) => {
+                    let sel_key: MaraId = pod_id.with(("mara_pod_select_sel", select_idx)).into();
+                    let mut selected: bool = backend
+                        .memory()
+                        .get_persisted::<bool>(sel_key)
+                        .unwrap_or(cfg.selected_initial);
+                    let resp = select_row_backend(
+                        &mut backend,
+                        ("mara_pod_select", select_idx),
+                        &cfg.label,
+                        cfg.trailing.as_deref(),
+                        selected,
+                        cfg.accent,
+                        theme().widgets.select.row_h,
                     );
                     if resp.clicked() {
-                        clicked = Some(i);
-                        selected = Some(i);
+                        selected = !selected;
+                        backend.memory().set_persisted(sel_key, selected);
                     }
-                    if resp.double_clicked() {
-                        double_clicked = Some(i);
-                    }
+                    crate::debug::tag_backend(
+                        &mut *backend,
+                        resp.rect,
+                        format!("widget[select #{}]", select_idx),
+                    );
+                    response.selects.push(SelectResponse {
+                        clicked: resp.clicked(),
+                        double_clicked: resp.double_clicked(),
+                        selected,
+                    });
+                    select_idx += 1;
                 }
-                if clicked.is_some() {
-                    ui.ctx().data_mut(|d| d.insert_persisted(sel_key, selected));
-                }
-                response.select_lists.push(SelectListResponse {
-                    clicked,
-                    double_clicked,
-                    selected,
-                });
-                select_list_idx += 1;
-            }
-            WidgetSpec::HybridSelectList(cfg) => {
-                let sel_key =
-                    pod_id.with(("mara_pod_hybrid_select_list_sel", hybrid_select_list_idx));
-                let pin_key =
-                    pod_id.with(("mara_pod_hybrid_select_list_pin", hybrid_select_list_idx));
-                let mut selected: Option<usize> = ui
-                    .ctx()
-                    .data_mut(|d| d.get_persisted::<Option<usize>>(sel_key))
-                    .unwrap_or(None);
-                let mut pinned: Option<usize> = ui
-                    .ctx()
-                    .data_mut(|d| d.get_persisted::<Option<usize>>(pin_key))
-                    .unwrap_or(None);
-                let mut body_clicked: Option<usize> = None;
-                let mut body_double_clicked: Option<usize> = None;
-                let mut radio_clicked: Option<usize> = None;
-                for (i, label) in cfg.items.iter().enumerate() {
-                    let trailing = cfg.trailing.as_ref().map(|t| t[i].as_str());
-                    let resp = hybrid_select_row(
-                        ui,
-                        ("mara_pod_hybrid_select_list", hybrid_select_list_idx, i),
-                        label,
-                        trailing,
-                        selected == Some(i),
-                        pinned == Some(i),
+                WidgetSpec::HybridSelect(cfg) => {
+                    let sel_key: MaraId = pod_id
+                        .with(("mara_pod_hybrid_sel", hybrid_select_idx))
+                        .into();
+                    let radio_key: MaraId = pod_id
+                        .with(("mara_pod_hybrid_radio", hybrid_select_idx))
+                        .into();
+                    let mut selected: bool = backend
+                        .memory()
+                        .get_persisted::<bool>(sel_key)
+                        .unwrap_or(cfg.selected_initial);
+                    let mut radio_on: bool = backend
+                        .memory()
+                        .get_persisted::<bool>(radio_key)
+                        .unwrap_or(cfg.radio_initial);
+                    let resp = hybrid_select_row_backend(
+                        &mut backend,
+                        ("mara_pod_hybrid", hybrid_select_idx),
+                        &cfg.label,
+                        cfg.trailing.as_deref(),
+                        selected,
+                        radio_on,
                         cfg.accent,
+                        theme().widgets.select.row_h,
                     );
                     if resp.body.clicked {
-                        body_clicked = Some(i);
-                        selected = Some(i);
-                    }
-                    if resp.body.double_clicked {
-                        body_double_clicked = Some(i);
+                        selected = !selected;
+                        backend.memory().set_persisted(sel_key, selected);
                     }
                     if resp.radio.clicked {
-                        radio_clicked = Some(i);
-                        // Single-select radio: clicking an
-                        // unpinned row pins it; clicking the
-                        // currently-pinned row unpins.
-                        pinned = if pinned == Some(i) { None } else { Some(i) };
+                        radio_on = !radio_on;
+                        backend.memory().set_persisted(radio_key, radio_on);
                     }
-                }
-                if body_clicked.is_some() {
-                    ui.ctx().data_mut(|d| d.insert_persisted(sel_key, selected));
-                }
-                if radio_clicked.is_some() {
-                    ui.ctx().data_mut(|d| d.insert_persisted(pin_key, pinned));
-                }
-                response.hybrid_select_lists.push(HybridSelectListResponse {
-                    body_clicked,
-                    body_double_clicked,
-                    radio_clicked,
-                    selected,
-                    pinned,
-                });
-                hybrid_select_list_idx += 1;
-            }
-            WidgetSpec::Tags(cfg) => {
-                let mut clicked: Option<usize> = None;
-                ui.horizontal_wrapped(|ui| {
-                    crate::backend::egui::apply_item_spacing_spec(
-                        ui,
-                        crate::layout::ItemSpacingSpec::new(crate::vocab::Vec2::new(3.0, 3.0)),
+                    crate::debug::tag_backend(
+                        &mut *backend,
+                        resp.body.rect,
+                        format!("widget[hybrid_select #{}]", hybrid_select_idx),
                     );
-                    for (i, item) in cfg.items.iter().enumerate() {
-                        let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
-                        let fill = item.fill.unwrap_or_else(|| chip_fill(cfg.accent));
-                        let resp =
-                            chip_colored_backend(&mut backend, &item.label, fill, cfg.accent);
+                    response.hybrid_selects.push(HybridSelectPodResponse {
+                        body_clicked: resp.body.clicked,
+                        body_double_clicked: resp.body.double_clicked,
+                        radio_clicked: resp.radio.clicked,
+                        selected,
+                        radio_on,
+                    });
+                    hybrid_select_idx += 1;
+                }
+                WidgetSpec::Color(cfg) => {
+                    if let Some(ui) = backend.egui_ui_mut() {
+                        let val_key = pod_id.with(("mara_pod_color_val", color_idx));
+                        let mut rgba: [f32; 4] = ui
+                            .ctx()
+                            .data_mut(|d| d.get_persisted::<[f32; 4]>(val_key))
+                            .unwrap_or(cfg.initial);
+                        let changed = if cfg.alpha {
+                            let resp = color_rgba(ui, &cfg.label, &mut rgba, cfg.accent);
+                            crate::debug::tag(
+                                ui,
+                                resp.rect.into(),
+                                format!("widget[color_rgba #{}]", color_idx),
+                            );
+                            resp.changed()
+                        } else {
+                            let mut rgb = [rgba[0], rgba[1], rgba[2]];
+                            let resp = color_rgb(ui, &cfg.label, &mut rgb, cfg.accent);
+                            rgba[0] = rgb[0];
+                            rgba[1] = rgb[1];
+                            rgba[2] = rgb[2];
+                            rgba[3] = 1.0;
+                            crate::debug::tag(
+                                ui,
+                                resp.rect.into(),
+                                format!("widget[color_rgb #{}]", color_idx),
+                            );
+                            resp.changed()
+                        };
+                        if changed {
+                            ui.ctx().data_mut(|d| d.insert_persisted(val_key, rgba));
+                        }
+                        response.colors.push(ColorResponse { rgba, changed });
+                    } else {
+                        response.colors.push(ColorResponse {
+                            rgba: cfg.initial,
+                            changed: false,
+                        });
+                    }
+                    color_idx += 1;
+                }
+                WidgetSpec::Readout(cfg) => {
+                    let resp = readout_backend(
+                        &mut backend,
+                        &cfg.label,
+                        &cfg.value,
+                        theme().widgets.readout.row_h,
+                    );
+                    crate::debug::tag_backend(
+                        &mut *backend,
+                        resp.rect,
+                        format!("widget[readout #{}]", readout_idx),
+                    );
+                    response.readouts.push(ReadoutResponse);
+                    readout_idx += 1;
+                }
+                WidgetSpec::SelectList(cfg) => {
+                    let sel_key: MaraId = pod_id
+                        .with(("mara_pod_select_list_sel", select_list_idx))
+                        .into();
+                    let mut selected: Option<usize> = backend
+                        .memory()
+                        .get_persisted::<Option<usize>>(sel_key)
+                        .unwrap_or(None);
+                    let mut clicked: Option<usize> = None;
+                    let mut double_clicked: Option<usize> = None;
+                    for (i, label) in cfg.items.iter().enumerate() {
+                        let trailing = cfg.trailing.as_ref().map(|t| t[i].as_str());
+                        let resp = select_row_backend(
+                            &mut backend,
+                            ("mara_pod_select_list", select_list_idx, i),
+                            label,
+                            trailing,
+                            selected == Some(i),
+                            cfg.accent,
+                            theme().widgets.select.row_h,
+                        );
                         if resp.clicked() {
                             clicked = Some(i);
+                            selected = Some(i);
+                        }
+                        if resp.double_clicked() {
+                            double_clicked = Some(i);
                         }
                     }
-                });
-                response.tags.push(TagsResponse { clicked });
-                tags_idx += 1;
-                let _ = tags_idx; // silence unused warning when no further widgets follow
-            }
-            WidgetSpec::Keybindings(cfg) => {
-                for (k, a) in cfg.rows.iter() {
-                    let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
-                    keybinding_row_backend(
-                        &mut backend,
-                        k,
-                        a,
-                        theme().widgets.keybinding.row_h,
-                        crate::style::active_accent(),
+                    if clicked.is_some() {
+                        backend.memory().set_persisted(sel_key, selected);
+                    }
+                    response.select_lists.push(SelectListResponse {
+                        clicked,
+                        double_clicked,
+                        selected,
+                    });
+                    select_list_idx += 1;
+                }
+                WidgetSpec::HybridSelectList(cfg) => {
+                    let sel_key: MaraId = pod_id
+                        .with(("mara_pod_hybrid_select_list_sel", hybrid_select_list_idx))
+                        .into();
+                    let pin_key: MaraId = pod_id
+                        .with(("mara_pod_hybrid_select_list_pin", hybrid_select_list_idx))
+                        .into();
+                    let mut selected: Option<usize> = backend
+                        .memory()
+                        .get_persisted::<Option<usize>>(sel_key)
+                        .unwrap_or(None);
+                    let mut pinned: Option<usize> = backend
+                        .memory()
+                        .get_persisted::<Option<usize>>(pin_key)
+                        .unwrap_or(None);
+                    let mut body_clicked: Option<usize> = None;
+                    let mut body_double_clicked: Option<usize> = None;
+                    let mut radio_clicked: Option<usize> = None;
+                    for (i, label) in cfg.items.iter().enumerate() {
+                        let trailing = cfg.trailing.as_ref().map(|t| t[i].as_str());
+                        let resp = hybrid_select_row_backend(
+                            &mut backend,
+                            ("mara_pod_hybrid_select_list", hybrid_select_list_idx, i),
+                            label,
+                            trailing,
+                            selected == Some(i),
+                            pinned == Some(i),
+                            cfg.accent,
+                            theme().widgets.select.row_h,
+                        );
+                        if resp.body.clicked {
+                            body_clicked = Some(i);
+                            selected = Some(i);
+                        }
+                        if resp.body.double_clicked {
+                            body_double_clicked = Some(i);
+                        }
+                        if resp.radio.clicked {
+                            radio_clicked = Some(i);
+                            // Single-select radio: clicking an
+                            // unpinned row pins it; clicking the
+                            // currently-pinned row unpins.
+                            pinned = if pinned == Some(i) { None } else { Some(i) };
+                        }
+                    }
+                    if body_clicked.is_some() {
+                        backend.memory().set_persisted(sel_key, selected);
+                    }
+                    if radio_clicked.is_some() {
+                        backend.memory().set_persisted(pin_key, pinned);
+                    }
+                    response.hybrid_select_lists.push(HybridSelectListResponse {
+                        body_clicked,
+                        body_double_clicked,
+                        radio_clicked,
+                        selected,
+                        pinned,
+                    });
+                    hybrid_select_list_idx += 1;
+                }
+                WidgetSpec::Tags(cfg) => {
+                    let mut clicked: Option<usize> = None;
+                    if let Some(ui) = backend.egui_ui_mut() {
+                        ui.horizontal_wrapped(|ui| {
+                            crate::backend::egui::apply_item_spacing_spec(
+                                ui,
+                                crate::layout::ItemSpacingSpec::new(crate::vocab::Vec2::new(
+                                    3.0, 3.0,
+                                )),
+                            );
+                            for (i, item) in cfg.items.iter().enumerate() {
+                                let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
+                                let fill = item.fill.unwrap_or_else(|| chip_fill(cfg.accent));
+                                let resp = chip_colored_backend(
+                                    &mut backend,
+                                    &item.label,
+                                    fill,
+                                    cfg.accent,
+                                );
+                                if resp.clicked() {
+                                    clicked = Some(i);
+                                }
+                            }
+                        });
+                    }
+                    response.tags.push(TagsResponse { clicked });
+                    tags_idx += 1;
+                    let _ = tags_idx; // silence unused warning when no further widgets follow
+                }
+                WidgetSpec::Keybindings(cfg) => {
+                    for (k, a) in cfg.rows.iter() {
+                        keybinding_row_backend(
+                            &mut backend,
+                            k,
+                            a,
+                            theme().widgets.keybinding.row_h,
+                            crate::style::active_accent(),
+                        );
+                    }
+                    response.keybindings.push(KeybindingsResponse);
+                    keybindings_idx += 1;
+                    let _ = keybindings_idx;
+                }
+                WidgetSpec::Badges(cfg) => {
+                    for row in cfg.rows.iter() {
+                        let labels: Vec<&str> =
+                            row.badges.iter().map(|t| t.label.as_str()).collect();
+                        let fills: Vec<Option<Color32>> =
+                            row.badges.iter().map(|t| t.fill).collect();
+                        badge_row_backend(
+                            &mut backend,
+                            &row.label,
+                            &labels,
+                            Some(&fills),
+                            cfg.accent,
+                        );
+                    }
+                    response.badges.push(BadgesResponse);
+                }
+                WidgetSpec::Module(mut cfg) => {
+                    let module_id = cfg.module.id();
+                    let title = cfg.module.title().to_owned();
+                    let icon = cfg.module.icon();
+                    let ctx = ModuleInlineCtx {
+                        pod_id: pod_id.into(),
+                        slot_index: slot_idx,
+                        accent: crate::style::active_accent(),
+                        options: cfg.options,
+                        workspace: None,
+                    };
+                    let accent = ctx.accent;
+                    let tag_rect = backend.available_rect();
+                    let module_response = cfg
+                        .module
+                        .inline(&mut crate::mui::MaraUi::over(&mut *backend, accent), ctx);
+                    crate::debug::tag_backend(
+                        &mut *backend,
+                        tag_rect,
+                        format!("widget[module #{}]", module_idx),
                     );
+                    response.modules.push(ModulePodResponse {
+                        id: module_id,
+                        title,
+                        icon,
+                        enter_workspace_requested: module_response.enter_workspace,
+                    });
+                    module_idx += 1;
                 }
-                response.keybindings.push(KeybindingsResponse);
-                keybindings_idx += 1;
-                let _ = keybindings_idx;
-            }
-            WidgetSpec::Badges(cfg) => {
-                for row in cfg.rows.iter() {
-                    let labels: Vec<&str> = row.badges.iter().map(|t| t.label.as_str()).collect();
-                    let fills: Vec<Option<Color32>> = row.badges.iter().map(|t| t.fill).collect();
-                    let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
-                    badge_row_backend(&mut backend, &row.label, &labels, Some(&fills), cfg.accent);
+                WidgetSpec::Custom { paint, .. } => {
+                    if let Some(ui) = backend.egui_ui_mut() {
+                        paint(ui);
+                    }
                 }
-                response.badges.push(BadgesResponse);
-            }
-            WidgetSpec::Module(mut cfg) => {
-                let module_id = cfg.module.id();
-                let title = cfg.module.title().to_owned();
-                let icon = cfg.module.icon();
-                let ctx = ModuleInlineCtx {
-                    pod_id: pod_id.into(),
-                    slot_index: slot_idx,
-                    accent: crate::style::active_accent(),
-                    options: cfg.options,
-                    workspace: None,
-                };
-                let accent = ctx.accent;
-                let mut backend =
-                    crate::mui::MaraBackend::Egui(crate::backend::egui::EguiUiBackend::new(ui));
-                let module_response = cfg
-                    .module
-                    .inline(&mut crate::mui::MaraUi::over(&mut backend, accent), ctx);
-                crate::debug::tag(ui, ui.min_rect(), format!("widget[module #{}]", module_idx));
-                response.modules.push(ModulePodResponse {
-                    id: module_id,
-                    title,
-                    icon,
-                    enter_workspace_requested: module_response.enter_workspace,
-                });
-                module_idx += 1;
-            }
-            WidgetSpec::Custom { paint, .. } => {
-                paint(ui);
             }
         });
     }

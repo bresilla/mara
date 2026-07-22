@@ -53,54 +53,6 @@ pub struct HybridSelectResponse {
     pub radio: crate::mui::MaraResponse,
 }
 
-/// Plain select row — one click target across the whole row.
-///
-/// `id_salt` disambiguates this row from siblings (an index, an entity
-/// id, a string). `selected` paints the body's selection tint;
-/// `trailing` is rendered dim-right (e.g. an index, a hotkey).
-/// Caller owns the state — wire `resp.clicked()` / `resp.double_clicked()`
-/// up to your selection logic.
-pub(crate) fn select_row(
-    ui: &mut egui::Ui,
-    id_salt: impl std::hash::Hash,
-    label: &str,
-    trailing: Option<&str>,
-    selected: bool,
-    accent: impl Into<Color32>,
-) -> MaraResponse {
-    select_row_h(
-        ui,
-        id_salt,
-        label,
-        trailing,
-        selected,
-        accent,
-        theme().widgets.select.row_h,
-    )
-}
-
-/// Variable-height plain select row — used by resizable pods.
-pub(crate) fn select_row_h(
-    ui: &mut egui::Ui,
-    id_salt: impl std::hash::Hash,
-    label: &str,
-    trailing: Option<&str>,
-    selected: bool,
-    accent: impl Into<Color32>,
-    height: f32,
-) -> MaraResponse {
-    let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
-    select_row_backend(
-        &mut backend,
-        id_salt,
-        label,
-        trailing,
-        selected,
-        accent.into(),
-        height,
-    )
-}
-
 pub fn select_row_backend(
     backend: &mut impl UiBackend,
     id_salt: impl std::hash::Hash,
@@ -124,57 +76,6 @@ pub fn select_row_backend(
         select.trailing_pad_r,
     );
     resp
-}
-
-/// Hybrid select row — body click target + right-edge radio.
-///
-/// `radio_on` paints the radio's filled dot. Body and radio sub-rects
-/// never intersect; their `Response` ids are independent so the two
-/// click sources stay separate.
-pub(crate) fn hybrid_select_row(
-    ui: &mut egui::Ui,
-    id_salt: impl std::hash::Hash,
-    label: &str,
-    trailing: Option<&str>,
-    selected: bool,
-    radio_on: bool,
-    accent: impl Into<Color32>,
-) -> HybridSelectResponse {
-    hybrid_select_row_h(
-        ui,
-        id_salt,
-        label,
-        trailing,
-        selected,
-        radio_on,
-        accent,
-        theme().widgets.select.row_h,
-    )
-}
-
-/// Variable-height hybrid select row.
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn hybrid_select_row_h(
-    ui: &mut egui::Ui,
-    id_salt: impl std::hash::Hash,
-    label: &str,
-    trailing: Option<&str>,
-    selected: bool,
-    radio_on: bool,
-    accent: impl Into<Color32>,
-    height: f32,
-) -> HybridSelectResponse {
-    let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
-    hybrid_select_row_backend(
-        &mut backend,
-        id_salt,
-        label,
-        trailing,
-        selected,
-        radio_on,
-        accent.into(),
-        height,
-    )
 }
 
 #[allow(clippy::too_many_arguments)]

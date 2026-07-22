@@ -212,17 +212,6 @@ impl<'a> ActionButton<'a> {
         }
         response
     }
-
-    /// egui-backend adapter retained for the pod render path, which
-    /// still holds a raw `egui::Ui`.
-    pub(crate) fn show_egui(
-        self,
-        ui: &mut egui::Ui,
-        accent: impl Into<MaraColor32>,
-    ) -> ActionButtonResponse {
-        let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
-        self.show_backend(&mut backend, accent)
-    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -408,16 +397,6 @@ impl<'a> Button<'a> {
     pub fn show(self, ui: &mut crate::mui::MaraUi<'_>) -> MaraResponse {
         let accent = ui.accent();
         self.show_backend(&mut ui.backend, accent)
-    }
-
-    /// egui-backend adapter retained for the pod render path.
-    pub(crate) fn show_egui(
-        self,
-        ui: &mut egui::Ui,
-        accent: impl Into<MaraColor32>,
-    ) -> MaraResponse {
-        let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
-        self.show_backend(&mut backend, accent)
     }
 
     /// Backend-neutral renderer.

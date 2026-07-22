@@ -23,49 +23,6 @@ pub const SLIDER_ROW_H: f32 = 18.0;
 /// Inline value-readout font size.
 pub const SLIDER_VALUE_FONT: f32 = 11.0;
 
-/// Default labelled slider (2 × [`SLIDER_ROW_H`] = 36 px total).
-/// `value` is mutated in-place by drags/clicks; `range` clamps;
-/// `decimals` controls the inline readout precision; `suffix` is
-/// appended to the readout (e.g. `"m/s"`, `"%"`, `""`).
-pub(crate) fn slider(
-    ui: &mut egui::Ui,
-    label: &str,
-    value: &mut f64,
-    range: std::ops::RangeInclusive<f64>,
-    decimals: usize,
-    suffix: &str,
-    accent: impl Into<Color32>,
-) -> MaraResponse {
-    let row_h = theme().widgets.slider.row_h;
-    slider_h(ui, label, value, range, decimals, suffix, accent, row_h)
-}
-
-/// Variable-height variant — `row_height` is the height of EACH
-/// row (caption + bar), so total widget height is `2 × row_height`.
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn slider_h(
-    ui: &mut egui::Ui,
-    label: &str,
-    value: &mut f64,
-    range: std::ops::RangeInclusive<f64>,
-    decimals: usize,
-    suffix: &str,
-    accent: impl Into<Color32>,
-    row_height: f32,
-) -> MaraResponse {
-    let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
-    slider_backend(
-        &mut backend,
-        label,
-        value,
-        range,
-        decimals,
-        suffix,
-        accent.into(),
-        row_height,
-    )
-}
-
 /// Backend-neutral slider renderer.
 #[allow(clippy::too_many_arguments)]
 pub fn slider_backend(
