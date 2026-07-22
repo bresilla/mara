@@ -63,6 +63,23 @@ impl Layout {
         }
     }
 
+    /// Set the weight of this split's `index`-th direct child (clamped to
+    /// `>= 0`). Returns `false` if this is a cell or `index` is out of
+    /// range. This is the data model behind a draggable splitter: a host
+    /// adjusts child weights and the next `resolve` re-tiles.
+    pub fn set_child_weight(&mut self, index: usize, weight: f32) -> bool {
+        match self {
+            Layout::Cell(_) => false,
+            Layout::Split { children, .. } => match children.get_mut(index) {
+                Some((w, _)) => {
+                    *w = weight.max(0.0);
+                    true
+                }
+                None => false,
+            },
+        }
+    }
+
     /// Resolve this layout against `rect` into `(cell, rect)` pairs.
     #[must_use]
     pub fn resolve(&self, rect: Rect) -> Vec<(CellId, Rect)> {
@@ -140,6 +157,27 @@ mod tests {
         assert!((cells[0].1.width() - 50.0).abs() < 0.01);
         assert!((cells[1].1.width() - 150.0).abs() < 0.01);
         assert!((cells[1].1.left() - 60.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn set_child_weight_retiles_the_split() {
+        // Start 1:1 across 200pt (no gap) → 100 / 100.
+        let rect = Rect::from_min_max(Pos2::new(0.0, 0.0), Pos2::new(200.0, 40.0));
+        let mut layout = Layout::row(
+            0.0,
+            vec![(1.0, Layout::cell("a")), (1.0, Layout::cell("b"))],
+        );
+        assert!((layout.resolve(rect)[0].1.width() - 100.0).abs() < 0.01);
+
+        // Drag the splitter → weights 3:1 → 150 / 50.
+        assert!(layout.set_child_weight(0, 3.0));
+        let cells = layout.resolve(rect);
+        assert!((cells[0].1.width() - 150.0).abs() < 0.01);
+        assert!((cells[1].1.width() - 50.0).abs() < 0.01);
+
+        // Out-of-range and cell targets are rejected.
+        assert!(!layout.set_child_weight(9, 1.0));
+        assert!(!Layout::cell("x").set_child_weight(0, 1.0));
     }
 
     #[test]

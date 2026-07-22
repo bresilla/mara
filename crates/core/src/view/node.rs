@@ -146,6 +146,16 @@ impl ViewNode {
         false
     }
 
+    /// Resize this split by setting the weight of its `index`-th layout
+    /// child (the data model behind a draggable splitter — the next
+    /// `render` re-tiles). Returns `false` on a leaf or bad index.
+    pub fn set_child_weight(&mut self, index: usize, weight: f32) -> bool {
+        match &mut self.kind {
+            ViewNodeKind::Leaf(_) => false,
+            ViewNodeKind::Split { layout, .. } => layout.set_child_weight(index, weight),
+        }
+    }
+
     /// Replace the child node in the named cell, keeping the cell's
     /// workspace stack. Returns whether the cell existed.
     pub fn replace_cell(&mut self, id: CellId, node: ViewNode) -> bool {
