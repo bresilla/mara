@@ -110,6 +110,43 @@ fn pending_restore_fullscreen_key() -> egui::Id {
     egui::Id::new("mara_pending_restore_fullscreen")
 }
 
+fn current_node_region_key() -> egui::Id {
+    egui::Id::new("mara_current_node_region")
+}
+
+/// The rect the current view node renders into, if a scoped node
+/// (`ViewCtx`) is rendering. The fullscreen overlay paints here instead
+/// of the whole window, so a leaf fullscreens within its cell. `None`
+/// (outside any node render) means whole-window.
+fn current_node_region(ctx: &egui::Context) -> Option<MaraRect> {
+    ctx.data(|d| d.get_temp::<MaraRect>(current_node_region_key()))
+}
+
+/// Publish `region` as the current node region for the duration of
+/// `body`, restoring the previous value afterward so nested nodes see
+/// their own region and unwind to the parent's. First-party hook used by
+/// `ViewCtx` around its render entry points.
+#[doc(hidden)]
+pub fn __internal_with_node_region<R>(
+    ctx: &egui::Context,
+    region: MaraRect,
+    body: impl FnOnce() -> R,
+) -> R {
+    let key = current_node_region_key();
+    let prev = ctx.data(|d| d.get_temp::<MaraRect>(key));
+    ctx.data_mut(|d| d.insert_temp(key, region));
+    let out = body();
+    ctx.data_mut(|d| match prev {
+        Some(rect) => {
+            d.insert_temp(key, rect);
+        }
+        None => {
+            d.remove::<MaraRect>(key);
+        }
+    });
+    out
+}
+
 /// Internal fullscreen-owner read for first-party host adapters.
 ///
 /// Public app code should reach this through a sealed host/view
@@ -258,7 +295,10 @@ pub fn maximizable_with_opts(
         // earlier ones). Frame has NO corner radius / stroke /
         // inner margin so the overlay covers edge-to-edge.
         let ctx = ui.ctx().clone();
-        let screen = crate::backend::egui::context_content_rect(&ctx);
+        // Fullscreen within the current view node's region (a cell), or
+        // the whole window when no node is scoping (the root / host).
+        let screen = current_node_region(&ctx)
+            .unwrap_or_else(|| crate::backend::egui::context_content_rect(&ctx));
         let content = opts.content_avoidance.apply_to_rect(screen);
         crate::backend::egui::show_area_for_host(
             &ctx,
@@ -877,6 +917,26 @@ mod tests {
         let key: MaraId = maximize_state_key("widget");
 
         assert_eq!(key, MaraId::new(("mara_maximize", "widget")));
+    }
+
+    #[test]
+    fn node_region_nests_and_restores() {
+        let ctx = egui::Context::default();
+        let outer = Rect::from_min_size(Pos2::new(0.0, 0.0), Vec2::new(100.0, 100.0));
+        let inner = Rect::from_min_size(Pos2::new(10.0, 10.0), Vec2::new(20.0, 20.0));
+
+        assert!(current_node_region(&ctx).is_none());
+        __internal_with_node_region(&ctx, outer, || {
+            assert_eq!(current_node_region(&ctx), Some(outer));
+            // A nested node (a Split cell inside a cell) sees its own
+            // region and restores the parent's on the way out — this is
+            // what keeps a fullscreen overlay scoped to the right cell.
+            __internal_with_node_region(&ctx, inner, || {
+                assert_eq!(current_node_region(&ctx), Some(inner));
+            });
+            assert_eq!(current_node_region(&ctx), Some(outer));
+        });
+        assert!(current_node_region(&ctx).is_none());
     }
 
     #[test]

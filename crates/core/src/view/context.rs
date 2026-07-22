@@ -193,23 +193,31 @@ impl<'a> ViewCtx<'a> {
     /// (the area not covered by ribbons).
     pub fn body<R>(&mut self, body: impl FnOnce(&mut MaraUi<'_>) -> R) -> R {
         let rect = self.content_rect();
+        let region = self.region;
         let id = self.workspace.current().id.with("mara_view_body");
         let accent = self.accent;
-        backend::egui::show_area_for_host(
-            self.egui_ctx,
-            AreaHost::new(id, rect.min, Layer::Background),
-            |ui| {
-                backend::egui::constrain_ui_to_rect(ui, rect);
-                body(&mut MaraUi::new(ui, accent))
-            },
-        )
-        .inner
+        let egui_ctx = self.egui_ctx;
+        crate::embed::__internal_with_node_region(egui_ctx, region, || {
+            backend::egui::show_area_for_host(
+                egui_ctx,
+                AreaHost::new(id, rect.min, Layer::Background),
+                |ui| {
+                    backend::egui::constrain_ui_to_rect(ui, rect);
+                    body(&mut MaraUi::new(ui, accent))
+                },
+            )
+            .inner
+        })
     }
 
     /// Show a floating/anchored pane. The closure receives the
     /// typed [`PaneBody`] — containers and pods only.
     pub fn show_pane<'spec>(&self, pane: Pane, body: impl FnOnce(&mut PaneBody<'_, 'spec>)) {
-        pane.__internal_show(self.egui_ctx, self.region, body);
+        let region = self.region;
+        let egui_ctx = self.egui_ctx;
+        crate::embed::__internal_with_node_region(egui_ctx, region, || {
+            pane.__internal_show(egui_ctx, region, body);
+        });
     }
 
     /// Paint all shelves and their typed containers.
