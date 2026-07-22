@@ -78,7 +78,7 @@ use mara_core::extras::graph::{
     Graph, InPin, InPinId, NodePin, NodeViewState, NodeViewer, OutPin, OutPinId, PinInfo,
 };
 use mara_core::vocab::Id as MaraId;
-use mara_core::{Layout, MaraView, RibbonAvoidance, ViewNode, WorkspaceStack};
+use mara_core::{Layout, MaraView, RibbonAvoidance, Tab, Tabs, ViewNode, WorkspaceStack};
 
 // ─── Ribbon / pane ids ──────────────────────────────────────────────
 
@@ -1521,47 +1521,37 @@ const RIGHT_KEYS: [&str; 5] = ["R1", "R2", "R3", "R4", "R5"];
 
 // "Board" view: ONE full Board with its own internal layout — a whole VT
 // (data-mask cell + soft-key cells) drawn inside a single board.
-struct BoardViewState {
-    node: ViewNode,
-    workspace: WorkspaceStack,
-}
-
-impl Default for BoardViewState {
-    fn default() -> Self {
-        // No gaps: the board's cells tile flush and each cell's border
-        // is the dividing line — same look as the multiview tiles.
-        let gap = 0.0;
-        let column = |keys: &[&'static str]| {
-            Layout::col(gap, keys.iter().map(|k| (1.0, Layout::cell(*k))).collect())
-        };
-        let layout = Layout::row(
-            gap,
-            vec![
-                (1.0, column(&LEFT_KEYS)),
-                (4.0, Layout::cell("data_mask")),
-                (1.0, column(&RIGHT_KEYS)),
-            ],
-        );
-        let view = Board::new("demo-board", "Board")
-            .with_icon("square-multiple")
-            .with_layout(layout)
-            .on_draw(|b: BoardPaint| {
-                if let Some(rect) = b.cell("data_mask") {
-                    draw_gauge_at(b.painter, rect, b.accent);
+fn board_view_node() -> ViewNode {
+    // No gaps: the board's cells tile flush and each cell's border
+    // is the dividing line — same look as the multiview tiles.
+    let gap = 0.0;
+    let column = |keys: &[&'static str]| {
+        Layout::col(gap, keys.iter().map(|k| (1.0, Layout::cell(*k))).collect())
+    };
+    let layout = Layout::row(
+        gap,
+        vec![
+            (1.0, column(&LEFT_KEYS)),
+            (4.0, Layout::cell("data_mask")),
+            (1.0, column(&RIGHT_KEYS)),
+        ],
+    );
+    let view = Board::new("demo-board", "Board")
+        .with_icon("square-multiple")
+        .with_layout(layout)
+        .on_draw(|b: BoardPaint| {
+            if let Some(rect) = b.cell("data_mask") {
+                draw_gauge_at(b.painter, rect, b.accent);
+            }
+            for key in LEFT_KEYS.iter().chain(RIGHT_KEYS.iter()) {
+                if let Some(rect) = b.cell(key) {
+                    draw_key_at(b.painter, rect, key);
                 }
-                for key in LEFT_KEYS.iter().chain(RIGHT_KEYS.iter()) {
-                    if let Some(rect) = b.cell(key) {
-                        draw_key_at(b.painter, rect, key);
-                    }
-                }
-            });
-        Self {
-            // A single-view tab is the degenerate tree: one Leaf as the
-            // root ViewNode (PLAN.md Phase 5).
-            node: ViewNode::leaf(view),
-            workspace: WorkspaceStack::new("demo-board-workspace"),
-        }
-    }
+            }
+        });
+    // A single-view tab is the degenerate tree: one Leaf as the
+    // root ViewNode (PLAN.md Phase 5).
+    ViewNode::leaf(view)
 }
 
 // Demo decorator for multiview leaves: fills every FREE per-view ribbon
@@ -1761,56 +1751,77 @@ impl<V: MaraView> MaraView for RibbonDemoView<V> {
 
 // "Multiview" view: split in half; the right half split again → three
 // different child views (a Canvas, an Image, a Board).
-struct MultiViewState {
-    node: ViewNode,
-    workspace: WorkspaceStack,
+fn multi_view_node() -> ViewNode {
+    // No gaps, no margin: cells tile edge-to-edge and each cell's
+    // square border provides the dividing line between views.
+    let gap = 0.0;
+    let layout = Layout::row(
+        gap,
+        vec![
+            (1.0, Layout::cell("left")),
+            (
+                1.0,
+                Layout::col(
+                    gap,
+                    vec![(1.0, Layout::cell("rt")), (1.0, Layout::cell("rb"))],
+                ),
+            ),
+        ],
+    );
+    ViewNode::split("demo-multi", layout)
+        .cell(
+            "left",
+            ViewNode::leaf(RibbonDemoView::new(
+                "mv.canvas",
+                CanvasSurface::new("mv.canvas", CanvasDocument::new("Sketch")),
+            )),
+        )
+        .cell(
+            "rt",
+            ViewNode::leaf(RibbonDemoView::new(
+                "mv.image",
+                ImageSurface::new("mv.image", ImageDocument::empty("Image")),
+            )),
+        )
+        .cell(
+            "rb",
+            ViewNode::leaf(RibbonDemoView::new(
+                "mv.board",
+                Board::new("mv.board", "Gauge")
+                    .on_draw(|b: BoardPaint| draw_gauge_at(b.painter, b.rect, b.accent)),
+            )),
+        )
 }
 
-impl Default for MultiViewState {
+/// The tab-migrated root views (PLAN.md WS8, increment one): Board and
+/// Multi live in the sealed [`Tabs`] collection — one type owning each
+/// tab's switcher entry, tree, and workspace. The remaining root views
+/// migrate tab-by-tab; until then `DemoRootView` stays the dispatcher
+/// and is kept in sync with the active tab.
+struct DemoTabs(Tabs);
+
+impl Default for DemoTabs {
     fn default() -> Self {
-        // No gaps, no margin: cells tile edge-to-edge and each cell's
-        // square border provides the dividing line between views.
-        let gap = 0.0;
-        let layout = Layout::row(
-            gap,
-            vec![
-                (1.0, Layout::cell("left")),
-                (
-                    1.0,
-                    Layout::col(
-                        gap,
-                        vec![(1.0, Layout::cell("rt")), (1.0, Layout::cell("rb"))],
-                    ),
+        // Switcher entries reuse the ids/icons/tooltips from
+        // `demo_shell_views()` so the enforced bar behaves identically.
+        Self(Tabs::new(vec![
+            Tab::new(
+                mara_core::ShellView::new(
+                    ACTION_VIEW_BOARD,
+                    "square-multiple",
+                    "Board view (single board)",
                 ),
-            ],
-        );
-        let node = ViewNode::split("demo-multi", layout)
-            .cell(
-                "left",
-                ViewNode::leaf(RibbonDemoView::new(
-                    "mv.canvas",
-                    CanvasSurface::new("mv.canvas", CanvasDocument::new("Sketch")),
-                )),
-            )
-            .cell(
-                "rt",
-                ViewNode::leaf(RibbonDemoView::new(
-                    "mv.image",
-                    ImageSurface::new("mv.image", ImageDocument::empty("Image")),
-                )),
-            )
-            .cell(
-                "rb",
-                ViewNode::leaf(RibbonDemoView::new(
-                    "mv.board",
-                    Board::new("mv.board", "Gauge")
-                        .on_draw(|b: BoardPaint| draw_gauge_at(b.painter, b.rect, b.accent)),
-                )),
-            );
-        Self {
-            node,
-            workspace: WorkspaceStack::new("demo-multi-workspace"),
-        }
+                board_view_node(),
+            ),
+            Tab::new(
+                mara_core::ShellView::new(
+                    ACTION_VIEW_MULTI,
+                    "grid",
+                    "Multiview (split into views)",
+                ),
+                multi_view_node(),
+            ),
+        ]))
     }
 }
 
@@ -2152,8 +2163,7 @@ pub struct DemoApp {
     root_view: DemoRootView,
     canvas_view: CanvasViewState,
     three_d_view: ThreeDViewState,
-    board_view: BoardViewState,
-    multi_view: MultiViewState,
+    tabs: DemoTabs,
     canvas_shelves: CanvasShelfState,
     map_view: MapViewState,
     bevy_view: MaraBevyViewport,
@@ -2428,8 +2438,7 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
         root_view,
         canvas_view,
         three_d_view,
-        board_view,
-        multi_view,
+        tabs,
         canvas_shelves,
         map_view,
         bevy_view,
@@ -2485,9 +2494,11 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
     } else if *root_view == DemoRootView::ThreeD {
         three_d_root_view(host, accent_col, three_d_view);
     } else if *root_view == DemoRootView::Board {
-        board_root_view(host, accent_col, board_view);
+        tabs.0.select(ACTION_VIEW_BOARD);
+        tab_root_view(host, accent_col, &mut tabs.0);
     } else if *root_view == DemoRootView::Multi {
-        multi_root_view(host, accent_col, multi_view);
+        tabs.0.select(ACTION_VIEW_MULTI);
+        tab_root_view(host, accent_col, &mut tabs.0);
     } else if root_view.is_coreviz() {
         map_root_view(
             host,
@@ -2772,12 +2783,14 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
     // Replay the enforced shell bar's interactions (view switch / shelf
     // toggles, collected from the host adapter) as synthetic clicks, so
     // the existing dispatch below handles them with the same per-view
-    // side effects as before.
-    clicks.extend(
-        pending_shell_events
-            .drain(..)
-            .filter_map(shell_event_to_click),
-    );
+    // side effects as before. Tab-migrated views (Board/Multi) route
+    // through `Tabs` first — it consumes their `ViewSelected` — while
+    // the click replay still runs to keep `DemoRootView` and the
+    // fullscreen-restore side effect identical for every view.
+    clicks.extend(pending_shell_events.drain(..).filter_map(|event| {
+        tabs.0.on_shell_event(&event);
+        shell_event_to_click(event)
+    }));
     // PREV / NEXT cube — one-shot icon buttons in the BOTTOM rail's
     // End cluster. Each click rotates the AccentColor through the
     // hardcoded swatch row.
@@ -2850,6 +2863,7 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
                 host.restore_fullscreen();
             }
             *root_view = DemoRootView::Board;
+            tabs.0.select(ACTION_VIEW_BOARD);
             host.request_repaint();
             continue;
         }
@@ -2858,6 +2872,7 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
                 host.restore_fullscreen();
             }
             *root_view = DemoRootView::Multi;
+            tabs.0.select(ACTION_VIEW_MULTI);
             host.request_repaint();
             continue;
         }
@@ -3276,16 +3291,12 @@ fn three_d_root_view(
     three_d.view.show(&mut view_ctx);
 }
 
-fn board_root_view(host: &MaraHostCtx<'_>, accent: MaraColor32, board: &mut BoardViewState) {
-    let mut view_ctx = host.view_ctx(&mut board.workspace, accent, RibbonAvoidance::none());
-    board.node.render(&mut view_ctx);
-}
-
-fn multi_root_view(host: &MaraHostCtx<'_>, accent: MaraColor32, multi: &mut MultiViewState) {
+fn tab_root_view(host: &MaraHostCtx<'_>, accent: MaraColor32, tabs: &mut Tabs) {
     // No avoidance at all: the view tree fills the window from the very
     // top — the glass top bar draws over the cells, not above them.
-    let mut view_ctx = host.view_ctx(&mut multi.workspace, accent, RibbonAvoidance::none());
-    multi.node.render(&mut view_ctx);
+    let (node, workspace, _shelf_state) = tabs.active_mut();
+    let mut view_ctx = host.view_ctx(workspace, accent, RibbonAvoidance::none());
+    node.render(&mut view_ctx);
 }
 
 // ─── Canvas root view ──────────────────────────────────────────────
