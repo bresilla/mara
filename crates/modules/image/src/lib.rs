@@ -63,6 +63,44 @@ impl ImageSurface {
         &self.doc
     }
 
+    /// Draw the framed placeholder into a sealed [`mara_core::MaraUi`]
+    /// canvas — the inline-embed body, and the headless-portability
+    /// proof surface (renders over the recording backend, no egui).
+    fn paint_placeholder(mui: &mut mara_core::MaraUi<'_>, doc: &ImageDocument) {
+        let size = mara_core::vocab::Vec2::new(
+            mui.available_width().max(160.0),
+            mui.available_height().max(120.0),
+        );
+        let (painter, response) = mui.canvas(size);
+        let rect = response.rect;
+        painter.rect_filled(
+            rect,
+            0.0,
+            mara_core::style::fill_for(
+                mara_core::style::FillRole::Pane,
+                mara_core::style::active_accent(),
+            ),
+        );
+        painter.rect_stroke(
+            rect,
+            0.0,
+            mara_core::style::stroke_for(
+                mara_core::style::StrokeRole::WidgetBorder,
+                mara_core::style::active_accent(),
+            ),
+        );
+        let detail = match &doc.source {
+            ImageSource::Empty => "no image loaded".to_owned(),
+            ImageSource::Uri(uri) => uri.clone(),
+        };
+        painter.text(
+            rect.center(),
+            MaraAlign2::CENTER_CENTER,
+            format!("{}\n{}", doc.title, detail),
+            13.0,
+            mara_core::style::on_panel(),
+        );
+    }
 }
 
 impl MaraView for ImageSurface {
@@ -223,7 +261,7 @@ mod tests {
 
         let rect = mara_core::vocab::Rect::from_min_size(
             mara_core::vocab::Pos2::new(0.0, 0.0),
-            MaraVec2::new(200.0, 140.0),
+            mara_core::vocab::Vec2::new(200.0, 140.0),
         );
         let doc = ImageDocument::uri("Photo", "file://x.png");
         let mut raw = MaraRawBackend::__internal_recording(rect);

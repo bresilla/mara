@@ -254,15 +254,25 @@ pub fn __internal_publish_ribbon_pane_ids(
     crate::memory::MaraMemoryCtx::new(ctx).set_temp(ribbon_pane_ids_key(), ids);
 }
 
-fn assert_pane_has_ribbon_button(ctx: &egui::Context, pane_id: Id) {
-    let ids = ctx
-        .data(|d| d.get_temp::<Vec<Id>>(ribbon_pane_ids_key()))
-        .expect("pane rendering requires published ribbon pane ids; publish the current ribbon pane buttons through MaraHostCtx before rendering panes");
-    assert!(
-        ids.contains(&pane_id),
-        "pane {:?} was rendered without a registered ribbon button; add a ribbon item for it or do not render the pane",
-        pane_id
+/// Whether the pane may render under the ribbon-affordance registry.
+///
+/// No registry published (headless tests, minimal hosts) → permissive,
+/// exactly as the publish doc states. A published registry that lacks
+/// this pane id → the pane is SKIPPED (debug builds also assert, so the
+/// mistake is loud in development) — a user action must never abort the
+/// host app over a chrome-bookkeeping slip.
+fn pane_has_ribbon_button(ctx: &egui::Context, pane_id: Id) -> bool {
+    let Some(ids) =
+        crate::memory::MaraMemoryCtx::new(ctx).get_temp::<Vec<Id>>(ribbon_pane_ids_key())
+    else {
+        return true;
+    };
+    let registered = ids.contains(&pane_id);
+    debug_assert!(
+        registered,
+        "pane {pane_id:?} was rendered without a registered ribbon button; add a ribbon item for it or do not render the pane"
     );
+    registered
 }
 
 pub(crate) fn active_tabbed_container_rect_key() -> Id {
@@ -593,7 +603,9 @@ impl Pane {
         body: impl FnOnce(&mut PaneBody<'_, 'spec>),
     ) {
         crate::enforce::__internal_enforce_defaults(ctx);
-        assert_pane_has_ribbon_button(ctx, self.id);
+        if !pane_has_ribbon_button(ctx, self.id) {
+            return;
+        }
         let (align, offset) = layout::anchor_align(self.anchor);
         let area_id = self.id.with("pane2_area");
 
@@ -779,7 +791,8 @@ impl Pane {
         // published chrome bounds reproduces the window-level anchoring;
         // for a cell it clamps the pane inside the cell.
         let screen = region.intersect(
-            ctx.data(|d| d.get_temp::<MaraRect>(crate::ribbon::chrome::chrome_bounds_key()))
+            crate::memory::MaraMemoryCtx::new(ctx)
+                .get_temp::<MaraRect>(crate::ribbon::chrome::chrome_bounds_key())
                 .unwrap_or_else(|| crate::backend::egui::context_content_rect(ctx)),
         );
         // Reserve `RAIL_INSET` on the pane's OWN rail (its title

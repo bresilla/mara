@@ -68,6 +68,7 @@ test-all:
 check:
 	@$(CARGO) check --workspace --all-targets
 	@$(CARGO) check --manifest-path example/sealed/Cargo.toml
+	@./scripts/ratchet.sh
 	@! grep -n 'raw-egui' example/Cargo.toml
 	@! grep -n 'raw-egui' crates/core/Cargo.toml mara/Cargo.toml
 	@! grep -RInE 'cfg[(]feature[[:space:]]*=[[:space:]]*"raw-egui"|^[[:space:]]*pub[[:space:]]+use[[:space:]]+egui([:;]|$$)|^[[:space:]]*pub[[:space:]]+fn[[:space:]]+(from_raw|raw_ui_mut|raw|egui|egui_ctx|ctx)[(]' crates/core/src mara/src
@@ -196,7 +197,7 @@ check:
 	@! grep -nE 'fn screen_rect[(].*->[[:space:]]*egui::Rect' crates/core/src/ribbon/chrome.rs
 	@! grep -nE 'fn (ribbon_rect|strip_rect|cluster_region)[(].*->[[:space:]]*egui::Rect' crates/core/src/ribbon/chrome.rs
 	@! awk '/fn strip_rect/,/^fn cluster_region/ { print }' crates/core/src/ribbon/chrome.rs | grep -nE 'egui::(Rect|Pos2|Vec2|pos2|vec2)'
-	@! awk '/fn cluster_region/,/^struct ButtonPlacement/ { print }' crates/core/src/ribbon/chrome.rs | grep -nE 'egui::(Rect|Pos2|Vec2|pos2|vec2)'
+	@! awk '/fn cluster_region/,/struct ButtonPlacement/ { print }' crates/core/src/ribbon/chrome.rs | grep -nE 'egui::(Rect|Pos2|Vec2|pos2|vec2)'
 	@! grep -nE 'cursor:[[:space:]]*Option<egui::Pos2>' crates/core/src/ribbon/chrome.rs
 	@! (sed -n '1,/^#\[cfg(test)\]/p' crates/core/src/ribbon/chrome.rs | grep -nE 'egui::(Pos2|pos2|PointerButton)|ctx[.]input|pointer[.]interact_pos|[.]pointer_interact_pos')
 	@! (sed -n '1,/^#\[cfg(test)\]/p' crates/core/src/ribbon/chrome.rs | grep -n 'ctx.content_rect')

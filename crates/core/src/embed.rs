@@ -114,13 +114,20 @@ fn current_node_region_key() -> egui::Id {
     egui::Id::new("mara_current_node_region")
 }
 
+/// The single key for the global "who owns the fullscreen overlay this
+/// pass" record — reader and every writer construct it HERE, never
+/// inline, so they can't drift apart.
+fn maximize_global_key() -> egui::Id {
+    egui::Id::new("mara_maximize_global")
+}
+
 /// The rect the current view node renders into, if a scoped node
 /// (`ViewCtx`) is rendering. The fullscreen overlay paints here instead
 /// of the whole window, and per-view ribbons anchor here, so a leaf's
 /// chrome stays inside its cell. `None` (outside any node render) means
 /// whole-window.
 pub(crate) fn current_node_region(ctx: &egui::Context) -> Option<MaraRect> {
-    ctx.data(|d| d.get_temp::<MaraRect>(current_node_region_key()))
+    crate::memory::MaraMemoryCtx::new(ctx).get_temp::<MaraRect>(current_node_region_key())
 }
 
 /// Publish `region` as the current node region for the duration of
@@ -134,17 +141,15 @@ pub fn __internal_with_node_region<R>(
     body: impl FnOnce() -> R,
 ) -> R {
     let key = current_node_region_key();
-    let prev = ctx.data(|d| d.get_temp::<MaraRect>(key));
-    ctx.data_mut(|d| d.insert_temp(key, region));
+    let mut memory = crate::memory::MaraMemoryCtx::new(ctx);
+    let prev = memory.get_temp::<MaraRect>(key);
+    memory.set_temp(key, region);
     let out = body();
-    ctx.data_mut(|d| match prev {
-        Some(rect) => {
-            d.insert_temp(key, rect);
-        }
-        None => {
-            d.remove::<MaraRect>(key);
-        }
-    });
+    let mut memory = crate::memory::MaraMemoryCtx::new(ctx);
+    match prev {
+        Some(rect) => memory.set_temp(key, rect),
+        None => memory.remove_temp::<MaraRect>(key),
+    }
     out
 }
 
@@ -154,7 +159,7 @@ pub fn __internal_with_node_region<R>(
 /// context method, not by receiving a raw `egui::Context`.
 #[doc(hidden)]
 pub fn __internal_fullscreen_owner(ctx: &egui::Context) -> Option<MaraId> {
-    let global_key = egui::Id::new("mara_maximize_global");
+    let global_key = maximize_global_key();
     let pass_nr = ctx.cumulative_pass_nr();
     let stored: Option<(u64, MaraId)> = crate::memory::MaraMemoryCtx::new(ctx).get_temp(global_key);
     match stored {
@@ -238,17 +243,15 @@ pub fn maximizable_with_opts(
         .ctx()
         .data(|d| d.get_temp::<bool>(max_key))
         .unwrap_or(false);
-    let pending_restore = ui
-        .ctx()
-        .data(|d| d.get_temp::<MaraId>(pending_restore_fullscreen_key()))
+    let pending_restore = crate::memory::MaraMemoryCtx::new(ui.ctx())
+        .get_temp::<MaraId>(pending_restore_fullscreen_key())
         == Some(max_id);
     if pending_restore {
         maximized = false;
-        ui.ctx().data_mut(|d| {
-            d.insert_temp::<bool>(max_key, false);
-            d.remove::<MaraId>(pending_restore_fullscreen_key());
-            d.remove::<(u64, MaraId)>(egui::Id::new("mara_maximize_global"));
-        });
+        let mut memory = crate::memory::MaraMemoryCtx::new(ui.ctx());
+        memory.set_temp::<bool>(max_key, false);
+        memory.remove_temp::<MaraId>(pending_restore_fullscreen_key());
+        memory.remove_temp::<(u64, MaraId)>(maximize_global_key());
     }
     let mut toggle = false;
 
@@ -260,9 +263,10 @@ pub fn maximizable_with_opts(
     // full-window — otherwise `Order::Tooltip` button areas from
     // inline-in-a-pane widgets would still paint on top of the
     // overlay.
-    let global_key = egui::Id::new("mara_maximize_global");
+    let global_key = maximize_global_key();
     let pass_nr = ui.ctx().cumulative_pass_nr();
-    let stored_global: Option<(u64, MaraId)> = ui.ctx().data(|d| d.get_temp(global_key));
+    let stored_global: Option<(u64, MaraId)> =
+        crate::memory::MaraMemoryCtx::new(ui.ctx()).get_temp(global_key);
     let some_other_maximized = match stored_global {
         Some((f, id)) => (f == pass_nr || f + 1 == pass_nr) && id != max_id,
         None => false,

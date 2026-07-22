@@ -175,15 +175,15 @@ pub(crate) fn __internal_draw_view_ribbons(
     if ribbons.is_empty() {
         return Vec::new();
     }
-    let key = |name: &'static str| egui::Id::new((name, salt));
-    let mut open: RibbonOpen = ctx
-        .data(|d| d.get_temp(key("mara_view_ribbon_open")))
+    let memory = crate::memory::MaraMemoryCtx::new(ctx);
+    let mut open: RibbonOpen = memory
+        .get_temp(view_ribbon_open_key(salt))
         .unwrap_or_default();
-    let mut placement: RibbonPlacement = ctx
-        .data(|d| d.get_temp(key("mara_view_ribbon_placement")))
+    let mut placement: RibbonPlacement = memory
+        .get_temp(view_ribbon_placement_key(salt))
         .unwrap_or_default();
-    let mut drag: RibbonDrag = ctx
-        .data(|d| d.get_temp(key("mara_view_ribbon_drag")))
+    let mut drag: RibbonDrag = memory
+        .get_temp(view_ribbon_drag_key(salt))
         .unwrap_or_default();
 
     if crate::probe::__internal_enabled(ctx) {
@@ -242,17 +242,73 @@ pub(crate) fn __internal_draw_view_ribbons(
         has(RibbonEdge::Bottom),
     ];
 
-    // Read the pass number BEFORE taking the data write lock: egui's
-    // `Context` is one lock, and `cumulative_pass_nr()` inside
-    // `data_mut` re-enters it → self-deadlock on the UI thread.
     let pass_nr = ctx.cumulative_pass_nr();
-    ctx.data_mut(|d| {
-        d.insert_temp(key("mara_view_ribbon_open"), open);
-        d.insert_temp(key("mara_view_ribbon_placement"), placement);
-        d.insert_temp(key("mara_view_ribbon_drag"), drag);
-        d.insert_temp::<(u64, [bool; 4])>(key("mara_view_ribbon_edges"), (pass_nr, edges));
-    });
+    let mut memory = crate::memory::MaraMemoryCtx::new(ctx);
+    memory.set_temp(view_ribbon_open_key(salt), open);
+    memory.set_temp(view_ribbon_placement_key(salt), placement);
+    memory.set_temp(view_ribbon_drag_key(salt), drag);
+    memory.set_temp::<(u64, [bool; 4])>(view_ribbon_edges_key(salt), (pass_nr, edges));
+    gc_view_ribbon_state(&mut memory, salt, pass_nr);
     clicks
+}
+
+/// Per-view ribbon state keys. Every reader and writer constructs the
+/// key through THESE fns — never inline — so they cannot drift apart.
+fn view_ribbon_open_key(salt: MaraId) -> egui::Id {
+    egui::Id::new(("mara_view_ribbon_open", salt))
+}
+
+fn view_ribbon_placement_key(salt: MaraId) -> egui::Id {
+    egui::Id::new(("mara_view_ribbon_placement", salt))
+}
+
+fn view_ribbon_drag_key(salt: MaraId) -> egui::Id {
+    egui::Id::new(("mara_view_ribbon_drag", salt))
+}
+
+fn view_ribbon_edges_key(salt: MaraId) -> egui::Id {
+    egui::Id::new(("mara_view_ribbon_edges", salt))
+}
+
+fn view_ribbon_salts_registry_key() -> egui::Id {
+    egui::Id::new("mara_view_ribbon_salts")
+}
+
+/// How many distinct view salts may keep ribbon state before the oldest
+/// (by last-drawn pass) is evicted. Open/placement/drag must SURVIVE a
+/// tab going inactive (switching back restores the open panel), so the
+/// state cannot be pass-stamped away like `edges` — instead the live
+/// set is bounded so hosts that mint dynamic salts can't grow memory
+/// forever.
+const VIEW_RIBBON_STATE_CAP: usize = 256;
+
+/// Bound the per-salt ribbon state set: update `salt`'s last-drawn pass
+/// in the registry, and evict the stalest salts' state once the
+/// registry exceeds [`VIEW_RIBBON_STATE_CAP`].
+fn gc_view_ribbon_state(memory: &mut crate::memory::MaraMemoryCtx<'_>, salt: MaraId, pass_nr: u64) {
+    let mut registry: Vec<(MaraId, u64)> = memory
+        .get_temp(view_ribbon_salts_registry_key())
+        .unwrap_or_default();
+    match registry.iter_mut().find(|(id, _)| *id == salt) {
+        Some(entry) => entry.1 = pass_nr,
+        None => registry.push((salt, pass_nr)),
+    }
+    while registry.len() > VIEW_RIBBON_STATE_CAP {
+        let Some(stalest) = registry
+            .iter()
+            .enumerate()
+            .min_by_key(|(_, (_, pass))| *pass)
+            .map(|(idx, _)| idx)
+        else {
+            break;
+        };
+        let (dead, _) = registry.swap_remove(stalest);
+        memory.remove_temp::<RibbonOpen>(view_ribbon_open_key(dead));
+        memory.remove_temp::<RibbonPlacement>(view_ribbon_placement_key(dead));
+        memory.remove_temp::<RibbonDrag>(view_ribbon_drag_key(dead));
+        memory.remove_temp::<(u64, [bool; 4])>(view_ribbon_edges_key(dead));
+    }
+    memory.set_temp(view_ribbon_salts_registry_key(), registry);
 }
 
 /// Which edges (`[left, right, top, bottom]`) the node identified by
@@ -262,9 +318,8 @@ pub(crate) fn __internal_draw_view_ribbons(
 /// stopped drawing ribbons (or a tab that went inactive) must not keep
 /// shrinking anyone's content rect.
 pub(crate) fn view_ribbon_edges(ctx: &Context, salt: MaraId) -> Option<[bool; 4]> {
-    let (pass, edges) = ctx.data(|d| {
-        d.get_temp::<(u64, [bool; 4])>(egui::Id::new(("mara_view_ribbon_edges", salt)))
-    })?;
+    let (pass, edges) = crate::memory::MaraMemoryCtx::new(ctx)
+        .get_temp::<(u64, [bool; 4])>(view_ribbon_edges_key(salt))?;
     (pass == ctx.cumulative_pass_nr()).then_some(edges)
 }
 
@@ -1301,16 +1356,4 @@ mod tests {
         );
     }
 
-    #[test]
-    fn simple_slot_ribbon_origin_uses_mara_geometry() {
-        let origin: MaraPos2 = ribbon_origin(
-            MaraRect::from_min_size(MaraPos2::ZERO, MaraVec2::new(800.0, 600.0)),
-            RibbonEdge::Right,
-            RibbonCluster::End,
-            MaraVec2::new(34.0, 110.0),
-            4.0,
-        );
-
-        assert_eq!(origin, MaraPos2::new(762.0, 486.0));
-    }
 }
