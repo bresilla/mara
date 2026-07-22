@@ -376,7 +376,7 @@ impl<'a> MaraHostCtx<'a> {
         pane: mara_core::pane::Pane,
         body: impl FnOnce(&mut mara_core::pane::PaneBody<'_, 'spec>),
     ) {
-        pane.__internal_show(self.egui, body);
+        pane.__internal_show(self.egui, self.content_rect(), body);
     }
 
     /// Publish the pane ids reachable from the current ribbon set.

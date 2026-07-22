@@ -209,7 +209,7 @@ impl<'a> ViewCtx<'a> {
     /// Show a floating/anchored pane. The closure receives the
     /// typed [`PaneBody`] — containers and pods only.
     pub fn show_pane<'spec>(&self, pane: Pane, body: impl FnOnce(&mut PaneBody<'_, 'spec>)) {
-        pane.__internal_show(self.egui_ctx, body);
+        pane.__internal_show(self.egui_ctx, self.region, body);
     }
 
     /// Paint all shelves and their typed containers.

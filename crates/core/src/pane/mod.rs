@@ -579,6 +579,7 @@ impl Pane {
     pub fn __internal_show<'spec>(
         self,
         ctx: &egui::Context,
+        region: MaraRect,
         body: impl FnOnce(&mut PaneBody<'_, 'spec>),
     ) {
         assert_pane_has_ribbon_button(ctx, self.id);
@@ -756,9 +757,14 @@ impl Pane {
         // ribbon button to that container to unfold it; if doing so
         // exceeds the budget, the next frame's walk will fold a
         // different tail container to compensate.
-        let screen = ctx
-            .data(|d| d.get_temp::<MaraRect>(crate::ribbon::chrome::chrome_bounds_key()))
-            .unwrap_or_else(|| crate::backend::egui::context_content_rect(ctx));
+        // Anchor within the caller's region (the node's rect). For the
+        // root this is the whole window, so the intersection with the
+        // published chrome bounds reproduces the window-level anchoring;
+        // for a cell it clamps the pane inside the cell.
+        let screen = region.intersect(
+            ctx.data(|d| d.get_temp::<MaraRect>(crate::ribbon::chrome::chrome_bounds_key()))
+                .unwrap_or_else(|| crate::backend::egui::context_content_rect(ctx)),
+        );
         // Reserve `RAIL_INSET` on the pane's OWN rail (its title
         // strip lives there); on the opposite side only reserve
         // when there's actually a ribbon hosted there. The
