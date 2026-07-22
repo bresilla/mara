@@ -349,7 +349,15 @@ fn fresh_chrome_bounds(ctx: &egui::Context) -> MaraRect {
 
 fn ribbon_rect(ctx: &egui::Context, ribbon: &ResolvedSlotRibbon) -> MaraRect {
     if ribbon.edge == RibbonEdge::Top {
+        // The top bar is window chrome — always the full window.
         crate::backend::egui::context_content_rect(ctx)
+    } else if let Some(region) = crate::embed::current_node_region(ctx) {
+        // A left/right/bottom ribbon rendered inside a view node anchors
+        // to that node's region, so it belongs to the leaf, not the
+        // window (PLAN.md Phase 3). Outside any node render (e.g. the
+        // shell bar, or the app-level ribbon pass) there is no region, so
+        // it falls back to the window chrome.
+        region
     } else {
         chrome_rect(ctx)
     }

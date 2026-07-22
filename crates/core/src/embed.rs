@@ -116,9 +116,10 @@ fn current_node_region_key() -> egui::Id {
 
 /// The rect the current view node renders into, if a scoped node
 /// (`ViewCtx`) is rendering. The fullscreen overlay paints here instead
-/// of the whole window, so a leaf fullscreens within its cell. `None`
-/// (outside any node render) means whole-window.
-fn current_node_region(ctx: &egui::Context) -> Option<MaraRect> {
+/// of the whole window, and per-view ribbons anchor here, so a leaf's
+/// chrome stays inside its cell. `None` (outside any node render) means
+/// whole-window.
+pub(crate) fn current_node_region(ctx: &egui::Context) -> Option<MaraRect> {
     ctx.data(|d| d.get_temp::<MaraRect>(current_node_region_key()))
 }
 
