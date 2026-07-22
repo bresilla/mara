@@ -189,6 +189,16 @@ context and GPU plumbing behind them.
 
 ## 5. The UI composition model
 
+> **Direction (in progress) — see [ADR 0001](docs/adr/0001-recursive-view-tree.md)
+> and `PLAN.md`.** §5–§7 below describe the *current* code. The architecture is
+> being refactored to: (a) one recursive content tree
+> `ViewNode = Leaf | Split` (Split is structure, every module is a Leaf; the tab
+> root is always a Split — MultiView stops being a special case); (b) every node
+> a fully-scoped region (panes/painter/input/fullscreen/ribbons scope to the
+> node's rect, not the window); (c) three chrome tiers — **top bar** (window
+> frame), **shelves** (per tab), **ribbons** (per view). These sections are
+> updated section-by-section as each phase lands.
+
 Content nests through a fixed, type-checked hierarchy. A container accepts only
 **Pods**, never raw widgets or closures — this keeps response collection and
 layout bookkeeping uniform.
