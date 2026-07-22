@@ -25,7 +25,7 @@ live_egui_files()   { grep -rl 'egui::' "$CORE" --include='*.rs' | wc -l; }
 live_demo_egui()    { grep -rn 'egui::' example/src --include='*.rs' | wc -l; }
 live_state_bypass() { grep -rEn 'ctx\.data\(|ctx\.data_mut\(|ctx\.animate_' "$CORE" --include='*.rs' | grep -v "$CORE/backend/" | grep -v "$CORE/memory.rs" | wc -l; }
 live_egui_ui_fns()  { grep -rEn ':[[:space:]]*&mut egui::Ui' "$CORE" --include='*.rs' | grep -v "$CORE/backend/" | wc -l; }
-live_ui_escapes()   { grep -rEn '\.ui_mut\(\)|backend\.ui\(\)|\.egui_ui\(\)|\.egui_ui_readonly\(\)' "$CORE" --include='*.rs' | grep -v "$CORE/backend/" | wc -l; }
+live_ui_escapes()   { grep -rEn '\.ui_mut\(\)|backend\.ui\(\)|\.egui_ui\(\)|\.egui_ui_opt\(\)|\.egui_ui_readonly\(\)' "$CORE" --include='*.rs' | grep -v "$CORE/backend/" | wc -l; }
 
 declare -A baseline
 while read -r key value; do

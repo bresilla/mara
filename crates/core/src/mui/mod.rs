@@ -848,6 +848,24 @@ impl<'a> MaraUi<'a> {
             .expect("this MaraUi operation requires the egui backend")
     }
 
+    /// The egui `Ui` if this is the egui backend, else `None` — the
+    /// still-egui-bound widget fns use this to degrade to an inert
+    /// no-op response on headless/recording backends instead of
+    /// panicking (PLAN.md WS2). Each caller is a coupling-ratchet
+    /// escape, same as [`MaraUi::egui_ui`].
+    pub(crate) fn egui_ui_opt(&mut self) -> Option<&mut egui::Ui> {
+        self.backend.__internal_egui_ui_mut()
+    }
+
+    /// Inert zero-rect response for operations skipped on non-egui
+    /// backends: never hovered, never clicked.
+    fn noop_response() -> MaraResponse {
+        MaraResponse::__internal_synthetic(vocab::Rect::from_min_size(
+            vocab::Pos2::new(0.0, 0.0),
+            vocab::Vec2::new(0.0, 0.0),
+        ))
+    }
+
     /// Internal first-party accessor — NOT part of the public API
     /// and not semver-stable. First-party Mara module crates
     /// (canvas, image, map, …) use this for backend adapter work
@@ -1086,7 +1104,10 @@ impl<'a> MaraUi<'a> {
         options: &[&str],
     ) -> MaraResponse {
         let accent = self.accent;
-        dropdown(self.egui_ui(), id_salt, selected, options, accent)
+        let Some(ui) = self.egui_ui_opt() else {
+            return Self::noop_response();
+        };
+        dropdown(ui, id_salt, selected, options, accent)
     }
 
     pub fn select_row(
@@ -1133,7 +1154,10 @@ impl<'a> MaraUi<'a> {
 
     pub fn text_input(&mut self, text: &mut String, placeholder: &str) -> MaraResponse {
         let accent = self.accent;
-        text_input(self.egui_ui(), text, placeholder, accent)
+        let Some(ui) = self.egui_ui_opt() else {
+            return Self::noop_response();
+        };
+        text_input(ui, text, placeholder, accent)
     }
 
     pub fn readout(&mut self, label: &str, value: &str) -> MaraResponse {
@@ -1202,12 +1226,18 @@ impl<'a> MaraUi<'a> {
 
     pub fn color_rgb(&mut self, label: &str, rgb: &mut [f32; 3]) -> MaraResponse {
         let accent = self.accent;
-        color_rgb(self.egui_ui(), label, rgb, accent)
+        let Some(ui) = self.egui_ui_opt() else {
+            return Self::noop_response();
+        };
+        color_rgb(ui, label, rgb, accent)
     }
 
     pub fn color_rgba(&mut self, label: &str, rgba: &mut [f32; 4]) -> MaraResponse {
         let accent = self.accent;
-        color_rgba(self.egui_ui(), label, rgba, accent)
+        let Some(ui) = self.egui_ui_opt() else {
+            return Self::noop_response();
+        };
+        color_rgba(ui, label, rgba, accent)
     }
 
     /// Foldable titled section whose body is itself a sealed
@@ -1239,7 +1269,10 @@ impl<'a> MaraUi<'a> {
     /// Mara-styled right-click context menu on a previous response.
     pub fn context_menu(&mut self, resp: &MaraResponse, body: impl FnOnce(&mut MaraUi<'_>)) {
         let accent = self.accent;
-        backend::egui::with_response_for_ui(self.egui_ui(), resp, |raw| {
+        let Some(ui) = self.egui_ui_opt() else {
+            return;
+        };
+        backend::egui::with_response_for_ui(ui, resp, |raw| {
             context_menu_mara(raw, accent, |ui| {
                 let mut backend = MaraBackend::Egui(backend::egui::EguiUiBackend::new(ui));
                 body(&mut MaraUi::over(&mut backend, accent));
@@ -1256,7 +1289,10 @@ impl<'a> MaraUi<'a> {
 
     /// Render a fully-typed [`Pod`] inline.
     pub fn pod(&mut self, pod: Pod) -> PodResponse {
-        pod.show(self.egui_ui())
+        let Some(ui) = self.egui_ui_opt() else {
+            return PodResponse::default();
+        };
+        pod.show(ui)
     }
 
     // ── custom drawing ───────────────────────────────────────────
