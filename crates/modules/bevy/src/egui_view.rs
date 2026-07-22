@@ -18,8 +18,10 @@ use crate::{BevyEmbeddedView, BevyViewportInput, BevyViewportWgpuResources};
 /// egui region, asks the embedded Bevy bridge to render into an
 /// offscreen target, uploads the latest RGBA frame as an egui texture,
 /// and forwards pointer/scroll interaction into the Bevy camera.
-#[derive(Default)]
 pub struct MaraBevyViewport {
+    /// Per-instance salt for egui area/interact ids, so two viewports
+    /// in one context never collide on shared area memory or input.
+    instance: u64,
     bevy: BevyEmbeddedView,
     texture: Option<egui::TextureHandle>,
     last_pixels: [u32; 2],
@@ -32,9 +34,23 @@ pub struct MaraBevyViewport {
     native_texture_size: [usize; 2],
 }
 
+impl Default for MaraBevyViewport {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Monotonic per-instance salt so every viewport gets unique egui ids.
+fn next_viewport_instance() -> u64 {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    NEXT.fetch_add(1, Ordering::Relaxed)
+}
+
 impl MaraBevyViewport {
     pub fn new() -> Self {
         Self {
+            instance: next_viewport_instance(),
             bevy: BevyEmbeddedView::new(),
             texture: None,
             last_pixels: [0, 0],
@@ -52,6 +68,7 @@ impl MaraBevyViewport {
         configure_app: impl Fn(&mut bevy::prelude::App) + Send + Sync + 'static,
     ) -> Self {
         Self {
+            instance: next_viewport_instance(),
             bevy: BevyEmbeddedView::with_app_config(configure_app),
             texture: None,
             last_pixels: [0, 0],
@@ -76,6 +93,7 @@ impl MaraBevyViewport {
             })
             .unwrap_or_default();
         Self {
+            instance: next_viewport_instance(),
             bevy,
             texture: None,
             last_pixels: [0, 0],
@@ -106,6 +124,7 @@ impl MaraBevyViewport {
             BevyEmbeddedView::with_app_config(configure_app)
         };
         Self {
+            instance: next_viewport_instance(),
             bevy,
             texture: None,
             last_pixels: [0, 0],
@@ -157,7 +176,7 @@ impl MaraBevyViewport {
         // any other leaf. Whole-window is just the one-leaf tree.
         let region_rect: egui::Rect = ctx.content_rect().into();
         {
-            egui::Area::new(egui::Id::new("mara_bevy_viewport_area"))
+            egui::Area::new(egui::Id::new(("mara_bevy_viewport_area", self.instance)))
                 .order(egui::Order::Background)
                 .fixed_pos(region_rect.min)
                 .show(ctx.__internal_egui_ctx(), |ui| {
@@ -194,7 +213,7 @@ impl MaraBevyViewport {
 
                     let response = ui.interact(
                         rect,
-                        egui::Id::new("mara_embedded_bevy_viewport_interact"),
+                        egui::Id::new(("mara_embedded_bevy_viewport_interact", self.instance)),
                         egui::Sense::click_and_drag(),
                     );
                     let ppp = ui.ctx().pixels_per_point();

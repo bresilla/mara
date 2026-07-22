@@ -87,6 +87,15 @@ impl Tabs {
     #[must_use]
     pub fn new(tabs: Vec<Tab>) -> Self {
         assert!(!tabs.is_empty(), "an app has at least one tab");
+        // Duplicate ids would alias one workspace and make the later
+        // tab unreachable through selection — reject them loudly.
+        for (idx, tab) in tabs.iter().enumerate() {
+            assert!(
+                !tabs[..idx].iter().any(|prev| prev.view.id == tab.view.id),
+                "duplicate tab id {:?}: every tab needs a unique id",
+                tab.view.id
+            );
+        }
         Self { tabs, active: 0 }
     }
 
@@ -167,6 +176,12 @@ mod tests {
             ShellView::new(id, "square", "Tab"),
             ViewNode::leaf(DummyView),
         )
+    }
+
+    #[test]
+    #[should_panic(expected = "duplicate tab id")]
+    fn duplicate_tab_ids_are_rejected() {
+        let _ = Tabs::new(vec![tab("t.same"), tab("t.same")]);
     }
 
     #[test]

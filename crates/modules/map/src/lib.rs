@@ -491,6 +491,13 @@ pub struct MapSurface {
     vector_tiles: mvt::VectorTileCache,
     fast_frames_remaining: u8,
     image_loaders_installed: bool,
+    /// Interaction state used when this surface renders as a
+    /// `ViewNode` leaf (`MaraView::show`): tool, selection, and the
+    /// multi-click draft MUST persist across frames or a leaf-hosted
+    /// map can never finish drawing a line/polygon. Hosts that drive
+    /// the map through [`MaraMap::new`] own their interaction state
+    /// separately and never touch this.
+    leaf_interaction: MapInteraction,
 }
 
 impl MapSurface {
@@ -503,6 +510,7 @@ impl MapSurface {
             vector_tiles: mvt::VectorTileCache::default(),
             fast_frames_remaining: 10,
             image_loaders_installed: false,
+            leaf_interaction: MapInteraction::default(),
         }
     }
 
@@ -599,8 +607,12 @@ impl MaraView for MapSurface {
     }
 
     fn show(&mut self, ctx: &mut ViewCtx<'_>) {
-        let mut interaction = MapInteraction::default();
+        // Persist the leaf interaction state across frames (tool,
+        // selection, multi-click draft) — a fresh Default here would
+        // reset the draft every frame and break line/polygon drawing.
+        let mut interaction = std::mem::take(&mut self.leaf_interaction);
         let _ = MaraMap::new(self, &mut interaction).show(ctx);
+        self.leaf_interaction = interaction;
     }
 }
 
