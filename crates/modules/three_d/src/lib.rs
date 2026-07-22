@@ -4572,22 +4572,20 @@ impl MaraView for View3d {
         {
             self.gpu_target_format = Some(format);
         }
-        #[allow(deprecated)]
-        {
-            egui::CentralPanel::default()
-                .frame(
-                    egui::Frame::new()
-                        .fill(egui::Color32::TRANSPARENT)
-                        .inner_margin(0.0)
-                        .outer_margin(0.0),
-                )
-                .show(ctx.__internal_egui_ctx(), |ui| {
-                    let rect = ctx.content_rect().intersect(ui.max_rect().into());
-                    let rect: egui::Rect = rect.into();
-                    let response = ui.allocate_rect(rect, egui::Sense::click_and_drag());
-                    self.paint_preview(ui, response.rect, &response);
-                });
-        }
+        // Render into this node's REGION, not a window-grabbing panel
+        // (ADR 0002 / PLAN WS6): a View3d hosted as a split cell draws
+        // and interacts inside its cell rect, so 3D views tile like any
+        // other leaf. The whole-window case is just the one-leaf tree.
+        let region = ctx.content_rect();
+        let rect: egui::Rect = region.into();
+        egui::Area::new(egui::Id::new(("mara_three_d_view", self.id)))
+            .order(egui::Order::Background)
+            .fixed_pos(rect.min)
+            .show(ctx.__internal_egui_ctx(), |ui| {
+                ui.set_clip_rect(rect);
+                let response = ui.allocate_rect(rect, egui::Sense::click_and_drag());
+                self.paint_preview(ui, response.rect, &response);
+            });
     }
 }
 
