@@ -1,0 +1,80 @@
+[
+    RectFilled {
+        rect: Rect {
+            min: Pos2 {
+                x: 0.0,
+                y: 0.0,
+            },
+            max: Pos2 {
+                x: 320.0,
+                y: 24.0,
+            },
+        },
+        corner: CornerRadius(
+            CornerRadius {
+                nw: 2,
+                ne: 2,
+                sw: 2,
+                se: 2,
+            },
+        ),
+        fill: Color32(
+            #2E_36_47_EB,
+        ),
+    },
+    RectStroke {
+        rect: Rect {
+            min: Pos2 {
+                x: 0.0,
+                y: 0.0,
+            },
+            max: Pos2 {
+                x: 320.0,
+                y: 24.0,
+            },
+        },
+        corner: CornerRadius(
+            CornerRadius {
+                nw: 2,
+                ne: 2,
+                sw: 2,
+                se: 2,
+            },
+        ),
+        stroke: Stroke {
+            width: 1.0,
+            color: Color32(
+                #25_26_27_46,
+            ),
+        },
+    },
+    Clip {
+        rect: Rect {
+            min: Pos2 {
+                x: 0.0,
+                y: 0.0,
+            },
+            max: Pos2 {
+                x: 320.0,
+                y: 24.0,
+            },
+        },
+        children: [
+            Text {
+                pos: Pos2 {
+                    x: 160.0,
+                    y: 12.0,
+                },
+                anchor: Align2(
+                    Align2(Center, Center),
+                ),
+                text: "apply",
+                size: 12.0,
+                color: Color32(
+                    #E6_E6_E8_FF,
+                ),
+                mono: false,
+            },
+        ],
+    },
+]

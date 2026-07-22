@@ -375,6 +375,7 @@ pub(crate) fn render_containers<'a>(
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn render_containers_with_tab_scope<'a>(
     body_ui: &mut Ui,
     pane_id: Id,

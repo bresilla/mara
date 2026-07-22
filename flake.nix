@@ -49,6 +49,27 @@
           mkdir -p $out/bin
           ln -s ${nixglPkgs.nixVulkanNvidia}/bin/nixVulkanNvidia-${nvidiaVersion} $out/bin/nixVulkan
         '';
+        lavapipeAlias = pkgs.writeShellScriptBin "nixLavapipe" ''
+          set -eu
+
+          icd_dir=${pkgs.mesa}/share/vulkan/icd.d
+          icd=
+          for candidate in "$icd_dir"/lvp_icd.*.json; do
+            if [ -f "$candidate" ]; then
+              icd="$candidate"
+              break
+            fi
+          done
+
+          if [ -z "$icd" ]; then
+            echo "nixLavapipe: unable to find the Lavapipe Vulkan ICD in $icd_dir" >&2
+            exit 1
+          fi
+
+          export VK_DRIVER_FILES="$icd"
+          export WGPU_BACKEND=vulkan
+          exec "$@"
+        '';
 
         bevyLibs = with pkgs; [
           alsa-lib
@@ -61,14 +82,42 @@
           libxi
           libxrandr
         ];
+
+        # Desktop/web toolchain — the lean default. Android targets are
+        # deliberately kept OUT of here so the default shell never drags
+        # in the NDK; use `nix develop .#android` for those.
+        rustDefault = pkgs.rust-bin.stable.latest.default.override {
+          extensions = [ "rust-src" "rustfmt" "clippy" ];
+          targets = [ "wasm32-unknown-unknown" ];
+        };
+
+        # Android cross-compile toolchain (opt-in shell).
+        rustAndroid = pkgs.rust-bin.stable.latest.default.override {
+          extensions = [ "rust-src" "rustfmt" "clippy" ];
+          targets = [
+            "wasm32-unknown-unknown"
+            "aarch64-linux-android"
+            "armv7-linux-androideabi"
+            "x86_64-linux-android"
+            "i686-linux-android"
+          ];
+        };
+
+        # Android SDK + NDK. composeAndroidPackages requires accepting the
+        # Android SDK license (handled by config below). Kept minimal:
+        # one platform + build-tools (needed by cargo-apk) and one NDK.
+        androidEnv = pkgs.androidenv.override { licenseAccepted = true; };
+        androidComposition = androidEnv.composeAndroidPackages {
+          platformVersions = [ "34" ];
+          buildToolsVersions = [ "34.0.0" ];
+          includeNDK = true;
+        };
+        androidSdkRoot = "${androidComposition.androidsdk}/libexec/android-sdk";
       in
       {
         devShells.default = pkgs.mkShell {
           packages = [
-            (pkgs.rust-bin.stable.latest.default.override {
-              extensions = [ "rust-src" "rustfmt" "clippy" ];
-              targets = [ "wasm32-unknown-unknown" ];
-            })
+            rustDefault
             pkgs.clang
             pkgs.mold
             pkgs.pkg-config
@@ -79,6 +128,7 @@
 
             nixGLAlias
             nixVulkanAlias
+            lavapipeAlias
             nixglPkgs.nixGLNvidia
             nixglPkgs.nixVulkanNvidia
             nixglPkgs.nixGLIntel
@@ -89,6 +139,36 @@
           LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath bevyLibs;
           WGPU_VALIDATION = "0";
           WGPU_DEBUG = "0";
+        };
+
+        # Opt-in Android cross-compile shell: `nix develop .#android`.
+        # Pulls the NDK/SDK (large), so it is intentionally separate from
+        # the default shell. cargo-ndk reads ANDROID_NDK_ROOT to locate
+        # the cross clang/linker; cargo-apk reads ANDROID_HOME for SDK
+        # build-tools when packaging an APK.
+        devShells.android = pkgs.mkShell {
+          packages = [
+            rustAndroid
+            pkgs.clang
+            pkgs.pkg-config
+            pkgs.cargo-ndk
+            pkgs.cargo-apk
+            pkgs.jdk17
+            androidComposition.androidsdk
+          ];
+
+          RUST_SRC_PATH = "${pkgs.rust.packages.stable.rustPlatform.rustLibSrc}";
+          ANDROID_HOME = androidSdkRoot;
+          ANDROID_SDK_ROOT = androidSdkRoot;
+
+          shellHook = ''
+            # NDK path is version-stamped (…/ndk/<ver>); glob it so we are
+            # not pinned to a specific NDK revision nixpkgs happens to ship.
+            export ANDROID_NDK_ROOT="$(ls -d ${androidSdkRoot}/ndk/* 2>/dev/null | sort | tail -1)"
+            export ANDROID_NDK_HOME="$ANDROID_NDK_ROOT"
+            echo "android shell: NDK=$ANDROID_NDK_ROOT"
+            echo "  compile check:  cargo ndk -t arm64-v8a build -p mara_core"
+          '';
         };
       }
     );

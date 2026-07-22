@@ -112,28 +112,8 @@ fn adjust_axis(offset: f32, lo: f32, hi: f32, viewport: f32) -> f32 {
 mod tests {
     use super::*;
     use crate::vocab::Pos2;
-    use std::any::Any;
-    use std::collections::HashMap;
 
-    #[derive(Default)]
-    struct MockMemory {
-        temp: HashMap<Id, Box<dyn Any + Send + Sync>>,
-    }
-    impl MaraMemory for MockMemory {
-        fn get_persisted<T: Clone + Send + Sync + 'static>(&self, _id: Id) -> Option<T> {
-            None
-        }
-        fn set_persisted<T: Clone + Send + Sync + 'static>(&mut self, _id: Id, _value: T) {}
-        fn get_temp<T: Clone + Send + Sync + 'static>(&self, id: Id) -> Option<T> {
-            self.temp
-                .get(&id)
-                .and_then(|v| v.downcast_ref::<T>())
-                .cloned()
-        }
-        fn set_temp<T: Clone + Send + Sync + 'static>(&mut self, id: Id, value: T) {
-            self.temp.insert(id, Box::new(value));
-        }
-    }
+    use crate::backend::record::RecordingMemory as MockMemory;
 
     #[test]
     fn max_offset_is_zero_when_content_fits() {

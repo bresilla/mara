@@ -144,6 +144,7 @@ pub fn __internal_command_palette_egui(
     items: &[PaletteItem],
     accent: impl Into<MaraColor32>,
 ) -> Option<&'static str> {
+    crate::enforce::__internal_enforce_defaults(ctx);
     let accent = accent.into();
     validate_palette_items(items);
     if !state.open {
@@ -849,41 +850,7 @@ mod tests {
         vocab::{Id, Rect},
     };
 
-    #[derive(Default)]
-    struct RecordingBackend {
-        available: Rect,
-        paints: Vec<PaintCmd>,
-    }
-
-    impl UiBackend for RecordingBackend {
-        fn begin_area(&mut self, _host: crate::layout::AreaHost, rect: Rect) {
-            self.available = rect;
-        }
-
-        fn allocate(&mut self, size: Vec2, _sense: MaraSense) -> MaraResponse {
-            MaraResponse::synthetic(Rect::from_min_size(self.available.min, size))
-        }
-
-        fn interact(&mut self, rect: Rect, _id: Id, _sense: MaraSense) -> MaraResponse {
-            MaraResponse::synthetic(rect)
-        }
-
-        fn available_rect(&self) -> Rect {
-            self.available
-        }
-
-        fn push_clip(&mut self, _rect: Rect) {}
-
-        fn pop_clip(&mut self) {}
-
-        fn measure_text(&self, text: &str, size: f32, _mono: bool) -> Vec2 {
-            Vec2::new(text.len() as f32 * size * 0.5, size)
-        }
-
-        fn paint(&mut self, cmd: PaintCmd) {
-            self.paints.push(cmd);
-        }
-    }
+    use crate::backend::record::RecordingBackend;
 
     #[test]
     fn palette_items_require_visible_metadata() {
@@ -1139,6 +1106,7 @@ mod tests {
         let mut backend = RecordingBackend {
             available: Rect::from_min_size(Pos2::ZERO, Vec2::new(240.0, 24.0)),
             paints: Vec::new(),
+            ..Default::default()
         };
         let item = PaletteItem::new("open", "Open Project").with_hint("Ctrl+O");
 
@@ -1167,6 +1135,7 @@ mod tests {
         let mut backend = RecordingBackend {
             available: Rect::from_min_size(Pos2::ZERO, Vec2::new(240.0, 24.0)),
             paints: Vec::new(),
+            ..Default::default()
         };
         let item = PaletteItem::new("close", "Close Project");
 
@@ -1188,6 +1157,7 @@ mod tests {
         let mut backend = RecordingBackend {
             available: Rect::from_min_size(Pos2::ZERO, Vec2::new(240.0, 24.0)),
             paints: Vec::new(),
+            ..Default::default()
         };
 
         let response = palette_no_matches_backend(&mut backend);
@@ -1204,6 +1174,7 @@ mod tests {
         let mut backend = RecordingBackend {
             available: Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 600.0)),
             paints: Vec::new(),
+            ..Default::default()
         };
 
         let response = palette_scrim_backend(&mut backend, Vec2::new(800.0, 600.0));
@@ -1234,6 +1205,7 @@ mod tests {
         let mut backend = RecordingBackend {
             available: Rect::from_min_size(Pos2::ZERO, Vec2::new(240.0, 32.0)),
             paints: Vec::new(),
+            ..Default::default()
         };
 
         let chrome = palette_search_chrome_backend(
@@ -1258,6 +1230,7 @@ mod tests {
         let mut backend = RecordingBackend {
             available: Rect::from_min_size(Pos2::ZERO, Vec2::new(240.0, 120.0)),
             paints: Vec::new(),
+            ..Default::default()
         };
 
         palette_corner_ticks_backend(
@@ -1297,6 +1270,7 @@ mod tests {
         let mut backend = RecordingBackend {
             available: Rect::from_min_size(Pos2::ZERO, Vec2::new(20.0, 4.0)),
             paints: Vec::new(),
+            ..Default::default()
         };
 
         let response = palette_dash_separator_backend(
@@ -1323,6 +1297,7 @@ mod tests {
         let mut backend = RecordingBackend {
             available: Rect::from_min_size(Pos2::ZERO, Vec2::new(20.0, 4.0)),
             paints: Vec::new(),
+            ..Default::default()
         };
 
         palette_dashed_line_backend(

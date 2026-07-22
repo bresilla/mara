@@ -10,7 +10,7 @@ use mara_core::{
     MaraModule, MaraView, ModuleInlineCtx, ModuleResponse, RibbonAction, RibbonCluster, RibbonEdge,
     RibbonOverridePolicy, RibbonScope, RibbonSlot, RibbonSlotDef, RibbonSlotId, RibbonSlotItem,
     ViewCtx, ViewId, WorkspaceCtx,
-    vocab::{Align2 as MaraAlign2, Vec2 as MaraVec2},
+    vocab::Align2 as MaraAlign2,
 };
 
 #[derive(Clone, Debug, PartialEq)]
@@ -63,42 +63,6 @@ impl ImageSurface {
         &self.doc
     }
 
-    fn paint_placeholder(mui: &mut mara_core::MaraUi<'_>, doc: &ImageDocument) {
-        let size = MaraVec2::new(
-            mui.available_width().max(160.0),
-            mui.available_height().max(120.0),
-        );
-        let (painter, response) = mui.canvas(size);
-        let rect = response.rect;
-        painter.rect_filled(
-            rect,
-            mara_core::style::radius_for(mara_core::style::RadiusRole::Section),
-            mara_core::style::fill_for(
-                mara_core::style::FillRole::Pane,
-                mara_core::style::active_accent(),
-            ),
-        );
-        painter.rect_stroke(
-            rect,
-            mara_core::style::radius_for(mara_core::style::RadiusRole::Section),
-            mara_core::style::stroke_for(
-                mara_core::style::StrokeRole::WidgetBorder,
-                mara_core::style::active_accent(),
-            ),
-        );
-
-        let detail = match &doc.source {
-            ImageSource::Empty => "no image loaded".to_owned(),
-            ImageSource::Uri(uri) => uri.clone(),
-        };
-        painter.text(
-            rect.center(),
-            MaraAlign2::CENTER_CENTER,
-            format!("{}\n{}", doc.title, detail),
-            13.0,
-            mara_core::style::on_panel(),
-        );
-    }
 }
 
 impl MaraView for ImageSurface {
@@ -117,7 +81,7 @@ impl MaraView for ImageSurface {
     fn ribbons(&mut self) -> Vec<RibbonSlotDef> {
         let fit = RibbonSlotItem::new(
             mara_core::vocab::Id::new(("image.fit", self.id)),
-            "fit",
+            "resize",
             "Fit",
             "Fit image to view",
             RibbonAction::Command(mara_core::vocab::Id::new(("image.fit.command", self.id))),
@@ -125,7 +89,7 @@ impl MaraView for ImageSurface {
         vec![RibbonSlotDef::new(
             mara_core::vocab::Id::new(("image.view.ribbon", self.id)),
             RibbonScope::View(ViewId::from(self.id)),
-            RibbonEdge::Top,
+            RibbonEdge::Bottom,
             RibbonCluster::Middle,
             vec![RibbonSlot::new(
                 RibbonSlotId::new(("image.fit.slot", self.id)),
@@ -136,9 +100,37 @@ impl MaraView for ImageSurface {
     }
 
     fn show(&mut self, ctx: &mut ViewCtx<'_>) {
-        ctx.body(|mui| {
-            Self::paint_placeholder(mui, &self.doc);
-        });
+        // The view's framed surface covers the WHOLE region, edge to
+        // edge — the ribbons sit ON this surface, inside the border, so
+        // they are visually children of the view. Square corners: tiled
+        // cells meet flush, and the border is the dividing line between
+        // views.
+        let region = ctx.screen_rect();
+        let accent = mara_core::style::active_accent();
+        let painter = ctx.painter();
+        painter.rect_filled(
+            region,
+            0.0,
+            mara_core::style::fill_for(mara_core::style::FillRole::Pane, accent),
+        );
+        painter.rect_stroke(
+            region,
+            0.0,
+            mara_core::style::stroke_for(mara_core::style::StrokeRole::WidgetBorder, accent),
+        );
+        let detail = match &self.doc.source {
+            ImageSource::Empty => "no image loaded".to_owned(),
+            ImageSource::Uri(uri) => uri.clone(),
+        };
+        // Center the placeholder on the CONTENT rect (the region minus
+        // this view's own ribbons), so the text never sits under a rail.
+        painter.text(
+            ctx.content_rect().center(),
+            MaraAlign2::CENTER_CENTER,
+            format!("{}\n{}", self.doc.title, detail),
+            13.0,
+            mara_core::style::on_panel(),
+        );
     }
 }
 
@@ -191,7 +183,7 @@ impl MaraModule for ImageSurface {
                 RibbonSlotId::new(("image.workspace.fit.slot", self.id)),
                 Some(RibbonSlotItem::new(
                     mara_core::vocab::Id::new(("image.workspace.fit", self.id)),
-                    "fit",
+                    "resize",
                     "Fit",
                     "Fit image to workspace",
                     RibbonAction::Command(mara_core::vocab::Id::new((
@@ -219,5 +211,32 @@ mod tests {
         assert_module(&surface);
         assert_eq!(MaraView::title(&surface), "Image");
         assert_eq!(MaraModule::icon(&surface), "image");
+    }
+
+    /// Portability proof: the image placeholder draws only through
+    /// [`mara_core::MaraPainter`], so it renders over a headless
+    /// recording backend (no egui) and still emits `PaintCmd`s
+    /// (background + border + title text).
+    #[test]
+    fn image_placeholder_paints_over_recording_backend() {
+        use mara_core::mui::MaraRawBackend;
+
+        let rect = mara_core::vocab::Rect::from_min_size(
+            mara_core::vocab::Pos2::new(0.0, 0.0),
+            MaraVec2::new(200.0, 140.0),
+        );
+        let doc = ImageDocument::uri("Photo", "file://x.png");
+        let mut raw = MaraRawBackend::__internal_recording(rect);
+        {
+            let mut mui =
+                mara_core::MaraUi::__internal_over(&mut raw, mara_core::vocab::Color32::WHITE);
+            ImageSurface::paint_placeholder(&mut mui, &doc);
+        }
+
+        let cmds = raw.__internal_recorded_canvas_commands();
+        assert!(
+            !cmds.is_empty(),
+            "image placeholder must emit PaintCmds headlessly — the portability contract"
+        );
     }
 }

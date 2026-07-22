@@ -114,16 +114,15 @@ fn dot_rects_key(pane_id: Id) -> Id {
 }
 
 pub(crate) fn clear_container_dot_rects(ctx: &Context, pane_id: Id) {
-    ctx.data_mut(|d| d.remove::<Vec<MaraRect>>(dot_rects_key(pane_id)));
+    crate::memory::MaraMemoryCtx::new(ctx).remove_temp::<Vec<MaraRect>>(dot_rects_key(pane_id));
 }
 
 pub(crate) fn record_container_dot_rect(ctx: &Context, pane_id: Id, rect: impl Into<MaraRect>) {
     let rect = rect.into();
-    ctx.data_mut(|d| {
-        let mut rects: Vec<MaraRect> = d.get_temp(dot_rects_key(pane_id)).unwrap_or_default();
-        rects.push(rect);
-        d.insert_temp(dot_rects_key(pane_id), rects);
-    });
+    let mut memory = crate::memory::MaraMemoryCtx::new(ctx);
+    let mut rects: Vec<MaraRect> = memory.get_temp(dot_rects_key(pane_id)).unwrap_or_default();
+    rects.push(rect);
+    memory.set_temp(dot_rects_key(pane_id), rects);
 }
 
 pub(crate) fn pointer_over_container_dots(
@@ -132,12 +131,14 @@ pub(crate) fn pointer_over_container_dots(
     pos: impl Into<MaraPos2>,
 ) -> bool {
     let pos = pos.into();
-    ctx.data(|d| {
-        d.get_temp::<Vec<MaraRect>>(dot_rects_key(pane_id))
+    {
+        let memory = crate::memory::MaraMemoryCtx::new(ctx);
+        memory
+            .get_temp::<Vec<MaraRect>>(dot_rects_key(pane_id))
             .unwrap_or_default()
             .iter()
             .any(|rect| rect.contains(pos))
-    })
+    }
 }
 
 fn allocate_strip(ui: &mut Ui, orient: SeparatorOrient) -> MaraRect {

@@ -1,4 +1,4 @@
-use crate::ribbon::{RibbonAvoidance, RibbonOverrideLayer, RibbonSlotDef};
+use crate::ribbon::{RibbonAction, RibbonAvoidance, RibbonOverrideLayer, RibbonSlotDef};
 
 use super::{SharedSurfaceId, ViewCtx, ViewId};
 
@@ -25,6 +25,13 @@ pub trait MaraView {
     fn ribbons(&mut self) -> Vec<RibbonSlotDef> {
         Vec::new()
     }
+
+    /// Handle a click on one of this view's own ribbon buttons (rendered
+    /// per-view inside the node's region — see [`ViewCtx::show_ribbons`]).
+    /// When a view is hosted as a leaf of a [`ViewNode`](crate::ViewNode),
+    /// its ribbons are drawn and their clicks delivered here. Default:
+    /// ignore.
+    fn on_ribbon_click(&mut self, _action: &RibbonAction) {}
 
     fn ribbon_overrides(&mut self) -> RibbonOverrideLayer {
         RibbonOverrideLayer::default()

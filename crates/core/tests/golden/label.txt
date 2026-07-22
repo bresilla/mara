@@ -1,0 +1,17 @@
+[
+    Text {
+        pos: Pos2 {
+            x: 0.0,
+            y: 9.0,
+        },
+        anchor: Align2(
+            Align2(Min, Center),
+        ),
+        text: "mara",
+        size: 12.0,
+        color: Color32(
+            #FF_FF_FF_FF,
+        ),
+        mono: false,
+    },
+]

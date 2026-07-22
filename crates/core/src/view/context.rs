@@ -3,7 +3,7 @@ use crate::layout::{AreaHost, Layer};
 use crate::memory::MaraMemoryCtx;
 use crate::mui::{MaraInput, MaraPainter, MaraUi};
 use crate::pane::{Pane, PaneBody};
-use crate::ribbon::{RibbonAvoidance, ribbon_avoiding_rect};
+use crate::ribbon::{RibbonAvoidance, RibbonSlotClick, RibbonSlotDef, ribbon_avoiding_rect};
 use crate::shelf::{__internal_show_shelves_egui, ShelfDef, ShelfLayout, ShelfState};
 use crate::vocab::{Color32 as MaraColor32, Id as MaraId, Rect as MaraRect};
 use crate::workspace::WorkspaceStack;
@@ -18,10 +18,23 @@ pub struct ViewCtx<'a> {
     pub workspace: &'a mut WorkspaceStack,
     pub accent: MaraColor32,
     pub content_avoidance: RibbonAvoidance,
-    /// When set, this view is scoped to a fixed rect (a cell of a parent
-    /// [`MultiView`](crate::MultiView)) instead of the ribbon-avoiding
-    /// window area.
-    explicit_content: Option<MaraRect>,
+    /// The rect this node renders into — the whole window for the root,
+    /// or a cell rect for a child of a parent `Split`/`ViewNode`. Every
+    /// method (painter, input, panes, body) scopes to this region, so a
+    /// node is a self-contained surface (PLAN.md Phase 1 / ADR 0001).
+    region: MaraRect,
+}
+
+/// Inset `region` by one ribbon rail's clearance on each edge that has a
+/// ribbon (`[left, right, top, bottom]`).
+fn shrink_region_by_ribbon_edges(region: MaraRect, edges: [bool; 4]) -> MaraRect {
+    let c = crate::ribbon::ribbon_clearance();
+    let [left, right, top, bottom] = edges;
+    let pick = |on: bool| if on { c } else { 0.0 };
+    MaraRect::from_min_max(
+        crate::vocab::Pos2::new(region.min.x + pick(left), region.min.y + pick(top)),
+        crate::vocab::Pos2::new(region.max.x - pick(right), region.max.y - pick(bottom)),
+    )
 }
 
 impl<'a> ViewCtx<'a> {
@@ -39,17 +52,18 @@ impl<'a> ViewCtx<'a> {
         accent: impl Into<MaraColor32>,
         content_avoidance: RibbonAvoidance,
     ) -> Self {
+        crate::enforce::__internal_enforce_defaults(egui_ctx);
         Self {
+            region: backend::egui::context_content_rect(egui_ctx),
             egui_ctx,
             workspace,
             accent: accent.into(),
             content_avoidance,
-            explicit_content: None,
         }
     }
 
     /// Build a child context scoped to a fixed `rect` (one cell of a
-    /// [`MultiView`](crate::MultiView)), with its own `workspace`. Its
+    /// [`ViewNode`](crate::ViewNode)), with its own `workspace`. Its
     /// `content_rect`/`screen_rect` report that rect, so the hosted view
     /// lays out inside the cell. First-party hook.
     #[must_use]
@@ -65,7 +79,7 @@ impl<'a> ViewCtx<'a> {
             workspace,
             accent: accent.into(),
             content_avoidance: RibbonAvoidance::none(),
-            explicit_content: Some(rect),
+            region: rect,
         }
     }
 
@@ -79,17 +93,30 @@ impl<'a> ViewCtx<'a> {
 
     #[must_use]
     pub fn content_rect(&self) -> MaraRect {
-        self.explicit_content
-            .unwrap_or_else(|| ribbon_avoiding_rect(self.egui_ctx, self.content_avoidance))
+        // The node's region, minus the ribbons this node drew itself
+        // this pass (a leaf via `show_ribbons`): the leaf's rails are
+        // children of the leaf, so the body insets from them inside the
+        // region — wherever the region is, however small it gets.
+        let mut rect = self.region;
+        if let Some(edges) = crate::ribbon::slot_paint::view_ribbon_edges(
+            self.egui_ctx,
+            self.workspace.current().id,
+        ) {
+            rect = shrink_region_by_ribbon_edges(rect, edges);
+        }
+        // Then window-level rails: for the root, the intersection trims
+        // the region under rails that actually exist; for an interior
+        // cell the window rails fall outside the cell, so the
+        // intersection is the cell itself.
+        rect.intersect(ribbon_avoiding_rect(self.egui_ctx, self.content_avoidance))
     }
 
-    /// The full window/screen rect — for views that paint an
-    /// edge-to-edge backdrop behind the ribbons. For a scoped (cell)
-    /// view this is the cell rect.
+    /// The node's full rect — for views that paint an edge-to-edge
+    /// backdrop behind the ribbons. The whole window for the root, or the
+    /// cell rect for a scoped child.
     #[must_use]
     pub fn screen_rect(&self) -> MaraRect {
-        self.explicit_content
-            .unwrap_or_else(|| backend::egui::context_content_rect(self.egui_ctx))
+        self.region
     }
 
     #[must_use]
@@ -97,10 +124,22 @@ impl<'a> ViewCtx<'a> {
         ribbon_avoiding_rect(self.egui_ctx, avoidance)
     }
 
-    /// Per-frame input snapshot for custom view interaction.
+    /// Per-frame input snapshot for custom view interaction, scoped to
+    /// this node's region: pointer positions outside the region read as
+    /// absent, so sibling cells only see the pointer over themselves.
     #[must_use]
     pub fn input(&self) -> MaraInput {
-        backend::egui::input_snapshot(self.egui_ctx)
+        let mut snapshot = backend::egui::input_snapshot(self.egui_ctx);
+        if snapshot.pointer.is_some_and(|p| !self.region.contains(p)) {
+            snapshot.pointer = None;
+        }
+        if snapshot
+            .interact_pointer
+            .is_some_and(|p| !self.region.contains(p))
+        {
+            snapshot.interact_pointer = None;
+        }
+        snapshot
     }
 
     /// Backend-neutral memory facade for view-level UI state.
@@ -138,53 +177,87 @@ impl<'a> ViewCtx<'a> {
         crate::embed::__internal_restore_fullscreen(self.egui_ctx)
     }
 
-    /// Typed painter over the full screen on the background layer —
-    /// the view backdrop surface.
+    /// Typed painter over this node's region on the background layer —
+    /// the view backdrop surface. Clipped to the region and keyed by the
+    /// node's stable identity (its workspace id), so sibling cells paint
+    /// distinct layers AND the layer keeps its z-slot when the region
+    /// moves/resizes. Registered as a real area so later-opened
+    /// Background panes stack ABOVE the backdrop, never behind it.
     #[must_use]
     pub fn painter(&self) -> MaraPainter {
-        let rect = backend::egui::context_content_rect(self.egui_ctx);
-        MaraPainter::new(backend::egui::context_painter_for_layer(
+        MaraPainter::new(backend::egui::area_registered_painter(
             self.egui_ctx,
             Layer::Background,
-            MaraId::new("mara_view_background"),
-            rect,
+            self.node_layer_id("mara_view_background"),
+            self.region,
         ))
     }
 
-    /// Typed painter over the full screen on the foreground layer —
+    /// Typed painter over this node's region on the foreground layer —
     /// for overlays above panes and shelves.
     #[must_use]
     pub fn overlay_painter(&self) -> MaraPainter {
-        let rect = backend::egui::context_content_rect(self.egui_ctx);
-        MaraPainter::new(backend::egui::context_painter_for_layer(
+        MaraPainter::new(backend::egui::area_registered_painter(
             self.egui_ctx,
             Layer::Foreground,
-            MaraId::new("mara_view_overlay"),
-            rect,
+            self.node_layer_id("mara_view_overlay"),
+            self.region,
         ))
+    }
+
+    /// A paint-layer id unique and STABLE per node (workspace-keyed, not
+    /// region-keyed): sibling cells get distinct layers, and a cell keeps
+    /// the same layer — and z-order slot — across moves and resizes.
+    fn node_layer_id(&self, base: &str) -> MaraId {
+        MaraId::new((base, self.workspace.current().id))
     }
 
     /// Lay a sealed widget surface over the view's content rect
     /// (the area not covered by ribbons).
     pub fn body<R>(&mut self, body: impl FnOnce(&mut MaraUi<'_>) -> R) -> R {
         let rect = self.content_rect();
+        let region = self.region;
         let id = self.workspace.current().id.with("mara_view_body");
         let accent = self.accent;
-        backend::egui::show_area_for_host(
+        let egui_ctx = self.egui_ctx;
+        crate::embed::__internal_with_node_region(egui_ctx, region, || {
+            backend::egui::show_area_for_host(
+                egui_ctx,
+                AreaHost::new(id, rect.min, Layer::Background),
+                |ui| {
+                    backend::egui::constrain_ui_to_rect(ui, rect);
+                    let mut backend =
+                        crate::mui::MaraBackend::Egui(backend::egui::EguiUiBackend::new(ui));
+                    body(&mut MaraUi::over(&mut backend, accent))
+                },
+            )
+            .inner
+        })
+    }
+
+    /// Render this view node's own left/right/bottom ribbons, anchored to
+    /// its region (a leaf owns its ribbons; a narrow cell gets its own
+    /// rails). The top edge belongs to the shell bar, not a view, so pass
+    /// only left/right/bottom ribbon defs here. Returns the clicks for the
+    /// caller to dispatch (PLAN.md Phase 3).
+    pub fn show_ribbons(&self, ribbons: &[RibbonSlotDef]) -> Vec<RibbonSlotClick> {
+        crate::ribbon::slot_paint::__internal_draw_view_ribbons(
             self.egui_ctx,
-            AreaHost::new(id, rect.min, Layer::Background),
-            |ui| {
-                backend::egui::constrain_ui_to_rect(ui, rect);
-                body(&mut MaraUi::new(ui, accent))
-            },
+            self.region,
+            self.workspace.current().id,
+            self.accent,
+            ribbons,
         )
-        .inner
     }
 
     /// Show a floating/anchored pane. The closure receives the
     /// typed [`PaneBody`] — containers and pods only.
     pub fn show_pane<'spec>(&self, pane: Pane, body: impl FnOnce(&mut PaneBody<'_, 'spec>)) {
-        pane.__internal_show(self.egui_ctx, body);
+        let region = self.region;
+        let egui_ctx = self.egui_ctx;
+        crate::embed::__internal_with_node_region(egui_ctx, region, || {
+            pane.__internal_show(egui_ctx, region, body);
+        });
     }
 
     /// Paint all shelves and their typed containers.
@@ -213,11 +286,12 @@ impl<'a> ViewCtx<'a> {
             .into()
     }
 
-    /// Current responsive size class for this frame. Views consult
-    /// this to reflow on small screens (collapse chrome, stack panes).
+    /// Current responsive size class for this node's region. Views
+    /// consult this to reflow on small surfaces (collapse chrome, stack
+    /// panes) — a narrow cell reflows like a phone even on a wide window.
     #[must_use]
     pub fn breakpoint(&self) -> crate::style::Breakpoint {
-        crate::style::screen_class()
+        crate::style::Breakpoint::from_width(self.region.width())
     }
 
     /// Convenience: phone-class (the most aggressive reflow tier).

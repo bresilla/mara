@@ -70,46 +70,46 @@ fn order_key(pane_id: Id) -> Id {
     pane_id.with("mara_pane_section_order")
 }
 pub fn state(ctx: &Context, pane_id: Id) -> DragState {
-    ctx.data(|d| d.get_temp(drag_key(pane_id)))
+    crate::memory::MaraMemoryCtx::new(ctx)
+        .get_temp(drag_key(pane_id))
         .unwrap_or_default()
 }
 
 pub fn set_drag(ctx: &Context, pane_id: Id, state: DragState) {
-    ctx.data_mut(|d| d.insert_temp(drag_key(pane_id), state));
+    crate::memory::MaraMemoryCtx::new(ctx).set_temp(drag_key(pane_id), state);
 }
 
 pub fn clear_drag(ctx: &Context, pane_id: Id) {
-    ctx.data_mut(|d| d.remove::<DragState>(drag_key(pane_id)));
+    crate::memory::MaraMemoryCtx::new(ctx).remove_temp::<DragState>(drag_key(pane_id));
 }
 
 /// Clear the per-frame current cache at body start. Snapshot from
 /// the prev frame is preserved so reads still see the dragged
 /// container's size.
 pub fn begin_frame(ctx: &Context, pane_id: Id) {
-    ctx.data_mut(|d| {
-        d.remove::<Vec<RectEntry>>(current_key(pane_id));
-        d.remove::<bool>(ghost_gap_suppressed_key(pane_id));
-    });
+    {
+        let mut memory = crate::memory::MaraMemoryCtx::new(ctx);
+        memory.remove_temp::<Vec<RectEntry>>(current_key(pane_id));
+        memory.remove_temp::<bool>(ghost_gap_suppressed_key(pane_id));
+    };
 }
 
 /// Suppress only the inline layout gap for this pane during the
 /// current frame. The dragged item is still lifted out of layout and
 /// the drag state stays active.
 pub(crate) fn set_ghost_gap_suppressed(ctx: &Context, pane_id: Id, suppressed: bool) {
-    ctx.data_mut(|d| {
-        if suppressed {
-            d.insert_temp(ghost_gap_suppressed_key(pane_id), true);
-        } else {
-            d.remove::<bool>(ghost_gap_suppressed_key(pane_id));
-        }
-    });
+    let mut memory = crate::memory::MaraMemoryCtx::new(ctx);
+    if suppressed {
+        memory.set_temp(ghost_gap_suppressed_key(pane_id), true);
+    } else {
+        memory.remove_temp::<bool>(ghost_gap_suppressed_key(pane_id));
+    }
 }
 
 pub(crate) fn ghost_gap_suppressed(ctx: &Context, pane_id: Id) -> bool {
-    ctx.data(|d| {
-        d.get_temp::<bool>(ghost_gap_suppressed_key(pane_id))
-            .unwrap_or(false)
-    })
+    crate::memory::MaraMemoryCtx::new(ctx)
+        .get_temp::<bool>(ghost_gap_suppressed_key(pane_id))
+        .unwrap_or(false)
 }
 
 pub fn push_rect(ctx: &Context, pane_id: Id, id: Id, rect: Rect) {
@@ -117,25 +117,26 @@ pub fn push_rect(ctx: &Context, pane_id: Id, id: Id, rect: Rect) {
 }
 
 pub fn push_rect_with_frame(ctx: &Context, pane_id: Id, id: Id, rect: Rect, frame: Option<Rect>) {
-    ctx.data_mut(|d| {
-        let mut cache: Vec<RectEntry> = d.get_temp(current_key(pane_id)).unwrap_or_default();
-        if let Some(slot) = cache.iter_mut().find(|e| e.id == id) {
-            slot.rect = rect;
-            slot.frame = frame;
-        } else {
-            cache.push(RectEntry { id, rect, frame });
-        }
-        d.insert_temp(current_key(pane_id), cache);
-    });
+    let mut memory = crate::memory::MaraMemoryCtx::new(ctx);
+    let mut cache: Vec<RectEntry> = memory.get_temp(current_key(pane_id)).unwrap_or_default();
+    if let Some(slot) = cache.iter_mut().find(|e| e.id == id) {
+        slot.rect = rect;
+        slot.frame = frame;
+    } else {
+        cache.push(RectEntry { id, rect, frame });
+    }
+    memory.set_temp(current_key(pane_id), cache);
 }
 
 pub fn current_cache(ctx: &Context, pane_id: Id) -> Vec<RectEntry> {
-    ctx.data(|d| d.get_temp(current_key(pane_id)))
+    crate::memory::MaraMemoryCtx::new(ctx)
+        .get_temp(current_key(pane_id))
         .unwrap_or_default()
 }
 
 pub fn snapshot(ctx: &Context, pane_id: Id) -> Vec<RectEntry> {
-    ctx.data(|d| d.get_temp(snapshot_key(pane_id)))
+    crate::memory::MaraMemoryCtx::new(ctx)
+        .get_temp(snapshot_key(pane_id))
         .unwrap_or_default()
 }
 
@@ -165,7 +166,7 @@ pub fn target_cache(ctx: &Context, pane_id: Id) -> Vec<RectEntry> {
 }
 
 pub(crate) fn set_snapshot(ctx: &Context, pane_id: Id, snapshot: Vec<RectEntry>) {
-    ctx.data_mut(|d| d.insert_temp(snapshot_key(pane_id), snapshot));
+    crate::memory::MaraMemoryCtx::new(ctx).set_temp(snapshot_key(pane_id), snapshot);
 }
 
 /// Build this frame's snapshot from `current_cache` + the dragged
@@ -182,7 +183,7 @@ pub fn finalize_snapshot(ctx: &Context, pane_id: Id) {
             cache.push(entry);
         }
     }
-    ctx.data_mut(|d| d.insert_temp(snapshot_key(pane_id), cache));
+    crate::memory::MaraMemoryCtx::new(ctx).set_temp(snapshot_key(pane_id), cache);
 }
 
 // ─── Order persistence ─────────────────────────────────────────────
@@ -223,7 +224,7 @@ pub fn set_section_order(ctx: &Context, pane_id: Id, order: Vec<Id>) {
             deduped.push(id);
         }
     }
-    ctx.data_mut(|d| d.insert_persisted(order_key(pane_id), deduped));
+    crate::memory::MaraMemoryCtx::new(ctx).set_persisted(order_key(pane_id), deduped);
 }
 
 // ─── Convenience for Normal ────────────────────────────────────────
@@ -233,7 +234,7 @@ pub fn set_section_order(ctx: &Context, pane_id: Id, order: Vec<Id>) {
 /// `active_pane_key` pointer that internal pane rendering writes at the top
 /// of every frame.
 pub fn active_drag(ctx: &Context) -> Option<(Id, DragState)> {
-    let pane_id: Id = ctx.data(|d| d.get_temp(active_pane_key()))?;
+    let pane_id: Id = crate::memory::MaraMemoryCtx::new(ctx).get_temp(active_pane_key())?;
     let s = state(ctx, pane_id);
     Some((pane_id, s))
 }

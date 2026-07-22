@@ -20,12 +20,27 @@ egui = { workspace = true }
 egui-wgpu = { workspace = true }
 wgpu = { workspace = true }
 
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+# Desktop (Linux/macOS/Windows) winit backend. Excludes Android, which
+# needs a different winit activity backend (see the android block below)
+# and must not pull the x11/wayland features.
+[target.'cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))'.dependencies]
 egui-winit = { version = "0.34", optional = true }
 pollster = { version = "0.4", optional = true }
 winit = { version = "0.30", default-features = false, features = [
     "x11",
     "wayland",
+    "rwh_06",
+], optional = true }
+
+# Android winit backend. `android-native-activity` pulls `android-activity`
+# with its native-activity glue (the JNI entry that calls the app's
+# `android_main`) and re-exports `AndroidApp`, so no direct
+# `android-activity` dependency is needed here.
+[target.'cfg(target_os = "android")'.dependencies]
+egui-winit = { version = "0.34", optional = true }
+pollster = { version = "0.4", optional = true }
+winit = { version = "0.30", default-features = false, features = [
+    "android-native-activity",
     "rwh_06",
 ], optional = true }
 
@@ -45,4 +60,16 @@ window = [
     "dep:pollster",
     "wgpu/vulkan",
     "dep:winit",
+]
+# Android host runner (sibling of `window`). Same plumbing, plus the GLES
+# backend for broad device coverage where Vulkan is unavailable. The
+# `android` module itself is additionally gated on `target_os = "android"`,
+# so enabling this feature on desktop is inert.
+android = [
+    "egui-wgpu/winit",
+    "dep:egui-winit",
+    "dep:pollster",
+    "dep:winit",
+    "wgpu/vulkan",
+    "wgpu/gles",
 ]

@@ -37,8 +37,25 @@ bevy = { workspace = true, features = [
     "ktx2",
     "zstd_rust",
     "png",
-    "x11",
-    "wayland",
     "reflect_auto_register",
 ] }
 crossbeam-channel = "0.5"
+
+# The Linux display backends are desktop/web only.
+[target.'cfg(not(target_os = "android"))'.dependencies]
+bevy = { workspace = true, features = [
+    "x11",
+    "wayland",
+] }
+
+# On Android, Bevy still needs `bevy_winit` — it is the only path that
+# selects `android-activity`'s backend (bevy → bevy_internal → bevy_winit
+# → winit/android-native-activity), which `bevy_android`/`bevy_asset`
+# require. We pin it to **native-activity** to match Mara's runner: both
+# winit consumers then agree on one backend, so feature unification keeps
+# `android-activity` happy. `WinitPlugin` is still disabled at runtime —
+# Mara owns the event loop; Bevy only borrows winit's activity glue.
+[target.'cfg(target_os = "android")'.dependencies]
+bevy = { workspace = true, features = [
+    "android-native-activity",
+] }

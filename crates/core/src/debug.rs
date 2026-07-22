@@ -41,6 +41,7 @@
 
 #![allow(dead_code)]
 
+use crate::memory::MaraMemory;
 use egui::{Color32, FontId, Id, Rect, Stroke, StrokeKind, Ui};
 
 const ENABLED_KEY: &str = "mara_debug_inspector_enabled";
@@ -71,12 +72,15 @@ fn best_id() -> Id {
 
 /// `true` when the inspector is on. Cheap — single ctx-data read.
 pub fn is_enabled(ctx: &egui::Context) -> bool {
-    ctx.data(|d| d.get_temp::<bool>(enabled_id()).unwrap_or(false))
+    {
+        let memory = crate::memory::MaraMemoryCtx::new(ctx);
+        memory.get_temp::<bool>(enabled_id()).unwrap_or(false)
+    }
 }
 
 /// Toggle the inspector overlay globally for this `ctx`.
 pub fn set_enabled(ctx: &egui::Context, on: bool) {
-    ctx.data_mut(|d| d.insert_temp(enabled_id(), on));
+    crate::memory::MaraMemoryCtx::new(ctx).set_temp(enabled_id(), on);
 }
 
 /// Register a hover-triggered debug entry. When the inspector is on
@@ -118,6 +122,48 @@ pub fn tag(ui: &Ui, rect: Rect, label: impl Into<String>) {
     });
 }
 
+/// Backend-neutral [`tag`] — reads the inspector flag + pointer and
+/// stores the best hovered rect entirely through the [`UiBackend`]
+/// contract, so widgets rendered on any backend can register debug
+/// tags. `rect` is a Mara rect (converted to the backend rect for
+/// storage). Used by the pod render path.
+pub fn tag_backend(
+    backend: &mut dyn crate::layout::UiBackend,
+    rect: crate::vocab::Rect,
+    label: impl Into<String>,
+) {
+    let enabled = backend
+        .memory()
+        .get_temp::<bool>(enabled_id().into())
+        .unwrap_or(false);
+    if !enabled {
+        return;
+    }
+    let Some(pointer) = backend.input().pointer else {
+        return;
+    };
+    if !rect.contains(pointer) {
+        return;
+    }
+    let label = label.into();
+    let egui_rect: Rect = rect.into();
+    let mut memory = backend.memory();
+    let prev: Option<Best> = memory.get_temp::<Best>(best_id().into());
+    let take = match prev {
+        None => true,
+        Some(p) => egui_rect.area() < p.rect.area(),
+    };
+    if take {
+        memory.set_temp(
+            best_id().into(),
+            Best {
+                rect: egui_rect,
+                label,
+            },
+        );
+    }
+}
+
 /// Paint the deepest tag from this frame and clear the slot. Call
 /// once at the END of the top-level UI callback. No-op when the
 /// inspector is off, or when no tag captured the cursor this frame.
@@ -125,7 +171,9 @@ pub fn paint(ctx: &egui::Context) {
     if !is_enabled(ctx) {
         return;
     }
-    let best: Option<Best> = ctx.data_mut(|d| d.remove_temp::<Best>(best_id()));
+    let mut memory = crate::memory::MaraMemoryCtx::new(ctx);
+    let best: Option<Best> = memory.get_temp::<Best>(best_id());
+    memory.remove_temp::<Best>(best_id());
     let Some(best) = best else {
         return;
     };

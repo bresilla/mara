@@ -110,6 +110,44 @@ fn pending_restore_fullscreen_key() -> egui::Id {
     egui::Id::new("mara_pending_restore_fullscreen")
 }
 
+fn current_node_region_key() -> egui::Id {
+    egui::Id::new("mara_current_node_region")
+}
+
+/// The rect the current view node renders into, if a scoped node
+/// (`ViewCtx`) is rendering. The fullscreen overlay paints here instead
+/// of the whole window, and per-view ribbons anchor here, so a leaf's
+/// chrome stays inside its cell. `None` (outside any node render) means
+/// whole-window.
+pub(crate) fn current_node_region(ctx: &egui::Context) -> Option<MaraRect> {
+    ctx.data(|d| d.get_temp::<MaraRect>(current_node_region_key()))
+}
+
+/// Publish `region` as the current node region for the duration of
+/// `body`, restoring the previous value afterward so nested nodes see
+/// their own region and unwind to the parent's. First-party hook used by
+/// `ViewCtx` around its render entry points.
+#[doc(hidden)]
+pub fn __internal_with_node_region<R>(
+    ctx: &egui::Context,
+    region: MaraRect,
+    body: impl FnOnce() -> R,
+) -> R {
+    let key = current_node_region_key();
+    let prev = ctx.data(|d| d.get_temp::<MaraRect>(key));
+    ctx.data_mut(|d| d.insert_temp(key, region));
+    let out = body();
+    ctx.data_mut(|d| match prev {
+        Some(rect) => {
+            d.insert_temp(key, rect);
+        }
+        None => {
+            d.remove::<MaraRect>(key);
+        }
+    });
+    out
+}
+
 /// Internal fullscreen-owner read for first-party host adapters.
 ///
 /// Public app code should reach this through a sealed host/view
@@ -118,7 +156,7 @@ fn pending_restore_fullscreen_key() -> egui::Id {
 pub fn __internal_fullscreen_owner(ctx: &egui::Context) -> Option<MaraId> {
     let global_key = egui::Id::new("mara_maximize_global");
     let pass_nr = ctx.cumulative_pass_nr();
-    let stored: Option<(u64, MaraId)> = ctx.data(|d| d.get_temp(global_key));
+    let stored: Option<(u64, MaraId)> = crate::memory::MaraMemoryCtx::new(ctx).get_temp(global_key);
     match stored {
         Some((f, id)) if f == pass_nr || f + 1 == pass_nr => Some(id),
         _ => None,
@@ -139,9 +177,10 @@ fn suppress_fullscreen_minimize_chip_key() -> egui::Id {
 /// first-party host adapters.
 #[doc(hidden)]
 pub fn __internal_set_fullscreen_minimize_chip_visible(ctx: &egui::Context, visible: bool) {
-    ctx.data_mut(|d| {
-        d.insert_temp::<bool>(suppress_fullscreen_minimize_chip_key(), !visible);
-    });
+    {
+        let mut memory = crate::memory::MaraMemoryCtx::new(ctx);
+        memory.set_temp::<bool>(suppress_fullscreen_minimize_chip_key(), !visible);
+    };
 }
 
 /// Internal fullscreen restore request for first-party host adapters.
@@ -152,9 +191,10 @@ pub fn __internal_restore_fullscreen(ctx: &egui::Context) -> bool {
     let Some(owner) = __internal_fullscreen_owner(ctx) else {
         return false;
     };
-    ctx.data_mut(|d| {
-        d.insert_temp::<MaraId>(pending_restore_fullscreen_key(), owner);
-    });
+    {
+        let mut memory = crate::memory::MaraMemoryCtx::new(ctx);
+        memory.set_temp::<MaraId>(pending_restore_fullscreen_key(), owner);
+    };
     true
 }
 
@@ -258,7 +298,10 @@ pub fn maximizable_with_opts(
         // earlier ones). Frame has NO corner radius / stroke /
         // inner margin so the overlay covers edge-to-edge.
         let ctx = ui.ctx().clone();
-        let screen = crate::backend::egui::context_content_rect(&ctx);
+        // Fullscreen within the current view node's region (a cell), or
+        // the whole window when no node is scoping (the root / host).
+        let screen = current_node_region(&ctx)
+            .unwrap_or_else(|| crate::backend::egui::context_content_rect(&ctx));
         let content = opts.content_avoidance.apply_to_rect(screen);
         crate::backend::egui::show_area_for_host(
             &ctx,
@@ -534,13 +577,15 @@ fn fullscreen_minimize_button(
     // Persisted user-chosen anchor (set on drag-release). When
     // empty, fall back to the caller-supplied `opts`.
     let anchor_key = egui::Id::new("mara_maximize_chip_anchor").with(id_salt);
-    let stored: Option<(RibbonEdge, RibbonCluster)> = ctx.data(|d| d.get_temp(anchor_key));
+    let stored: Option<(RibbonEdge, RibbonCluster)> =
+        crate::memory::MaraMemoryCtx::new(ctx).get_temp(anchor_key);
     let active_anchor = stored.unwrap_or((opts.minimize_edge, opts.minimize_cluster));
     // While the user is mid-drag, override the chip position with
     // the cursor (so the chip follows the pointer) — keyed by the
     // SAME id so the value clears on release.
     let drag_pos_key = egui::Id::new("mara_maximize_chip_drag_pos").with(id_salt);
-    let drag_cursor: Option<MaraPos2> = ctx.data(|d| d.get_temp(drag_pos_key));
+    let drag_cursor: Option<MaraPos2> =
+        crate::memory::MaraMemoryCtx::new(ctx).get_temp(drag_pos_key);
     let chip_pos: MaraPos2 = if let Some(c) = drag_cursor {
         MaraPos2::new(c.x - btn_size * 0.5, c.y - btn_size * 0.5)
     } else {
@@ -877,6 +922,26 @@ mod tests {
         let key: MaraId = maximize_state_key("widget");
 
         assert_eq!(key, MaraId::new(("mara_maximize", "widget")));
+    }
+
+    #[test]
+    fn node_region_nests_and_restores() {
+        let ctx = egui::Context::default();
+        let outer = Rect::from_min_size(Pos2::new(0.0, 0.0), Vec2::new(100.0, 100.0));
+        let inner = Rect::from_min_size(Pos2::new(10.0, 10.0), Vec2::new(20.0, 20.0));
+
+        assert!(current_node_region(&ctx).is_none());
+        __internal_with_node_region(&ctx, outer, || {
+            assert_eq!(current_node_region(&ctx), Some(outer));
+            // A nested node (a Split cell inside a cell) sees its own
+            // region and restores the parent's on the way out — this is
+            // what keeps a fullscreen overlay scoped to the right cell.
+            __internal_with_node_region(&ctx, inner, || {
+                assert_eq!(current_node_region(&ctx), Some(inner));
+            });
+            assert_eq!(current_node_region(&ctx), Some(outer));
+        });
+        assert!(current_node_region(&ctx).is_none());
     }
 
     #[test]

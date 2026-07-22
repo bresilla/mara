@@ -28,11 +28,13 @@
 //! * [`icons`] — Fluent UI System Icon glyph painter.
 
 pub mod app_shell;
-pub(crate) mod backend;
+#[doc(hidden)]
+pub mod backend;
 pub mod command_palette;
 pub mod container;
 pub(crate) mod debug;
 pub mod embed;
+pub mod enforce;
 pub mod extras;
 pub mod focus;
 pub mod icons;
@@ -116,7 +118,7 @@ pub use style::{
     screen_class, screen_metrics, set_glass_opacity, set_touch_density_override, touch_density,
 };
 pub use view::{
-    CellId, Layout, MaraView, MultiView, SharedSurfaceId, SplitAxis, ViewCtx, ViewEntry, ViewId,
+    CellId, Layout, MaraView, SharedSurfaceId, SplitAxis, ViewCtx, ViewEntry, ViewId, ViewNode,
     ViewRouter, ViewRouterError,
 };
 pub use window_chrome::{

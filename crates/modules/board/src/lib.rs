@@ -11,7 +11,7 @@
 //! — splitting itself into named cells the draw callback fills. That is
 //! enough to build an entire ISOBUS virtual terminal *inside one Board*
 //! (a data-mask cell + soft-key cells). Splitting across *several*
-//! Boards instead is a separate concern — that is `mara_core::MultiView`.
+//! Boards instead is a separate concern — that is `mara_core::ViewNode`.
 //!
 //! Mara stays GUI-only: a Board owns the surface and the draw calls, not
 //! the data model. The consumer (e.g. a VT driver that decoded an object
@@ -138,10 +138,16 @@ impl MaraView for Board {
     }
 
     fn show(&mut self, ctx: &mut ViewCtx<'_>) {
-        let rect = ctx.content_rect();
+        // The board surface fills the WHOLE region, edge to edge — its
+        // drawing is the view's backdrop and the per-view ribbons sit on
+        // top of it, so the surface is never gapped from its own
+        // buttons. The region painter is used because the body Ui is
+        // clipped to the ribbon-avoiding content rect.
+        let rect = ctx.screen_rect();
+        let painter = ctx.painter();
         ctx.body(|mui| {
             let accent = mui.accent();
-            let (painter, response) = mui.canvas_at(rect);
+            let (_, response) = mui.canvas_at(rect);
             self.paint(&painter, &response, rect, accent);
         });
     }
@@ -166,5 +172,67 @@ impl MaraModule for Board {
         let rect = response.rect;
         self.paint(&painter, &response, rect, accent);
         ModuleResponse::none()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use mara_core::vocab::{Pos2, Stroke};
+    use std::cell::Cell;
+    use std::rc::Rc;
+
+    fn rect() -> Rect {
+        Rect::from_min_size(Pos2::new(0.0, 0.0), Vec2::new(200.0, 120.0))
+    }
+
+    /// Portability proof: a Board draws only through [`MaraPainter`], so
+    /// running its `on_draw` against a command-recording painter — with
+    /// no egui `Ui`/`Context` anywhere — still yields `PaintCmd`s. That
+    /// is exactly what a non-egui backend would rasterise.
+    #[test]
+    fn board_draw_emits_paint_commands_on_recording_painter() {
+        let r = rect();
+        let accent = Color32::from_rgb(120, 180, 255);
+        let mut board = Board::new("test-board", "Test").on_draw(|b: BoardPaint| {
+            b.painter
+                .line_segment(b.rect.min, b.rect.max, Stroke::new(1.0, b.accent));
+        });
+
+        let painter = MaraPainter::__internal_recording(r);
+        let response = MaraResponse::__internal_synthetic(r);
+        board.paint(&painter, &response, r, accent);
+
+        let cmds = painter.__internal_recorded_commands();
+        assert!(
+            !cmds.is_empty(),
+            "board on_draw must emit PaintCmds — the backend-portability contract"
+        );
+    }
+
+    /// Board's *use* of the shared [`Layout`]: a single named cell
+    /// resolves to the full board rect and reaches `on_draw` via
+    /// [`BoardPaint::cell`]. (Core's `Layout::resolve` geometry is tested
+    /// in `mara_core`; this pins the board wiring around it.)
+    #[test]
+    fn board_layout_cell_reaches_on_draw() {
+        let r = rect();
+        let seen: Rc<Cell<Option<Rect>>> = Rc::new(Cell::new(None));
+        let sink = Rc::clone(&seen);
+        let mut board = Board::new("test-board", "Test")
+            .with_layout(Layout::cell("only"))
+            .on_draw(move |b: BoardPaint| {
+                sink.set(b.cell("only"));
+            });
+
+        let painter = MaraPainter::__internal_recording(r);
+        let response = MaraResponse::__internal_synthetic(r);
+        board.paint(&painter, &response, r, Color32::from_rgb(0, 0, 0));
+
+        assert_eq!(
+            seen.get(),
+            Some(r),
+            "a single-cell layout should resolve to the whole board rect"
+        );
     }
 }

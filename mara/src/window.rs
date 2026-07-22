@@ -20,74 +20,12 @@ use winit::window::{ResizeDirection, Window, WindowAttributes, WindowId};
 pub use crate::host::{MaraHostCtx, MaraWindowHost};
 pub use mara_core::{ShellBar, ShellEvent, ShellView};
 
+// The app-facing contract is shared with the Android runner; see
+// `crate::runner`. Re-exported here so `mara::window::WindowApp` (and
+// friends) remain the stable desktop paths.
+pub use crate::runner::{CreationContext, NativeOptions, Surface, WindowApp};
+
 use mara_core::ribbon::{RibbonDrag, RibbonOpen, RibbonPlacement};
-
-/// Surface mode for the Mara-owned runner.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Surface {
-    /// Egui/Mara owns the shell. Optional scene/viewport widgets are
-    /// just UI content inside that shell.
-    Egui,
-}
-
-/// Native window options for [`AppRunner`].
-#[derive(Debug, Clone)]
-pub struct NativeOptions {
-    pub title: String,
-    pub width: f32,
-    pub height: f32,
-    pub borderless: bool,
-    pub surface: Surface,
-}
-
-impl Default for NativeOptions {
-    fn default() -> Self {
-        Self {
-            title: "Mara".to_owned(),
-            width: 1440.0,
-            height: 920.0,
-            borderless: true,
-            surface: Surface::Egui,
-        }
-    }
-}
-
-/// Creation data passed to a Mara-owned window app.
-pub struct CreationContext<'a> {
-    pub(crate) egui_ctx: &'a egui::Context,
-    pub render_state: Option<&'a egui_wgpu::RenderState>,
-    pub host: MaraHostCtx<'a>,
-}
-
-impl CreationContext<'_> {
-    /// Internal first-party accessor — NOT part of the public API
-    /// and not semver-stable.
-    #[doc(hidden)]
-    #[must_use]
-    pub fn __internal_egui_ctx(&self) -> &egui::Context {
-        self.egui_ctx
-    }
-}
-
-/// App trait for the window-owning mode.
-pub trait WindowApp: Sized + 'static {
-    fn new(ctx: CreationContext<'_>) -> Self;
-    fn update(&mut self, ctx: &mut MaraHostCtx<'_>);
-
-    /// Configure the enforced permanent top bar for this frame.
-    ///
-    /// The runner renders the [`ShellBar`] itself (it is *enforced*,
-    /// not opt-in), then calls this so the app can set the view
-    /// switcher / active selection. Leave it empty for the default
-    /// bar (app-menu + window controls); set `bar.enabled = false` to
-    /// opt out entirely.
-    fn configure_shell(&mut self, _bar: &mut ShellBar) {}
-
-    /// React to a top-bar interaction the app owns (view switch, menu,
-    /// shelf toggle). The runner handles the window actions
-    /// (close/maximize) itself, so those never reach here.
-    fn on_shell_event(&mut self, _event: ShellEvent, _ctx: &mut MaraHostCtx<'_>) {}
-}
 
 /// Builder for the Mara-owned native window.
 #[derive(Debug, Clone, Default)]
@@ -408,7 +346,12 @@ impl<A: WindowApp> NativeWinitApp<A> {
             // the app. The app only configures it (views/active) and
             // reacts to app-level events; the runner owns the window
             // actions. Drawn after the app body so it reads the live
-            // theme/capabilities/shelf layout the app published.
+            // theme/capabilities/shelf layout the app published. The
+            // one exception: the app called the explicit per-frame
+            // opt-out during update — honor it for this frame.
+            if mara_core::enforce::__internal_shell_opted_out(ctx) {
+                return;
+            }
             app.configure_shell(shell);
             for event in shell.show(ctx, shell_open, shell_placement, shell_drag) {
                 match event {
@@ -471,7 +414,7 @@ impl<A: WindowApp> NativeWinitApp<A> {
         // bar). Drive it from the active theme so it tracks light/dark
         // instead of being a fixed dark color.
         let clear_color = {
-            let bg: egui::Color32 = mara_core::style::theme().palette.bg_window.into();
+            let bg: egui::Color32 = mara_core::style::theme().palette.bg_window;
             egui::Rgba::from(bg).to_array()
         };
         painter.paint_and_update_textures(

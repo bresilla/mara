@@ -10,47 +10,72 @@
 //! vocabulary/state model to implement.
 
 use crate::{
-    layout::{IndentedBodySpec, Sense, UiBackend},
+    layout::{Sense, SpaceSpec, UiBackend},
     memory::MaraMemory,
     mui::MaraResponse,
     paint::PaintCmd,
     style::{FrameRole, frame_for, on_section, theme},
-    vocab::{Align2, Color32, Id, Pos2, Vec2},
+    vocab::{Align2, Color32, Id, Pos2, Rect, Vec2},
 };
 
-/// Render a mara-styled collapsible section. `id_salt` makes the
-/// section's open/closed state distinct from siblings; `title` is
-/// the header label; `default_open` is the initial state on first
-/// paint.
-pub(crate) fn section(
-    ui: &mut egui::Ui,
+/// Extra body indent beyond the frame's left margin, in px.
+const SECTION_BODY_INDENT: f32 = 4.0;
+
+/// Render a mara-styled collapsible section through the backend
+/// contract — headless-capable (PLAN.md Phase 4). `id_salt` makes the
+/// section's open/closed state distinct from siblings; `title` is the
+/// header label; `default_open` is the initial state on first paint.
+/// `body` renders the (indented) content when open.
+///
+/// The glass frame is emitted as paint commands: a background fill
+/// reserved *before* the content (so it sits behind it) and a border
+/// stroke painted *after*, both sized to the content the section
+/// occupied (measured via `available_rect` before/after).
+pub(crate) fn section_backend(
+    mut backend: &mut dyn UiBackend,
     id_salt: &str,
     title: &str,
-    accent: impl Into<Color32>,
+    accent: Color32,
     default_open: bool,
-    body: impl FnOnce(&mut egui::Ui),
+    body: &mut dyn FnMut(&mut dyn UiBackend),
 ) {
-    let accent = accent.into();
-    let id = section_memory_id(crate::backend::egui::ui_id(ui), id_salt);
-
+    let id = section_memory_id(backend.id(), id_salt);
     let frame = frame_for(FrameRole::Section, accent);
+    let margin = frame.inner_margin;
 
-    crate::backend::egui::egui_frame_for_style_spec(frame).show(ui, |ui| {
-        let mut open = {
-            let memory = crate::backend::egui::memory_ctx_for_ui(ui);
-            section_open(&memory, id, default_open)
-        };
-        let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
-        let header_resp = section_header_backend(&mut backend, title, open, accent);
+    let mut open = section_open(&backend.memory(), id, default_open);
 
-        if apply_section_toggle(&mut open, &header_resp) {
-            let mut memory = crate::backend::egui::memory_ctx_for_ui(ui);
-            set_section_open(&mut memory, id, open);
-        }
+    let start = backend.available_rect();
+    let bg_slot = backend.reserve_paint_slot();
+    backend.add_space(SpaceSpec::vertical(f32::from(margin.top)));
 
-        if let Some(spec) = section_body_spec(id, open) {
-            crate::backend::egui::show_indented_body_for_spec(ui, spec, |ui| body(ui));
-        }
+    let header_resp = section_header_backend(&mut backend, title, open, accent);
+    if apply_section_toggle(&mut open, &header_resp) {
+        set_section_open(&mut backend.memory(), id, open);
+    }
+    if open {
+        backend.in_child(
+            id.with("body"),
+            f32::from(margin.left) + SECTION_BODY_INDENT,
+            body,
+        );
+    }
+    backend.add_space(SpaceSpec::vertical(f32::from(margin.bottom)));
+
+    let end_y = backend.available_rect().min.y;
+    let frame_rect = Rect::from_min_max(start.min, Pos2::new(start.max.x, end_y));
+    backend.fill_paint_slot(
+        bg_slot,
+        Some(PaintCmd::RectFilled {
+            rect: frame_rect,
+            corner: frame.corner,
+            fill: frame.fill,
+        }),
+    );
+    backend.paint(PaintCmd::RectStroke {
+        rect: frame_rect,
+        corner: frame.corner,
+        stroke: frame.stroke,
     });
 }
 
@@ -116,100 +141,20 @@ fn apply_section_toggle(open: &mut bool, response: &MaraResponse) -> bool {
     }
 }
 
-fn section_body_spec(id: Id, open: bool) -> Option<IndentedBodySpec> {
-    open.then(|| IndentedBodySpec::new(id.with("body")))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::{any::Any, collections::HashMap};
 
     use crate::vocab::Rect;
 
-    #[derive(Default)]
-    struct RecordingBackend {
-        available: Rect,
-        paints: Vec<PaintCmd>,
-    }
-
-    #[derive(Default)]
-    struct RecordingMemory {
-        temp: HashMap<Id, Box<dyn Any + Send + Sync>>,
-        persisted: HashMap<Id, Box<dyn Any + Send + Sync>>,
-    }
-
-    impl MaraMemory for RecordingMemory {
-        fn get_persisted<T>(&self, id: Id) -> Option<T>
-        where
-            T: Clone + Send + Sync + 'static,
-        {
-            self.persisted
-                .get(&id)
-                .and_then(|value| value.downcast_ref::<T>())
-                .cloned()
-        }
-
-        fn set_persisted<T>(&mut self, id: Id, value: T)
-        where
-            T: Clone + Send + Sync + 'static,
-        {
-            self.persisted.insert(id, Box::new(value));
-        }
-
-        fn get_temp<T>(&self, id: Id) -> Option<T>
-        where
-            T: Clone + Send + Sync + 'static,
-        {
-            self.temp
-                .get(&id)
-                .and_then(|value| value.downcast_ref::<T>())
-                .cloned()
-        }
-
-        fn set_temp<T>(&mut self, id: Id, value: T)
-        where
-            T: Clone + Send + Sync + 'static,
-        {
-            self.temp.insert(id, Box::new(value));
-        }
-    }
-
-    impl UiBackend for RecordingBackend {
-        fn begin_area(&mut self, _host: crate::layout::AreaHost, rect: Rect) {
-            self.available = rect;
-        }
-
-        fn allocate(&mut self, size: Vec2, _sense: Sense) -> MaraResponse {
-            MaraResponse::synthetic(Rect::from_min_size(self.available.min, size))
-        }
-
-        fn interact(&mut self, rect: Rect, _id: Id, _sense: Sense) -> MaraResponse {
-            MaraResponse::synthetic(rect)
-        }
-
-        fn available_rect(&self) -> Rect {
-            self.available
-        }
-
-        fn push_clip(&mut self, _rect: Rect) {}
-
-        fn pop_clip(&mut self) {}
-
-        fn measure_text(&self, text: &str, size: f32, _mono: bool) -> Vec2 {
-            Vec2::new(text.len() as f32 * size * 0.5, size)
-        }
-
-        fn paint(&mut self, cmd: PaintCmd) {
-            self.paints.push(cmd);
-        }
-    }
+    use crate::backend::record::{RecordingBackend, RecordingMemory};
 
     #[test]
     fn section_header_backend_emits_chevron_and_caps_title() {
         let mut backend = RecordingBackend {
             available: Rect::from_min_size(Pos2::ZERO, Vec2::new(160.0, 24.0)),
             paints: Vec::new(),
+            ..Default::default()
         };
 
         let response =
@@ -256,13 +201,36 @@ mod tests {
     }
 
     #[test]
-    fn section_body_spec_exists_only_when_open() {
-        let id = section_memory_id(Id::new("scope"), "details");
-
-        assert_eq!(section_body_spec(id, false), None);
-        assert_eq!(
-            section_body_spec(id, true),
-            Some(IndentedBodySpec::new(id.with("body")))
+    fn section_backend_emits_frame_fill_stroke_and_header_headless() {
+        let mut backend =
+            RecordingBackend::at(Rect::from_min_size(Pos2::ZERO, Vec2::new(200.0, 200.0)));
+        section_backend(
+            &mut backend,
+            "grp",
+            "Details",
+            Color32::WHITE,
+            true,
+            &mut |child| {
+                let _ = child.allocate(Vec2::new(80.0, 16.0), Sense::Hover);
+            },
+        );
+        // First command is the frame fill (reserved before content),
+        // then chevron + title text, then a body allocation, and the
+        // last is the border stroke.
+        assert!(
+            matches!(backend.paints.first(), Some(PaintCmd::RectFilled { .. })),
+            "frame fill must sit behind content"
+        );
+        assert!(
+            matches!(backend.paints.last(), Some(PaintCmd::RectStroke { .. })),
+            "border stroke must paint on top"
+        );
+        assert!(
+            backend
+                .paints
+                .iter()
+                .any(|c| matches!(c, PaintCmd::Text { text, .. } if text == "DETAILS")),
+            "header title renders headlessly"
         );
     }
 }

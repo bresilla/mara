@@ -32,6 +32,11 @@ pub struct TextRun {
 
 #[derive(Clone, Debug)]
 pub enum PaintCmd {
+    /// Paints nothing. Used as the inert placeholder a reserved paint
+    /// slot ([`crate::layout::UiBackend::reserve_paint_slot`]) holds
+    /// until it is filled — or keeps, when a slot is filled with no
+    /// command.
+    Noop,
     Line {
         a: Pos2,
         b: Pos2,

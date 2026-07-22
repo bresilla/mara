@@ -23,49 +23,6 @@ pub const SLIDER_ROW_H: f32 = 18.0;
 /// Inline value-readout font size.
 pub const SLIDER_VALUE_FONT: f32 = 11.0;
 
-/// Default labelled slider (2 × [`SLIDER_ROW_H`] = 36 px total).
-/// `value` is mutated in-place by drags/clicks; `range` clamps;
-/// `decimals` controls the inline readout precision; `suffix` is
-/// appended to the readout (e.g. `"m/s"`, `"%"`, `""`).
-pub(crate) fn slider(
-    ui: &mut egui::Ui,
-    label: &str,
-    value: &mut f64,
-    range: std::ops::RangeInclusive<f64>,
-    decimals: usize,
-    suffix: &str,
-    accent: impl Into<Color32>,
-) -> MaraResponse {
-    let row_h = theme().widgets.slider.row_h;
-    slider_h(ui, label, value, range, decimals, suffix, accent, row_h)
-}
-
-/// Variable-height variant — `row_height` is the height of EACH
-/// row (caption + bar), so total widget height is `2 × row_height`.
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn slider_h(
-    ui: &mut egui::Ui,
-    label: &str,
-    value: &mut f64,
-    range: std::ops::RangeInclusive<f64>,
-    decimals: usize,
-    suffix: &str,
-    accent: impl Into<Color32>,
-    row_height: f32,
-) -> MaraResponse {
-    let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
-    slider_backend(
-        &mut backend,
-        label,
-        value,
-        range,
-        decimals,
-        suffix,
-        accent.into(),
-        row_height,
-    )
-}
-
 /// Backend-neutral slider renderer.
 #[allow(clippy::too_many_arguments)]
 pub fn slider_backend(
@@ -184,47 +141,7 @@ fn paint_value_bar_backend(
 mod tests {
     use super::*;
 
-    #[derive(Default)]
-    struct RecordingBackend {
-        available: Rect,
-        paints: Vec<PaintCmd>,
-        clips: Vec<Rect>,
-        interaction: Option<MaraResponse>,
-    }
-
-    impl UiBackend for RecordingBackend {
-        fn begin_area(&mut self, _host: crate::layout::AreaHost, rect: Rect) {
-            self.available = rect;
-        }
-
-        fn allocate(&mut self, size: Vec2, _sense: Sense) -> MaraResponse {
-            MaraResponse::synthetic(Rect::from_min_size(self.available.min, size))
-        }
-
-        fn interact(&mut self, rect: Rect, _id: Id, _sense: Sense) -> MaraResponse {
-            self.interaction
-                .clone()
-                .unwrap_or_else(|| MaraResponse::synthetic(rect))
-        }
-
-        fn available_rect(&self) -> Rect {
-            self.available
-        }
-
-        fn push_clip(&mut self, rect: Rect) {
-            self.clips.push(rect);
-        }
-
-        fn pop_clip(&mut self) {}
-
-        fn measure_text(&self, text: &str, size: f32, _mono: bool) -> Vec2 {
-            Vec2::new(text.len() as f32 * size * 0.5, size)
-        }
-
-        fn paint(&mut self, cmd: PaintCmd) {
-            self.paints.push(cmd);
-        }
-    }
+    use crate::backend::record::RecordingBackend;
 
     #[test]
     fn slider_backend_emits_label_track_fill_and_clipped_text() {
@@ -233,6 +150,7 @@ mod tests {
             paints: Vec::new(),
             clips: Vec::new(),
             interaction: None,
+            ..Default::default()
         };
         let mut value = 0.25;
 
@@ -285,6 +203,7 @@ mod tests {
             paints: Vec::new(),
             clips: Vec::new(),
             interaction: Some(interaction),
+            ..Default::default()
         };
         let mut value = 0.0;
 

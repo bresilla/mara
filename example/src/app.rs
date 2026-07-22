@@ -42,7 +42,10 @@
 
 use std::io::Cursor;
 
-use eframe::egui;
+// `egui` directly (not via `eframe`) so this file compiles on Android,
+// where the app does not depend on `eframe`. `eframe::egui` is the same
+// crate re-exported, so non-Android behavior is unchanged.
+use egui;
 
 use mara::ui::{mara_core, modules::map as mara_map};
 use mara_core::container::SeparatorStyle;
@@ -75,7 +78,7 @@ use mara_core::extras::graph::{
     Graph, InPin, InPinId, NodePin, NodeViewState, NodeViewer, OutPin, OutPinId, PinInfo,
 };
 use mara_core::vocab::Id as MaraId;
-use mara_core::{Layout, MaraView, MultiView, RibbonAvoidance, ViewId, WorkspaceStack};
+use mara_core::{Layout, MaraView, RibbonAvoidance, ViewNode, WorkspaceStack};
 
 // ─── Ribbon / pane ids ──────────────────────────────────────────────
 
@@ -1436,6 +1439,19 @@ fn publish_current_pane_ribbon_buttons(
             pane_ids.push(MaraId::new(item.id));
         }
     }
+    // The multiview cells' demo panel buttons (RibbonDemoView) open
+    // per-view panes; register their pane ids so the pane guard accepts
+    // them. Ids must mirror `RibbonDemoView::show`'s Pane ids exactly.
+    for salt in ["mv.canvas", "mv.image", "mv.board"] {
+        for (_, _, edge_name, cluster_name, _) in demo_ribbon_combos() {
+            pane_ids.push(MaraId::new((
+                "demo.view.pane",
+                salt,
+                edge_name,
+                cluster_name,
+            )));
+        }
+    }
     host.publish_ribbon_pane_ids(pane_ids);
 }
 
@@ -1506,13 +1522,15 @@ const RIGHT_KEYS: [&str; 5] = ["R1", "R2", "R3", "R4", "R5"];
 // "Board" view: ONE full Board with its own internal layout — a whole VT
 // (data-mask cell + soft-key cells) drawn inside a single board.
 struct BoardViewState {
-    view: Board,
+    node: ViewNode,
     workspace: WorkspaceStack,
 }
 
 impl Default for BoardViewState {
     fn default() -> Self {
-        let gap = 12.0;
+        // No gaps: the board's cells tile flush and each cell's border
+        // is the dividing line — same look as the multiview tiles.
+        let gap = 0.0;
         let column = |keys: &[&'static str]| {
             Layout::col(gap, keys.iter().map(|k| (1.0, Layout::cell(*k))).collect())
         };
@@ -1538,8 +1556,205 @@ impl Default for BoardViewState {
                 }
             });
         Self {
-            view,
+            // A single-view tab is the degenerate tree: one Leaf as the
+            // root ViewNode (PLAN.md Phase 5).
+            node: ViewNode::leaf(view),
             workspace: WorkspaceStack::new("demo-board-workspace"),
+        }
+    }
+}
+
+// Demo decorator for multiview leaves: fills every FREE per-view ribbon
+// spot — Left/Right/Bottom edge × Start/Middle/End cluster — with a
+// PANEL button: clicking toggles a pane anchored to that rail zone,
+// inside the view's own region. Spots the wrapped view already uses
+// keep the real buttons.
+struct RibbonDemoView<V: MaraView> {
+    salt: &'static str,
+    inner: V,
+    /// Open demo panels, keyed by (edge, cluster).
+    open: std::collections::HashSet<(mara_core::RibbonEdge, mara_core::RibbonCluster)>,
+}
+
+/// The nine per-view rail spots: edge × cluster, with stable name parts
+/// (for ids) and a distinct icon per cluster.
+fn demo_ribbon_combos() -> [(
+    mara_core::RibbonEdge,
+    mara_core::RibbonCluster,
+    &'static str,
+    &'static str,
+    &'static str,
+); 9] {
+    use mara_core::{RibbonCluster, RibbonEdge};
+    let clusters = [
+        (RibbonCluster::Start, "start", "star"),
+        (RibbonCluster::Middle, "middle", "circle"),
+        (RibbonCluster::End, "end", "flag"),
+    ];
+    let edges = [
+        (RibbonEdge::Left, "left"),
+        (RibbonEdge::Right, "right"),
+        (RibbonEdge::Bottom, "bottom"),
+    ];
+    let mut out = [(RibbonEdge::Left, RibbonCluster::Start, "", "", ""); 9];
+    let mut i = 0;
+    for (edge, edge_name) in edges {
+        for (cluster, cluster_name, icon) in clusters {
+            out[i] = (edge, cluster, edge_name, cluster_name, icon);
+            i += 1;
+        }
+    }
+    out
+}
+
+impl<V: MaraView> RibbonDemoView<V> {
+    fn new(salt: &'static str, inner: V) -> Self {
+        Self {
+            salt,
+            inner,
+            open: std::collections::HashSet::new(),
+        }
+    }
+
+    /// The toggle-command id for one rail spot's panel button.
+    fn panel_command_id(&self, edge_name: &'static str, cluster_name: &'static str) -> MaraId {
+        MaraId::new(("demo.view.panel", self.salt, edge_name, cluster_name))
+    }
+}
+
+impl<V: MaraView> MaraView for RibbonDemoView<V> {
+    fn id(&self) -> mara_core::ViewId {
+        self.inner.id()
+    }
+
+    fn title(&self) -> &str {
+        self.inner.title()
+    }
+
+    fn icon(&self) -> &'static str {
+        self.inner.icon()
+    }
+
+    fn shared_surface(&self) -> Option<mara_core::SharedSurfaceId> {
+        self.inner.shared_surface()
+    }
+
+    fn ribbons(&mut self) -> Vec<mara_core::RibbonSlotDef> {
+        use mara_core::{
+            RibbonAction, RibbonCluster, RibbonEdge, RibbonOverridePolicy, RibbonScope,
+            RibbonSlot, RibbonSlotDef, RibbonSlotId, RibbonSlotItem,
+        };
+        let mut defs = self.inner.ribbons();
+        let taken: Vec<(RibbonEdge, RibbonCluster)> =
+            defs.iter().map(|def| (def.edge, def.cluster)).collect();
+        let view = self.inner.id();
+        for (edge, cluster, edge_name, cluster_name, icon) in demo_ribbon_combos() {
+            if taken.contains(&(edge, cluster)) {
+                continue;
+            }
+            let mut item = RibbonSlotItem::new(
+                MaraId::new(("demo.view.ribbon.item", self.salt, edge_name, cluster_name)),
+                icon,
+                "Demo",
+                "Toggle demo panel",
+                RibbonAction::Command(self.panel_command_id(edge_name, cluster_name)),
+            );
+            item.active = self.open.contains(&(edge, cluster));
+            defs.push(RibbonSlotDef::new(
+                MaraId::new(("demo.view.ribbon", self.salt, edge_name, cluster_name)),
+                RibbonScope::View(view),
+                edge,
+                cluster,
+                vec![RibbonSlot::new(
+                    RibbonSlotId::new((
+                        "demo.view.ribbon.slot",
+                        self.salt,
+                        edge_name,
+                        cluster_name,
+                    )),
+                    Some(item),
+                    RibbonOverridePolicy::Fixed,
+                )],
+            ));
+        }
+        defs
+    }
+
+    fn on_ribbon_click(&mut self, action: &mara_core::RibbonAction) {
+        if let mara_core::RibbonAction::Command(id) = action {
+            for (edge, cluster, edge_name, cluster_name, _) in demo_ribbon_combos() {
+                if *id == self.panel_command_id(edge_name, cluster_name) {
+                    if !self.open.remove(&(edge, cluster)) {
+                        self.open.insert((edge, cluster));
+                    }
+                    return;
+                }
+            }
+        }
+        self.inner.on_ribbon_click(action);
+    }
+
+    fn ribbon_overrides(&mut self) -> mara_core::RibbonOverrideLayer {
+        self.inner.ribbon_overrides()
+    }
+
+    fn content_avoidance(&self) -> RibbonAvoidance {
+        self.inner.content_avoidance()
+    }
+
+    fn show(&mut self, ctx: &mut mara_core::ViewCtx<'_>) {
+        use mara_core::{RibbonCluster, RibbonEdge};
+        self.inner.show(ctx);
+        // Open demo panels: one pane per toggled rail spot, anchored to
+        // that spot INSIDE this view's region (show_pane scopes panes to
+        // the node), so each cell owns its own panels.
+        for (edge, cluster, edge_name, cluster_name, _) in demo_ribbon_combos() {
+            if !self.open.contains(&(edge, cluster)) {
+                continue;
+            }
+            let zone = match cluster {
+                RibbonCluster::Start => RailZone::Start,
+                RibbonCluster::Middle => RailZone::Middle,
+                RibbonCluster::End => RailZone::End,
+            };
+            let anchor = match edge {
+                RibbonEdge::Left => PaneAnchor::LeftRail(zone),
+                RibbonEdge::Right => PaneAnchor::RightRail(zone),
+                RibbonEdge::Top | RibbonEdge::Bottom => PaneAnchor::BottomRail(zone),
+            };
+            ctx.show_pane(
+                Pane::new(
+                    MaraId::new(("demo.view.pane", self.salt, edge_name, cluster_name)),
+                    format!("{edge_name} {cluster_name}"),
+                    anchor,
+                    mara_core::style::active_accent(),
+                ),
+                |body| {
+                    body.add_normal(
+                        MaraId::new(("demo.view.pane.c", self.salt, edge_name, cluster_name)),
+                        "Demo panel",
+                        "info",
+                        vec![
+                            Pod::new(MaraId::new((
+                                "demo.view.pane.pod",
+                                self.salt,
+                                edge_name,
+                                cluster_name,
+                            )))
+                            .with_separator(SeparatorStyle::Line)
+                            .with_readout("view", self.salt),
+                            Pod::new(MaraId::new((
+                                "demo.view.pane.pod2",
+                                self.salt,
+                                edge_name,
+                                cluster_name,
+                            )))
+                            .with_separator(SeparatorStyle::None)
+                            .with_readout("zone", format!("{edge_name} / {cluster_name}")),
+                        ],
+                    );
+                },
+            );
         }
     }
 }
@@ -1547,13 +1762,15 @@ impl Default for BoardViewState {
 // "Multiview" view: split in half; the right half split again → three
 // different child views (a Canvas, an Image, a Board).
 struct MultiViewState {
-    view: MultiView,
+    node: ViewNode,
     workspace: WorkspaceStack,
 }
 
 impl Default for MultiViewState {
     fn default() -> Self {
-        let gap = 12.0;
+        // No gaps, no margin: cells tile edge-to-edge and each cell's
+        // square border provides the dividing line between views.
+        let gap = 0.0;
         let layout = Layout::row(
             gap,
             vec![
@@ -1567,30 +1784,31 @@ impl Default for MultiViewState {
                 ),
             ],
         );
-        let view = MultiView::new(ViewId::new("demo-multi"), "Multiview", layout)
-            .with_icon("grid")
-            .with_margin(gap)
-            .with_content_avoidance(RibbonAvoidance::all())
-            .view(
+        let node = ViewNode::split("demo-multi", layout)
+            .cell(
                 "left",
-                Box::new(CanvasSurface::new(
+                ViewNode::leaf(RibbonDemoView::new(
                     "mv.canvas",
-                    CanvasDocument::new("Sketch"),
+                    CanvasSurface::new("mv.canvas", CanvasDocument::new("Sketch")),
                 )),
             )
-            .view(
+            .cell(
                 "rt",
-                Box::new(ImageSurface::new("mv.image", ImageDocument::empty("Image"))),
+                ViewNode::leaf(RibbonDemoView::new(
+                    "mv.image",
+                    ImageSurface::new("mv.image", ImageDocument::empty("Image")),
+                )),
             )
-            .view(
+            .cell(
                 "rb",
-                Box::new(
+                ViewNode::leaf(RibbonDemoView::new(
+                    "mv.board",
                     Board::new("mv.board", "Gauge")
                         .on_draw(|b: BoardPaint| draw_gauge_at(b.painter, b.rect, b.accent)),
-                ),
+                )),
             );
         Self {
-            view,
+            node,
             workspace: WorkspaceStack::new("demo-multi-workspace"),
         }
     }
@@ -1599,8 +1817,14 @@ impl Default for MultiViewState {
 /// Draw a data-mask gauge (frame + arc gauge + sample ellipse) into `rect`.
 fn draw_gauge_at(p: &mara_core::MaraPainter, rect: mara_core::vocab::Rect, accent: MaraColor32) {
     use mara_core::vocab::{Align2, Color32, Pos2, Rect, Stroke, Vec2};
-    p.rect_filled(rect, 12, Color32::from_rgb(24, 28, 36));
-    p.rect_stroke(rect, 12, Stroke::new(1.5, Color32::from_gray(80)));
+    p.rect_filled(rect, 0, Color32::from_rgb(24, 28, 36));
+    // Same border as every other view surface (canvas/image use the
+    // theme WidgetBorder stroke), so tiled cells read as one family.
+    p.rect_stroke(
+        rect,
+        0,
+        mara_core::style::stroke_for(mara_core::style::StrokeRole::WidgetBorder, accent),
+    );
     p.text(
         Pos2::new(rect.center().x, rect.top() + 18.0),
         Align2::CENTER_TOP,
@@ -1644,9 +1868,18 @@ fn draw_gauge_at(p: &mara_core::MaraPainter, rect: mara_core::vocab::Rect, accen
 
 /// Draw one VT soft key (rounded fill + border + label) into `rect`.
 fn draw_key_at(p: &mara_core::MaraPainter, rect: mara_core::vocab::Rect, label: &str) {
-    use mara_core::vocab::{Align2, Color32, Stroke};
-    p.rect_filled(rect, 12, Color32::from_rgb(40, 46, 58));
-    p.rect_stroke(rect, 12, Stroke::new(1.5, Color32::from_gray(90)));
+    use mara_core::vocab::{Align2, Color32};
+    // Square, flush key caps — the shared border stroke is the divider,
+    // matching the view-surface look everywhere else.
+    p.rect_filled(rect, 0, Color32::from_rgb(40, 46, 58));
+    p.rect_stroke(
+        rect,
+        0,
+        mara_core::style::stroke_for(
+            mara_core::style::StrokeRole::WidgetBorder,
+            mara_core::style::active_accent(),
+        ),
+    );
     p.text(
         rect.center(),
         Align2::CENTER_CENTER,
@@ -1812,9 +2045,9 @@ fn obj_bounds(models: &[tobj::Model]) -> Option<ObjBounds> {
     for model in models {
         for position in model.mesh.positions.chunks_exact(3) {
             any = true;
-            for axis in 0..3 {
-                bounds.min[axis] = bounds.min[axis].min(position[axis]);
-                bounds.max[axis] = bounds.max[axis].max(position[axis]);
+            for (axis, &coord) in position.iter().enumerate() {
+                bounds.min[axis] = bounds.min[axis].min(coord);
+                bounds.max[axis] = bounds.max[axis].max(coord);
             }
         }
     }
@@ -1995,11 +2228,10 @@ fn shell_active_view_id(root_view: DemoRootView) -> &'static str {
 }
 
 /// Populate a [`ShellBar`](mara_core::ShellBar) from demo state. Shared
-/// by both hosts so the bar is identical everywhere. The bar hides
-/// while a widget is fullscreen (the demo shows its own restore rail
-/// then).
-fn configure_demo_shell(bar: &mut mara_core::ShellBar, root_view: DemoRootView, fs_active: bool) {
-    bar.enabled = !fs_active;
+/// by both hosts so the bar is identical everywhere. The bar is
+/// enforced and always renders — including over fullscreen widgets,
+/// which paint full-bleed behind the glass bar.
+fn configure_demo_shell(bar: &mut mara_core::ShellBar, root_view: DemoRootView, _fs_active: bool) {
     bar.app_menu = true;
     bar.views = demo_shell_views();
     bar.active = Some(shell_active_view_id(root_view));
@@ -2038,7 +2270,9 @@ fn shell_event_to_click(event: mara_core::ShellEvent) -> Option<RibbonSlotClick>
 
 impl DemoApp {
     /// Built once by `eframe::WebRunner`. No persistence — every
-    /// session starts from the default mara layout.
+    /// session starts from the default mara layout. eframe-only, so it
+    /// is excluded on Android (which uses the Mara Android runner).
+    #[cfg(not(target_os = "android"))]
     pub fn new(_cc: &eframe::CreationContext<'_>) -> Self {
         Self {
             bevy_view: MaraBevyViewport::with_content(crate::bevy_content::configure_app),
@@ -2048,7 +2282,7 @@ impl DemoApp {
     }
 
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn new_winit(render_state: Option<&eframe::egui_wgpu::RenderState>) -> Self {
+    pub fn new_winit(render_state: Option<&egui_wgpu::RenderState>) -> Self {
         Self {
             bevy_view: MaraBevyViewport::with_render_state_and_content(
                 render_state,
@@ -2061,6 +2295,8 @@ impl DemoApp {
                 .and_then(|v| match v.as_str() {
                     "canvas" => Some(DemoRootView::Canvas),
                     "threed" => Some(DemoRootView::ThreeD),
+                    "board" => Some(DemoRootView::Board),
+                    "multi" => Some(DemoRootView::Multi),
                     "zones" => Some(DemoRootView::CorevizZones),
                     "mgmt" => Some(DemoRootView::CorevizManagement),
                     _ => None,
@@ -2095,7 +2331,7 @@ impl DemoApp {
     pub fn update_with_render_state(
         &mut self,
         ctx: &egui::Context,
-        render_state: &eframe::egui_wgpu::RenderState,
+        render_state: &egui_wgpu::RenderState,
     ) {
         let mut host = MaraHostCtx::ui_only(ctx, Some(render_state));
         ui_system(self, &mut host);
@@ -2127,6 +2363,7 @@ impl DemoApp {
     }
 }
 
+#[cfg(not(target_os = "android"))]
 impl eframe::App for DemoApp {
     #[cfg(target_arch = "wasm32")]
     fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
@@ -2144,9 +2381,17 @@ impl eframe::App for DemoApp {
     }
 }
 
+// The window-owning runner differs by platform but exposes the same
+// `WindowApp` contract: `mara::window` on desktop, `mara::android` on
+// Android. Alias whichever applies so this single impl serves both.
+#[cfg(target_os = "android")]
+use mara::android::{CreationContext as RunnerCreationContext, WindowApp as RunnerWindowApp};
+#[cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))]
+use mara::window::{CreationContext as RunnerCreationContext, WindowApp as RunnerWindowApp};
+
 #[cfg(not(target_arch = "wasm32"))]
-impl mara::window::WindowApp for DemoApp {
-    fn new(ctx: mara::window::CreationContext<'_>) -> Self {
+impl RunnerWindowApp for DemoApp {
+    fn new(ctx: RunnerCreationContext<'_>) -> Self {
         Self::new_winit(ctx.render_state)
     }
 
@@ -2293,7 +2538,11 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
     // view's item set. Canvas now carries the same four-edge demo
     // ribbon layout as the Bevy view, with only the top ribbon being
     // persistent.
-    let current_ribbon_items: &[RibbonButtonSpec] = if fs_active && graph_fs {
+    let current_ribbon_items: &[RibbonButtonSpec] = if *root_view == DemoRootView::Multi {
+        // The multiview's cells own their own per-view ribbons
+        // (ViewNode leaves), so the app draws no window-level rails here.
+        &[]
+    } else if fs_active && graph_fs {
         RIBBON_ITEMS_FS_GRAPH
     } else if fs_active && code_fs {
         RIBBON_ITEMS_FS_CODE
@@ -2308,7 +2557,13 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
     } else {
         RIBBON_ITEMS
     };
-    let current_ribbons: &[RibbonSpec] = if fs_active { RIBBONS_FS } else { RIBBONS };
+    let current_ribbons: &[RibbonSpec] = if *root_view == DemoRootView::Multi {
+        &[]
+    } else if fs_active {
+        RIBBONS_FS
+    } else {
+        RIBBONS
+    };
     publish_current_pane_ribbon_buttons(host, current_ribbon_items, fs_active);
 
     let is_open_in = |items: &[RibbonButtonSpec], id: &'static str| -> bool {
@@ -3013,25 +3268,24 @@ fn three_d_root_view(
     accent: MaraColor32,
     three_d: &mut ThreeDViewState,
 ) {
-    // Honor the view's own decision (default: under the ribbons).
+    // Honor the view's own decision (default: under the ribbons). The
+    // render target format is published by `view_ctx` and pulled inside
+    // `View3d::show`, so no per-frame GPU setter is needed here.
     let avoidance = three_d.view.content_avoidance();
     let mut view_ctx = host.view_ctx(&mut three_d.workspace, accent, avoidance);
-    three_d.view.set_gpu_render_state(host.render_state());
     three_d.view.show(&mut view_ctx);
 }
 
 fn board_root_view(host: &MaraHostCtx<'_>, accent: MaraColor32, board: &mut BoardViewState) {
-    // Honor the view's own avoidance: a Board view declares it shrinks to
-    // sit inside the ribbons rather than painting behind them.
-    let avoidance = board.view.content_avoidance();
-    let mut view_ctx = host.view_ctx(&mut board.workspace, accent, avoidance);
-    board.view.show(&mut view_ctx);
+    let mut view_ctx = host.view_ctx(&mut board.workspace, accent, RibbonAvoidance::none());
+    board.node.render(&mut view_ctx);
 }
 
 fn multi_root_view(host: &MaraHostCtx<'_>, accent: MaraColor32, multi: &mut MultiViewState) {
-    let avoidance = multi.view.content_avoidance();
-    let mut view_ctx = host.view_ctx(&mut multi.workspace, accent, avoidance);
-    multi.view.show(&mut view_ctx);
+    // No avoidance at all: the view tree fills the window from the very
+    // top — the glass top bar draws over the cells, not above them.
+    let mut view_ctx = host.view_ctx(&mut multi.workspace, accent, RibbonAvoidance::none());
+    multi.node.render(&mut view_ctx);
 }
 
 // ─── Canvas root view ──────────────────────────────────────────────
@@ -6098,7 +6352,8 @@ impl NodeViewer<GraphNode> for DemoViewer {
                     egui::vec2(125.0, h),
                     egui::Layout::left_to_right(egui::Align::Center),
                     |ui| {
-                        let mut mui = mara_core::MaraUi::__internal_from_raw(ui, accent);
+                        let mut __raw = mara_core::MaraUi::__internal_backend_from_raw(ui);
+                        let mut mui = mara_core::MaraUi::__internal_over(&mut __raw, accent);
                         mui.drag_value("", v, 0.05, f64::MIN..=f64::MAX, 2, "");
                     },
                 );
@@ -6110,7 +6365,8 @@ impl NodeViewer<GraphNode> for DemoViewer {
                     egui::vec2(125.0, h),
                     egui::Layout::left_to_right(egui::Align::Center),
                     |ui| {
-                        let mut mui = mara_core::MaraUi::__internal_from_raw(ui, accent);
+                        let mut __raw = mara_core::MaraUi::__internal_backend_from_raw(ui);
+                        let mut mui = mara_core::MaraUi::__internal_over(&mut __raw, accent);
                         mui.drag_value("", &mut tmp, 1.0, f64::MIN..=f64::MAX, 0, "");
                     },
                 );
@@ -6123,7 +6379,8 @@ impl NodeViewer<GraphNode> for DemoViewer {
                         egui::vec2(125.0, h),
                         egui::Layout::left_to_right(egui::Align::Center),
                         |ui| {
-                            let mut mui = mara_core::MaraUi::__internal_from_raw(ui, accent);
+                            let mut __raw = mara_core::MaraUi::__internal_backend_from_raw(ui);
+                            let mut mui = mara_core::MaraUi::__internal_over(&mut __raw, accent);
                             mui.drag_value(axis, comp, 0.05, f64::MIN..=f64::MAX, 2, "");
                         },
                     );
@@ -6138,7 +6395,8 @@ impl NodeViewer<GraphNode> for DemoViewer {
                     egui::vec2(125.0, h),
                     egui::Layout::left_to_right(egui::Align::Center),
                     |ui| {
-                        let mut mui = mara_core::MaraUi::__internal_from_raw(ui, accent);
+                        let mut __raw = mara_core::MaraUi::__internal_backend_from_raw(ui);
+                        let mut mui = mara_core::MaraUi::__internal_over(&mut __raw, accent);
                         mui.toggle("", b);
                     },
                 );
@@ -6253,7 +6511,8 @@ impl NodeViewer<GraphNode> for DemoViewer {
                     egui::vec2(SLOT_W, drag_h),
                     egui::Layout::left_to_right(egui::Align::Center),
                     |ui| {
-                        let mut mui = mara_core::MaraUi::__internal_from_raw(ui, accent);
+                        let mut __raw = mara_core::MaraUi::__internal_backend_from_raw(ui);
+                        let mut mui = mara_core::MaraUi::__internal_over(&mut __raw, accent);
                         mui.drag_value("seed", &mut seed_f, 1.0, 0.0..=u32::MAX as f64, 0, "");
                     },
                 );
@@ -6262,7 +6521,8 @@ impl NodeViewer<GraphNode> for DemoViewer {
                     egui::vec2(SLOT_W, drag_h * 2.0),
                     egui::Layout::left_to_right(egui::Align::Center),
                     |ui| {
-                        let mut mui = mara_core::MaraUi::__internal_from_raw(ui, accent);
+                        let mut __raw = mara_core::MaraUi::__internal_backend_from_raw(ui);
+                        let mut mui = mara_core::MaraUi::__internal_over(&mut __raw, accent);
                         mui.slider("freq", frequency, 0.05..=8.0, 2, "");
                     },
                 );
@@ -6275,7 +6535,8 @@ impl NodeViewer<GraphNode> for DemoViewer {
                     egui::vec2(SLOT_W, drag_h),
                     egui::Layout::left_to_right(egui::Align::Center),
                     |ui| {
-                        let mut mui = mara_core::MaraUi::__internal_from_raw(ui, accent);
+                        let mut __raw = mara_core::MaraUi::__internal_backend_from_raw(ui);
+                        let mut mui = mara_core::MaraUi::__internal_over(&mut __raw, accent);
                         mui.drag_value("seed", &mut seed_f, 1.0, 0.0..=u32::MAX as f64, 0, "");
                     },
                 );
@@ -6854,7 +7115,8 @@ where
         egui::vec2(SLOT_W, h),
         egui::Layout::left_to_right(egui::Align::Center),
         |ui| {
-            let mut mui = mara_core::MaraUi::__internal_from_raw(ui, accent);
+            let mut __raw = mara_core::MaraUi::__internal_backend_from_raw(ui);
+            let mut mui = mara_core::MaraUi::__internal_over(&mut __raw, accent);
             let resp = mui.dropdown(
                 ("mara_demo_op_dropdown", current as *const T as usize),
                 &mut idx,
