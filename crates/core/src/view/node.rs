@@ -106,6 +106,58 @@ impl ViewNode {
         self
     }
 
+    /// The ids of this split's direct cells (empty for a leaf), in order.
+    /// Lets a host introspect the tree for runtime split/unsplit.
+    #[must_use]
+    pub fn cell_ids(&self) -> Vec<CellId> {
+        match &self.kind {
+            ViewNodeKind::Leaf(_) => Vec::new(),
+            ViewNodeKind::Split { cells, .. } => cells.iter().map(|c| c.id).collect(),
+        }
+    }
+
+    /// Runtime split: add a child in the named cell of this split (no-op /
+    /// `false` on a leaf, or if the cell id is already present). Returns
+    /// whether the cell was added.
+    pub fn push_cell(&mut self, id: CellId, node: ViewNode) -> bool {
+        if let ViewNodeKind::Split { salt, cells, .. } = &mut self.kind {
+            if cells.iter().any(|c| c.id == id) {
+                return false;
+            }
+            let workspace = WorkspaceStack::new(MaraId::new((*salt, "cell", id)));
+            cells.push(ViewCell {
+                id,
+                node,
+                workspace,
+            });
+            return true;
+        }
+        false
+    }
+
+    /// Runtime unsplit: remove the named cell (and its child subtree) from
+    /// this split. Returns whether a cell was removed.
+    pub fn remove_cell(&mut self, id: CellId) -> bool {
+        if let ViewNodeKind::Split { cells, .. } = &mut self.kind {
+            let before = cells.len();
+            cells.retain(|c| c.id != id);
+            return cells.len() != before;
+        }
+        false
+    }
+
+    /// Replace the child node in the named cell, keeping the cell's
+    /// workspace stack. Returns whether the cell existed.
+    pub fn replace_cell(&mut self, id: CellId, node: ViewNode) -> bool {
+        if let ViewNodeKind::Split { cells, .. } = &mut self.kind
+            && let Some(cell) = cells.iter_mut().find(|c| c.id == id)
+        {
+            cell.node = node;
+            return true;
+        }
+        false
+    }
+
     /// Render this node into `ctx`'s region. A Leaf draws its content; a
     /// Split resolves its layout over the region and renders each child
     /// scoped to its cell rect.
@@ -139,5 +191,65 @@ impl ViewNode {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::view::ViewId;
+
+    struct DummyView(ViewId);
+    impl MaraView for DummyView {
+        fn id(&self) -> ViewId {
+            self.0
+        }
+        fn title(&self) -> &str {
+            "dummy"
+        }
+        fn icon(&self) -> &'static str {
+            "square"
+        }
+        fn show(&mut self, _ctx: &mut ViewCtx<'_>) {}
+    }
+
+    fn leaf(id: &'static str) -> ViewNode {
+        ViewNode::leaf(DummyView(ViewId::new(id)))
+    }
+
+    #[test]
+    fn split_runtime_split_and_unsplit() {
+        let layout = Layout::row(
+            4.0,
+            vec![(1.0, Layout::cell("a")), (1.0, Layout::cell("b"))],
+        );
+        let mut root = ViewNode::split("root", layout).cell("a", leaf("a"));
+        assert_eq!(root.cell_ids(), vec!["a"]);
+
+        assert!(root.push_cell("b", leaf("b")));
+        assert!(
+            !root.push_cell("b", leaf("b2")),
+            "duplicate cell id is rejected"
+        );
+        assert_eq!(root.cell_ids(), vec!["a", "b"]);
+
+        assert!(root.replace_cell("a", leaf("a2")));
+        assert!(
+            !root.replace_cell("z", leaf("z")),
+            "missing cell not replaced"
+        );
+
+        assert!(root.remove_cell("a"));
+        assert_eq!(root.cell_ids(), vec!["b"]);
+        assert!(!root.remove_cell("a"), "already removed");
+    }
+
+    #[test]
+    fn leaf_tree_mutations_are_noops() {
+        let mut node = leaf("x");
+        assert!(node.cell_ids().is_empty());
+        assert!(!node.push_cell("a", leaf("a")));
+        assert!(!node.remove_cell("a"));
+        assert!(!node.replace_cell("a", leaf("a")));
     }
 }
