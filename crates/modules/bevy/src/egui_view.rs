@@ -174,7 +174,7 @@ impl MaraBevyViewport {
         // (ADR 0002 / PLAN WS6): a Bevy viewport hosted as a split cell
         // draws and interacts inside its cell rect, so it tiles like
         // any other leaf. Whole-window is just the one-leaf tree.
-        let region_rect: egui::Rect = ctx.content_rect().into();
+        let region_rect: egui::Rect = ctx.screen_rect().into();
         {
             egui::Area::new(egui::Id::new(("mara_bevy_viewport_area", self.instance)))
                 .order(egui::Order::Background)

@@ -556,10 +556,13 @@ impl Pane {
 
     /// Override the backend-neutral layer for this pane.
     ///
-    /// Normal panes live in [`crate::layout::Layer::Background`] so
-    /// ribbon chrome stays above their shadows. Hosts can lift
-    /// persistent panes to [`crate::layout::Layer::Foreground`] when
-    /// they intentionally render over fullscreen/module overlays.
+    /// Normal panes live in [`crate::layout::Layer::Middle`] — the
+    /// docked-chrome band — so they always float above view bodies
+    /// and backdrops (Background) even when a click raises the view
+    /// within its own band, while ribbon chrome (Foreground) stays
+    /// above pane shadows. Hosts can lift persistent panes to
+    /// [`crate::layout::Layer::Foreground`] when they intentionally
+    /// render over fullscreen/module overlays.
     pub fn order(mut self, order: crate::layout::Layer) -> Self {
         self.order = order;
         self
@@ -582,7 +585,7 @@ impl Pane {
             anchor,
             accent: accent.into(),
             resize: PaneResize::NONE,
-            order: crate::layout::Layer::Background,
+            order: crate::layout::Layer::Middle,
         }
     }
 

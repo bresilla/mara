@@ -564,7 +564,7 @@ impl<'a> MaraMap<'a> {
         // (ADR 0002 / PLAN WS6): a map hosted as a split cell draws and
         // interacts inside its cell rect, so it tiles like any other
         // leaf. Whole-window is just the one-leaf tree.
-        let region: egui::Rect = ctx.content_rect().into();
+        let region: egui::Rect = ctx.screen_rect().into();
         self.__internal_show_in(ctx.__internal_egui_ctx(), region)
     }
 
