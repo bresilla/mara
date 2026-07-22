@@ -1815,9 +1815,9 @@ fn obj_bounds(models: &[tobj::Model]) -> Option<ObjBounds> {
     for model in models {
         for position in model.mesh.positions.chunks_exact(3) {
             any = true;
-            for axis in 0..3 {
-                bounds.min[axis] = bounds.min[axis].min(position[axis]);
-                bounds.max[axis] = bounds.max[axis].max(position[axis]);
+            for (axis, &coord) in position.iter().enumerate() {
+                bounds.min[axis] = bounds.min[axis].min(coord);
+                bounds.max[axis] = bounds.max[axis].max(coord);
             }
         }
     }

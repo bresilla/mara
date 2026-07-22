@@ -3,6 +3,8 @@
 //! Public callers use [`MaraMap`], [`MapSurface`], and typed annotation
 //! data. egui painting/allocation is internal to this crate.
 
+#![allow(clippy::too_many_arguments)]
+
 mod mvt;
 
 use std::f64::consts::PI;

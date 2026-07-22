@@ -6,6 +6,8 @@
 //! the scene is rendered inside Mara-owned chrome, a Bevy-owned app, web,
 //! or another integration.
 
+#![allow(clippy::too_many_arguments, clippy::question_mark)]
+
 use mara_core::{
     MaraModule, MaraView, ModuleInlineCtx, ModuleResponse, RibbonAction, RibbonCluster, RibbonEdge,
     RibbonOverridePolicy, RibbonScope, RibbonSlot, RibbonSlotDef, RibbonSlotId, RibbonSlotItem,

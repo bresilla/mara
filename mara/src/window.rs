@@ -409,7 +409,7 @@ impl<A: WindowApp> NativeWinitApp<A> {
         // bar). Drive it from the active theme so it tracks light/dark
         // instead of being a fixed dark color.
         let clear_color = {
-            let bg: egui::Color32 = mara_core::style::theme().palette.bg_window.into();
+            let bg: egui::Color32 = mara_core::style::theme().palette.bg_window;
             egui::Rgba::from(bg).to_array()
         };
         painter.paint_and_update_textures(

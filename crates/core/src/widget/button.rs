@@ -215,6 +215,7 @@ impl<'a> ActionButton<'a> {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn action_button_backend(
     backend: &mut impl UiBackend,
     label: &str,
@@ -583,6 +584,7 @@ pub fn button_content_backend(
     resp
 }
 
+#[allow(clippy::too_many_arguments)]
 fn paint_animated_button_backend(
     backend: &mut impl UiBackend,
     rect: MaraRect,
@@ -643,6 +645,7 @@ fn paint_animated_button_backend(
     );
 }
 
+#[allow(clippy::too_many_arguments)]
 fn paint_button_contents_backend(
     backend: &mut impl UiBackend,
     rect: MaraRect,

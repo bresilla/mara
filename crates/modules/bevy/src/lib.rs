@@ -9,6 +9,7 @@
 //! the egui host upload that frame as its own texture.
 
 #![cfg_attr(target_arch = "wasm32", allow(dead_code))]
+#![allow(clippy::drop_non_drop)]
 
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::{
