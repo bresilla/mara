@@ -69,14 +69,19 @@ impl ShellView {
 pub struct ShellBar {
     /// Show the left-edge application-menu button.
     pub app_menu: bool,
-    /// View-switcher buttons. Rendered centred in the bar (Middle
-    /// cluster), between the left-edge app-menu and the right-edge
-    /// window controls.
+    /// View-switcher buttons. Rendered in [`ShellBar::views_cluster`]
+    /// (centred by default), between the left-edge app-menu and the
+    /// right-edge window controls.
     pub views: Vec<ShellView>,
     /// Currently active view id, highlighted in the switcher. Updated
     /// automatically when the bar render reports a
     /// [`ShellEvent::ViewSelected`].
     pub active: Option<&'static str>,
+    /// Where along the top bar the tab/view switcher sits. Default:
+    /// [`RibbonCluster::Middle`] (the center zone). Apps may move it to
+    /// `Start` or `End`; the app-menu and window controls keep their
+    /// edges either way.
+    pub views_cluster: RibbonCluster,
 }
 
 impl Default for ShellBar {
@@ -85,6 +90,7 @@ impl Default for ShellBar {
             app_menu: true,
             views: Vec::new(),
             active: None,
+            views_cluster: RibbonCluster::Middle,
         }
     }
 }
@@ -197,7 +203,11 @@ impl ShellBar {
         }
 
         let mut view_items: Vec<RibbonSlotItem> = Vec::new();
-        for view in &self.views {
+        // A single-tab app shows NO tab chrome: with nothing to switch
+        // between, a lone highlighted icon is dead UI, so the switcher
+        // renders only when there are 2+ views to pick from.
+        let show_switcher = self.views.len() > 1;
+        for view in self.views.iter().filter(|_| show_switcher) {
             let mut item = RibbonSlotItem::featureful(
                 view.id,
                 view.icon,
@@ -227,8 +237,9 @@ impl ShellBar {
             items: start_items,
         }];
 
-        // The view switcher rides the Middle cluster so it sits centred
-        // in the bar, independent of the app-menu and window controls.
+        // The view switcher rides `views_cluster` — Middle by default so
+        // it sits centred in the bar, but apps can dock it Start/End;
+        // the app-menu and window controls keep their edges either way.
         if !view_items.is_empty() {
             ribbons.push(ResolvedSlotRibbon {
                 id: MaraId::new(TOP_BAR_VIEWS_CHROME_ID),
@@ -237,7 +248,7 @@ impl ShellBar {
                 edge: RibbonEdge::Top,
                 role: RibbonRole::Icon,
                 mode: RibbonMode::ThreeSided,
-                cluster: RibbonCluster::Middle,
+                cluster: self.views_cluster,
                 accepts: &[],
                 items: view_items,
             });
@@ -260,6 +271,60 @@ mod tests {
     /// Rendering a bar with an app-menu + views must build valid slot
     /// items (non-empty label/tooltip) and not panic. Regression for
     /// the empty-tooltip assert that crashed the native demo.
+    /// A single-tab app shows no tab chrome: with nothing to switch
+    /// between, the switcher ribbon must not be emitted at all.
+    #[test]
+    fn single_view_bar_emits_no_switcher() {
+        let bar = ShellBar {
+            views: vec![ShellView::new("v.only", "cube", "Only")],
+            active: Some("v.only"),
+            ..Default::default()
+        };
+        let ribbons = bar.build_ribbons();
+        assert!(
+            !ribbons
+                .iter()
+                .any(|ribbon| ribbon.chrome_id == Some(TOP_BAR_VIEWS_CHROME_ID)),
+            "one view => no switcher ribbon"
+        );
+
+        let two = ShellBar {
+            views: vec![
+                ShellView::new("v.a", "cube", "A"),
+                ShellView::new("v.b", "pen", "B"),
+            ],
+            ..Default::default()
+        };
+        assert!(
+            two.build_ribbons()
+                .iter()
+                .any(|ribbon| ribbon.chrome_id == Some(TOP_BAR_VIEWS_CHROME_ID)),
+            "two views => switcher present"
+        );
+    }
+
+    /// The switcher rides `views_cluster` — Middle by default, movable
+    /// to Start/End by the app.
+    #[test]
+    fn switcher_cluster_is_configurable_default_middle() {
+        let mut bar = ShellBar {
+            views: vec![
+                ShellView::new("v.a", "cube", "A"),
+                ShellView::new("v.b", "pen", "B"),
+            ],
+            ..Default::default()
+        };
+        let cluster_of = |bar: &ShellBar| {
+            bar.build_ribbons()
+                .into_iter()
+                .find(|ribbon| ribbon.chrome_id == Some(TOP_BAR_VIEWS_CHROME_ID))
+                .map(|ribbon| ribbon.cluster)
+        };
+        assert_eq!(cluster_of(&bar), Some(RibbonCluster::Middle));
+        bar.views_cluster = RibbonCluster::End;
+        assert_eq!(cluster_of(&bar), Some(RibbonCluster::End));
+    }
+
     #[test]
     fn shell_bar_renders_without_panicking() {
         let bar = ShellBar {
