@@ -68,7 +68,7 @@ impl Default for VectorTileCache {
 
 pub(crate) fn paint_vector_basemap(
     ui: &mut egui::Ui,
-    rect: egui::Rect,
+    rect: MaraRect,
     viewport: MapViewport,
     cache: &mut VectorTileCache,
     fast_mode: bool,
@@ -78,9 +78,9 @@ pub(crate) fn paint_vector_basemap(
     render_paint_cmd(
         ui.painter(),
         PaintCmd::RectFilled {
-            rect: rect.into(),
+            rect,
             corner: CornerRadius::ZERO,
-            fill: palette.background.into(),
+            fill: palette.background,
         },
     );
 
@@ -127,7 +127,7 @@ pub(crate) fn paint_vector_basemap(
 pub(crate) fn prewarm_vector_basemap(
     ctx: &egui::Context,
     viewport: MapViewport,
-    size: egui::Vec2,
+    size: MaraVec2,
     cache: &mut VectorTileCache,
 ) {
     let cache_changed = cache.poll_finished();
@@ -142,10 +142,10 @@ pub(crate) fn prewarm_vector_basemap(
 }
 
 pub(crate) fn hit_test_vector_feature(
-    rect: egui::Rect,
+    rect: MaraRect,
     viewport: MapViewport,
     cache: &VectorTileCache,
-    pos: egui::Pos2,
+    pos: MaraPos2,
 ) -> Option<MapFeatureInfo> {
     let visible_tiles = visible_tile_keys(viewport, rect.size());
     let mut best: Option<FeatureHit> = None;
@@ -184,7 +184,7 @@ pub(crate) fn hit_test_vector_feature(
     best.map(|hit| hit.info)
 }
 
-fn visible_tile_keys(viewport: MapViewport, size: egui::Vec2) -> Vec<TileKey> {
+fn visible_tile_keys(viewport: MapViewport, size: MaraVec2) -> Vec<TileKey> {
     let z = viewport.zoom.floor().clamp(0.0, MAX_SOURCE_ZOOM) as u8;
     let zf = f64::from(z);
     let scale = 2.0_f64.powf(viewport.zoom - zf);
@@ -277,12 +277,12 @@ fn interactive_priority(layer: &str, feature: &DecodedFeature) -> i32 {
 }
 
 fn hit_score(
-    rect: egui::Rect,
+    rect: MaraRect,
     viewport: MapViewport,
     key: TileKey,
     layer: &DecodedLayer,
     feature: &DecodedFeature,
-    pos: egui::Pos2,
+    pos: MaraPos2,
 ) -> Option<PathHit> {
     match feature.geometry_type {
         GeometryType::Point | GeometryType::Unknown => None,
@@ -337,7 +337,7 @@ struct PathHit {
 
 #[allow(clippy::too_many_arguments)]
 fn feature_info(
-    rect: egui::Rect,
+    rect: MaraRect,
     viewport: MapViewport,
     cache: &VectorTileCache,
     visible_tiles: &[TileKey],
@@ -378,13 +378,13 @@ fn feature_info(
 
 #[derive(Clone)]
 struct CandidatePath {
-    screen: Vec<egui::Pos2>,
+    screen: Vec<MaraPos2>,
     geo: Vec<GeoPosition>,
 }
 
 #[allow(clippy::too_many_arguments)]
 fn connected_feature_geo_paths(
-    rect: egui::Rect,
+    rect: MaraRect,
     viewport: MapViewport,
     cache: &VectorTileCache,
     visible_tiles: &[TileKey],
@@ -411,7 +411,7 @@ fn connected_feature_geo_paths(
 
 #[allow(clippy::too_many_arguments)]
 fn connected_feature_paths(
-    rect: egui::Rect,
+    rect: MaraRect,
     viewport: MapViewport,
     cache: &VectorTileCache,
     visible_tiles: &[TileKey],
@@ -464,12 +464,12 @@ fn connected_feature_paths(
     selected
 }
 
-fn same_screen_path(a: &[egui::Pos2], b: &[egui::Pos2]) -> bool {
+fn same_screen_path(a: &[MaraPos2], b: &[MaraPos2]) -> bool {
     a.len() == b.len() && a.iter().zip(b).all(|(a, b)| a.distance(*b) <= f32::EPSILON)
 }
 
 fn matching_candidate_paths(
-    rect: egui::Rect,
+    rect: MaraRect,
     viewport: MapViewport,
     cache: &VectorTileCache,
     visible_tiles: &[TileKey],
@@ -519,7 +519,7 @@ fn same_selectable_feature(a: &DecodedFeature, b: &DecodedFeature) -> bool {
     }
 }
 
-fn paths_touch(a: &[egui::Pos2], b: &[egui::Pos2], tolerance: f32) -> bool {
+fn paths_touch(a: &[MaraPos2], b: &[MaraPos2], tolerance: f32) -> bool {
     if a.len() < 2 || b.len() < 2 {
         return false;
     }
@@ -532,18 +532,18 @@ fn paths_touch(a: &[egui::Pos2], b: &[egui::Pos2], tolerance: f32) -> bool {
             .any(|point| distance_to_path(*point, a) <= tolerance)
 }
 
-fn distance_to_path(point: egui::Pos2, path: &[egui::Pos2]) -> f32 {
+fn distance_to_path(point: MaraPos2, path: &[MaraPos2]) -> f32 {
     path.windows(2)
         .map(|w| distance_to_segment(point, w[0], w[1]))
         .min_by(f32::total_cmp)
         .unwrap_or(f32::INFINITY)
 }
 
-fn path_bounds(points: &[egui::Pos2]) -> egui::Rect {
+fn path_bounds(points: &[MaraPos2]) -> MaraRect {
     let Some(first) = points.first().copied() else {
-        return egui::Rect::NOTHING;
+        return MaraRect::NOTHING;
     };
-    let mut bounds = egui::Rect::from_min_max(first, first);
+    let mut bounds = MaraRect::from_min_max(first, first);
     for point in &points[1..] {
         bounds.min.x = bounds.min.x.min(point.x);
         bounds.min.y = bounds.min.y.min(point.y);
@@ -753,7 +753,7 @@ fn fetch_tile(key: TileKey) -> Result<Vec<u8>, String> {
 #[allow(clippy::too_many_arguments)]
 fn paint_tile_pass(
     painter: &egui::Painter,
-    rect: egui::Rect,
+    rect: MaraRect,
     viewport: MapViewport,
     key: TileKey,
     tile: &DecodedVectorTile,
@@ -809,7 +809,7 @@ fn paint_tile_pass(
                             key,
                             layer,
                             feature,
-                            egui::Stroke::new(0.6, palette.building_outline),
+                            MaraStroke::new(0.6, palette.building_outline),
                         );
                     }
                 }
@@ -902,53 +902,53 @@ struct LabelState {
 
 #[derive(Clone, Copy)]
 struct MapPalette {
-    background: egui::Color32,
-    land_default: egui::Color32,
-    forest: egui::Color32,
-    grass: egui::Color32,
-    scrub: egui::Color32,
-    sand: egui::Color32,
-    wetland: egui::Color32,
-    ice: egui::Color32,
-    residential: egui::Color32,
-    commercial: egui::Color32,
-    industrial: egui::Color32,
-    education: egui::Color32,
-    hospital: egui::Color32,
-    cemetery: egui::Color32,
-    farmland: egui::Color32,
-    park: egui::Color32,
-    aeroway_fill: egui::Color32,
-    water: egui::Color32,
-    water_line: egui::Color32,
-    building: egui::Color32,
-    building_outline: egui::Color32,
-    building_side: egui::Color32,
-    boundary: egui::Color32,
-    aeroway_line: egui::Color32,
-    label: egui::Color32,
-    label_secondary: egui::Color32,
-    label_halo: egui::Color32,
-    water_label: egui::Color32,
-    road_default: egui::Color32,
-    road_minor: egui::Color32,
-    road_medium: egui::Color32,
-    road_major: egui::Color32,
-    motorway: egui::Color32,
-    trunk: egui::Color32,
-    rail: egui::Color32,
-    road_casing: egui::Color32,
-    major_casing: egui::Color32,
-    rail_casing: egui::Color32,
+    background: MaraColor32,
+    land_default: MaraColor32,
+    forest: MaraColor32,
+    grass: MaraColor32,
+    scrub: MaraColor32,
+    sand: MaraColor32,
+    wetland: MaraColor32,
+    ice: MaraColor32,
+    residential: MaraColor32,
+    commercial: MaraColor32,
+    industrial: MaraColor32,
+    education: MaraColor32,
+    hospital: MaraColor32,
+    cemetery: MaraColor32,
+    farmland: MaraColor32,
+    park: MaraColor32,
+    aeroway_fill: MaraColor32,
+    water: MaraColor32,
+    water_line: MaraColor32,
+    building: MaraColor32,
+    building_outline: MaraColor32,
+    building_side: MaraColor32,
+    boundary: MaraColor32,
+    aeroway_line: MaraColor32,
+    label: MaraColor32,
+    label_secondary: MaraColor32,
+    label_halo: MaraColor32,
+    water_label: MaraColor32,
+    road_default: MaraColor32,
+    road_minor: MaraColor32,
+    road_medium: MaraColor32,
+    road_major: MaraColor32,
+    motorway: MaraColor32,
+    trunk: MaraColor32,
+    rail: MaraColor32,
+    road_casing: MaraColor32,
+    major_casing: MaraColor32,
+    rail_casing: MaraColor32,
 }
 
 impl MapPalette {
     fn current() -> Self {
         let theme = mara_core::style::theme();
-        let accent: egui::Color32 = mara_core::style::active_accent().into();
+        let accent = mara_core::style::active_accent();
         if theme.is_light {
             Self {
-                background: theme.palette.bg_window.into(),
+                background: theme.palette.bg_window,
                 land_default: tint(rgba(0xc9, 0xda, 0xb2, 150), accent, 0.055),
                 forest: tint(rgb(0xb7, 0xd2, 0xa3), accent, 0.055),
                 grass: tint(rgb(0xc9, 0xe1, 0xb5), accent, 0.055),
@@ -989,7 +989,7 @@ impl MapPalette {
             }
         } else {
             Self {
-                background: theme.palette.bg_window.into(),
+                background: theme.palette.bg_window,
                 land_default: dark_style(rgba(0x18, 0x1f, 0x23, 238), accent, 0.05),
                 forest: dark_style(rgb(0x20, 0x30, 0x28), accent, 0.24),
                 grass: dark_style(rgb(0x27, 0x35, 0x2b), accent, 0.28),
@@ -1035,13 +1035,13 @@ impl MapPalette {
 #[allow(clippy::too_many_arguments)]
 fn paint_area_fill(
     painter: &egui::Painter,
-    rect: egui::Rect,
+    rect: MaraRect,
     viewport: MapViewport,
     key: TileKey,
     layer: &DecodedLayer,
     feature: &DecodedFeature,
-    fill: Option<egui::Color32>,
-    hole_fill: Option<egui::Color32>,
+    fill: Option<MaraColor32>,
+    hole_fill: Option<MaraColor32>,
 ) {
     for cmd in area_fill_paint_cmds(rect, viewport, key, layer, feature, fill, hole_fill) {
         render_paint_cmd(painter, cmd);
@@ -1049,13 +1049,13 @@ fn paint_area_fill(
 }
 
 fn area_fill_paint_cmds(
-    rect: egui::Rect,
+    rect: MaraRect,
     viewport: MapViewport,
     key: TileKey,
     layer: &DecodedLayer,
     feature: &DecodedFeature,
-    fill: Option<egui::Color32>,
-    hole_fill: Option<egui::Color32>,
+    fill: Option<MaraColor32>,
+    hole_fill: Option<MaraColor32>,
 ) -> Vec<PaintCmd> {
     if feature.geometry_type != GeometryType::Polygon {
         return Vec::new();
@@ -1063,8 +1063,6 @@ fn area_fill_paint_cmds(
     let Some(fill) = fill else {
         return Vec::new();
     };
-    let fill = MaraColor32::from(fill);
-    let hole_fill = hole_fill.map(MaraColor32::from);
     let mut cmds = Vec::new();
 
     let rings = screen_rings_for_feature(feature, layer.extent, key, rect, viewport);
@@ -1084,11 +1082,11 @@ fn area_fill_paint_cmds(
             fill
         };
 
-        if let Some(cmd) = mesh_polygon_paint_cmd(&ring.points, ring_fill.into()) {
+        if let Some(cmd) = mesh_polygon_paint_cmd(&ring.points, ring_fill) {
             cmds.push(cmd);
         } else {
             cmds.push(PaintCmd::Polygon {
-                points: ring.points.into_iter().map(Into::into).collect(),
+                points: ring.points,
                 fill: ring_fill,
                 stroke: MaraStroke::NONE,
             });
@@ -1098,7 +1096,7 @@ fn area_fill_paint_cmds(
 }
 
 struct ScreenRing {
-    points: Vec<egui::Pos2>,
+    points: Vec<MaraPos2>,
     is_hole: bool,
 }
 
@@ -1106,7 +1104,7 @@ fn screen_rings_for_feature(
     feature: &DecodedFeature,
     extent: u32,
     key: TileKey,
-    rect: egui::Rect,
+    rect: MaraRect,
     viewport: MapViewport,
 ) -> Vec<ScreenRing> {
     let mut rings = feature
@@ -1137,7 +1135,7 @@ fn screen_rings_for_feature(
 
 fn paint_building_extrusion(
     painter: &egui::Painter,
-    rect: egui::Rect,
+    rect: MaraRect,
     viewport: MapViewport,
     key: TileKey,
     layer: &DecodedLayer,
@@ -1150,7 +1148,7 @@ fn paint_building_extrusion(
 }
 
 fn building_extrusion_paint_cmds(
-    rect: egui::Rect,
+    rect: MaraRect,
     viewport: MapViewport,
     key: TileKey,
     layer: &DecodedLayer,
@@ -1201,8 +1199,8 @@ fn building_extrusion_paint_cmds(
                 &mut side_indices,
                 a,
                 b,
-                b + top_offset,
-                a + top_offset,
+                offset_point(b, top_offset),
+                offset_point(a, top_offset),
                 palette.building_side,
             );
         }
@@ -1229,7 +1227,7 @@ fn building_extrusion_paint_cmds(
         let roof = ring
             .points
             .iter()
-            .map(|point| *point + top_offset)
+            .map(|point| offset_point(*point, top_offset))
             .collect::<Vec<_>>();
         if let Some(cmd) = mesh_polygon_paint_cmd(&roof, color) {
             cmds.push(cmd);
@@ -1243,26 +1241,31 @@ fn building_extrusion_paint_cmds(
         rect,
         viewport,
         top_offset,
-        egui::Stroke::new(0.65, palette.building_outline),
+        MaraStroke::new(0.65, palette.building_outline),
     ));
     cmds
 }
 
-fn fixed_building_extrusion_offset(height_px: f32) -> egui::Vec2 {
+fn fixed_building_extrusion_offset(height_px: f32) -> MaraVec2 {
     // Use one camera vector for every building fragment. The previous
     // centroid-radial projection made tile-clipped halves lean in different
     // directions, which looked like buildings being split apart.
-    egui::vec2(0.48, -0.78).normalized() * height_px * 0.82
+    let scale = height_px * 0.82 / 0.48_f32.hypot(-0.78);
+    MaraVec2::new(0.48 * scale, -0.78 * scale)
+}
+
+fn offset_point(point: MaraPos2, offset: MaraVec2) -> MaraPos2 {
+    MaraPos2::new(point.x + offset.x, point.y + offset.y)
 }
 
 fn building_roof_outline_paint_cmds(
     feature: &DecodedFeature,
     extent: u32,
     key: TileKey,
-    rect: egui::Rect,
+    rect: MaraRect,
     viewport: MapViewport,
-    top_offset: egui::Vec2,
-    stroke: egui::Stroke,
+    top_offset: MaraVec2,
+    stroke: MaraStroke,
 ) -> Vec<PaintCmd> {
     let mut cmds = Vec::new();
     for path in &feature.paths {
@@ -1274,9 +1277,9 @@ fn building_roof_outline_paint_cmds(
                 continue;
             }
             cmds.push(PaintCmd::Line {
-                a: (a + top_offset).into(),
-                b: (b + top_offset).into(),
-                stroke: stroke.into(),
+                a: offset_point(a, top_offset),
+                b: offset_point(b, top_offset),
+                stroke,
             });
         }
     }
@@ -1293,12 +1296,12 @@ fn is_tile_boundary_edge(a: TilePoint, b: TilePoint, extent: u32) -> bool {
         || (near(a.y, extent) && near(b.y, extent))
 }
 
-fn normalized_screen_ring(points: &[egui::Pos2]) -> Vec<egui::Pos2> {
+fn normalized_screen_ring(points: &[MaraPos2]) -> Vec<MaraPos2> {
     let mut out = Vec::with_capacity(points.len());
     for point in points {
         if out
             .last()
-            .is_none_or(|last: &egui::Pos2| last.distance(*point) > 0.5)
+            .is_none_or(|last: &MaraPos2| last.distance(*point) > 0.5)
         {
             out.push(*point);
         }
@@ -1314,11 +1317,11 @@ fn normalized_screen_ring(points: &[egui::Pos2]) -> Vec<egui::Pos2> {
     out
 }
 
-fn polygon_abs_area(points: &[egui::Pos2]) -> f32 {
+fn polygon_abs_area(points: &[MaraPos2]) -> f32 {
     polygon_signed_area(points).abs()
 }
 
-fn polygon_signed_area(points: &[egui::Pos2]) -> f32 {
+fn polygon_signed_area(points: &[MaraPos2]) -> f32 {
     points
         .iter()
         .zip(points.iter().cycle().skip(1))
@@ -1328,7 +1331,7 @@ fn polygon_signed_area(points: &[egui::Pos2]) -> f32 {
         * 0.5
 }
 
-fn mesh_polygon_paint_cmd(points: &[egui::Pos2], color: egui::Color32) -> Option<PaintCmd> {
+fn mesh_polygon_paint_cmd(points: &[MaraPos2], color: MaraColor32) -> Option<PaintCmd> {
     let triangles = triangulate_polygon(points);
     if triangles.is_empty() {
         return None;
@@ -1344,17 +1347,14 @@ fn mesh_polygon_paint_cmd(points: &[egui::Pos2], color: egui::Color32) -> Option
 fn push_mesh_triangle(
     vertices: &mut Vec<PaintVertex>,
     indices: &mut Vec<u32>,
-    a: egui::Pos2,
-    b: egui::Pos2,
-    c: egui::Pos2,
-    color: egui::Color32,
+    a: MaraPos2,
+    b: MaraPos2,
+    c: MaraPos2,
+    color: MaraColor32,
 ) {
     let start = vertices.len() as u32;
     for pos in [a, b, c] {
-        vertices.push(PaintVertex {
-            pos: pos.into(),
-            color: color.into(),
-        });
+        vertices.push(PaintVertex { pos, color });
     }
     indices.extend_from_slice(&[start, start + 1, start + 2]);
 }
@@ -1362,30 +1362,27 @@ fn push_mesh_triangle(
 fn push_mesh_quad(
     vertices: &mut Vec<PaintVertex>,
     indices: &mut Vec<u32>,
-    a: egui::Pos2,
-    b: egui::Pos2,
-    c: egui::Pos2,
-    d: egui::Pos2,
-    color: egui::Color32,
+    a: MaraPos2,
+    b: MaraPos2,
+    c: MaraPos2,
+    d: MaraPos2,
+    color: MaraColor32,
 ) {
     let start = vertices.len() as u32;
     for pos in [a, b, c, d] {
-        vertices.push(PaintVertex {
-            pos: pos.into(),
-            color: color.into(),
-        });
+        vertices.push(PaintVertex { pos, color });
     }
     indices.extend_from_slice(&[start, start + 1, start + 2, start, start + 2, start + 3]);
 }
 
 fn paint_feature_lines(
     painter: &egui::Painter,
-    rect: egui::Rect,
+    rect: MaraRect,
     viewport: MapViewport,
     key: TileKey,
     layer: &DecodedLayer,
     feature: &DecodedFeature,
-    stroke: egui::Stroke,
+    stroke: MaraStroke,
 ) {
     for cmd in feature_line_paint_cmds(rect, viewport, key, layer, feature, stroke) {
         render_paint_cmd(painter, cmd);
@@ -1393,12 +1390,12 @@ fn paint_feature_lines(
 }
 
 fn feature_line_paint_cmds(
-    rect: egui::Rect,
+    rect: MaraRect,
     viewport: MapViewport,
     key: TileKey,
     layer: &DecodedLayer,
     feature: &DecodedFeature,
-    stroke: egui::Stroke,
+    stroke: MaraStroke,
 ) -> Vec<PaintCmd> {
     if !matches!(
         feature.geometry_type,
@@ -1410,10 +1407,7 @@ fn feature_line_paint_cmds(
     for path in &feature.paths {
         let points = screen_points(path, layer.extent, key, rect, viewport);
         if points.len() >= 2 && path_intersects_rect(&points, rect.expand(stroke.width + 16.0)) {
-            cmds.push(PaintCmd::Polyline {
-                points: points.into_iter().map(Into::into).collect(),
-                stroke: stroke.into(),
-            });
+            cmds.push(PaintCmd::Polyline { points, stroke });
         }
     }
     cmds
@@ -1427,7 +1421,7 @@ fn land_fill_color(
     layer: &str,
     feature: &DecodedFeature,
     palette: &MapPalette,
-) -> Option<egui::Color32> {
+) -> Option<MaraColor32> {
     let class = feature.class();
     match layer {
         "landcover" => match class {
@@ -1459,7 +1453,7 @@ fn water_fill_color(
     layer: &str,
     _feature: &DecodedFeature,
     palette: &MapPalette,
-) -> Option<egui::Color32> {
+) -> Option<MaraColor32> {
     match layer {
         "water" => Some(palette.water),
         _ => None,
@@ -1470,7 +1464,7 @@ fn building_fill_color(
     layer: &str,
     _feature: &DecodedFeature,
     palette: &MapPalette,
-) -> Option<egui::Color32> {
+) -> Option<MaraColor32> {
     (layer == "building").then_some(palette.building)
 }
 
@@ -1479,9 +1473,9 @@ fn transportation_casing(
     feature: &DecodedFeature,
     zoom: f64,
     palette: &MapPalette,
-) -> Option<egui::Stroke> {
+) -> Option<MaraStroke> {
     (layer == "transportation").then(|| {
-        egui::Stroke::new(
+        MaraStroke::new(
             road_width(feature, zoom) + road_casing_width(feature),
             road_casing_color(feature, palette),
         )
@@ -1493,9 +1487,9 @@ fn transportation_stroke(
     feature: &DecodedFeature,
     zoom: f64,
     palette: &MapPalette,
-) -> Option<egui::Stroke> {
+) -> Option<MaraStroke> {
     (layer == "transportation")
-        .then(|| egui::Stroke::new(road_width(feature, zoom), road_fill_color(feature, palette)))
+        .then(|| MaraStroke::new(road_width(feature, zoom), road_fill_color(feature, palette)))
 }
 
 fn overlay_line_stroke(
@@ -1503,10 +1497,10 @@ fn overlay_line_stroke(
     feature: &DecodedFeature,
     zoom: f64,
     palette: &MapPalette,
-) -> Option<egui::Stroke> {
+) -> Option<MaraStroke> {
     let class = feature.class();
     match layer {
-        "waterway" => Some(egui::Stroke::new(
+        "waterway" => Some(MaraStroke::new(
             match class {
                 "river" => 2.6,
                 "canal" => 2.0,
@@ -1515,7 +1509,7 @@ fn overlay_line_stroke(
             },
             palette.water_line,
         )),
-        "boundary" => Some(egui::Stroke::new(
+        "boundary" => Some(MaraStroke::new(
             if feature.prop_i64("admin_level").unwrap_or(99) <= 4 {
                 1.4
             } else {
@@ -1523,7 +1517,7 @@ fn overlay_line_stroke(
             },
             palette.boundary,
         )),
-        "aeroway" if feature.geometry_type == GeometryType::LineString => Some(egui::Stroke::new(
+        "aeroway" if feature.geometry_type == GeometryType::LineString => Some(MaraStroke::new(
             (zoom as f32 - 9.0).clamp(1.0, 4.5),
             palette.aeroway_line,
         )),
@@ -1562,7 +1556,7 @@ fn road_casing_width(feature: &DecodedFeature) -> f32 {
     }
 }
 
-fn road_casing_color(feature: &DecodedFeature, palette: &MapPalette) -> egui::Color32 {
+fn road_casing_color(feature: &DecodedFeature, palette: &MapPalette) -> MaraColor32 {
     match feature.class() {
         "motorway" | "trunk" | "primary" | "secondary" | "tertiary" => palette.major_casing,
         "rail" | "transit" | "light_rail" | "subway" => palette.rail_casing,
@@ -1570,7 +1564,7 @@ fn road_casing_color(feature: &DecodedFeature, palette: &MapPalette) -> egui::Co
     }
 }
 
-fn road_fill_color(feature: &DecodedFeature, palette: &MapPalette) -> egui::Color32 {
+fn road_fill_color(feature: &DecodedFeature, palette: &MapPalette) -> MaraColor32 {
     match feature.class() {
         "motorway" => palette.motorway,
         "trunk" => palette.trunk,
@@ -1587,7 +1581,7 @@ fn road_fill_color(feature: &DecodedFeature, palette: &MapPalette) -> egui::Colo
 #[allow(clippy::too_many_arguments)]
 fn paint_label(
     painter: &egui::Painter,
-    rect: egui::Rect,
+    rect: MaraRect,
     viewport: MapViewport,
     key: TileKey,
     layer: &DecodedLayer,
@@ -1612,15 +1606,7 @@ fn paint_label(
         painter,
         &TextMeasureSpec::new(text.clone(), style.size, false),
     );
-    for cmd in label_paint_cmds(
-        &layer.name,
-        pos.into(),
-        text,
-        &style,
-        measured_size,
-        rect.into(),
-        labels,
-    ) {
+    for cmd in label_paint_cmds(&layer.name, pos, text, &style, measured_size, rect, labels) {
         render_paint_cmd(painter, cmd);
     }
 }
@@ -1653,7 +1639,7 @@ fn label_paint_cmds(
             anchor: MaraAlign2::CENTER_CENTER,
             text: text.clone(),
             size: style.size,
-            color: style.halo.into(),
+            color: style.halo,
             mono: false,
         },
         PaintCmd::Text {
@@ -1661,7 +1647,7 @@ fn label_paint_cmds(
             anchor: MaraAlign2::CENTER_CENTER,
             text,
             size: style.size,
-            color: style.color.into(),
+            color: style.color,
             mono: false,
         },
     ]
@@ -1669,8 +1655,8 @@ fn label_paint_cmds(
 
 struct LabelStyle {
     size: f32,
-    color: egui::Color32,
-    halo: egui::Color32,
+    color: MaraColor32,
+    halo: MaraColor32,
 }
 
 fn label_style(
@@ -1727,9 +1713,9 @@ fn label_position(
     feature: &DecodedFeature,
     extent: u32,
     key: TileKey,
-    rect: egui::Rect,
+    rect: MaraRect,
     viewport: MapViewport,
-) -> Option<egui::Pos2> {
+) -> Option<MaraPos2> {
     match feature.geometry_type {
         GeometryType::Point => feature
             .paths
@@ -1762,15 +1748,15 @@ fn screen_point(
     point: TilePoint,
     extent: u32,
     key: TileKey,
-    rect: egui::Rect,
+    rect: MaraRect,
     viewport: MapViewport,
-) -> egui::Pos2 {
+) -> MaraPos2 {
     let scale = 2.0_f64.powf(viewport.zoom - f64::from(key.z));
     let center_world = geo_to_world(viewport.center, f64::from(key.z));
     let extent = f64::from(extent.max(1));
     let world_x = f64::from(key.x) * TILE_SIZE + f64::from(point.x) / extent * TILE_SIZE;
     let world_y = f64::from(key.y) * TILE_SIZE + f64::from(point.y) / extent * TILE_SIZE;
-    egui::pos2(
+    MaraPos2::new(
         rect.center().x + ((world_x - center_world.0) * scale) as f32,
         rect.center().y + ((world_y - center_world.1) * scale) as f32,
     )
@@ -1780,7 +1766,7 @@ fn path_screen_len(
     path: &[TilePoint],
     extent: u32,
     key: TileKey,
-    rect: egui::Rect,
+    rect: MaraRect,
     viewport: MapViewport,
 ) -> f32 {
     let points = screen_points(path, extent, key, rect, viewport);
@@ -1791,9 +1777,9 @@ fn path_midpoint(
     path: &[TilePoint],
     extent: u32,
     key: TileKey,
-    rect: egui::Rect,
+    rect: MaraRect,
     viewport: MapViewport,
-) -> Option<egui::Pos2> {
+) -> Option<MaraPos2> {
     let points = screen_points(path, extent, key, rect, viewport);
     let total = points.windows(2).map(|w| w[0].distance(w[1])).sum::<f32>();
     if total <= f32::EPSILON {
@@ -1804,46 +1790,50 @@ fn path_midpoint(
         let segment = w[0].distance(w[1]);
         if walked + segment >= total * 0.5 {
             let t = (total * 0.5 - walked) / segment.max(f32::EPSILON);
-            return Some(w[0].lerp(w[1], t));
+            return Some(MaraPos2::new(
+                w[0].x * (1.0 - t) + w[1].x * t,
+                w[0].y * (1.0 - t) + w[1].y * t,
+            ));
         }
         walked += segment;
     }
     points.last().copied()
 }
 
-fn polygon_centroid(points: &[egui::Pos2]) -> Option<egui::Pos2> {
+fn polygon_centroid(points: &[MaraPos2]) -> Option<MaraPos2> {
     if points.is_empty() {
         return None;
     }
-    let mut sum = egui::Vec2::ZERO;
+    let mut sum = MaraVec2::ZERO;
     for point in points {
-        sum += point.to_vec2();
+        sum.x += point.x;
+        sum.y += point.y;
     }
-    Some(egui::pos2(
+    Some(MaraPos2::new(
         sum.x / points.len() as f32,
         sum.y / points.len() as f32,
     ))
 }
 
-fn rgb(r: u8, g: u8, b: u8) -> egui::Color32 {
-    egui::Color32::from_rgb(r, g, b)
+fn rgb(r: u8, g: u8, b: u8) -> MaraColor32 {
+    MaraColor32::from_rgb(r, g, b)
 }
 
-fn rgba(r: u8, g: u8, b: u8, a: u8) -> egui::Color32 {
-    egui::Color32::from_rgba_unmultiplied(r, g, b, a)
+fn rgba(r: u8, g: u8, b: u8, a: u8) -> MaraColor32 {
+    MaraColor32::from_rgba_unmultiplied(r, g, b, a)
 }
 
-fn tint(base: egui::Color32, accent: egui::Color32, amount: f32) -> egui::Color32 {
+fn tint(base: MaraColor32, accent: MaraColor32, amount: f32) -> MaraColor32 {
     let muted = desaturate_color(base, MAP_DESATURATION);
     lerp_color(muted, accent, amount * MAP_ACCENT_TINT_SCALE)
 }
 
-fn dark_style(base: egui::Color32, accent: egui::Color32, amount: f32) -> egui::Color32 {
+fn dark_style(base: MaraColor32, accent: MaraColor32, amount: f32) -> MaraColor32 {
     let softened = desaturate_color(base, 0.18);
     lerp_color(softened, desaturate_color(accent, 0.58), amount)
 }
 
-fn desaturate_color(color: egui::Color32, amount: f32) -> egui::Color32 {
+fn desaturate_color(color: MaraColor32, amount: f32) -> MaraColor32 {
     let amount = amount.clamp(0.0, 1.0);
     let luma = (0.2126 * f32::from(color.r())
         + 0.7152 * f32::from(color.g())
@@ -1852,15 +1842,15 @@ fn desaturate_color(color: egui::Color32, amount: f32) -> egui::Color32 {
     .clamp(0.0, 255.0) as u8;
     lerp_color(
         color,
-        egui::Color32::from_rgba_unmultiplied(luma, luma, luma, color.a()),
+        MaraColor32::from_rgba_unmultiplied(luma, luma, luma, color.a()),
         amount,
     )
 }
 
-fn lerp_color(a: egui::Color32, b: egui::Color32, t: f32) -> egui::Color32 {
+fn lerp_color(a: MaraColor32, b: MaraColor32, t: f32) -> MaraColor32 {
     let t = t.clamp(0.0, 1.0);
     let blend = |x: u8, y: u8| ((x as f32) * (1.0 - t) + (y as f32) * t).round() as u8;
-    egui::Color32::from_rgba_unmultiplied(
+    MaraColor32::from_rgba_unmultiplied(
         blend(a.r(), b.r()),
         blend(a.g(), b.g()),
         blend(a.b(), b.b()),
@@ -1877,9 +1867,9 @@ fn screen_points(
     path: &[TilePoint],
     extent: u32,
     key: TileKey,
-    rect: egui::Rect,
+    rect: MaraRect,
     viewport: MapViewport,
-) -> Vec<egui::Pos2> {
+) -> Vec<MaraPos2> {
     // Drop consecutive points that project to within < ~0.5 pixels of
     // the previous kept point. MVT geometry is encoded at extent 4096
     // and contains many runs of densely packed points (curves, road
@@ -1889,11 +1879,11 @@ fn screen_points(
     let scale = 2.0_f64.powf(viewport.zoom - f64::from(key.z));
     let center_world = geo_to_world(viewport.center, f64::from(key.z));
     let extent = f64::from(extent.max(1));
-    let mut out: Vec<egui::Pos2> = Vec::with_capacity(path.len());
+    let mut out: Vec<MaraPos2> = Vec::with_capacity(path.len());
     for point in path {
         let world_x = f64::from(key.x) * TILE_SIZE + f64::from(point.x) / extent * TILE_SIZE;
         let world_y = f64::from(key.y) * TILE_SIZE + f64::from(point.y) / extent * TILE_SIZE;
-        let p = egui::pos2(
+        let p = MaraPos2::new(
             rect.center().x + ((world_x - center_world.0) * scale) as f32,
             rect.center().y + ((world_y - center_world.1) * scale) as f32,
         );
@@ -1913,9 +1903,9 @@ fn screen_points_raw(
     path: &[TilePoint],
     extent: u32,
     key: TileKey,
-    rect: egui::Rect,
+    rect: MaraRect,
     viewport: MapViewport,
-) -> Vec<egui::Pos2> {
+) -> Vec<MaraPos2> {
     let scale = 2.0_f64.powf(viewport.zoom - f64::from(key.z));
     let center_world = geo_to_world(viewport.center, f64::from(key.z));
     let extent = f64::from(extent.max(1));
@@ -1923,7 +1913,7 @@ fn screen_points_raw(
         .map(|point| {
             let world_x = f64::from(key.x) * TILE_SIZE + f64::from(point.x) / extent * TILE_SIZE;
             let world_y = f64::from(key.y) * TILE_SIZE + f64::from(point.y) / extent * TILE_SIZE;
-            egui::pos2(
+            MaraPos2::new(
                 rect.center().x + ((world_x - center_world.0) * scale) as f32,
                 rect.center().y + ((world_y - center_world.1) * scale) as f32,
             )
@@ -1931,10 +1921,10 @@ fn screen_points_raw(
         .collect()
 }
 
-fn path_intersects_rect(points: &[egui::Pos2], rect: egui::Rect) -> bool {
+fn path_intersects_rect(points: &[MaraPos2], rect: MaraRect) -> bool {
     let Some(mut bounds) = points
         .first()
-        .map(|point| egui::Rect::from_min_max(*point, *point))
+        .map(|point| MaraRect::from_min_max(*point, *point))
     else {
         return false;
     };
@@ -1947,7 +1937,7 @@ fn path_intersects_rect(points: &[egui::Pos2], rect: egui::Rect) -> bool {
     bounds.intersects(rect)
 }
 
-fn point_in_polygon(pos: egui::Pos2, points: &[egui::Pos2]) -> bool {
+fn point_in_polygon(pos: MaraPos2, points: &[MaraPos2]) -> bool {
     if points.len() < 3 {
         return false;
     }
@@ -1972,14 +1962,14 @@ fn point_in_polygon(pos: egui::Pos2, points: &[egui::Pos2]) -> bool {
     inside
 }
 
-fn distance_to_segment(p: egui::Pos2, a: egui::Pos2, b: egui::Pos2) -> f32 {
-    let ab = b - a;
-    let denom = ab.dot(ab);
+fn distance_to_segment(p: MaraPos2, a: MaraPos2, b: MaraPos2) -> f32 {
+    let ab = MaraVec2::new(b.x - a.x, b.y - a.y);
+    let denom = ab.x * ab.x + ab.y * ab.y;
     if denom <= f32::EPSILON {
         return p.distance(a);
     }
-    let t = ((p - a).dot(ab) / denom).clamp(0.0, 1.0);
-    p.distance(a + ab * t)
+    let t = (((p.x - a.x) * ab.x + (p.y - a.y) * ab.y) / denom).clamp(0.0, 1.0);
+    p.distance(MaraPos2::new(a.x + ab.x * t, a.y + ab.y * t))
 }
 
 #[derive(Debug)]
@@ -2407,8 +2397,8 @@ impl<'a> RawReader<'a> {
 mod tests {
     use super::*;
 
-    fn test_rect() -> egui::Rect {
-        egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(256.0, 256.0))
+    fn test_rect() -> MaraRect {
+        MaraRect::from_min_size(MaraPos2::new(0.0, 0.0), MaraVec2::new(256.0, 256.0))
     }
 
     fn test_viewport() -> MapViewport {
@@ -2521,8 +2511,8 @@ mod tests {
             test_tile_key(),
             &layer,
             &feature,
-            Some(egui::Color32::from_rgb(10, 20, 30)),
-            Some(egui::Color32::from_rgb(1, 2, 3)),
+            Some(MaraColor32::from_rgb(10, 20, 30)),
+            Some(MaraColor32::from_rgb(1, 2, 3)),
         );
 
         assert_eq!(cmds.len(), 1);
@@ -2539,8 +2529,8 @@ mod tests {
     fn mvt_area_fills_use_opposite_winding_rings_as_holes() {
         let feature = polygon_with_hole_feature();
         let layer = test_layer(polygon_with_hole_feature());
-        let fill = egui::Color32::from_rgb(10, 20, 30);
-        let hole_fill = egui::Color32::from_rgb(1, 2, 3);
+        let fill = MaraColor32::from_rgb(10, 20, 30);
+        let hole_fill = MaraColor32::from_rgb(1, 2, 3);
 
         let cmds = area_fill_paint_cmds(
             test_rect(),
@@ -2556,12 +2546,12 @@ mod tests {
         assert!(matches!(
             &cmds[0],
             PaintCmd::Mesh { vertices, .. }
-                if vertices.iter().all(|vertex| vertex.color == MaraColor32::from(fill))
+                if vertices.iter().all(|vertex| vertex.color == fill)
         ));
         assert!(matches!(
             &cmds[1],
             PaintCmd::Mesh { vertices, .. }
-                if vertices.iter().all(|vertex| vertex.color == MaraColor32::from(hole_fill))
+                if vertices.iter().all(|vertex| vertex.color == hole_fill)
         ));
     }
 
@@ -2586,14 +2576,14 @@ mod tests {
             PaintCmd::Mesh { vertices, indices }
                 if vertices.len() >= 4
                     && indices.len() >= 6
-                    && vertices.iter().all(|vertex| vertex.color == MaraColor32::from(palette.building_side))
+                    && vertices.iter().all(|vertex| vertex.color == palette.building_side)
         )));
         assert!(cmds.iter().any(|cmd| matches!(
             cmd,
             PaintCmd::Mesh { vertices, indices }
                 if vertices.len() >= 3
                     && indices.len() >= 3
-                    && vertices.iter().all(|vertex| vertex.color == MaraColor32::from(palette.building))
+                    && vertices.iter().all(|vertex| vertex.color == palette.building)
         )));
         assert!(cmds.iter().any(|cmd| matches!(
             cmd,
@@ -2612,7 +2602,7 @@ mod tests {
             test_tile_key(),
             &layer,
             &feature,
-            egui::Stroke::new(3.0, egui::Color32::from_rgb(40, 50, 60)),
+            MaraStroke::new(3.0, MaraColor32::from_rgb(40, 50, 60)),
         );
 
         assert_eq!(cmds.len(), 1);
@@ -2628,8 +2618,8 @@ mod tests {
     fn mvt_labels_lower_to_mara_text_commands() {
         let style = LabelStyle {
             size: 12.0,
-            color: egui::Color32::from_rgb(70, 80, 90),
-            halo: egui::Color32::from_rgb(1, 2, 3),
+            color: MaraColor32::from_rgb(70, 80, 90),
+            halo: MaraColor32::from_rgb(1, 2, 3),
         };
         let mut labels = LabelState::default();
 
@@ -2639,7 +2629,7 @@ mod tests {
             "AMSTERDAM".to_owned(),
             &style,
             MaraVec2::new(80.0, 16.0),
-            test_rect().into(),
+            test_rect(),
             &mut labels,
         );
 
@@ -2654,7 +2644,7 @@ mod tests {
                 size,
                 color,
                 mono,
-            } if *pos == egui::pos2(129.0, 129.0).into()
+            } if *pos == MaraPos2::new(129.0, 129.0)
                 && *anchor == MaraAlign2::CENTER_CENTER
                 && text == "AMSTERDAM"
                 && *size == 12.0
@@ -2670,7 +2660,7 @@ mod tests {
                 size,
                 color,
                 mono,
-            } if *pos == egui::pos2(128.0, 128.0).into()
+            } if *pos == MaraPos2::new(128.0, 128.0)
                 && *anchor == MaraAlign2::CENTER_CENTER
                 && text == "AMSTERDAM"
                 && *size == 12.0

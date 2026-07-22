@@ -15,8 +15,8 @@ use mara_core::{
     WorkspaceCtx,
     paint::{PaintCmd, TextFamily},
     vocab::{
-        Align2 as MaraAlign2, Color32 as MaraColor32, Id as MaraId, Rect as MaraRect,
-        Stroke as MaraStroke, Vec2 as MaraVec2,
+        Align2 as MaraAlign2, Color32 as MaraColor32, Id as MaraId, Pos2 as MaraPos2,
+        Rect as MaraRect, Stroke as MaraStroke, Vec2 as MaraVec2,
     },
 };
 
@@ -533,7 +533,7 @@ impl MapSurface {
         if size.x < 16.0 || size.y < 16.0 {
             return;
         }
-        mvt::prewarm_vector_basemap(ctx, self.viewport, size.into(), &mut self.vector_tiles);
+        mvt::prewarm_vector_basemap(ctx, self.viewport, size, &mut self.vector_tiles);
     }
 }
 
@@ -695,7 +695,7 @@ fn paint_map(
 
     mvt::paint_vector_basemap(
         ui,
-        rect,
+        rect.into(),
         surface.viewport,
         &mut surface.vector_tiles,
         fast_basemap,
@@ -745,9 +745,12 @@ fn paint_map(
             }
             selected = Some(hit);
         } else if interaction.tool == MapTool::Select && interaction.basemap_selection_enabled {
-            if let Some(feature) =
-                mvt::hit_test_vector_feature(rect, surface.viewport, &surface.vector_tiles, pos)
-            {
+            if let Some(feature) = mvt::hit_test_vector_feature(
+                rect.into(),
+                surface.viewport,
+                &surface.vector_tiles,
+                pos.into(),
+            ) {
                 interaction.select_feature(feature);
                 selected = None;
             } else if let Some(geo) = clicked_position {
@@ -1239,7 +1242,7 @@ fn normalized_polygon_points(points: &[egui::Pos2]) -> Vec<egui::Pos2> {
     out
 }
 
-pub(crate) fn triangulate_polygon(points: &[egui::Pos2]) -> Vec<[egui::Pos2; 3]> {
+pub(crate) fn triangulate_polygon(points: &[MaraPos2]) -> Vec<[MaraPos2; 3]> {
     if points.len() < 3 {
         return Vec::new();
     }
@@ -1286,7 +1289,7 @@ pub(crate) fn triangulate_polygon(points: &[egui::Pos2]) -> Vec<[egui::Pos2; 3]>
     triangles
 }
 
-fn is_convex_polygon(points: &[egui::Pos2]) -> bool {
+fn is_convex_polygon(points: &[MaraPos2]) -> bool {
     if points.len() < 4 {
         return true;
     }
@@ -1296,8 +1299,8 @@ fn is_convex_polygon(points: &[egui::Pos2]) -> bool {
         let a = points[i];
         let b = points[(i + 1) % points.len()];
         let c = points[(i + 2) % points.len()];
-        let ab = b - a;
-        let bc = c - b;
+        let ab = MaraVec2::new(b.x - a.x, b.y - a.y);
+        let bc = MaraVec2::new(c.x - b.x, c.y - b.y);
         let cross = ab.x * bc.y - ab.y * bc.x;
         if cross.abs() <= 1.0e-4 {
             continue;
@@ -1311,7 +1314,7 @@ fn is_convex_polygon(points: &[egui::Pos2]) -> bool {
     true
 }
 
-fn is_ear(prev: usize, curr: usize, next: usize, polygon: &[usize], points: &[egui::Pos2]) -> bool {
+fn is_ear(prev: usize, curr: usize, next: usize, polygon: &[usize], points: &[MaraPos2]) -> bool {
     let a = points[prev];
     let b = points[curr];
     let c = points[next];
@@ -1323,7 +1326,7 @@ fn is_ear(prev: usize, curr: usize, next: usize, polygon: &[usize], points: &[eg
     })
 }
 
-fn signed_area(points: &[egui::Pos2]) -> f32 {
+fn signed_area(points: &[MaraPos2]) -> f32 {
     points
         .iter()
         .zip(points.iter().cycle().skip(1))
@@ -1333,13 +1336,13 @@ fn signed_area(points: &[egui::Pos2]) -> f32 {
         * 0.5
 }
 
-fn cross(a: egui::Pos2, b: egui::Pos2, c: egui::Pos2) -> f32 {
-    let ab = b - a;
-    let ac = c - a;
+fn cross(a: MaraPos2, b: MaraPos2, c: MaraPos2) -> f32 {
+    let ab = MaraVec2::new(b.x - a.x, b.y - a.y);
+    let ac = MaraVec2::new(c.x - a.x, c.y - a.y);
     ab.x * ac.y - ab.y * ac.x
 }
 
-fn point_in_triangle(p: egui::Pos2, a: egui::Pos2, b: egui::Pos2, c: egui::Pos2) -> bool {
+fn point_in_triangle(p: MaraPos2, a: MaraPos2, b: MaraPos2, c: MaraPos2) -> bool {
     let ab = cross(a, b, p);
     let bc = cross(b, c, p);
     let ca = cross(c, a, p);
@@ -1827,14 +1830,14 @@ mod tests {
     #[test]
     fn triangulates_concave_c_shape_without_filling_notch() {
         let points = vec![
-            egui::pos2(0.0, 0.0),
-            egui::pos2(100.0, 0.0),
-            egui::pos2(100.0, 25.0),
-            egui::pos2(30.0, 25.0),
-            egui::pos2(30.0, 75.0),
-            egui::pos2(100.0, 75.0),
-            egui::pos2(100.0, 100.0),
-            egui::pos2(0.0, 100.0),
+            MaraPos2::new(0.0, 0.0),
+            MaraPos2::new(100.0, 0.0),
+            MaraPos2::new(100.0, 25.0),
+            MaraPos2::new(30.0, 25.0),
+            MaraPos2::new(30.0, 75.0),
+            MaraPos2::new(100.0, 75.0),
+            MaraPos2::new(100.0, 100.0),
+            MaraPos2::new(0.0, 100.0),
         ];
         let triangles = triangulate_polygon(&points);
         assert_eq!(triangles.len(), points.len() - 2);
@@ -1844,7 +1847,7 @@ mod tests {
             .sum::<f32>();
         assert!((filled_area - signed_area(&points).abs()).abs() < 0.1);
 
-        let notch = egui::pos2(65.0, 50.0);
+        let notch = MaraPos2::new(65.0, 50.0);
         assert!(
             !triangles
                 .iter()
@@ -1861,7 +1864,10 @@ mod tests {
             egui::pos2(0.0, 100.0),
             egui::pos2(0.0, 0.0),
         ];
-        let points = normalized_polygon_points(&closed_ring);
+        let points: Vec<MaraPos2> = normalized_polygon_points(&closed_ring)
+            .into_iter()
+            .map(Into::into)
+            .collect();
         assert_eq!(points.len(), 4);
 
         let triangles = triangulate_polygon(&points);
