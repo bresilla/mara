@@ -131,6 +131,13 @@ pub struct RecordingBackend {
     /// Nested id-scope salts pushed by [`UiBackend::in_id_scope`], so
     /// `id()` yields unique ids per scope (egui's id stack, headless).
     pub id_stack: Vec<Id>,
+    /// Every canvas painter handed out by [`UiBackend::make_painter`],
+    /// retained so a test can read back what a module's `on_draw` /
+    /// canvas body emitted. `MaraPainter` is `Clone` and shares its
+    /// command buffer, so a stored clone sees the same commands the
+    /// caller drew into. Interior mutability because `make_painter`
+    /// takes `&self`.
+    pub canvas_painters: std::cell::RefCell<Vec<crate::mui::MaraPainter>>,
 }
 
 impl RecordingBackend {
@@ -142,6 +149,19 @@ impl RecordingBackend {
             cursor: rect.min,
             ..Self::default()
         }
+    }
+
+    /// Every `PaintCmd` drawn into a canvas painter this backend handed
+    /// out via [`UiBackend::make_painter`], flattened in creation order.
+    /// This is how a headless test reads back what a module's canvas
+    /// body / `on_draw` emitted.
+    #[must_use]
+    pub fn canvas_commands(&self) -> Vec<PaintCmd> {
+        self.canvas_painters
+            .borrow()
+            .iter()
+            .flat_map(|p| p.__internal_recorded_commands())
+            .collect()
     }
 
     /// Place `size` at the cursor and advance it along the current flow
@@ -199,6 +219,19 @@ impl UiBackend for RecordingBackend {
 
     fn paint(&mut self, cmd: PaintCmd) {
         self.paints.push(cmd);
+    }
+
+    fn make_painter(&self, spec: crate::layout::PaintSurfaceSpec) -> crate::mui::MaraPainter {
+        // Same clip resolution as the trait default, but retain a clone
+        // of the painter so `canvas_commands()` can read back what the
+        // caller drew (the default impl drops the only handle).
+        let clip = match spec.region {
+            crate::layout::PaintSurfaceRegion::ClipRect(rect) => rect,
+            crate::layout::PaintSurfaceRegion::RemainingAvailable => self.available_rect(),
+        };
+        let painter = crate::mui::MaraPainter::recording(clip);
+        self.canvas_painters.borrow_mut().push(painter.clone());
+        painter
     }
 
     fn reserve_paint_slot(&mut self) -> crate::layout::PaintSlot {

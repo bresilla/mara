@@ -246,6 +246,7 @@ impl MaraPainterSink {
 /// method speaks [`crate::vocab`] data types only. Text always
 /// renders in the theme's font families, so custom drawing cannot
 /// drift away from Mara's typography.
+#[derive(Clone)]
 pub struct MaraPainter {
     sink: MaraPainterSink,
 }
@@ -778,6 +779,36 @@ impl crate::layout::UiBackend for MaraBackend<'_> {
 /// [`MaraUi::__internal_over`]. Doc-hidden; not semver-stable.
 #[doc(hidden)]
 pub struct MaraRawBackend<'a>(pub(crate) MaraBackend<'a>);
+
+impl MaraRawBackend<'static> {
+    /// Headless-test harness: a raw backend over a fresh recording
+    /// backend spanning `rect`. Lend it to [`MaraUi::__internal_over`]
+    /// to drive a module's view/inline body with no egui in scope, then
+    /// read what it drew with
+    /// [`MaraRawBackend::__internal_recorded_canvas_commands`]. Doc-hidden;
+    /// not a stable API.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn __internal_recording(rect: impl Into<vocab::Rect>) -> Self {
+        MaraRawBackend(MaraBackend::Recording(Box::new(
+            crate::backend::record::RecordingBackend::at(rect.into()),
+        )))
+    }
+}
+
+impl MaraRawBackend<'_> {
+    /// Headless-test harness: the `PaintCmd`s a module drew into the
+    /// canvas painters this backend handed out. Empty for an egui-backed
+    /// raw backend. Doc-hidden; not a stable API.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn __internal_recorded_canvas_commands(&self) -> Vec<PaintCmd> {
+        match &self.0 {
+            MaraBackend::Recording(b) => b.canvas_commands(),
+            MaraBackend::Egui(_) => Vec::new(),
+        }
+    }
+}
 
 /// The sealed widget surface handed to consumer drawing code.
 ///
