@@ -3037,10 +3037,11 @@ fn three_d_root_view(
     accent: MaraColor32,
     three_d: &mut ThreeDViewState,
 ) {
-    // Honor the view's own decision (default: under the ribbons).
+    // Honor the view's own decision (default: under the ribbons). The
+    // render target format is published by `view_ctx` and pulled inside
+    // `View3d::show`, so no per-frame GPU setter is needed here.
     let avoidance = three_d.view.content_avoidance();
     let mut view_ctx = host.view_ctx(&mut three_d.workspace, accent, avoidance);
-    three_d.view.set_gpu_render_state(host.render_state());
     three_d.view.show(&mut view_ctx);
 }
 

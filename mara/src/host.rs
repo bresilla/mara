@@ -352,6 +352,14 @@ impl<'a> MaraHostCtx<'a> {
         accent: impl Into<mara_core::vocab::Color32>,
         ribbon_avoidance: mara_core::RibbonAvoidance,
     ) -> mara_core::ViewCtx<'frame> {
+        // Publish the render target format so GPU views (three_d, …) can
+        // pull it from the context during `show` and be hosted as plain
+        // `ViewNode` leaves, instead of needing a per-frame setter call.
+        if let Some(state) = self.render_state {
+            self.egui.data_mut(|d| {
+                d.insert_temp(egui::Id::new("mara_gpu_target_format"), state.target_format);
+            });
+        }
         mara_core::ViewCtx::__internal_new(self.egui, workspace, accent, ribbon_avoidance)
     }
 

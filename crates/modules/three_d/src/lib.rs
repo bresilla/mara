@@ -4560,6 +4560,15 @@ impl MaraView for View3d {
     }
 
     fn show(&mut self, ctx: &mut ViewCtx<'_>) {
+        // Pull the host-published render target format so the 3D pipeline
+        // matches the surface, without a per-frame setter — lets a View3d
+        // be hosted as a plain `ViewNode` leaf.
+        if let Some(format) = ctx
+            .__internal_egui_ctx()
+            .data(|d| d.get_temp::<wgpu::TextureFormat>(egui::Id::new("mara_gpu_target_format")))
+        {
+            self.gpu_target_format = Some(format);
+        }
         #[allow(deprecated)]
         {
             egui::CentralPanel::default()
