@@ -22,6 +22,7 @@ CORE=crates/core/src
 BASELINE_FILE=scripts/ratchet_baseline.txt
 
 live_egui_files()   { grep -rl 'egui::' "$CORE" --include='*.rs' | wc -l; }
+live_demo_egui()    { grep -rn 'egui::' example/src --include='*.rs' | wc -l; }
 live_state_bypass() { grep -rEn 'ctx\.data\(|ctx\.data_mut\(|ctx\.animate_' "$CORE" --include='*.rs' | grep -v "$CORE/backend/" | grep -v "$CORE/memory.rs" | wc -l; }
 live_egui_ui_fns()  { grep -rEn ':[[:space:]]*&mut egui::Ui' "$CORE" --include='*.rs' | grep -v "$CORE/backend/" | wc -l; }
 live_ui_escapes()   { grep -rEn '\.ui_mut\(\)|backend\.ui\(\)|\.egui_ui\(\)|\.egui_ui_readonly\(\)' "$CORE" --include='*.rs' | grep -v "$CORE/backend/" | wc -l; }
@@ -55,4 +56,5 @@ check egui_files   "$(live_egui_files)"
 check state_bypass "$(live_state_bypass)"
 check egui_ui_fns  "$(live_egui_ui_fns)"
 check ui_escapes   "$(live_ui_escapes)"
+check demo_egui    "$(live_demo_egui)"
 exit $fail
