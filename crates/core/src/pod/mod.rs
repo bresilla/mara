@@ -2435,4 +2435,46 @@ mod tests {
         assert!(blank_keybinding.is_err());
         assert_eq!(valid.widgets.len(), 4);
     }
+
+    /// Phase-3 exit gate: pod widget content renders through a pure
+    /// `UiBackend` with zero egui in the call path. `paint_widgets`
+    /// drives a headless `RecordingBackend` — no `egui::Ui`, no
+    /// `egui::Context` — and still emits paint commands and wires
+    /// per-widget responses.
+    #[test]
+    fn paint_widgets_renders_on_recording_backend() {
+        use crate::backend::record::RecordingBackend;
+        use crate::vocab::{Pos2, Rect, Vec2};
+
+        let mut backend = RecordingBackend::at(Rect::from_min_size(
+            Pos2::new(0.0, 0.0),
+            Vec2::new(240.0, 96.0),
+        ));
+        let widgets = vec![
+            WidgetSpec::Progress(ProgressConfig {
+                label: "loading".into(),
+                fraction: 0.5,
+                text: "50%".into(),
+                accent: Color32::from_rgb(120, 180, 255),
+            }),
+            WidgetSpec::Readout(ReadoutConfig {
+                label: "status".into(),
+                value: "ready".into(),
+            }),
+        ];
+        let mut response = PodResponse::default();
+        paint_widgets(
+            widgets,
+            &mut backend,
+            &mut response,
+            Id::new("headless_pod"),
+        );
+
+        assert!(
+            !backend.paints.is_empty(),
+            "pod content should emit paint commands on a pure backend"
+        );
+        assert_eq!(response.progress.len(), 1);
+        assert_eq!(response.readouts.len(), 1);
+    }
 }
