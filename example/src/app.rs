@@ -1509,7 +1509,7 @@ const RIGHT_KEYS: [&str; 5] = ["R1", "R2", "R3", "R4", "R5"];
 // "Board" view: ONE full Board with its own internal layout — a whole VT
 // (data-mask cell + soft-key cells) drawn inside a single board.
 struct BoardViewState {
-    view: Board,
+    node: ViewNode,
     workspace: WorkspaceStack,
 }
 
@@ -1541,7 +1541,9 @@ impl Default for BoardViewState {
                 }
             });
         Self {
-            view,
+            // A single-view tab is the degenerate tree: one Leaf as the
+            // root ViewNode (PLAN.md Phase 5).
+            node: ViewNode::leaf(view),
             workspace: WorkspaceStack::new("demo-board-workspace"),
         }
     }
@@ -3043,11 +3045,8 @@ fn three_d_root_view(
 }
 
 fn board_root_view(host: &MaraHostCtx<'_>, accent: MaraColor32, board: &mut BoardViewState) {
-    // Honor the view's own avoidance: a Board view declares it shrinks to
-    // sit inside the ribbons rather than painting behind them.
-    let avoidance = board.view.content_avoidance();
-    let mut view_ctx = host.view_ctx(&mut board.workspace, accent, avoidance);
-    board.view.show(&mut view_ctx);
+    let mut view_ctx = host.view_ctx(&mut board.workspace, accent, RibbonAvoidance::none());
+    board.node.render(&mut view_ctx);
 }
 
 fn multi_root_view(host: &MaraHostCtx<'_>, accent: MaraColor32, multi: &mut MultiViewState) {
