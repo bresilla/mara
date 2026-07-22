@@ -1,5 +1,87 @@
 # Changelog
 
+## [0.4.0] - 2026-07-22
+
+### <!-- 0 -->⛰️  Features
+
+- Pod widgets render on dyn UiBackend
+- Backend-neutral debug tag for pods
+- UiBackend in_id_scope primitive
+- UiBackend scroll_region primitive
+- Animated button + frame-clock via backend
+- Canvas surfaces via UiBackend painter
+- Painter via UiBackend make_painter
+- Stack scopes render through backend
+- Foldable section renders through backend
+- UiBackend in_child region primitive
+- Flow layout cursor in recording backend
+- Formalize Layer ordering contract
+- Action button renders through UiBackend
+- Tree widget renders through UiBackend
+- UiBackend paint-slot, hover, visibility
+- [**breaking**] MaraUi over MaraBackend enum
+- Memory via UiBackend BackendMemory enum
+- MaraAnim contract replaces egui wrappers
+- Shared recording backend and memory
+- Add egui coupling ratchet to check
+- Enforce mara defaults at entry
+- Hmmmmmm
+- Hmmmmmm
+- Hmmmmmm
+- Resizable split weights (splitter model)
+- Pull render target format from context
+- Runtime split/unsplit on ViewNode
+- Board root is a single-leaf ViewNode
+- Multiview cells own per-view ribbons
+- Leaves render and dispatch own ribbons
+- ViewCtx::show_ribbons renders per-view rails
+- Side ribbons anchor to node region
+- Recursive ViewNode tree replaces MultiView
+- Fullscreen overlay scoped to node region
+- Breakpoint from region width
+- Anchor panes within the node region
+- ViewCtx renders into a scoped region
+
+### <!-- 1 -->🐛 Bug Fixes
+
+- Drop useless conversion in golden
+- Clear remaining clippy debt
+- Clear clippy and fmt debt for harden
+- Drop egui ban for demo example
+
+### <!-- 2 -->🚜 Refactor
+
+- [**breaking**] MaraUi borrows backend via dyn
+- Enforce state via MaraMemory
+- Chrome state via MaraMemory
+- Pane state via MaraMemory
+- Shared MockMemory, remove_temp
+- Shelf state via MaraMemory
+
+### <!-- 3 -->📚 Documentation
+
+- Mark ADR 0002 implemented
+- ADR 0002 MaraUi borrowed-backend decision
+- Reflect backend-neutral state and MaraBackend
+- True up seam claims, add ADR 0001
+- Add plans and recovered first-pass plan
+- Recursive view tree + three-tier chrome
+
+### <!-- 6 -->🧪 Testing
+
+- Retained-scene + geometry characterization
+- Canvas+image headless portability
+- Headless portability goldens + harness
+- Headless pod render over RecordingBackend
+- Flow-aware backend contract assertions
+- Golden paint tests for leaf widgets
+
+### <!-- 7 -->⚙️ Miscellaneous Tasks
+
+- Merge backend-independence into develop
+- Green baseline for view-tree work
+- Android build
+
 ## [0.3.2] - 2026-06-28
 
 ### <!-- 0 -->⛰️  Features
