@@ -147,12 +147,18 @@ impl MaraBevyViewport {
         let accent = accent.into();
         self.set_active(true);
         let mut picked_color = None;
-        #[allow(deprecated)]
+        // Render into this node's REGION, not a window-grabbing panel
+        // (ADR 0002 / PLAN WS6): a Bevy viewport hosted as a split cell
+        // draws and interacts inside its cell rect, so it tiles like
+        // any other leaf. Whole-window is just the one-leaf tree.
+        let region_rect: egui::Rect = ctx.content_rect().into();
         {
-            egui::CentralPanel::default()
-                .frame(egui::Frame::new().fill(egui::Color32::TRANSPARENT))
+            egui::Area::new(egui::Id::new("mara_bevy_viewport_area"))
+                .order(egui::Order::Background)
+                .fixed_pos(region_rect.min)
                 .show(ctx.__internal_egui_ctx(), |ui| {
-                    let rect = ui.max_rect();
+                    ui.set_clip_rect(region_rect);
+                    let rect = region_rect;
                     let painter = ui.painter_at(rect);
                     let theme = mara_core::style::theme();
                     painter.rect_filled(rect, 0.0, theme.palette.bg_panel);
