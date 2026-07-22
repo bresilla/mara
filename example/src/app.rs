@@ -2687,7 +2687,10 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
                 .order(if fs_active {
                     mara_core::layout::Layer::Foreground
                 } else {
-                    mara_core::layout::Layer::Background
+                    // Panes ALWAYS float above view content (the
+                    // docked-chrome band); Background would let a
+                    // clicked view raise itself over open panes.
+                    mara_core::layout::Layer::Middle
                 }),
             |body| match button_id {
                 PANE_WIDGETS => widgets_pane(body),
