@@ -255,24 +255,24 @@ pub(crate) fn __internal_draw_view_ribbons(
 
 /// Per-view ribbon state keys. Every reader and writer constructs the
 /// key through THESE fns — never inline — so they cannot drift apart.
-fn view_ribbon_open_key(salt: MaraId) -> egui::Id {
-    egui::Id::new(("mara_view_ribbon_open", salt))
+fn view_ribbon_open_key(salt: MaraId) -> crate::vocab::Id {
+    crate::vocab::Id::new(("mara_view_ribbon_open", salt))
 }
 
-fn view_ribbon_placement_key(salt: MaraId) -> egui::Id {
-    egui::Id::new(("mara_view_ribbon_placement", salt))
+fn view_ribbon_placement_key(salt: MaraId) -> crate::vocab::Id {
+    crate::vocab::Id::new(("mara_view_ribbon_placement", salt))
 }
 
-fn view_ribbon_drag_key(salt: MaraId) -> egui::Id {
-    egui::Id::new(("mara_view_ribbon_drag", salt))
+fn view_ribbon_drag_key(salt: MaraId) -> crate::vocab::Id {
+    crate::vocab::Id::new(("mara_view_ribbon_drag", salt))
 }
 
-fn view_ribbon_edges_key(salt: MaraId) -> egui::Id {
-    egui::Id::new(("mara_view_ribbon_edges", salt))
+fn view_ribbon_edges_key(salt: MaraId) -> crate::vocab::Id {
+    crate::vocab::Id::new(("mara_view_ribbon_edges", salt))
 }
 
-fn view_ribbon_salts_registry_key() -> egui::Id {
-    egui::Id::new("mara_view_ribbon_salts")
+fn view_ribbon_salts_registry_key() -> crate::vocab::Id {
+    crate::vocab::Id::new("mara_view_ribbon_salts")
 }
 
 /// How many distinct view salts may keep ribbon state before the oldest

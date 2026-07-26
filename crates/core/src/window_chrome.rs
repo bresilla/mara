@@ -196,12 +196,12 @@ impl WindowChromeState {
     }
 }
 
-fn regions_key() -> egui::Id {
-    egui::Id::new("mara_window_chrome_regions")
+fn regions_key() -> crate::vocab::Id {
+    crate::vocab::Id::new("mara_window_chrome_regions")
 }
 
-fn host_capabilities_key() -> egui::Id {
-    egui::Id::new("mara_window_chrome_host_capabilities")
+fn host_capabilities_key() -> crate::vocab::Id {
+    crate::vocab::Id::new("mara_window_chrome_host_capabilities")
 }
 
 /// Replace the current pass' native-window chrome regions.

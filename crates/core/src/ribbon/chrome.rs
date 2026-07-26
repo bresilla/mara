@@ -308,8 +308,8 @@ pub struct RibbonDrag {
     pub source: Option<(&'static str, RibbonCluster, u32)>,
 }
 
-pub(crate) fn chrome_bounds_key() -> egui::Id {
-    egui::Id::new("mara_ribbon_chrome_bounds")
+pub(crate) fn chrome_bounds_key() -> crate::vocab::Id {
+    crate::vocab::Id::new("mara_ribbon_chrome_bounds")
 }
 
 fn chrome_rect(ctx: &dyn crate::context::MaraCtx) -> MaraRect {
@@ -368,8 +368,8 @@ fn ribbon_rect(ctx: &dyn crate::context::MaraCtx, ribbon: &ResolvedSlotRibbon) -
     }
 }
 
-fn main_bar_empty_drag_started_id() -> egui::Id {
-    egui::Id::new("mara_main_bar_empty_drag_started")
+fn main_bar_empty_drag_started_id() -> crate::vocab::Id {
+    crate::vocab::Id::new("mara_main_bar_empty_drag_started")
 }
 
 #[must_use]

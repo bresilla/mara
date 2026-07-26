@@ -1423,12 +1423,12 @@ pub fn __internal_shelf_layout_published_this_pass(ctx: &dyn crate::context::Mar
     ctx.memory().get_temp::<u64>(shelf_layout_pass_key()) == Some(pass)
 }
 
-fn shelf_layout_key() -> egui::Id {
-    egui::Id::new("mara.shelf.layout")
+fn shelf_layout_key() -> crate::vocab::Id {
+    crate::vocab::Id::new("mara.shelf.layout")
 }
 
-fn shelf_layout_pass_key() -> egui::Id {
-    egui::Id::new("mara.shelf.layout.pass")
+fn shelf_layout_pass_key() -> crate::vocab::Id {
+    crate::vocab::Id::new("mara.shelf.layout.pass")
 }
 
 pub(crate) fn published_shelf_presence(ctx: &dyn crate::context::MaraCtx) -> ShelfPresence {
@@ -1441,8 +1441,8 @@ fn publish_shelf_presence(ctx: &dyn crate::context::MaraCtx, presence: ShelfPres
     ctx.memory().set_temp(shelf_presence_key(), presence);
 }
 
-fn shelf_presence_key() -> egui::Id {
-    egui::Id::new("mara.shelf.presence")
+fn shelf_presence_key() -> crate::vocab::Id {
+    crate::vocab::Id::new("mara.shelf.presence")
 }
 
 fn publish_container_move_preview_layout(
