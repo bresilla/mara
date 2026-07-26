@@ -268,6 +268,34 @@ pub struct Rect {
 }
 
 impl Rect {
+    /// Unbounded in every direction — the "no constraint" a surface
+    /// passes when the parent imposes no limit.
+    pub const EVERYTHING: Self = Self {
+        min: Pos2 {
+            x: f32::NEG_INFINITY,
+            y: f32::NEG_INFINITY,
+        },
+        max: Pos2 {
+            x: f32::INFINITY,
+            y: f32::INFINITY,
+        },
+    };
+
+    /// All corners NaN — a sentinel for "not measured yet", distinct
+    /// from [`Rect::NOTHING`]'s "empty but valid". Anything derived
+    /// from it stays NaN, so a rect that was never written cannot
+    /// quietly pass for one at the origin.
+    pub const NAN: Self = Self {
+        min: Pos2 {
+            x: f32::NAN,
+            y: f32::NAN,
+        },
+        max: Pos2 {
+            x: f32::NAN,
+            y: f32::NAN,
+        },
+    };
+
     pub const NOTHING: Self = Self {
         min: Pos2 {
             x: f32::INFINITY,
@@ -373,7 +401,35 @@ impl Rect {
         Pos2::new(self.right(), self.center().y)
     }
 
+    /// Everything at or below `y`, unbounded horizontally — the room a
+    /// surface has left once earlier content has been placed.
     #[must_use]
+    pub const fn everything_below(y: f32) -> Self {
+        Self {
+            min: Pos2 {
+                x: f32::NEG_INFINITY,
+                y,
+            },
+            max: Pos2 {
+                x: f32::INFINITY,
+                y: f32::INFINITY,
+            },
+        }
+    }
+
+    /// `true` when every corner is a real number.
+    ///
+    /// A rect accumulated from a bounding box starts at
+    /// [`Rect::NOTHING`] (infinite), so callers test this before using
+    /// one as geometry — "did anything actually go into it?".
+    #[must_use]
+    pub fn is_finite(&self) -> bool {
+        self.min.x.is_finite()
+            && self.min.y.is_finite()
+            && self.max.x.is_finite()
+            && self.max.y.is_finite()
+    }
+
     pub fn contains(&self, pos: Pos2) -> bool {
         pos.x >= self.left()
             && pos.x <= self.right()

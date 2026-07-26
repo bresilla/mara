@@ -4,13 +4,13 @@ use std::{collections::HashMap, hash::Hash};
 
 use egui::{
     Align, CornerRadius, Id, LayerId, Layout, Margin, Modifiers, PointerButton,
-    Rect, Scene, Sense, StrokeKind, Style, Ui, UiBuilder, UiKind, UiStackInfo,
+    Scene, Sense, StrokeKind, Style, Ui, UiBuilder, UiKind, UiStackInfo,
     collapsing_header::paint_default_icon,
     emath::{GuiRounding, TSTransform},
     response::Flags,
 };
 use mara_core::MaraResponse;
-use mara_core::vocab::{Color32, Pos2, Stroke, Vec2, pos2, vec2};
+use mara_core::vocab::{Color32, Pos2, Rect, Stroke, Vec2, pos2, vec2};
 use mara_core::style::{FrameRole, FrameSpec, frame_for};
 use smallvec::SmallVec;
 
@@ -1027,7 +1027,7 @@ where
         UiBuilder::new()
             .ui_stack_info(UiStackInfo::new(UiKind::Frame).with_frame(bg_frame_backend))
             .layer_id(graph_layer_id)
-            .max_rect(Rect::EVERYTHING)
+            .max_rect(egui::Rect::from(Rect::EVERYTHING))
             .sense(Sense::click_and_drag()),
     );
 
@@ -1041,7 +1041,7 @@ where
         max_scale = 1.0;
     }
 
-    clamp_scale(&mut to_global, min_scale, max_scale, ui_rect);
+    clamp_scale(&mut to_global, min_scale, max_scale, ui_rect.into());
 
     let mut graph_resp = ui.response();
     // `to_global` is Mara-typed everywhere else; the backend's gesture
@@ -1309,9 +1309,9 @@ where
     if let Some(select_rect) = rect_selection_ended {
         let select_nodes = node_rects.into_iter().filter_map(|(id, rect)| {
             let select = if style.get_select_rect_contained() {
-                select_rect.contains_rect(rect)
+                select_rect.contains_rect(rect.into())
             } else {
-                select_rect.intersects(rect)
+                select_rect.intersects(rect.into())
             };
 
             if select { Some(id) } else { None }
@@ -1349,7 +1349,7 @@ where
     // Do centering unless no nodes are present.
     if style.get_centering() && graph_resp.double_clicked() && nodes_bb.is_finite() {
         let nodes_bb = nodes_bb.expand(100.0);
-        graph_state.look_at(nodes_bb, ui_rect, min_scale, max_scale);
+        graph_state.look_at(nodes_bb.into(), ui_rect, min_scale, max_scale);
     }
 
     if modifiers.command && graph_resp.clicked_by(PointerButton::Primary) {
@@ -1515,7 +1515,7 @@ where
         }
     }
 
-    ui.advance_cursor_after_rect(Rect::from_min_size(graph_resp.rect.min, egui::Vec2::ZERO));
+    ui.advance_cursor_after_rect(egui::Rect::from_min_size(graph_resp.rect.min, egui::Vec2::ZERO));
 
     if let Some(node) = node_to_top
         && graph.nodes.contains(node.0)
@@ -1573,13 +1573,13 @@ where
     // Input pins on the left.
     let mut inputs_ui = node_ui.new_child(
         UiBuilder::new()
-            .max_rect(inputs_rect.round_ui())
+            .max_rect(egui::Rect::from(inputs_rect).round_ui())
             .layout(Layout::top_down(Align::Min))
             .id_salt("inputs"),
     );
 
     let graph_clip_rect = node_ui.clip_rect();
-    inputs_ui.shrink_clip_rect(payload_clip_rect);
+    inputs_ui.shrink_clip_rect(payload_clip_rect.into());
 
     let pin_layout = Layout::left_to_right(Align::Min);
     let mut new_heights = SmallVec::with_capacity(inputs.len());
@@ -1598,7 +1598,7 @@ where
         inputs_ui.scope_builder(builder, |pin_ui| {
             if let Some(input_spacing) = input_spacing {
                 let min = pin_ui.next_widget_position();
-                pin_ui.advance_cursor_after_rect(Rect::from_min_size(
+                pin_ui.advance_cursor_after_rect(egui::Rect::from_min_size(
                     min,
                     egui::Vec2::from(vec2(input_spacing, pin_size)),
                 ));
@@ -1705,12 +1705,12 @@ where
     }
 
     let final_rect = inputs_ui.min_rect();
-    node_ui.expand_to_include_rect(final_rect.intersect(payload_clip_rect));
+    node_ui.expand_to_include_rect(final_rect.intersect(payload_clip_rect.into()));
 
     DrawPinsResponse {
         drag_released,
         pin_hovered,
-        final_rect,
+        final_rect: final_rect.into(),
         new_heights,
     }
 }
@@ -1744,13 +1744,13 @@ where
 
     let mut outputs_ui = node_ui.new_child(
         UiBuilder::new()
-            .max_rect(outputs_rect.round_ui())
+            .max_rect(egui::Rect::from(outputs_rect).round_ui())
             .layout(Layout::top_down(Align::Max))
             .id_salt("outputs"),
     );
 
     let graph_clip_rect = node_ui.clip_rect();
-    outputs_ui.shrink_clip_rect(payload_clip_rect);
+    outputs_ui.shrink_clip_rect(payload_clip_rect.into());
 
     let pin_layout = Layout::right_to_left(Align::Min);
     let mut new_heights = SmallVec::with_capacity(outputs.len());
@@ -1771,7 +1771,7 @@ where
             // Allocate space for pin shape.
             if let Some(output_spacing) = output_spacing {
                 let min = pin_ui.next_widget_position();
-                pin_ui.advance_cursor_after_rect(Rect::from_min_size(
+                pin_ui.advance_cursor_after_rect(egui::Rect::from_min_size(
                     min,
                     egui::Vec2::from(vec2(output_spacing, pin_size)),
                 ));
@@ -1877,12 +1877,12 @@ where
         });
     }
     let final_rect = outputs_ui.min_rect();
-    node_ui.expand_to_include_rect(final_rect.intersect(payload_clip_rect));
+    node_ui.expand_to_include_rect(final_rect.intersect(payload_clip_rect.into()));
 
     DrawPinsResponse {
         drag_released,
         pin_hovered,
-        final_rect,
+        final_rect: final_rect.into(),
         new_heights,
     }
 }
@@ -1904,22 +1904,22 @@ where
 {
     let mut body_ui = ui.new_child(
         UiBuilder::new()
-            .max_rect(body_rect.round_ui())
+            .max_rect(egui::Rect::from(body_rect).round_ui())
             .layout(Layout::left_to_right(Align::Min))
             .id_salt("body"),
     );
 
-    body_ui.shrink_clip_rect(payload_clip_rect);
+    body_ui.shrink_clip_rect(payload_clip_rect.into());
 
     with_mara_ui(&mut body_ui, |mui| {
         viewer.show_body(node, inputs, outputs, mui, graph)
     });
 
     let final_rect = body_ui.min_rect();
-    ui.expand_to_include_rect(final_rect.intersect(payload_clip_rect));
+    ui.expand_to_include_rect(final_rect.intersect(payload_clip_rect.into()));
     // node_state.set_body_width(body_size.x);
 
-    DrawBodyResponse { final_rect }
+    DrawBodyResponse { final_rect: final_rect.into() }
 }
 
 //First step for split big function to parts
@@ -2161,14 +2161,14 @@ where
                     - node_state.payload_offset(openness),
             )
             .into(),
-            node_rect.max,
+            node_rect.max.into(),
         );
 
         let node_layout =
             viewer.node_layout(style.get_node_layout(), node, &inputs, &outputs, graph);
 
         let payload_clip_rect =
-            Rect::from_min_max(node_rect.min, pos2(node_rect.max.x, f32::INFINITY).into());
+            Rect::from_min_max(node_rect.min.into(), pos2(node_rect.max.x, f32::INFINITY).into());
 
         let pins_rect = match node_layout.kind {
             NodeLayoutKind::Coil => {
@@ -2558,18 +2558,18 @@ where
 
             let mut footer_ui = ui.new_child(
                 UiBuilder::new()
-                    .max_rect(footer_rect.round_ui())
+                    .max_rect(egui::Rect::from(footer_rect).round_ui())
                     .layout(Layout::left_to_right(Align::Min))
                     .id_salt("footer"),
             );
-            footer_ui.shrink_clip_rect(payload_clip_rect);
+            footer_ui.shrink_clip_rect(payload_clip_rect.into());
 
             with_mara_ui(&mut footer_ui, |mui| {
                 viewer.show_footer(node, &inputs, &outputs, mui, graph)
             });
 
             let final_rect = footer_ui.min_rect();
-            ui.expand_to_include_rect(final_rect.intersect(payload_clip_rect));
+            ui.expand_to_include_rect(final_rect.intersect(payload_clip_rect.into()));
             let footer_size = final_rect.size();
 
             new_pins_size.x = f32::max(new_pins_size.x, footer_size.x);
@@ -2631,15 +2631,15 @@ where
                     viewer.show_header(node, &inputs, &outputs, mui, graph)
                 });
 
-                header_rect = ui.min_rect();
+                header_rect = ui.min_rect().into();
             });
 
-            header_frame_rect = egui::Rect::from(
-                mara_core::vocab::Rect::from(header_rect).expand_by(header_frame.total_margin()),
-            );
+            header_frame_rect = 
+                header_rect.expand_by(header_frame.total_margin());
 
-            ui.advance_cursor_after_rect(Rect::from_min_max(
-                header_rect.min,
+
+            ui.advance_cursor_after_rect(egui::Rect::from_min_max(
+                header_rect.min.into(),
                 pos2(
                     f32::max(header_rect.max.x, node_rect.max.x),
                     header_rect.min.y,
@@ -2648,7 +2648,7 @@ where
             ));
         });
 
-        ui.expand_to_include_rect(header_rect);
+        ui.expand_to_include_rect(header_rect.into());
         let header_size = header_rect.size();
         node_state.set_header_height(header_size.y);
 
@@ -2696,7 +2696,7 @@ where
         node_to_top,
         drag_released,
         pin_hovered,
-        final_rect: r.response.rect,
+        final_rect: r.response.rect.into(),
     })
 }
 
