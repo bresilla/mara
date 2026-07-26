@@ -59,6 +59,7 @@ use mara_core::shelf::{ShelfContainer, ShelfDef, ShelfEdge, ShelfState};
 use mara_core::style::{AccentColor, GlassOpacity, Mode, srgb_to_color};
 use mara_core::vocab::Color32 as MaraColor32;
 use mara_core::vocab::Pos2 as MaraPos2;
+use mara_core::vocab::Stroke as MaraStroke;
 use mara_core::widget::{FillStyle, TreeBranchGuide, TreeIconKind, TreeIconSlot};
 use mara_map::{
     DEFAULT_SVG_MARKER, MapAnnotation, MapDocument, MapFeatureGeometry, MapFeatureInfo, MapIcon,
@@ -4788,18 +4789,17 @@ impl PinType {
     /// in the type colour) — visually telling the user "this slot
     /// expects a wire".
     fn pin(self, connected: bool) -> PinInfo {
-        let fill: egui::Color32 = self.color().into();
+        // `PinInfo` speaks vocab since WS-D1.3 ported `pin.rs`, so this
+        // no longer converts at a boundary — it just passes data through.
+        let fill = self.color();
         if connected {
             PinInfo::circle()
                 .with_fill(fill)
-                .with_stroke(egui::Stroke::new(
-                    1.0,
-                    egui::Color32::from(MaraColor32::from_black_alpha(180)),
-                ))
+                .with_stroke(MaraStroke::new(1.0, MaraColor32::from_black_alpha(180)))
         } else {
             PinInfo::circle()
-                .with_fill(egui::Color32::from(MaraColor32::TRANSPARENT))
-                .with_stroke(egui::Stroke::new(1.5, fill))
+                .with_fill(MaraColor32::TRANSPARENT)
+                .with_stroke(MaraStroke::new(1.5, fill))
         }
     }
 }

@@ -1,7 +1,7 @@
 //!
-//! # egui-graph
+//! # Node graph
 //!
-//! Provides a node-graph container for egui.
+//! Provides a node-graph container.
 //!
 //!
 
@@ -238,7 +238,7 @@ impl<T> Graph<T> {
     /// ```
     /// # use mara_graph::Graph;
     /// let mut graph = Graph::<()>::new();
-    /// graph.insert_node(mara_core::vocab::pos2(0.0, 0.0), ());
+    /// graph.insert_node(mara_graph::pos2(0.0, 0.0), ());
     /// ```
     pub fn insert_node(&mut self, pos: Pos2, node: T) -> NodeId {
         let idx = self.nodes.insert(Node {
@@ -258,7 +258,7 @@ impl<T> Graph<T> {
     /// ```
     /// # use mara_graph::Graph;
     /// let mut graph = Graph::<()>::new();
-    /// graph.insert_node_collapsed(mara_core::vocab::pos2(0.0, 0.0), ());
+    /// graph.insert_node_collapsed(mara_graph::pos2(0.0, 0.0), ());
     /// ```
     pub fn insert_node_collapsed(&mut self, pos: Pos2, node: T) -> NodeId {
         let idx = self.nodes.insert(Node {
@@ -292,7 +292,7 @@ impl<T> Graph<T> {
     /// ```
     /// # use mara_graph::Graph;
     /// let mut graph = Graph::<()>::new();
-    /// let node = graph.insert_node(mara_core::vocab::pos2(0.0, 0.0), ());
+    /// let node = graph.insert_node(mara_graph::pos2(0.0, 0.0), ());
     /// graph.remove_node(node);
     /// ```
     #[track_caller]

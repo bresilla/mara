@@ -1623,7 +1623,11 @@ where
             // Interact with pin shape.
             pin_ui.set_clip_rect(graph_clip_rect);
 
-            let r = pin_ui.interact(pin_rect, pin_ui.next_auto_id(), Sense::click_and_drag());
+            let r = pin_ui.interact(
+                pin_rect.into(),
+                pin_ui.next_auto_id(),
+                Sense::click_and_drag(),
+            );
 
             pin_ui.skip_ahead_auto_ids(1);
 
@@ -1672,13 +1676,18 @@ where
                 visual_pin_rect = visual_pin_rect.scale_from_center(1.2);
             }
 
-            let wire_info = node_pin.draw(style, pin_ui.style(), visual_pin_rect, pin_ui.painter());
+            let wire_info = node_pin.draw(
+                style,
+                pin_ui.style(),
+                visual_pin_rect.into(),
+                &mara_core::MaraPainter::__internal_from_egui(pin_ui.painter().clone()),
+            );
 
             input_positions.insert(
                 in_pin.id,
                 PinResponse {
                     pos: r.rect.center(),
-                    wire_color: wire_info.color,
+                    wire_color: wire_info.color.into(),
                     wire_style: wire_info.style,
                 },
             );
@@ -1781,7 +1790,11 @@ where
 
             pin_ui.set_clip_rect(graph_clip_rect);
 
-            let r = pin_ui.interact(pin_rect, pin_ui.next_auto_id(), Sense::click_and_drag());
+            let r = pin_ui.interact(
+                pin_rect.into(),
+                pin_ui.next_auto_id(),
+                Sense::click_and_drag(),
+            );
 
             pin_ui.skip_ahead_auto_ids(1);
 
@@ -1831,13 +1844,18 @@ where
                 visual_pin_rect = visual_pin_rect.scale_from_center(1.2);
             }
 
-            let wire_info = node_pin.draw(style, pin_ui.style(), visual_pin_rect, pin_ui.painter());
+            let wire_info = node_pin.draw(
+                style,
+                pin_ui.style(),
+                visual_pin_rect.into(),
+                &mara_core::MaraPainter::__internal_from_egui(pin_ui.painter().clone()),
+            );
 
             output_positions.insert(
                 out_pin.id,
                 PinResponse {
                     pos: r.rect.center(),
-                    wire_color: wire_info.color,
+                    wire_color: wire_info.color.into(),
                     wire_style: wire_info.style,
                 },
             );

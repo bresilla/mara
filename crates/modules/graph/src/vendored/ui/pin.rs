@@ -1,4 +1,6 @@
-use egui::{Color32, Painter, Rect, Shape, Stroke, Style, Vec2, epaint::PathShape, pos2, vec2};
+use egui::Style;
+use mara_core::MaraPainter;
+use mara_core::vocab::{Color32, Rect, Stroke, Vec2, pos2, vec2};
 
 use crate::vendored::{InPinId, OutPinId};
 
@@ -56,7 +58,7 @@ pub trait NodePin {
         graph_style: &GraphStyle,
         style: &Style,
         rect: Rect,
-        painter: &Painter,
+        painter: &MaraPainter,
     ) -> PinWireInfo;
 }
 
@@ -185,14 +187,17 @@ impl PinInfo {
     /// Returns fill color of the pin.
     #[must_use]
     pub fn get_fill(&self, graph_style: &GraphStyle, style: &Style) -> Color32 {
-        self.fill.unwrap_or_else(|| graph_style.get_pin_fill(style))
+        self.fill
+            .unwrap_or_else(|| graph_style.get_pin_fill(style).into())
     }
 
     /// Returns outline stroke of the pin.
     #[must_use]
     pub fn get_stroke(&self, graph_style: &GraphStyle, style: &Style) -> Stroke {
-        self.stroke
-            .unwrap_or_else(|| graph_style.get_pin_stroke(style))
+        self.stroke.unwrap_or_else(|| {
+            let s = graph_style.get_pin_stroke(style);
+            Stroke::new(s.width, Color32::from(s.color))
+        })
     }
 
     /// Draws the pin and returns color.
@@ -204,7 +209,7 @@ impl PinInfo {
         graph_style: &GraphStyle,
         style: &Style,
         rect: Rect,
-        painter: &Painter,
+        painter: &MaraPainter,
     ) -> PinWireInfo {
         let shape = self.get_shape(graph_style);
         let fill = self.get_fill(graph_style, style);
@@ -222,7 +227,7 @@ impl PinInfo {
             // outermost first.
             const GLOW_LAYERS: [(f32, f32); 4] =
                 [(0.60, 0.08), (0.45, 0.13), (0.30, 0.20), (0.15, 0.28)];
-            let no_stroke = egui::Stroke::NONE;
+            let no_stroke = Stroke::NONE;
             for (e_mul, a_mul) in GLOW_LAYERS {
                 let a = (fill.a() as f32 * a_mul * glow).round().clamp(0.0, 220.0) as u8;
                 let c = Color32::from_rgba_unmultiplied(fill.r(), fill.g(), fill.b(), a);
@@ -248,19 +253,22 @@ impl NodePin for PinInfo {
         graph_style: &GraphStyle,
         style: &Style,
         rect: Rect,
-        painter: &Painter,
+        painter: &MaraPainter,
     ) -> PinWireInfo {
         Self::draw(&self, graph_style, style, rect, painter)
     }
 }
 
-pub fn draw_pin(painter: &Painter, shape: PinShape, fill: Color32, stroke: Stroke, rect: Rect) {
+pub fn draw_pin(painter: &MaraPainter, shape: PinShape, fill: Color32, stroke: Stroke, rect: Rect) {
     let center = rect.center();
     let size = f32::min(rect.width(), rect.height());
 
     match shape {
         PinShape::Circle => {
-            painter.circle(center, size / 2.0, fill, stroke);
+            painter.circle_filled(center, size / 2.0, fill);
+            if stroke.width > 0.0 {
+                painter.circle_stroke(center, size / 2.0, stroke);
+            }
         }
         PinShape::Triangle => {
             const A: Vec2 = vec2(-0.649_519, 0.4875);
@@ -269,12 +277,7 @@ pub fn draw_pin(painter: &Painter, shape: PinShape, fill: Color32, stroke: Strok
 
             let points = vec![center + A * size, center + B * size, center + C * size];
 
-            painter.add(Shape::Path(PathShape {
-                points,
-                closed: true,
-                fill,
-                stroke: stroke.into(),
-            }));
+            painter.polygon(points, fill, stroke);
         }
         PinShape::Square => {
             let points = vec![
@@ -284,12 +287,7 @@ pub fn draw_pin(painter: &Painter, shape: PinShape, fill: Color32, stroke: Strok
                 center + vec2(-0.5, 0.5) * size,
             ];
 
-            painter.add(Shape::Path(PathShape {
-                points,
-                closed: true,
-                fill,
-                stroke: stroke.into(),
-            }));
+            painter.polygon(points, fill, stroke);
         }
 
         PinShape::Star => {
@@ -306,12 +304,7 @@ pub fn draw_pin(painter: &Painter, shape: PinShape, fill: Color32, stroke: Strok
                 center + size * 0.267_376 * vec2(0.587_785, -0.809_017),
             ];
 
-            painter.add(Shape::Path(PathShape {
-                points,
-                closed: true,
-                fill,
-                stroke: stroke.into(),
-            }));
+            painter.polygon(points, fill, stroke);
         }
     }
 }

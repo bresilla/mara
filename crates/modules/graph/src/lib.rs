@@ -26,6 +26,11 @@
 //! ```
 
 pub mod node_view;
+// Re-export the geometry vocab this crate's public API speaks, so
+// consumers (and doctests, which link only this crate) do not need a
+// direct `mara_core` dependency just to place a node.
+pub use mara_core::vocab::{Pos2, pos2};
+
 mod vendored;
 
 pub use vendored::{

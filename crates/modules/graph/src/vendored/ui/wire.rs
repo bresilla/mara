@@ -28,7 +28,7 @@ pub enum WireLayer {
 pub enum WireColorMode {
     /// Linear blend of source and target pin colours, drawn as
     /// a uniform fill (i.e. averaged once, not gradient-painted).
-    /// Default — preserves the upstream egui-graph behaviour.
+    /// Default — preserves the upstream widget's behaviour.
     #[default]
     Mix,
     /// Wire takes the **output (source) pin's colour** uniformly
