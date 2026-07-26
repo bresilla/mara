@@ -5,15 +5,13 @@ use std::{collections::HashMap, hash::Hash};
 use egui::{
     Align, CornerRadius, Id, LayerId, Layout, Margin, Modifiers, PointerButton,
     Pos2, Rect, Scene, Sense, StrokeKind, Style, Ui, UiBuilder, UiKind, UiStackInfo,
-    Vec2,
     collapsing_header::paint_default_icon,
     emath::{GuiRounding, TSTransform},
     pos2,
     response::Flags,
-    vec2,
 };
 use mara_core::MaraResponse;
-use mara_core::vocab::{Color32, Stroke};
+use mara_core::vocab::{Color32, Stroke, Vec2, vec2};
 use mara_core::style::{FrameRole, FrameSpec, frame_for};
 use smallvec::SmallVec;
 
@@ -993,7 +991,11 @@ where
     let bg_frame = style.get_bg_frame(mara_core::style::active_accent());
     let bg_frame_backend = mara_core::backend::egui::egui_frame_for_style_spec(bg_frame);
 
-    let outer_size_bounds = ui.available_size_before_wrap().max(min_size).min(max_size);
+    let outer_size_bounds = egui::Vec2::from(
+        Vec2::from(ui.available_size_before_wrap())
+            .max(min_size)
+            .min(max_size),
+    );
 
     let outer_resp = ui.allocate_response(outer_size_bounds, Sense::hover());
 
@@ -1514,7 +1516,7 @@ where
         }
     }
 
-    ui.advance_cursor_after_rect(Rect::from_min_size(graph_resp.rect.min, Vec2::ZERO));
+    ui.advance_cursor_after_rect(Rect::from_min_size(graph_resp.rect.min, egui::Vec2::ZERO));
 
     if let Some(node) = node_to_top
         && graph.nodes.contains(node.0)
@@ -1590,7 +1592,7 @@ where
 
         let margin = (height_outer - height) / 2.0;
         let outer_rect = cursor.with_max_y(cursor.top() + height_outer);
-        let inner_rect = outer_rect.shrink2(vec2(0.0, margin));
+        let inner_rect = outer_rect.shrink2(egui::Vec2::from(vec2(0.0, margin)));
 
         let builder = UiBuilder::new().layout(pin_layout).max_rect(inner_rect);
 
@@ -1599,7 +1601,7 @@ where
                 let min = pin_ui.next_widget_position();
                 pin_ui.advance_cursor_after_rect(Rect::from_min_size(
                     min,
-                    vec2(input_spacing, pin_size),
+                    egui::Vec2::from(vec2(input_spacing, pin_size)),
                 ));
             }
 
@@ -1762,7 +1764,7 @@ where
 
         let margin = (height_outer - height) / 2.0;
         let outer_rect = cursor.with_max_y(cursor.top() + height_outer);
-        let inner_rect = outer_rect.shrink2(vec2(0.0, margin));
+        let inner_rect = outer_rect.shrink2(egui::Vec2::from(vec2(0.0, margin)));
 
         let builder = UiBuilder::new().layout(pin_layout).max_rect(inner_rect);
 
@@ -1772,7 +1774,7 @@ where
                 let min = pin_ui.next_widget_position();
                 pin_ui.advance_cursor_after_rect(Rect::from_min_size(
                     min,
-                    vec2(output_spacing, pin_size),
+                    egui::Vec2::from(vec2(output_spacing, pin_size)),
                 ));
             }
 
@@ -2026,7 +2028,7 @@ where
     );
 
     if !modifiers.shift && !modifiers.command && r.dragged_by(PointerButton::Primary) {
-        node_moved = Some((node, r.drag_delta()));
+        node_moved = Some((node, r.drag_delta().into()));
     }
 
     if r.clicked_by(PointerButton::Primary) || r.dragged_by(PointerButton::Primary) {
@@ -2326,7 +2328,7 @@ where
 
                 let inputs_rect = r.final_rect;
 
-                new_pins_size = inputs_rect.size();
+                new_pins_size = inputs_rect.size().into();
 
                 let mut next_y = inputs_rect.bottom() + ui.spacing().item_spacing.y;
 
@@ -2450,7 +2452,7 @@ where
 
                 let outputs_rect = r.final_rect;
 
-                new_pins_size = outputs_rect.size();
+                new_pins_size = outputs_rect.size().into();
 
                 let mut next_y = outputs_rect.bottom() + ui.spacing().item_spacing.y;
 
@@ -2609,7 +2611,7 @@ where
             ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
                 if style.get_collapsible() {
                     let (_, r) = ui.allocate_exact_size(
-                        vec2(ui.spacing().icon_width, ui.spacing().icon_width),
+                        egui::Vec2::from(vec2(ui.spacing().icon_width, ui.spacing().icon_width)),
                         Sense::click(),
                     );
                     paint_default_icon(ui, openness, &r);
@@ -2620,7 +2622,7 @@ where
                     }
                 }
 
-                ui.allocate_exact_size(header_drag_space, Sense::hover());
+                ui.allocate_exact_size(egui::Vec2::from(header_drag_space), Sense::hover());
 
                 with_mara_ui(ui, |mui| {
                     viewer.show_header(node, &inputs, &outputs, mui, graph)
@@ -2646,13 +2648,13 @@ where
         let header_size = header_rect.size();
         node_state.set_header_height(header_size.y);
 
-        node_state.set_size(vec2(
+        node_state.set_size(egui::Vec2::from(vec2(
             f32::max(header_size.x, new_pins_size.x),
             header_size.y
                 + header_frame.total_margin().bottomf()
                 + ui.spacing().item_spacing.y
                 + new_pins_size.y,
-        ));
+        )));
     });
 
     // Fill the reserved halo slot now that we know the final

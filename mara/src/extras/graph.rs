@@ -242,7 +242,7 @@ pub fn mara_node_graph_style(accent: impl Into<MaraColor32>) -> GraphStyle {
         // strip before `show_header`. That pushes our icon away
         // from the left edge of the header band and looks broken
         // next to a per-category coloured fill.
-        header_drag_space: Some(egui::vec2(0.0, 0.0)),
+        header_drag_space: Some(mara_core::vocab::Vec2::ZERO),
         ..GraphStyle::new()
     }
 }
@@ -450,7 +450,7 @@ pub fn mara_node_graph_with_opts<T, V: NodeViewer<T>>(
                     GraphWidget::new()
                         .id(id_for_graph)
                         .style(mara_node_graph_style(accent))
-                        .min_size(size_egui)
+                        .min_size(size_egui.into())
                         .show(graph, viewer, sub_ui);
                 },
             );
@@ -612,7 +612,7 @@ where
         GraphWidget::new()
             .id(self.id)
             .style(mara_node_graph_style(mara_core::style::active_accent()))
-            .min_size(size)
+            .min_size(size.into())
             .show(&mut self.graph, &mut self.viewer, ui);
     }
 

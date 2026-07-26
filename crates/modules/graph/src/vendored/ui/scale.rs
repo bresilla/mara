@@ -26,6 +26,12 @@ impl Scale for f32 {
     }
 }
 
+impl Scale for mara_core::vocab::Vec2 {
+    fn scale(&mut self, scale: f32) {
+        *self = *self * scale;
+    }
+}
+
 impl Scale for egui::Vec2 {
     fn scale(&mut self, scale: f32) {
         *self *= scale;

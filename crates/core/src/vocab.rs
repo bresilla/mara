@@ -18,6 +18,12 @@ impl Vec2 {
     pub const ZERO: Self = Self { x: 0.0, y: 0.0 };
     pub const X: Self = Self { x: 1.0, y: 0.0 };
     pub const Y: Self = Self { x: 0.0, y: 1.0 };
+    /// Unbounded in both axes — the "no maximum" a size constraint uses
+    /// to mean "take whatever you need".
+    pub const INFINITY: Self = Self {
+        x: f32::INFINITY,
+        y: f32::INFINITY,
+    };
 
     #[must_use]
     pub const fn new(x: f32, y: f32) -> Self {
@@ -52,6 +58,31 @@ impl Vec2 {
             self.x + (other.x - self.x) * t,
             self.y + (other.y - self.y) * t,
         )
+    }
+
+    /// Per-axis maximum. Element-wise, not "the longer vector" — a size
+    /// constraint clamps width and height independently.
+    #[must_use]
+    pub fn max(self, other: Self) -> Self {
+        Self::new(self.x.max(other.x), self.y.max(other.y))
+    }
+
+    /// Per-axis minimum.
+    #[must_use]
+    pub fn min(self, other: Self) -> Self {
+        Self::new(self.x.min(other.x), self.y.min(other.y))
+    }
+
+    /// The larger of the two axes.
+    #[must_use]
+    pub fn max_elem(self) -> f32 {
+        self.x.max(self.y)
+    }
+
+    /// The smaller of the two axes.
+    #[must_use]
+    pub fn min_elem(self) -> f32 {
+        self.x.min(self.y)
     }
 
     /// Unit vector in the same direction, or [`Vec2::ZERO`] when this
