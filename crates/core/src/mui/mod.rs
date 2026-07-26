@@ -1629,6 +1629,15 @@ impl<'a> MaraUi<'a> {
     /// Fill, stroke, corner radius, inner margin and shadow come from
     /// the [`crate::style::FrameSpec`], and the frame paints behind the
     /// content rather than over it.
+    /// Pan and zoom everything drawn on this surface's layer.
+    ///
+    /// The transform applies to the layer as a whole, so content is
+    /// laid out in its own coordinates and moved as one — which is what
+    /// a zoomable canvas wants, rather than every child scaling itself.
+    pub fn set_layer_transform(&mut self, transform: crate::transform::Transform) {
+        self.backend.set_layer_transform(transform);
+    }
+
     /// Reserve a place in the paint order to fill in later.
     ///
     /// Paint order is submission order, so a surface that must draw

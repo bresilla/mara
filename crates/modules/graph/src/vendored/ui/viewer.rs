@@ -1,4 +1,4 @@
-use egui::{Painter, Style, emath::TSTransform};
+use egui::{Painter, Style};
 use mara_core::MaraUi;
 use mara_core::vocab::{Pos2, Rect};
 
@@ -375,7 +375,11 @@ pub trait NodeViewer<T> {
     ///
     /// By default it does nothing.
     #[inline]
-    fn current_transform(&mut self, to_global: &mut TSTransform, graph: &mut Graph<T>) {
+    fn current_transform(
+        &mut self,
+        to_global: &mut mara_core::transform::Transform,
+        graph: &mut Graph<T>,
+    ) {
         let _ = (to_global, graph);
     }
 }

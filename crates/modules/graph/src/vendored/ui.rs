@@ -1088,9 +1088,20 @@ where
     clamp_scale(&mut to_global, min_scale, max_scale, ui_rect);
 
     let mut graph_resp = ui.response();
+    // `to_global` is Mara-typed everywhere else; the backend's gesture
+    // driver is the one place that still needs its own transform type,
+    // so convert across that call and back.
+    let mut backend_transform = TSTransform {
+        scaling: to_global.scaling,
+        translation: to_global.translation.into(),
+    };
     Scene::new()
         .zoom_range(min_scale..=max_scale)
-        .register_pan_and_zoom(&ui, &mut graph_resp, &mut to_global);
+        .register_pan_and_zoom(&ui, &mut graph_resp, &mut backend_transform);
+    to_global = mara_core::transform::Transform::new(
+        backend_transform.translation.into(),
+        backend_transform.scaling,
+    );
 
     if graph_resp.changed() {
         ui.ctx().request_repaint();
@@ -1105,17 +1116,17 @@ where
     let from_global = to_global.inverse();
 
     // Graph viewport
-    let viewport = (from_global * ui_rect).round_ui();
-    let viewport_clip = from_global * clip_rect;
+    let viewport = egui::Rect::from(from_global.mul_rect(ui_rect.into())).round_ui();
+    let viewport_clip = egui::Rect::from(from_global.mul_rect(clip_rect.into()));
 
     ui.set_clip_rect(viewport.intersect(viewport_clip));
     ui.expand_to_include_rect(viewport);
 
     // Set transform for graph layer.
-    ui.ctx().set_transform_layer(graph_layer_id, to_global);
+    with_mara_ui(&mut ui, |mara| mara.set_layer_transform(to_global));
 
     // Map latest pointer position to graph space.
-    latest_pos = latest_pos.map(|pos| from_global * pos);
+    latest_pos = latest_pos.map(|pos| egui::Pos2::from(from_global.mul_pos(pos.into())));
 
     viewer.draw_background(
         style.bg_pattern.as_ref(),
@@ -1449,7 +1460,7 @@ where
                         NewWires::Out(x) => AnyPins::Out(x),
                     };
 
-                    let menu_pos = from_global * ui.cursor().min;
+                    let menu_pos = egui::Pos2::from(from_global.mul_pos(ui.cursor().min.into()));
 
                     // Override wire end position when the wire-drop context menu is opened.
                     wire_end_pos = menu_pos;
@@ -1467,7 +1478,7 @@ where
             }
         } else if viewer.has_graph_menu(interact_pos.into(), graph) {
             graph_resp.context_menu(|ui| {
-                let menu_pos = from_global * ui.cursor().min;
+                let menu_pos = egui::Pos2::from(from_global.mul_pos(ui.cursor().min.into()));
 
                 with_mara_ui(ui, |mui| {
                     viewer.show_graph_menu(menu_pos.into(), mui, graph)
@@ -2836,19 +2847,18 @@ impl<T> Graph<T> {
 /// converts at the boundary, and that conversion disappears when the
 /// rest of this file ports.
 #[inline]
-fn clamp_scale(to_global: &mut TSTransform, min_scale: f32, max_scale: f32, ui_rect: Rect) {
+fn clamp_scale(
+    to_global: &mut mara_core::transform::Transform,
+    min_scale: f32,
+    max_scale: f32,
+    ui_rect: Rect,
+) {
     if to_global.scaling >= min_scale && to_global.scaling <= max_scale {
         return;
     }
 
     let new_scaling = to_global.scaling.clamp(min_scale, max_scale);
-    let mara =
-        mara_core::transform::Transform::new(to_global.translation.into(), to_global.scaling)
-            .scaled_around(new_scaling, ui_rect.center().into());
-    *to_global = TSTransform {
-        scaling: mara.scaling,
-        translation: mara.translation.into(),
-    };
+    *to_global = to_global.scaled_around(new_scaling, ui_rect.center().into());
 }
 
 #[test]

@@ -1,7 +1,8 @@
+use mara_core::transform::Transform;
 use egui::{
     Context, Id, Pos2, Rect, Ui, Vec2,
     ahash::HashSet,
-    emath::{GuiRounding, TSTransform},
+    emath::GuiRounding,
     style::Spacing,
 };
 use smallvec::{SmallVec, ToSmallVec, smallvec};
@@ -158,7 +159,7 @@ struct RectSelect {
 
 pub struct GraphState {
     /// Graph viewport transform to global space.
-    to_global: TSTransform,
+    to_global: Transform,
 
     new_wires: Option<NewWires>,
 
@@ -221,7 +222,7 @@ impl SelectedNodes {
 
 #[derive(Clone)]
 struct GraphStateData {
-    to_global: TSTransform,
+    to_global: Transform,
     new_wires: Option<NewWires>,
     new_wires_menu: bool,
     rect_selection: Option<RectSelect>,
@@ -328,11 +329,11 @@ impl GraphState {
         }
     }
 
-    pub const fn to_global(&self) -> TSTransform {
+    pub const fn to_global(&self) -> Transform {
         self.to_global
     }
 
-    pub fn set_to_global(&mut self, to_global: TSTransform) {
+    pub fn set_to_global(&mut self, to_global: Transform) {
         if self.to_global != to_global {
             self.to_global = to_global;
             self.dirty = true;
@@ -340,7 +341,7 @@ impl GraphState {
     }
 
     /// Add `delta` (in sub-context points) to the saved
-    /// `TSTransform.translation` of the graph with the given `id`,
+    /// translation of the graph with the given `id`,
     /// directly via context data — no live `GraphState` instance
     /// required.
     ///
@@ -354,7 +355,7 @@ impl GraphState {
         let Some(mut data) = GraphStateData::load(cx, id) else {
             return;
         };
-        data.to_global.translation += delta;
+        data.to_global.translation += mara_core::vocab::Vec2::from(delta);
         data.save(cx, id);
     }
 
@@ -633,14 +634,13 @@ impl GraphWidget {
 
 /// Transform placing `from` at `to` under uniform `scaling`.
 ///
-/// Replaces two of the three local `TSTransform` helpers this file used
-/// to share with `ui.rs`. Kept as plain arithmetic rather than routed
-/// through [`mara_core::transform::Transform`]: the anchored-rescale case genuinely
-/// needs `Transform::scaled_around` (and `clamp_scale` now uses it), but
-/// `translation = to - scaling * from` gains nothing from the round trip.
-fn fit_points(from: Pos2, to: Pos2, scaling: f32) -> TSTransform {
-    TSTransform {
+/// Replaces two of the three local transform helpers this file used to
+/// share with `ui.rs`. Plain arithmetic rather than a round trip through
+/// [`Transform::scaled_around`]: the anchored-rescale case genuinely
+/// needs that, but `translation = to - scaling * from` does not.
+fn fit_points(from: Pos2, to: Pos2, scaling: f32) -> Transform {
+    Transform::new(
+        mara_core::vocab::Vec2::new(to.x - scaling * from.x, to.y - scaling * from.y),
         scaling,
-        translation: Vec2::new(to.x - scaling * from.x, to.y - scaling * from.y),
-    }
+    )
 }
