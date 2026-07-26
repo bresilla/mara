@@ -88,9 +88,9 @@ fn container_initial_flow_key(cid: Id) -> Id {
 /// flow set by [`crate::container::Normal::initial_flow`]. Returns
 /// `None` when the container has no override (use the global
 /// default in that case).
-pub(crate) fn container_initial_flow(ctx: &egui::Context, cid: impl Into<MaraId>) -> Option<f32> {
+pub(crate) fn container_initial_flow(ctx: &dyn crate::context::MaraCtx, cid: impl Into<MaraId>) -> Option<f32> {
     let cid: Id = cid.into().into();
-    crate::memory::MaraMemoryCtx::new(ctx)
+    ctx.memory()
         .get_persisted::<f32>(container_initial_flow_key(cid))
         .filter(|value| value.is_finite())
         .map(|value| value.clamp(CONTAINER_MIN_FLOW, CONTAINER_MAX_FLOW))
@@ -100,14 +100,14 @@ pub(crate) fn container_initial_flow(ctx: &egui::Context, cid: impl Into<MaraId>
 /// [`crate::container::Normal::show`] when the builder set
 /// `initial_flow`. Subsequent calls overwrite — the most recent
 /// value wins.
-pub(crate) fn set_container_initial_flow(ctx: &egui::Context, cid: impl Into<MaraId>, value: f32) {
+pub(crate) fn set_container_initial_flow(ctx: &dyn crate::context::MaraCtx, cid: impl Into<MaraId>, value: f32) {
     let cid: Id = cid.into().into();
     let v = if value.is_finite() {
         value.clamp(CONTAINER_MIN_FLOW, CONTAINER_MAX_FLOW)
     } else {
         f32::NAN
     };
-    crate::memory::MaraMemoryCtx::new(ctx).set_persisted(container_initial_flow_key(cid), v);
+    ctx.memory().set_persisted(container_initial_flow_key(cid), v);
 }
 
 /// Read the flow-axis size the container should render at. The
@@ -137,14 +137,14 @@ pub(crate) fn set_container_initial_flow(ctx: &egui::Context, cid: impl Into<Mar
 /// 2. Default [`CONTAINER_HORIZONTAL_DEFAULT_FLOW`] (= 12U).
 ///    The user cannot drag below 12U.
 pub(crate) fn container_flow(
-    ctx: &egui::Context,
+    ctx: &dyn crate::context::MaraCtx,
     cid: impl Into<MaraId>,
     is_horizontal_strip: bool,
 ) -> f32 {
     let cid: Id = cid.into().into();
     let (min_v, max_v) = container_flow_bounds(is_horizontal_strip);
     if let Some(user) =
-        crate::memory::MaraMemoryCtx::new(ctx).get_persisted::<f32>(container_flow_key(cid))
+        ctx.memory().get_persisted::<f32>(container_flow_key(cid))
     {
         let fallback = if is_horizontal_strip {
             CONTAINER_DEFAULT_FLOW
@@ -153,7 +153,7 @@ pub(crate) fn container_flow(
         };
         let repaired = sanitize_flow(user, fallback, min_v, max_v);
         if repaired != user {
-            crate::memory::MaraMemoryCtx::new(ctx).set_persisted(container_flow_key(cid), repaired);
+            ctx.memory().set_persisted(container_flow_key(cid), repaired);
         }
         return repaired;
     }
@@ -167,13 +167,13 @@ pub(crate) fn container_flow(
     // runaway body doesn't dominate the whole pane.
     let override_default = container_initial_flow(ctx, cid);
     if is_horizontal_strip {
-        if let Some(intrinsic) = crate::memory::MaraMemoryCtx::new(ctx)
+        if let Some(intrinsic) = ctx.memory()
             .get_persisted::<f32>(container_intrinsic_key(cid))
         {
             let fallback = override_default.unwrap_or(CONTAINER_DEFAULT_FLOW);
             let repaired = sanitize_flow(intrinsic, fallback, min_v, max_v);
             if repaired != intrinsic {
-                crate::memory::MaraMemoryCtx::new(ctx)
+                ctx.memory()
                     .set_persisted(container_intrinsic_key(cid), repaired);
             }
             return repaired;
@@ -197,7 +197,7 @@ pub(crate) fn container_flow(
 /// the orientation-specific bounds before writing, so the user can't
 /// drag below 12U on horizontally-stacked containers.
 pub(crate) fn set_container_flow(
-    ctx: &egui::Context,
+    ctx: &dyn crate::context::MaraCtx,
     cid: impl Into<MaraId>,
     value: f32,
     is_horizontal_strip: bool,
@@ -210,7 +210,7 @@ pub(crate) fn set_container_flow(
         CONTAINER_HORIZONTAL_DEFAULT_FLOW
     };
     let v = sanitize_flow(value, fallback, min_v, max_v);
-    crate::memory::MaraMemoryCtx::new(ctx).set_persisted(container_flow_key(cid), v);
+    ctx.memory().set_persisted(container_flow_key(cid), v);
 }
 
 /// `(min, max)` bounds for a container's flow size based on the
@@ -228,14 +228,14 @@ pub(crate) fn container_flow_bounds(is_horizontal_strip: bool) -> (f32, f32) {
 /// Persist the measured intrinsic body content size for `cid`.
 /// Called by [`Normal::show`] every frame after the body renders.
 /// Read by [`container_flow`]'s auto-fit path on subsequent frames.
-pub(crate) fn record_container_intrinsic(ctx: &egui::Context, cid: impl Into<MaraId>, height: f32) {
+pub(crate) fn record_container_intrinsic(ctx: &dyn crate::context::MaraCtx, cid: impl Into<MaraId>, height: f32) {
     let cid: Id = cid.into().into();
     let v = if height.is_finite() {
         height.max(0.0)
     } else {
         CONTAINER_DEFAULT_FLOW
     };
-    crate::memory::MaraMemoryCtx::new(ctx).set_persisted(container_intrinsic_key(cid), v);
+    ctx.memory().set_persisted(container_intrinsic_key(cid), v);
 }
 
 fn sanitize_flow(value: f32, fallback: f32, min: f32, max: f32) -> f32 {
