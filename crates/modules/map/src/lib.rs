@@ -1,7 +1,8 @@
 //! `mara_map` — a Mara map component with retained f64 annotations.
 //!
 //! Public callers use [`MaraMap`], [`MapSurface`], and typed annotation
-//! data. egui painting/allocation is internal to this crate.
+//! data. All painting and interaction go through the sealed Mara
+//! surface — this crate names no backend types.
 
 #![allow(clippy::too_many_arguments)]
 
@@ -11,12 +12,15 @@ use std::f64::consts::PI;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use mara_core::{
-    MaraModule, MaraView, ModuleInlineCtx, ModuleResponse, RibbonAvoidance, ViewCtx, ViewId,
-    WorkspaceCtx,
-    paint::{PaintCmd, TextFamily},
+    MaraModule, MaraPainter, MaraUi, MaraView, ModuleInlineCtx, ModuleResponse, RibbonAvoidance,
+    ViewCtx, ViewId, WorkspaceCtx,
+    layout::Layer,
+    mui::MaraKey,
+    paint::{PaintCmd, PaintVertex, TextFamily},
     vocab::{
-        Align2 as MaraAlign2, Color32 as MaraColor32, Id as MaraId, Pos2 as MaraPos2,
-        Rect as MaraRect, Stroke as MaraStroke, Vec2 as MaraVec2,
+        Align2 as MaraAlign2, Color32 as MaraColor32, Id as MaraId,
+        PointerButton as MaraPointerButton, Pos2 as MaraPos2, Rect as MaraRect,
+        Stroke as MaraStroke, Vec2 as MaraVec2,
     },
 };
 
@@ -485,12 +489,11 @@ pub struct MaraMapResponse {
 }
 
 pub struct MapSurface {
-    id: egui::Id,
+    id: MaraId,
     pub document: MapDocument,
     pub viewport: MapViewport,
     vector_tiles: mvt::VectorTileCache,
     fast_frames_remaining: u8,
-    image_loaders_installed: bool,
     /// Interaction state used when this surface renders as a
     /// `ViewNode` leaf (`MaraView::show`): tool, selection, and the
     /// multi-click draft MUST persist across frames or a leaf-hosted
@@ -504,12 +507,11 @@ impl MapSurface {
     #[must_use]
     pub fn new(id: impl std::hash::Hash, document: MapDocument, viewport: MapViewport) -> Self {
         Self {
-            id: egui::Id::new(id),
+            id: MaraId::new(id),
             document,
             viewport,
             vector_tiles: mvt::VectorTileCache::default(),
             fast_frames_remaining: 10,
-            image_loaders_installed: false,
             leaf_interaction: MapInteraction::default(),
         }
     }
@@ -528,20 +530,11 @@ impl MapSurface {
     /// current viewport's basemap is already in the shared surface
     /// cache when the user switches to the map.
     pub fn prewarm_tiles(&mut self, ctx: &ViewCtx<'_>, size: impl Into<MaraVec2>) {
-        self.__internal_prewarm_tiles(ctx.__internal_egui_ctx(), size);
-    }
-
-    #[doc(hidden)]
-    pub(crate) fn __internal_prewarm_tiles(
-        &mut self,
-        ctx: &egui::Context,
-        size: impl Into<MaraVec2>,
-    ) {
         let size = size.into();
         if size.x < 16.0 || size.y < 16.0 {
             return;
         }
-        mvt::prewarm_vector_basemap(ctx, self.viewport, size, &mut self.vector_tiles);
+        mvt::prewarm_vector_basemap(self.viewport, size, &mut self.vector_tiles).apply_to_view(ctx);
     }
 }
 
@@ -560,28 +553,17 @@ impl<'a> MaraMap<'a> {
     }
 
     pub fn show(self, ctx: &mut ViewCtx<'_>) -> MaraMapResponse {
-        let region: egui::Rect = ctx.screen_rect().into();
-        self.__internal_show_in(ctx.__internal_egui_ctx(), region)
-    }
-
-    #[doc(hidden)]
-    pub(crate) fn __internal_show(self, ctx: &egui::Context) -> MaraMapResponse {
-        let region = ctx.content_rect();
-        self.__internal_show_in(ctx, region)
-    }
-
-    fn __internal_show_in(self, ctx: &egui::Context, region: egui::Rect) -> MaraMapResponse {
-        let mut output = MaraMapResponse::default();
-        egui::Area::new(egui::Id::new(("mara_map_view", self.surface.id)))
-            .order(egui::Order::Background)
-            .fixed_pos(region.min)
-            .show(ctx, |ui| {
-                ui.set_clip_rect(region);
-                ui.set_min_size(region.size());
-                ui.set_max_size(region.size());
-                output = paint_map(ui, self.surface, self.interaction);
-            });
-        output
+        let region = ctx.screen_rect();
+        let Self {
+            surface,
+            interaction,
+        } = self;
+        ctx.body_at(
+            ("mara_map_view", surface.id),
+            region,
+            Layer::Background,
+            |mui| paint_map(mui, surface, interaction),
+        )
     }
 }
 
@@ -641,39 +623,35 @@ impl MaraModule for MapSurface {
 }
 
 fn paint_map(
-    ui: &mut egui::Ui,
+    mui: &mut MaraUi<'_>,
     surface: &mut MapSurface,
     interaction: &mut MapInteraction,
 ) -> MaraMapResponse {
-    if !surface.image_loaders_installed {
-        egui_extras::install_image_loaders(ui.ctx());
-        surface.image_loaders_installed = true;
-    }
-
-    let desired = ui.available_size_before_wrap();
-    let (response, painter) = ui.allocate_painter(desired, egui::Sense::click_and_drag());
+    let desired = MaraVec2::new(mui.available_width(), mui.available_height());
+    let (painter, response) = mui.canvas(desired);
+    let input = mui.input();
     let rect = response.rect;
     let mut fast_basemap = surface.fast_frames_remaining > 0;
     if surface.fast_frames_remaining > 0 {
         surface.fast_frames_remaining -= 1;
     }
 
-    if response.dragged_by(egui::PointerButton::Middle) {
+    if response.dragged_by(MaraPointerButton::Middle) {
         fast_basemap = true;
-        let delta = ui.input(|input| input.pointer.delta());
-        if delta != egui::Vec2::ZERO {
+        let delta = input.pointer_delta;
+        if delta != MaraVec2::ZERO {
             pan_viewport(&mut surface.viewport, delta);
             surface.fast_frames_remaining = surface.fast_frames_remaining.max(3);
         }
     }
 
     if response.hovered() {
-        let scroll = ui.input(|input| input.smooth_scroll_delta.y);
+        let scroll = input.scroll_delta.y;
         if scroll.abs() > f32::EPSILON {
             zoom_viewport_at(
                 &mut surface.viewport,
                 rect,
-                response.hover_pos().unwrap_or(rect.center()),
+                response.hover_pos.unwrap_or(rect.center()),
                 f64::from(scroll) / 320.0,
             );
             fast_basemap = true;
@@ -681,7 +659,7 @@ fn paint_map(
         }
     }
 
-    let deleted = if ui.input(|input| input.key_pressed(egui::Key::Delete)) {
+    let deleted = if input.key_pressed(MaraKey::Delete) {
         interaction
             .selected
             .and_then(|id| surface.document.remove(id).map(|_| id))
@@ -698,9 +676,9 @@ fn paint_map(
 
     let mut selected = interaction.selected;
 
-    mvt::paint_vector_basemap(
-        ui,
-        rect.into(),
+    let mut repaint = mvt::paint_vector_basemap(
+        &painter,
+        rect,
         surface.viewport,
         &mut surface.vector_tiles,
         fast_basemap,
@@ -713,7 +691,6 @@ fn paint_map(
 
     for annotation in &surface.document.annotations {
         paint_annotation(
-            ui,
             &painter,
             rect,
             surface.viewport,
@@ -723,24 +700,28 @@ fn paint_map(
     }
     paint_draft(&painter, rect, surface.viewport, interaction);
     paint_corner_darkening_overlay(&painter, rect);
+    if fast_basemap {
+        repaint.now();
+    }
+    repaint.apply_to_ui(mui);
 
     let hovered_position = response
-        .hover_pos()
+        .hover_pos
         .map(|pos| screen_to_geo(pos, rect, surface.viewport));
     let clicked_position = response
-        .clicked_by(egui::PointerButton::Primary)
-        .then(|| response.interact_pointer_pos())
+        .clicked_by(MaraPointerButton::Primary)
+        .then_some(response.interact_pointer)
         .flatten()
         .map(|pos| screen_to_geo(pos, rect, surface.viewport));
 
-    if response.clicked_by(egui::PointerButton::Secondary) {
+    if response.clicked_by(MaraPointerButton::Secondary) {
         cancel_tool_step(interaction);
         selected = interaction.selected;
     }
 
     if let Some(pos) = response
-        .interact_pointer_pos()
-        .filter(|_| response.clicked_by(egui::PointerButton::Primary))
+        .interact_pointer
+        .filter(|_| response.clicked_by(MaraPointerButton::Primary))
     {
         if !interaction.basemap_selection_enabled
             && let Some(hit) = hit_test(&surface.document, rect, surface.viewport, pos)
@@ -763,7 +744,7 @@ fn paint_map(
                     &mut surface.document,
                     interaction,
                     geo,
-                    response.double_clicked(),
+                    response.double_clicked,
                 );
                 selected = interaction.selected;
             }
@@ -789,48 +770,51 @@ fn paint_map(
     }
 }
 
-fn paint_corner_darkening_overlay(painter: &egui::Painter, rect: egui::Rect) {
-    let accent: egui::Color32 = mara_core::style::raw_accent().into();
+fn paint_corner_darkening_overlay(painter: &MaraPainter, rect: MaraRect) {
+    let accent: MaraColor32 = mara_core::style::raw_accent().into();
     let steps = 28;
-    let mut mesh = egui::Mesh::default();
+    let mut vertices = Vec::with_capacity((steps + 1) * (steps + 1));
+    let mut indices = Vec::with_capacity(steps * steps * 6);
 
     for y in 0..=steps {
         let ty = y as f32 / steps as f32;
         for x in 0..=steps {
             let tx = x as f32 / steps as f32;
-            let pos = egui::pos2(
-                egui::lerp(rect.left()..=rect.right(), tx),
-                egui::lerp(rect.top()..=rect.bottom(), ty),
+            let pos = MaraPos2::new(
+                lerp(rect.left(), rect.right(), tx),
+                lerp(rect.top(), rect.bottom(), ty),
             );
             let nx = tx * 2.0 - 1.0;
             let ny = ty * 2.0 - 1.0;
             let radial = (nx * nx + ny * ny).sqrt().min(1.28) / 1.28;
             let vignette = smoothstep(0.62, 1.0, radial);
             let alpha = (vignette * 148.0).round() as u8;
-            let color = egui::Color32::from_rgba_unmultiplied(
+            let color = MaraColor32::from_rgba_unmultiplied(
                 (f32::from(accent.r()) * 0.038) as u8,
                 (f32::from(accent.g()) * 0.038) as u8,
                 (f32::from(accent.b()) * 0.038) as u8,
                 alpha,
             );
-            mesh.vertices.push(egui::epaint::Vertex {
-                pos,
-                uv: egui::epaint::WHITE_UV,
-                color,
-            });
+            vertices.push(PaintVertex { pos, color });
         }
     }
 
-    let row = steps + 1;
-    for y in 0..steps {
-        for x in 0..steps {
+    let row = (steps + 1) as u32;
+    for y in 0..steps as u32 {
+        for x in 0..steps as u32 {
             let i = y * row + x;
-            mesh.indices
-                .extend_from_slice(&[i, i + 1, i + row + 1, i, i + row + 1, i + row]);
+            indices.extend_from_slice(&[i, i + 1, i + row + 1, i, i + row + 1, i + row]);
         }
     }
 
-    painter.add(egui::Shape::mesh(mesh));
+    painter.mesh(vertices, indices);
+}
+
+/// Linear interpolation between two scalars.
+///
+/// Local so the vignette mesh does not reach for a backend math helper.
+fn lerp(from: f32, to: f32, t: f32) -> f32 {
+    from + (to - from) * t
 }
 
 fn smoothstep(edge0: f32, edge1: f32, value: f32) -> f32 {
@@ -923,7 +907,7 @@ fn apply_tool(
     }
 }
 
-fn pan_viewport(viewport: &mut MapViewport, delta: egui::Vec2) {
+fn pan_viewport(viewport: &mut MapViewport, delta: MaraVec2) {
     let center = geo_to_world(viewport.center, viewport.zoom);
     viewport.center = world_to_geo(
         (center.0 - f64::from(delta.x), center.1 - f64::from(delta.y)),
@@ -931,12 +915,7 @@ fn pan_viewport(viewport: &mut MapViewport, delta: egui::Vec2) {
     );
 }
 
-fn zoom_viewport_at(
-    viewport: &mut MapViewport,
-    rect: egui::Rect,
-    anchor: egui::Pos2,
-    zoom_delta: f64,
-) {
+fn zoom_viewport_at(viewport: &mut MapViewport, rect: MaraRect, anchor: MaraPos2, zoom_delta: f64) {
     let old_zoom = viewport.zoom;
     let new_zoom = (old_zoom + zoom_delta).clamp(MIN_ZOOM, MAX_ZOOM);
     if (new_zoom - old_zoom).abs() < f64::EPSILON {
@@ -955,25 +934,20 @@ fn zoom_viewport_at(
 }
 
 fn paint_annotation(
-    ui: &mut egui::Ui,
-    painter: &egui::Painter,
-    rect: egui::Rect,
+    painter: &MaraPainter,
+    rect: MaraRect,
     viewport: MapViewport,
     annotation: &MapAnnotation,
     selected: Option<MapAnnotationId>,
 ) {
     let is_selected = selected == Some(annotation.id());
     for cmd in map_annotation_paint_cmds(rect, viewport, annotation, is_selected) {
-        if matches!(&cmd, PaintCmd::Svg { .. }) {
-            mara_core::paint::__internal_render_paint_cmd_egui_ui(ui, cmd);
-        } else {
-            mara_core::paint::__internal_render_paint_cmd_egui(painter, cmd);
-        }
+        painter.paint_cmd(cmd);
     }
 }
 
 fn map_annotation_paint_cmds(
-    rect: egui::Rect,
+    rect: MaraRect,
     viewport: MapViewport,
     annotation: &MapAnnotation,
     is_selected: bool,
@@ -1055,7 +1029,7 @@ fn map_annotation_paint_cmds(
 }
 
 fn map_icon_paint_cmd(
-    pos: egui::Pos2,
+    pos: MaraPos2,
     glyph: &MapIconGlyph,
     size: f32,
     color: MaraColor32,
@@ -1089,18 +1063,18 @@ fn map_icon_paint_cmd(
 }
 
 fn paint_selected_feature(
-    painter: &egui::Painter,
-    rect: egui::Rect,
+    painter: &MaraPainter,
+    rect: MaraRect,
     viewport: MapViewport,
     feature: &MapFeatureInfo,
 ) {
     for cmd in selected_feature_paint_cmds(rect, viewport, feature) {
-        mara_core::paint::__internal_render_paint_cmd_egui(painter, cmd);
+        painter.paint_cmd(cmd);
     }
 }
 
 fn selected_feature_paint_cmds(
-    rect: egui::Rect,
+    rect: MaraRect,
     viewport: MapViewport,
     feature: &MapFeatureInfo,
 ) -> Vec<PaintCmd> {
@@ -1169,21 +1143,21 @@ fn selected_feature_paint_cmds(
     cmds
 }
 
-fn selection_color(base: egui::Color32) -> egui::Color32 {
+fn selection_color(base: MaraColor32) -> MaraColor32 {
     let theme = mara_core::style::theme();
     let target = if theme.is_light {
-        egui::Color32::BLACK
+        MaraColor32::BLACK
     } else {
-        egui::Color32::WHITE
+        MaraColor32::WHITE
     };
     blend_color(target, base, 0.22, 190)
 }
 
-fn blend_color(a: egui::Color32, b: egui::Color32, b_amount: f32, alpha: u8) -> egui::Color32 {
+fn blend_color(a: MaraColor32, b: MaraColor32, b_amount: f32, alpha: u8) -> MaraColor32 {
     let b_amount = b_amount.clamp(0.0, 1.0);
     let a_amount = 1.0 - b_amount;
     let blend = |x: u8, y: u8| (f32::from(x) * a_amount + f32::from(y) * b_amount).round() as u8;
-    egui::Color32::from_rgba_unmultiplied(
+    MaraColor32::from_rgba_unmultiplied(
         blend(a.r(), b.r()),
         blend(a.g(), b.g()),
         blend(a.b(), b.b()),
@@ -1192,18 +1166,18 @@ fn blend_color(a: egui::Color32, b: egui::Color32, b_amount: f32, alpha: u8) -> 
 }
 
 fn paint_draft(
-    painter: &egui::Painter,
-    rect: egui::Rect,
+    painter: &MaraPainter,
+    rect: MaraRect,
     viewport: MapViewport,
     interaction: &MapInteraction,
 ) {
     for cmd in draft_paint_cmds(rect, viewport, interaction) {
-        mara_core::paint::__internal_render_paint_cmd_egui(painter, cmd);
+        painter.paint_cmd(cmd);
     }
 }
 
 fn draft_paint_cmds(
-    rect: egui::Rect,
+    rect: MaraRect,
     viewport: MapViewport,
     interaction: &MapInteraction,
 ) -> Vec<PaintCmd> {
@@ -1226,12 +1200,12 @@ fn draft_paint_cmds(
     cmds
 }
 
-fn normalized_polygon_points(points: &[egui::Pos2]) -> Vec<egui::Pos2> {
+fn normalized_polygon_points(points: &[MaraPos2]) -> Vec<MaraPos2> {
     let mut out = Vec::with_capacity(points.len());
     for point in points {
         if out
             .last()
-            .is_none_or(|last: &egui::Pos2| last.distance(*point) > f32::EPSILON)
+            .is_none_or(|last: &MaraPos2| last.distance(*point) > f32::EPSILON)
         {
             out.push(*point);
         }
@@ -1356,9 +1330,9 @@ fn point_in_triangle(p: MaraPos2, a: MaraPos2, b: MaraPos2, c: MaraPos2) -> bool
 
 fn hit_test(
     document: &MapDocument,
-    rect: egui::Rect,
+    rect: MaraRect,
     viewport: MapViewport,
-    pos: egui::Pos2,
+    pos: MaraPos2,
 ) -> Option<MapAnnotationId> {
     document.annotations.iter().rev().find_map(|ann| {
         let hit = match ann {
@@ -1379,7 +1353,7 @@ fn hit_test(
     })
 }
 
-fn polygon_edge_hit(pos: egui::Pos2, points: &[egui::Pos2], tolerance: f32) -> bool {
+fn polygon_edge_hit(pos: MaraPos2, points: &[MaraPos2], tolerance: f32) -> bool {
     if points.len() < 2 {
         return false;
     }
@@ -1390,18 +1364,14 @@ fn polygon_edge_hit(pos: egui::Pos2, points: &[egui::Pos2], tolerance: f32) -> b
         .any(|(a, b)| distance_to_segment(pos, *a, *b) <= tolerance)
 }
 
-fn screen_points(
-    points: &[GeoPosition],
-    rect: egui::Rect,
-    viewport: MapViewport,
-) -> Vec<egui::Pos2> {
+fn screen_points(points: &[GeoPosition], rect: MaraRect, viewport: MapViewport) -> Vec<MaraPos2> {
     points
         .iter()
         .map(|point| geo_to_screen(*point, rect, viewport))
         .collect()
 }
 
-fn distance_to_segment(p: egui::Pos2, a: egui::Pos2, b: egui::Pos2) -> f32 {
+fn distance_to_segment(p: MaraPos2, a: MaraPos2, b: MaraPos2) -> f32 {
     let ab = b - a;
     let denom = ab.dot(ab);
     if denom <= f32::EPSILON {
@@ -1411,16 +1381,16 @@ fn distance_to_segment(p: egui::Pos2, a: egui::Pos2, b: egui::Pos2) -> f32 {
     p.distance(a + ab * t)
 }
 
-fn geo_to_screen(position: GeoPosition, rect: egui::Rect, viewport: MapViewport) -> egui::Pos2 {
+fn geo_to_screen(position: GeoPosition, rect: MaraRect, viewport: MapViewport) -> MaraPos2 {
     let center = geo_to_world(viewport.center, viewport.zoom);
     let world = geo_to_world(position, viewport.zoom);
-    egui::pos2(
+    MaraPos2::new(
         rect.center().x + (world.0 - center.0) as f32,
         rect.center().y + (world.1 - center.1) as f32,
     )
 }
 
-fn screen_to_geo(pos: egui::Pos2, rect: egui::Rect, viewport: MapViewport) -> GeoPosition {
+fn screen_to_geo(pos: MaraPos2, rect: MaraRect, viewport: MapViewport) -> GeoPosition {
     let center = geo_to_world(viewport.center, viewport.zoom);
     world_to_geo(
         (
@@ -1458,8 +1428,8 @@ mod tests {
     fn assert_view<T: MaraView>(_value: &T) {}
     fn assert_module<T: MaraModule>(_value: &T) {}
 
-    fn test_map_rect() -> egui::Rect {
-        egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(256.0, 256.0))
+    fn test_map_rect() -> MaraRect {
+        MaraRect::from_min_size(MaraPos2::new(0.0, 0.0), MaraVec2::new(256.0, 256.0))
     }
 
     fn test_map_viewport() -> MapViewport {
@@ -1500,7 +1470,7 @@ mod tests {
     #[test]
     fn fluent_icon_annotations_lower_to_mara_text_family_paint_cmd() {
         let cmd = map_icon_paint_cmd(
-            egui::pos2(10.0, 20.0),
+            MaraPos2::new(10.0, 20.0),
             &MapIconGlyph::Fluent("search".to_owned()),
             18.0,
             MaraColor32::WHITE,
@@ -1518,7 +1488,7 @@ mod tests {
         else {
             panic!("fluent map icons should lower to named-family text commands");
         };
-        assert_eq!(pos, egui::pos2(10.0, 20.0).into());
+        assert_eq!(pos, MaraPos2::new(10.0, 20.0).into());
         assert_eq!(anchor, MaraAlign2::CENTER_CENTER);
         assert!(!text.is_empty());
         assert_eq!(size, 18.0);
@@ -1529,7 +1499,7 @@ mod tests {
     #[test]
     fn text_icon_annotations_lower_to_mara_text_paint_cmd() {
         let cmd = map_icon_paint_cmd(
-            egui::pos2(3.0, 4.0),
+            MaraPos2::new(3.0, 4.0),
             &MapIconGlyph::Text("A1".to_owned()),
             14.0,
             MaraColor32::BLACK,
@@ -1547,7 +1517,7 @@ mod tests {
         else {
             panic!("text map icons should lower to Mara text commands");
         };
-        assert_eq!(pos, egui::pos2(3.0, 4.0).into());
+        assert_eq!(pos, MaraPos2::new(3.0, 4.0).into());
         assert_eq!(anchor, MaraAlign2::CENTER_CENTER);
         assert_eq!(text, "A1");
         assert_eq!(size, 14.0);
@@ -1558,7 +1528,7 @@ mod tests {
     #[test]
     fn svg_icon_annotations_lower_to_mara_svg_paint_cmd() {
         let cmd = map_icon_paint_cmd(
-            egui::pos2(20.0, 30.0),
+            MaraPos2::new(20.0, 30.0),
             &MapIconGlyph::Svg(DEFAULT_SVG_MARKER.to_owned()),
             16.0,
             MaraColor32::WHITE,
@@ -1571,7 +1541,7 @@ mod tests {
         assert_eq!(svg, DEFAULT_SVG_MARKER);
         assert_eq!(
             rect,
-            MaraRect::from_center_size(egui::pos2(20.0, 30.0).into(), MaraVec2::new(16.0, 16.0))
+            MaraRect::from_center_size(MaraPos2::new(20.0, 30.0).into(), MaraVec2::new(16.0, 16.0))
         );
         assert_eq!(tint, MaraColor32::WHITE);
     }
@@ -1804,13 +1774,13 @@ mod tests {
     #[test]
     fn polygon_hit_test_uses_edges_only() {
         let points = vec![
-            egui::pos2(0.0, 0.0),
-            egui::pos2(100.0, 0.0),
-            egui::pos2(100.0, 100.0),
-            egui::pos2(0.0, 100.0),
+            MaraPos2::new(0.0, 0.0),
+            MaraPos2::new(100.0, 0.0),
+            MaraPos2::new(100.0, 100.0),
+            MaraPos2::new(0.0, 100.0),
         ];
-        assert!(polygon_edge_hit(egui::pos2(50.0, 3.0), &points, 8.0));
-        assert!(!polygon_edge_hit(egui::pos2(50.0, 50.0), &points, 8.0));
+        assert!(polygon_edge_hit(MaraPos2::new(50.0, 3.0), &points, 8.0));
+        assert!(!polygon_edge_hit(MaraPos2::new(50.0, 50.0), &points, 8.0));
     }
 
     #[test]
@@ -1863,11 +1833,11 @@ mod tests {
     #[test]
     fn polygon_fill_normalizes_closed_mvt_style_rings() {
         let closed_ring = vec![
-            egui::pos2(0.0, 0.0),
-            egui::pos2(100.0, 0.0),
-            egui::pos2(100.0, 100.0),
-            egui::pos2(0.0, 100.0),
-            egui::pos2(0.0, 0.0),
+            MaraPos2::new(0.0, 0.0),
+            MaraPos2::new(100.0, 0.0),
+            MaraPos2::new(100.0, 100.0),
+            MaraPos2::new(0.0, 100.0),
+            MaraPos2::new(0.0, 0.0),
         ];
         let points: Vec<MaraPos2> = normalized_polygon_points(&closed_ring)
             .into_iter()

@@ -96,20 +96,27 @@ pub fn mara_code_editor_with_opts(
     let accent = accent.into();
     let min_size = min_size.into();
     let accent_egui = crate::backend::egui::color32_for_backend(accent);
-    crate::embed::__internal_maximizable_with_opts_egui(ui, id_salt, accent, min_size, fs_opts, |ui| {
-        let id = format!("mara_code_editor_{:?}", ui.id());
-        let code = crate::style::theme().code;
-        let line_h = code.font_size * code.line_height_factor;
-        let rows = ((ui.available_height() / line_h).floor() as usize).max(code.min_rows);
-        CodeEditor::default()
-            .id_source(id)
-            .with_syntax(syntax)
-            .with_theme(mara_code_theme(accent_egui))
-            .with_fontsize(code.font_size)
-            .with_rows(rows)
-            .with_numlines(true)
-            .show(ui, text);
-    });
+    crate::embed::__internal_maximizable_with_opts_egui(
+        ui,
+        id_salt,
+        accent,
+        min_size,
+        fs_opts,
+        |ui| {
+            let id = format!("mara_code_editor_{:?}", ui.id());
+            let code = crate::style::theme().code;
+            let line_h = code.font_size * code.line_height_factor;
+            let rows = ((ui.available_height() / line_h).floor() as usize).max(code.min_rows);
+            CodeEditor::default()
+                .id_source(id)
+                .with_syntax(syntax)
+                .with_theme(mara_code_theme(accent_egui))
+                .with_fontsize(code.font_size)
+                .with_rows(rows)
+                .with_numlines(true)
+                .show(ui, text);
+        },
+    );
 }
 
 /// Build a [`ColorTheme`] whose background / text / selection

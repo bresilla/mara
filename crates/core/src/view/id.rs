@@ -13,6 +13,12 @@ impl ViewId {
     }
 }
 
+impl From<Id> for ViewId {
+    fn from(value: Id) -> Self {
+        Self(value)
+    }
+}
+
 impl From<egui::Id> for ViewId {
     fn from(value: egui::Id) -> Self {
         Self(value.into())

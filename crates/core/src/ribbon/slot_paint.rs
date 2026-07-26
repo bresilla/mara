@@ -880,12 +880,7 @@ fn draw_one_slot_ribbon(
     let total = ribbon.items.len() as u32;
     for (idx, item) in ribbon.items.iter().enumerate() {
         let rect = super::chrome::screen_rect(place_button(
-            ctx,
-            ribbon,
-            cluster,
-            idx as u32,
-            total,
-            insets,
+            ctx, ribbon, cluster, idx as u32, total, insets,
         ));
         if crate::probe::__internal_enabled(ctx) {
             crate::probe::__internal_record(
@@ -1024,8 +1019,7 @@ mod tests {
         });
 
         let ribbon_id = MaraId::new((def.id, def.cluster));
-        let area_id: egui::Id =
-            MaraId::new(("mara_slot_ribbon", ribbon_id, Id::new("pen"))).into();
+        let area_id: egui::Id = MaraId::new(("mara_slot_ribbon", ribbon_id, Id::new("pen"))).into();
         let rect = ctx
             .memory(|m| m.area_rect(area_id))
             .expect("leaf ribbon area must exist after the pass");
@@ -1355,5 +1349,4 @@ mod tests {
             ]
         );
     }
-
 }

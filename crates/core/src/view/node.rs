@@ -233,7 +233,10 @@ fn show_split_divider(
     let vertical_line = divider.vertical_line;
     let response = crate::backend::egui::show_area_slot(
         egui_ctx,
-        AreaSlotSpec::new(AreaHost::new(id, strip.min, Layer::Foreground), strip.size()),
+        AreaSlotSpec::new(
+            AreaHost::new(id, strip.min, Layer::Foreground),
+            strip.size(),
+        ),
         |ui| {
             let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
             let response = backend.interact(strip, id.with("hit"), Sense::ClickAndDrag);

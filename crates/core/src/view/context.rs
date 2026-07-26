@@ -98,10 +98,9 @@ impl<'a> ViewCtx<'a> {
         // children of the leaf, so the body insets from them inside the
         // region — wherever the region is, however small it gets.
         let mut rect = self.region;
-        if let Some(edges) = crate::ribbon::slot_paint::view_ribbon_edges(
-            self.egui_ctx,
-            self.workspace.current().id,
-        ) {
+        if let Some(edges) =
+            crate::ribbon::slot_paint::view_ribbon_edges(self.egui_ctx, self.workspace.current().id)
+        {
             rect = shrink_region_by_ribbon_edges(rect, edges);
         }
         // Then window-level rails: for the root, the intersection trims
@@ -309,6 +308,17 @@ impl<'a> ViewCtx<'a> {
         self.egui_ctx
             .load_texture(name, image, options.into())
             .into()
+    }
+
+    /// Ask the host to schedule another frame.
+    pub fn request_repaint(&self) {
+        backend::egui::request_repaint(self.egui_ctx);
+    }
+
+    /// Ask the host to schedule a frame no later than `after` — for
+    /// views polling off-thread work (tile fetches, decode queues).
+    pub fn request_repaint_after(&self, after: std::time::Duration) {
+        backend::egui::request_repaint_after(self.egui_ctx, after);
     }
 
     /// Current responsive size class for this node's region. Views

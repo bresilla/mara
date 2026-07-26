@@ -69,7 +69,8 @@ check:
 	@$(CARGO) check --workspace --all-targets
 	@$(CARGO) check --manifest-path example/sealed/Cargo.toml
 	@./scripts/ratchet.sh
-	@! grep -n '^egui' crates/modules/board/Cargo.toml crates/modules/canvas/Cargo.toml crates/modules/image/Cargo.toml
+	@! grep -n '^egui' crates/modules/board/Cargo.toml crates/modules/canvas/Cargo.toml crates/modules/image/Cargo.toml crates/modules/map/Cargo.toml
+	@! grep -RInE 'egui[_-]?[a-z]*::' crates/modules/map/src
 	@! grep -n 'raw-egui' example/Cargo.toml
 	@! grep -n 'raw-egui' crates/core/Cargo.toml mara/Cargo.toml
 	@! grep -RInE 'cfg[(]feature[[:space:]]*=[[:space:]]*"raw-egui"|^[[:space:]]*pub[[:space:]]+use[[:space:]]+egui([:;]|$$)|^[[:space:]]*pub[[:space:]]+fn[[:space:]]+(from_raw|raw_ui_mut|raw|egui|egui_ctx|ctx)[(]' crates/core/src mara/src

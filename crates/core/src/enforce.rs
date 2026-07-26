@@ -238,12 +238,10 @@ pub fn __internal_enforce_defaults(ctx: &egui::Context) {
     let mut state = ctx
         .data(|d| d.get_temp::<FallbackShell>(fallback_state_key()))
         .unwrap_or_default();
-    let _ = state.bar.__internal_show_egui(
-        ctx,
-        &mut state.open,
-        &mut state.placement,
-        &mut state.drag,
-    );
+    let _ =
+        state
+            .bar
+            .__internal_show_egui(ctx, &mut state.open, &mut state.placement, &mut state.drag);
     {
         let mut memory = crate::memory::MaraMemoryCtx::new(ctx);
         memory.set_temp(fallback_state_key(), state);

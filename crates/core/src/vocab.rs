@@ -23,6 +23,80 @@ impl Vec2 {
     pub const fn new(x: f32, y: f32) -> Self {
         Self { x, y }
     }
+
+    #[must_use]
+    pub fn dot(self, other: Self) -> f32 {
+        self.x * other.x + self.y * other.y
+    }
+
+    #[must_use]
+    pub fn length(self) -> f32 {
+        self.length_sq().sqrt()
+    }
+
+    #[must_use]
+    pub fn length_sq(self) -> f32 {
+        self.x * self.x + self.y * self.y
+    }
+
+    /// Unit vector in the same direction, or [`Vec2::ZERO`] when this
+    /// vector has no length (rather than producing NaNs).
+    #[must_use]
+    pub fn normalized(self) -> Self {
+        let length = self.length();
+        if length > 0.0 {
+            Self::new(self.x / length, self.y / length)
+        } else {
+            Self::ZERO
+        }
+    }
+}
+
+impl std::ops::Add for Vec2 {
+    type Output = Self;
+    fn add(self, rhs: Self) -> Self {
+        Self::new(self.x + rhs.x, self.y + rhs.y)
+    }
+}
+
+impl std::ops::Sub for Vec2 {
+    type Output = Self;
+    fn sub(self, rhs: Self) -> Self {
+        Self::new(self.x - rhs.x, self.y - rhs.y)
+    }
+}
+
+impl std::ops::Mul<f32> for Vec2 {
+    type Output = Self;
+    fn mul(self, rhs: f32) -> Self {
+        Self::new(self.x * rhs, self.y * rhs)
+    }
+}
+
+impl std::ops::Div<f32> for Vec2 {
+    type Output = Self;
+    fn div(self, rhs: f32) -> Self {
+        Self::new(self.x / rhs, self.y / rhs)
+    }
+}
+
+impl std::ops::Neg for Vec2 {
+    type Output = Self;
+    fn neg(self) -> Self {
+        Self::new(-self.x, -self.y)
+    }
+}
+
+impl std::ops::AddAssign for Vec2 {
+    fn add_assign(&mut self, rhs: Self) {
+        *self = *self + rhs;
+    }
+}
+
+impl std::ops::SubAssign for Vec2 {
+    fn sub_assign(&mut self, rhs: Self) {
+        *self = *self - rhs;
+    }
 }
 
 impl From<egui::Vec2> for Vec2 {
@@ -59,6 +133,50 @@ impl Pos2 {
     #[must_use]
     pub fn distance(self, other: Self) -> f32 {
         ((self.x - other.x).powi(2) + (self.y - other.y).powi(2)).sqrt()
+    }
+
+    #[must_use]
+    pub fn distance_sq(self, other: Self) -> f32 {
+        (self.x - other.x).powi(2) + (self.y - other.y).powi(2)
+    }
+
+    /// This position read as an offset from the origin.
+    #[must_use]
+    pub const fn to_vec2(self) -> Vec2 {
+        Vec2::new(self.x, self.y)
+    }
+}
+
+impl std::ops::Sub for Pos2 {
+    type Output = Vec2;
+    fn sub(self, rhs: Self) -> Vec2 {
+        Vec2::new(self.x - rhs.x, self.y - rhs.y)
+    }
+}
+
+impl std::ops::Add<Vec2> for Pos2 {
+    type Output = Self;
+    fn add(self, rhs: Vec2) -> Self {
+        Self::new(self.x + rhs.x, self.y + rhs.y)
+    }
+}
+
+impl std::ops::Sub<Vec2> for Pos2 {
+    type Output = Self;
+    fn sub(self, rhs: Vec2) -> Self {
+        Self::new(self.x - rhs.x, self.y - rhs.y)
+    }
+}
+
+impl std::ops::AddAssign<Vec2> for Pos2 {
+    fn add_assign(&mut self, rhs: Vec2) {
+        *self = *self + rhs;
+    }
+}
+
+impl std::ops::SubAssign<Vec2> for Pos2 {
+    fn sub_assign(&mut self, rhs: Vec2) {
+        *self = *self - rhs;
     }
 }
 

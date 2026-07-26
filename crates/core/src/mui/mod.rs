@@ -1055,6 +1055,12 @@ impl crate::layout::UiBackend for MaraBackend<'_> {
             Self::Recording(b) => b.request_repaint(),
         }
     }
+    fn request_repaint_after(&self, after: std::time::Duration) {
+        match self {
+            Self::Egui(b) => b.request_repaint_after(after),
+            Self::Recording(b) => b.request_repaint_after(after),
+        }
+    }
     fn scroll_region(
         &mut self,
         region: crate::layout::ScrollRegion,
@@ -1234,6 +1240,18 @@ impl<'a> MaraUi<'a> {
     #[must_use]
     pub fn input(&self) -> MaraInput {
         self.backend.input()
+    }
+
+    /// Ask the host to schedule another frame.
+    pub fn request_repaint(&self) {
+        self.backend.request_repaint();
+    }
+
+    /// Ask the host to schedule a frame no later than `after` — for
+    /// surfaces polling off-thread work (tile decodes, streamed frames)
+    /// that would otherwise stall until the next input event.
+    pub fn request_repaint_after(&self, after: std::time::Duration) {
+        self.backend.request_repaint_after(after);
     }
 
     /// Backend-neutral memory facade for persisted or frame-temp UI

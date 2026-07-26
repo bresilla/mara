@@ -220,7 +220,14 @@ pub fn __internal_maximizable_egui(
     min_size: impl Into<MaraVec2>,
     body: impl FnOnce(&mut egui::Ui),
 ) {
-    __internal_maximizable_with_opts_egui(ui, id_salt, accent, min_size, OverlayOpts::default(), body)
+    __internal_maximizable_with_opts_egui(
+        ui,
+        id_salt,
+        accent,
+        min_size,
+        OverlayOpts::default(),
+        body,
+    )
 }
 
 /// Same as [`__internal_maximizable_egui`] but accepts [`OverlayOpts`] to control

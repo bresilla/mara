@@ -95,13 +95,15 @@ fn a3_shadow_emits_a_shadow_command() {
     p.shadow(rect, CornerRadius::same(6), [0, 3], 8, 1, Color32::BLACK);
 
     match recorded(&p).as_slice() {
-        [PaintCmd::Shadow {
-            rect: got,
-            offset,
-            blur,
-            spread,
-            ..
-        }] => {
+        [
+            PaintCmd::Shadow {
+                rect: got,
+                offset,
+                blur,
+                spread,
+                ..
+            },
+        ] => {
             assert_eq!(*got, rect);
             assert_eq!(*offset, [0, 3]);
             assert_eq!((*blur, *spread), (8, 1));
@@ -191,10 +193,8 @@ fn a2_input_reports_key_presses() {
 
 #[test]
 fn a2_synthetic_response_reports_no_button_interaction() {
-    let response = MaraResponse::__internal_synthetic(Rect::from_min_size(
-        Pos2::ZERO,
-        Vec2::new(10.0, 10.0),
-    ));
+    let response =
+        MaraResponse::__internal_synthetic(Rect::from_min_size(Pos2::ZERO, Vec2::new(10.0, 10.0)));
     for button in PointerButton::ALL {
         assert!(!response.clicked_by(button));
         assert!(!response.dragged_by(button));

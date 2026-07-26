@@ -9,13 +9,56 @@ use super::{
     triangulate_polygon, world_to_geo,
 };
 use mara_core::{
-    layout::TextMeasureSpec,
+    MaraPainter,
     paint::{PaintCmd, PaintVertex},
     vocab::{
         Align2 as MaraAlign2, Color32 as MaraColor32, CornerRadius, Pos2 as MaraPos2,
         Rect as MaraRect, Stroke as MaraStroke, Vec2 as MaraVec2,
     },
 };
+
+/// When the basemap wants to be drawn again.
+///
+/// Tile fetching and decoding happen off the paint call, so the map has
+/// to ask the host for another frame. It returns this instead of
+/// reaching for a backend context — the caller, which holds the sealed
+/// surface, applies it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct RepaintRequest {
+    immediate: bool,
+    after: Option<Duration>,
+}
+
+impl RepaintRequest {
+    /// Repaint on the next frame.
+    pub(crate) fn now(&mut self) {
+        self.immediate = true;
+    }
+
+    /// Repaint within `after`, keeping the soonest deadline already
+    /// requested.
+    pub(crate) fn soonest(&mut self, after: Duration) {
+        self.after = Some(self.after.map_or(after, |current| current.min(after)));
+    }
+
+    pub(crate) fn apply_to_ui(self, mui: &mara_core::MaraUi<'_>) {
+        if self.immediate {
+            mui.request_repaint();
+        }
+        if let Some(after) = self.after {
+            mui.request_repaint_after(after);
+        }
+    }
+
+    pub(crate) fn apply_to_view(self, ctx: &mara_core::ViewCtx<'_>) {
+        if self.immediate {
+            ctx.request_repaint();
+        }
+        if let Some(after) = self.after {
+            ctx.request_repaint_after(after);
+        }
+    }
+}
 
 const OPENFREEMAP_TILE_URL: &str = "https://tiles.openfreemap.org/planet/latest";
 const MAX_SOURCE_ZOOM: f64 = 14.0;
@@ -67,28 +110,24 @@ impl Default for VectorTileCache {
 }
 
 pub(crate) fn paint_vector_basemap(
-    ui: &mut egui::Ui,
+    painter: &MaraPainter,
     rect: MaraRect,
     viewport: MapViewport,
     cache: &mut VectorTileCache,
     fast_mode: bool,
-) {
+) -> RepaintRequest {
     let cache_changed = cache.poll_finished();
     let palette = MapPalette::current();
-    render_paint_cmd(
-        ui.painter(),
-        PaintCmd::RectFilled {
-            rect,
-            corner: CornerRadius::ZERO,
-            fill: palette.background,
-        },
-    );
+    painter.paint_cmd(PaintCmd::RectFilled {
+        rect,
+        corner: CornerRadius::ZERO,
+        fill: palette.background,
+    });
 
     let visible_tiles = visible_tile_keys(viewport, rect.size());
 
     let has_loading = request_visible_tiles(cache, &visible_tiles);
 
-    let painter = ui.painter();
     let mut labels = LabelState::default();
     let passes: &[PaintPass] = if fast_mode {
         &PaintPass::FAST
@@ -113,32 +152,35 @@ pub(crate) fn paint_vector_basemap(
         }
     }
 
+    let mut repaint = RepaintRequest::default();
     if cache_changed {
-        ui.ctx().request_repaint();
+        repaint.now();
     }
     if has_loading {
-        ui.ctx().request_repaint_after(Duration::from_millis(16));
+        repaint.soonest(Duration::from_millis(16));
     }
     if fast_mode {
-        ui.ctx().request_repaint_after(Duration::from_millis(80));
+        repaint.soonest(Duration::from_millis(80));
     }
+    repaint
 }
 
 pub(crate) fn prewarm_vector_basemap(
-    ctx: &egui::Context,
     viewport: MapViewport,
     size: MaraVec2,
     cache: &mut VectorTileCache,
-) {
+) -> RepaintRequest {
     let cache_changed = cache.poll_finished();
     let visible_tiles = visible_tile_keys(viewport, size);
     let has_loading = request_visible_tiles(cache, &visible_tiles);
+    let mut repaint = RepaintRequest::default();
     if cache_changed {
-        ctx.request_repaint();
+        repaint.now();
     }
     if has_loading || cache.has_pending_decode() {
-        ctx.request_repaint_after(Duration::from_millis(40));
+        repaint.soonest(Duration::from_millis(40));
     }
+    repaint
 }
 
 pub(crate) fn hit_test_vector_feature(
@@ -752,7 +794,7 @@ fn fetch_tile(key: TileKey) -> Result<Vec<u8>, String> {
 
 #[allow(clippy::too_many_arguments)]
 fn paint_tile_pass(
-    painter: &egui::Painter,
+    painter: &MaraPainter,
     rect: MaraRect,
     viewport: MapViewport,
     key: TileKey,
@@ -1034,7 +1076,7 @@ impl MapPalette {
 
 #[allow(clippy::too_many_arguments)]
 fn paint_area_fill(
-    painter: &egui::Painter,
+    painter: &MaraPainter,
     rect: MaraRect,
     viewport: MapViewport,
     key: TileKey,
@@ -1044,7 +1086,7 @@ fn paint_area_fill(
     hole_fill: Option<MaraColor32>,
 ) {
     for cmd in area_fill_paint_cmds(rect, viewport, key, layer, feature, fill, hole_fill) {
-        render_paint_cmd(painter, cmd);
+        painter.paint_cmd(cmd);
     }
 }
 
@@ -1134,7 +1176,7 @@ fn screen_rings_for_feature(
 }
 
 fn paint_building_extrusion(
-    painter: &egui::Painter,
+    painter: &MaraPainter,
     rect: MaraRect,
     viewport: MapViewport,
     key: TileKey,
@@ -1143,7 +1185,7 @@ fn paint_building_extrusion(
     palette: &MapPalette,
 ) {
     for cmd in building_extrusion_paint_cmds(rect, viewport, key, layer, feature, palette) {
-        render_paint_cmd(painter, cmd);
+        painter.paint_cmd(cmd);
     }
 }
 
@@ -1376,7 +1418,7 @@ fn push_mesh_quad(
 }
 
 fn paint_feature_lines(
-    painter: &egui::Painter,
+    painter: &MaraPainter,
     rect: MaraRect,
     viewport: MapViewport,
     key: TileKey,
@@ -1385,7 +1427,7 @@ fn paint_feature_lines(
     stroke: MaraStroke,
 ) {
     for cmd in feature_line_paint_cmds(rect, viewport, key, layer, feature, stroke) {
-        render_paint_cmd(painter, cmd);
+        painter.paint_cmd(cmd);
     }
 }
 
@@ -1411,10 +1453,6 @@ fn feature_line_paint_cmds(
         }
     }
     cmds
-}
-
-fn render_paint_cmd(painter: &egui::Painter, cmd: PaintCmd) {
-    mara_core::paint::__internal_render_paint_cmd_egui(painter, cmd);
 }
 
 fn land_fill_color(
@@ -1580,7 +1618,7 @@ fn road_fill_color(feature: &DecodedFeature, palette: &MapPalette) -> MaraColor3
 
 #[allow(clippy::too_many_arguments)]
 fn paint_label(
-    painter: &egui::Painter,
+    painter: &MaraPainter,
     rect: MaraRect,
     viewport: MapViewport,
     key: TileKey,
@@ -1602,12 +1640,9 @@ fn paint_label(
     if layer.name == "transportation_name" && !labels.road_names.insert(text.clone()) {
         return;
     }
-    let measured_size = mara_core::layout::__internal_measure_text_egui(
-        painter,
-        &TextMeasureSpec::new(text.clone(), style.size, false),
-    );
+    let measured_size = painter.measure_text(&text, style.size, false);
     for cmd in label_paint_cmds(&layer.name, pos, text, &style, measured_size, rect, labels) {
-        render_paint_cmd(painter, cmd);
+        painter.paint_cmd(cmd);
     }
 }
 
@@ -1873,7 +1908,7 @@ fn screen_points(
     // Drop consecutive points that project to within < ~0.5 pixels of
     // the previous kept point. MVT geometry is encoded at extent 4096
     // and contains many runs of densely packed points (curves, road
-    // segments). Forwarding all of them to egui's tessellator can blow
+    // segments). Forwarding all of them to the tessellator can blow
     // past wgpu's per-buffer limit at typical viewport zooms.
     const MIN_STEP_SQ: f32 = 0.25;
     let scale = 2.0_f64.powf(viewport.zoom - f64::from(key.z));

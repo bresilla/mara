@@ -266,6 +266,10 @@ impl UiBackend for EguiUiBackend<'_> {
         self.ui.ctx().request_repaint();
     }
 
+    fn request_repaint_after(&self, after: std::time::Duration) {
+        self.ui.ctx().request_repaint_after(after);
+    }
+
     fn scroll_region(&mut self, region: ScrollRegion, body: &mut dyn FnMut(&mut dyn UiBackend)) {
         show_vertical_scroll_region(self.ui, region, |ui| {
             let mut child = EguiUiBackend::new(ui);
@@ -481,6 +485,10 @@ pub(crate) fn request_repaint(ctx: &egui::Context) {
 
 pub(crate) fn request_repaint_after_ms(ctx: &egui::Context, ms: u64) {
     ctx.request_repaint_after(std::time::Duration::from_millis(ms));
+}
+
+pub(crate) fn request_repaint_after(ctx: &egui::Context, after: std::time::Duration) {
+    ctx.request_repaint_after(after);
 }
 
 pub(crate) fn unstable_dt(ctx: &egui::Context) -> f32 {
@@ -1393,7 +1401,9 @@ pub(crate) fn render_paint_cmd(painter: &egui::Painter, cmd: PaintCmd) {
         } => {
             painter.image(texture.into(), rect.into(), uv.into(), tint.into());
         }
-        PaintCmd::Svg { .. } => {}
+        PaintCmd::Svg { svg, rect, tint } => {
+            render_svg_cmd_painter(painter, svg, rect, tint);
+        }
         PaintCmd::Mesh { vertices, indices } => {
             painter.add(egui::Shape::mesh(egui_mesh_from_mara(vertices, indices)));
         }
@@ -1561,6 +1571,51 @@ fn render_svg_cmd(ui: &mut egui::Ui, svg: String, rect: vocab::Rect, tint: vocab
         .tint(Into::<egui::Color32>::into(tint))
         .fit_to_exact_size(rect.size());
     image.paint_at(ui, rect);
+}
+
+/// Painter-side SVG rendering.
+///
+/// The `Ui` path can lean on [`egui::Image`], which needs a `Ui` to
+/// paint into. A painter has none, so this resolves the texture through
+/// the context's loader chain itself and emits a plain textured quad.
+/// Without this, [`PaintCmd::Svg`] silently drew nothing whenever a
+/// surface painted through [`crate::MaraPainter`] rather than a `Ui` —
+/// which is every sealed module.
+fn render_svg_cmd_painter(
+    painter: &egui::Painter,
+    svg: String,
+    rect: vocab::Rect,
+    tint: vocab::Color32,
+) {
+    let rect: egui::Rect = rect.into();
+    if !rect.is_positive() {
+        return;
+    }
+    let ctx = painter.ctx();
+    let uri = format!("bytes://mara_svg_paint_{:016x}.svg", svg_stable_hash(&svg));
+    ctx.include_bytes(uri.clone(), svg.into_bytes());
+
+    let pixels_per_point = ctx.pixels_per_point();
+    let size_hint = egui::load::SizeHint::Size {
+        width: (rect.width() * pixels_per_point).round().max(1.0) as u32,
+        height: (rect.height() * pixels_per_point).round().max(1.0) as u32,
+        maintain_aspect_ratio: true,
+    };
+
+    match ctx.try_load_texture(&uri, egui::TextureOptions::LINEAR, size_hint) {
+        Ok(egui::load::TexturePoll::Ready { texture }) => {
+            painter.image(
+                texture.id,
+                rect,
+                egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+                tint.into(),
+            );
+        }
+        // Rasterising happens off-frame; ask for another so the marker
+        // appears rather than waiting for the next unrelated repaint.
+        Ok(egui::load::TexturePoll::Pending { .. }) => ctx.request_repaint(),
+        Err(_) => {}
+    }
 }
 
 fn svg_stable_hash(svg: &str) -> u64 {

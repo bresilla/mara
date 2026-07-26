@@ -830,6 +830,14 @@ pub trait UiBackend {
     /// flight). No-op on backends without an event loop.
     fn request_repaint(&self) {}
 
+    /// Ask the host to schedule a frame no later than `after`. Surfaces
+    /// waiting on off-thread work (tile decodes, streamed frames) use
+    /// this to poll without burning a repaint every frame. No-op on
+    /// backends without an event loop.
+    fn request_repaint_after(&self, after: std::time::Duration) {
+        let _ = after;
+    }
+
     /// Run `body` inside a vertical scroll viewport described by
     /// `region`. The egui backend clips and offsets a real scroll area;
     /// the default just runs `body` as normal flow (no clipping), which
@@ -933,6 +941,9 @@ impl<T: UiBackend + ?Sized> UiBackend for &mut T {
     }
     fn request_repaint(&self) {
         (**self).request_repaint()
+    }
+    fn request_repaint_after(&self, after: std::time::Duration) {
+        (**self).request_repaint_after(after)
     }
     fn scroll_region(&mut self, region: ScrollRegion, body: &mut dyn FnMut(&mut dyn UiBackend)) {
         (**self).scroll_region(region, body)
