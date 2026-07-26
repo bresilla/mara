@@ -155,6 +155,14 @@ pub enum PaintCmd {
         rect: Rect,
         children: Vec<PaintCmd>,
     },
+    /// Several commands treated as one.
+    ///
+    /// Unlike [`PaintCmd::Clip`] this adds no clipping — it exists so a
+    /// batch can occupy a single reserved paint slot
+    /// ([`crate::layout::UiBackend::fill_paint_slot`]), which takes one
+    /// command. A node renderer uses it to drop a frame's worth of
+    /// wires in behind the nodes.
+    Group(Vec<PaintCmd>),
 }
 
 /// Retained paint-command buffer for tests and future non-egui

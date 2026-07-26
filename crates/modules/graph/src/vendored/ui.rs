@@ -4,7 +4,7 @@ use std::{collections::HashMap, hash::Hash};
 
 use egui::{
     Align, Color32, CornerRadius, Frame, Id, LayerId, Layout, Margin, Modifiers, PointerButton,
-    Pos2, Rect, Scene, Sense, Shape, Stroke, StrokeKind, Style, Ui, UiBuilder, UiKind, UiStackInfo,
+    Pos2, Rect, Scene, Sense, Stroke, StrokeKind, Style, Ui, UiBuilder, UiKind, UiStackInfo,
     Vec2,
     collapsing_header::paint_default_icon,
     emath::{GuiRounding, TSTransform},
@@ -1157,7 +1157,7 @@ where
     let wire_threshold = style.get_wire_smoothness();
 
     let wire_shape_idx = match style.get_wire_layer() {
-        WireLayer::BehindNodes => Some(ui.painter().add(Shape::Noop)),
+        WireLayer::BehindNodes => Some(with_mara_ui(&mut ui, |mara| mara.reserve_paint_slot())),
         WireLayer::AboveNodes => None,
     };
 
@@ -1536,12 +1536,15 @@ where
 
     match wire_shape_idx {
         None => {
-            ui.painter()
-                .add(Shape::Vec(wire_shapes_to_shapes(wire_shapes)));
+            let painter = with_mara_ui(&mut ui, |mara| mara.painter());
+            for cmd in wire_shapes {
+                painter.paint_cmd(cmd);
+            }
         }
-        Some(idx) => {
-            ui.painter()
-                .set(idx, Shape::Vec(wire_shapes_to_shapes(wire_shapes)));
+        Some(slot) => {
+            with_mara_ui(&mut ui, |mara| {
+                mara.fill_paint_slot(slot, Some(mara_core::paint::PaintCmd::Group(wire_shapes)));
+            });
         }
     }
 
@@ -2852,29 +2855,6 @@ fn clamp_scale(to_global: &mut TSTransform, min_scale: f32, max_scale: f32, ui_r
 const fn graph_style_is_send_sync() {
     const fn is_send_sync<T: Send + Sync>() {}
     is_send_sync::<GraphStyle>();
-}
-
-/// Lower ported wire `PaintCmd`s back into backend shapes.
-///
-/// The seam that exists only while `ui.rs` is unported: `wire.rs` emits
-/// Mara paint commands, and this turns them into the shape vector the
-/// still-egui node renderer batches. It disappears with WS-D1.3's last
-/// step.
-fn wire_shapes_to_shapes(cmds: Vec<mara_core::paint::PaintCmd>) -> Vec<Shape> {
-    use mara_core::paint::PaintCmd;
-    cmds.into_iter()
-        .map(|cmd| match cmd {
-            PaintCmd::Line { a, b, stroke } => Shape::line_segment(
-                [a.into(), b.into()],
-                egui::Stroke::new(stroke.width, egui::Color32::from(stroke.color)),
-            ),
-            PaintCmd::Polyline { points, stroke } => Shape::line(
-                points.into_iter().map(Into::into).collect(),
-                egui::Stroke::new(stroke.width, egui::Color32::from(stroke.color)),
-            ),
-            _ => Shape::Noop,
-        })
-        .collect()
 }
 
 /// Run `body` with the sealed surface over a backend `Ui`.

@@ -40,9 +40,6 @@ pub fn egui_frame_for_style_spec(spec: crate::style::FrameSpec) -> egui::Frame {
 pub struct EguiUiBackend<'a> {
     ui: &'a mut egui::Ui,
     clip_stack: Vec<egui::Rect>,
-    /// Maps `PaintSlot` indices to reserved egui shape ids, so
-    /// `reserve_paint_slot`/`fill_paint_slot` can defer a shape.
-    deferred_slots: Vec<ShapeIdx>,
 }
 
 impl<'a> EguiUiBackend<'a> {
@@ -51,7 +48,6 @@ impl<'a> EguiUiBackend<'a> {
         Self {
             ui,
             clip_stack: Vec::new(),
-            deferred_slots: Vec::new(),
         }
     }
 }
@@ -202,16 +198,17 @@ impl UiBackend for EguiUiBackend<'_> {
     }
 
     fn reserve_paint_slot(&mut self) -> crate::layout::PaintSlot {
-        let idx = self.ui.painter().add(egui::Shape::Noop);
-        self.deferred_slots.push(idx);
-        crate::layout::PaintSlot(self.deferred_slots.len() - 1)
+        // The slot carries the layer's own shape index, not a position
+        // in some per-wrapper table. A caller may reserve through one
+        // short-lived `EguiUiBackend` and fill through another over the
+        // same `Ui` — an indirection local to the wrapper would lose
+        // the slot silently, painting nothing.
+        crate::layout::PaintSlot(self.ui.painter().add(egui::Shape::Noop).0)
     }
 
     fn fill_paint_slot(&mut self, slot: crate::layout::PaintSlot, cmd: Option<PaintCmd>) {
-        if let Some(&idx) = self.deferred_slots.get(slot.0) {
-            let shape = cmd.map(shape_from_paint_cmd).unwrap_or(egui::Shape::Noop);
-            self.ui.painter().set(idx, shape);
-        }
+        let shape = cmd.map(shape_from_paint_cmd).unwrap_or(egui::Shape::Noop);
+        self.ui.painter().set(ShapeIdx(slot.0), shape);
     }
 
     fn hover_text(&mut self, response: &MaraResponse, text: &str) {
@@ -1549,6 +1546,11 @@ pub(crate) fn render_paint_cmd(painter: &egui::Painter, cmd: PaintCmd) {
                 render_paint_cmd(&clipped, child);
             }
         }
+        PaintCmd::Group(children) => {
+            for child in children {
+                render_paint_cmd(painter, child);
+            }
+        }
     }
 }
 
@@ -1669,6 +1671,9 @@ pub(crate) fn shape_from_paint_cmd(cmd: PaintCmd) -> egui::Shape {
         | PaintCmd::Svg { .. }
         | PaintCmd::Clip { .. }
         | PaintCmd::Noop => egui::Shape::Noop,
+        PaintCmd::Group(children) => {
+            egui::Shape::Vec(children.into_iter().map(shape_from_paint_cmd).collect())
+        }
     }
 }
 

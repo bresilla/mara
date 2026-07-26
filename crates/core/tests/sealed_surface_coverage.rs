@@ -731,6 +731,83 @@ fn d13_frame_paints_behind_its_content() {
     );
 }
 
+/// A reserved slot keeps its place in paint order, and filling it puts
+/// the command at that depth rather than at the end.
+///
+/// This is what lets a node renderer draw wires *behind* nodes it has
+/// not measured yet.
+#[test]
+fn d13_filled_paint_slot_lands_at_the_reserved_depth() {
+    use mara_core::backend::record::RecordingBackend;
+    use mara_core::layout::UiBackend;
+
+    let mut backend =
+        RecordingBackend::at(Rect::from_min_size(Pos2::ZERO, Vec2::new(200.0, 120.0)));
+
+    let slot = backend.reserve_paint_slot();
+    backend.paint(PaintCmd::CircleFilled {
+        center: Pos2::new(10.0, 10.0),
+        radius: 4.0,
+        fill: Color32::WHITE,
+    });
+    backend.fill_paint_slot(
+        slot,
+        Some(PaintCmd::RectFilled {
+            rect: Rect::from_min_size(Pos2::ZERO, Vec2::new(5.0, 5.0)),
+            corner: CornerRadius::same(0),
+            fill: Color32::BLACK,
+        }),
+    );
+
+    let kinds: Vec<&str> = backend
+        .paints
+        .iter()
+        .map(|cmd| match cmd {
+            PaintCmd::RectFilled { .. } => "rect",
+            PaintCmd::CircleFilled { .. } => "circle",
+            _ => "other",
+        })
+        .collect();
+    assert_eq!(
+        kinds,
+        vec!["rect", "circle"],
+        "the late-filled slot must still paint first, got {kinds:?}"
+    );
+}
+
+/// A batch fills one slot. Without this a renderer would have to pick
+/// between "one slot per command" and losing paint order entirely.
+#[test]
+fn d13_a_group_fills_a_single_slot() {
+    use mara_core::backend::record::RecordingBackend;
+    use mara_core::layout::UiBackend;
+    use mara_core::vocab::Stroke;
+
+    let mut backend =
+        RecordingBackend::at(Rect::from_min_size(Pos2::ZERO, Vec2::new(200.0, 120.0)));
+    let slot = backend.reserve_paint_slot();
+    backend.fill_paint_slot(
+        slot,
+        Some(PaintCmd::Group(vec![
+            PaintCmd::Line {
+                a: Pos2::ZERO,
+                b: Pos2::new(1.0, 1.0),
+                stroke: Stroke::new(1.0, Color32::WHITE),
+            },
+            PaintCmd::Line {
+                a: Pos2::ZERO,
+                b: Pos2::new(2.0, 2.0),
+                stroke: Stroke::new(1.0, Color32::WHITE),
+            },
+        ])),
+    );
+
+    match backend.paints.first() {
+        Some(PaintCmd::Group(children)) => assert_eq!(children.len(), 2),
+        other => panic!("expected a group in the reserved slot, got {other:?}"),
+    }
+}
+
 /// Content is inset by the frame's margin, so a body cannot draw over
 /// its own border.
 #[test]
