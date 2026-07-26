@@ -1631,8 +1631,8 @@ impl<V: MaraView> MaraView for RibbonDemoView<V> {
 
     fn ribbons(&mut self) -> Vec<mara_core::RibbonSlotDef> {
         use mara_core::{
-            RibbonAction, RibbonCluster, RibbonEdge, RibbonOverridePolicy, RibbonScope,
-            RibbonSlot, RibbonSlotDef, RibbonSlotId, RibbonSlotItem,
+            RibbonAction, RibbonCluster, RibbonEdge, RibbonOverridePolicy, RibbonScope, RibbonSlot,
+            RibbonSlotDef, RibbonSlotId, RibbonSlotItem,
         };
         let mut defs = self.inner.ribbons();
         let taken: Vec<(RibbonEdge, RibbonCluster)> =
@@ -3024,7 +3024,7 @@ fn map_objects_pane(body: &mut PaneBody, map: &mut MapViewState) {
             Pod::new(pid(PANE_MAP_OBJECTS, "selected", 0))
                 .with_separator(SeparatorStyle::Line)
                 .with_readout(map_annotation_label(annotation), id_short(annotation.id())),
-            Pod::new(egui::Id::new((
+            Pod::new(MaraId::new((
                 PANE_MAP_OBJECTS,
                 "selected-color",
                 annotation.id().uuid,
@@ -3548,7 +3548,7 @@ fn coreviz_zones_pane(body: &mut PaneBody) {
             Pod::new(pid(PANE_COREVIZ_ZONES, "tree", 0))
                 .with_separator(SeparatorStyle::None)
                 .with_tree(7, move |tree| {
-                    let armed_key = egui::Id::new(("coreviz_demo", "armed_zone"));
+                    let armed_key = MaraId::new(("coreviz_demo", "armed_zone"));
                     let mut armed = tree.persisted_string(armed_key).filter(|s| !s.is_empty());
                     let armed_is = |armed: &Option<String>, v: &str| armed.as_deref() == Some(v);
                     let root = tree.action_row(
@@ -3803,11 +3803,11 @@ fn coreviz_tasks_pane(body: &mut PaneBody) {
 
 // ─── Per-pane content ──────────────────────────────────────────────
 
-fn cid(pane: &str, suffix: &str) -> egui::Id {
-    egui::Id::new((pane, suffix))
+fn cid(pane: &str, suffix: &str) -> MaraId {
+    MaraId::new((pane, suffix))
 }
-fn pid(pane: &str, container: &str, idx: usize) -> egui::Id {
-    egui::Id::new((pane, container, "pod", idx))
+fn pid(pane: &str, container: &str, idx: usize) -> MaraId {
+    MaraId::new((pane, container, "pod", idx))
 }
 
 /// **Widgets pane** — one container per widget category.
@@ -3900,9 +3900,9 @@ fn widgets_pane(body: &mut PaneBody) {
             Pod::new(pid(PANE_WIDGETS, "hierarchy", 1))
                 .with_separator(SeparatorStyle::None)
                 .with_tree(6, move |tree| {
-                    let root_key = egui::Id::new(("demo_hierarchy", "root_open"));
-                    let floor_key = egui::Id::new(("demo_hierarchy", "floor_open"));
-                    let armed_key = egui::Id::new(("demo_hierarchy", "armed_child"));
+                    let root_key = MaraId::new(("demo_hierarchy", "root_open"));
+                    let floor_key = MaraId::new(("demo_hierarchy", "floor_open"));
+                    let armed_key = MaraId::new(("demo_hierarchy", "armed_child"));
                     let mut root_open = tree.persisted_bool(root_key).unwrap_or(true);
                     let mut floor_open = tree.persisted_bool(floor_key).unwrap_or(true);
                     let mut armed = tree.persisted_string(armed_key).filter(|s| !s.is_empty());
@@ -7553,7 +7553,7 @@ fn demo_tree_node(path: &str) -> Option<&'static DemoTreeRow> {
 
 fn demo_tree(
     tree: &mut mara_core::widget::TreeBody,
-    root_id: egui::Id,
+    root_id: MaraId,
     accent: MaraColor32,
     filter: &str,
 ) {
@@ -7598,7 +7598,7 @@ fn demo_tree_passes(path: &'static str, filter: &str) -> bool {
 
 fn walk_demo_tree(
     tree: &mut mara_core::widget::TreeBody,
-    root_id: egui::Id,
+    root_id: MaraId,
     path: &'static str,
     depth: u32,
     selected: &str,
