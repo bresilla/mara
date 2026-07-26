@@ -423,24 +423,16 @@ pub(crate) fn render_containers_with_tab_scope<'a>(
                 .declared_tabs_per_container
                 .get(&cid_mara)
                 .unwrap_or(&empty);
-            // `tab_drag` is still backend-keyed (WS-E4 step 4), so the
-            // Mara-keyed bookkeeping converts across this call.
-            let defaults_backend: Vec<Id> = defaults_here.iter().map(|id| (*id).into()).collect();
-            let all_tabs_backend: Vec<(Id, Id)> = tab_scope
-                .all_tabs_in_scope
-                .iter()
-                .map(|(tab, container)| ((*tab).into(), (*container).into()))
-                .collect();
             let routed_ids = super::tab_drag::route(
                 body_ui.ctx(),
-                tab_routing_id,
-                cid,
-                &defaults_backend,
-                &all_tabs_backend,
+                tab_routing_id.into(),
+                cid_mara,
+                defaults_here,
+                &tab_scope.all_tabs_in_scope,
             );
             let mut routed_tabs: Vec<crate::container::Tab> = Vec::with_capacity(routed_ids.len());
             for tid in &routed_ids {
-                if let Some(tab) = tab_scope.tab_pool.remove(&MaraId::from(*tid)) {
+                if let Some(tab) = tab_scope.tab_pool.remove(tid) {
                     routed_tabs.push(tab);
                 }
             }
@@ -529,7 +521,11 @@ pub(crate) fn render_containers_with_tab_scope<'a>(
             set_container_flow(body_ui.ctx(), cid, cur + delta, pane_horizontal_strip);
         }
     }
-    super::tab_drag::retain_containers(body_ui.ctx(), pane_id, responses.keys().copied());
+    super::tab_drag::retain_containers(
+        body_ui.ctx(),
+        pane_id.into(),
+        responses.keys().map(|id| MaraId::from(*id)),
+    );
     responses
 }
 
@@ -730,8 +726,8 @@ mod tests {
                 )],
             );
             assert!(responses.contains_key(&container_id));
-            let strips = tab_drag::strip_cache(ui.ctx(), pane_id);
-            let buttons = tab_drag::button_cache(ui.ctx(), pane_id);
+            let strips = tab_drag::strip_cache(ui.ctx(), pane_id.into());
+            let buttons = tab_drag::button_cache(ui.ctx(), pane_id.into());
             assert_eq!(
                 strips
                     .iter()
@@ -782,21 +778,26 @@ mod tests {
         scope.absorb_specs(&mut source_specs);
         scope.absorb_specs(&mut target_specs);
 
-        tab_drag::commit_drop(&ctx, routing_id, moved_tab, source, target, 0);
+        tab_drag::commit_drop(
+            &ctx,
+            routing_id.into(),
+            moved_tab.into(),
+            source.into(),
+            target.into(),
+            0,
+        );
         assert_eq!(
-            {
-                let defaults: Vec<Id> = scope
+            tab_drag::route(
+                &ctx,
+                routing_id.into(),
+                target.into(),
+                scope
                     .declared_tabs_per_container
                     .get(&MaraId::from(target))
-                    .map(|ids| ids.iter().map(|id| (*id).into()).collect())
-                    .unwrap_or_default();
-                let all: Vec<(Id, Id)> = scope
-                    .all_tabs_in_scope
-                    .iter()
-                    .map(|(t, c)| ((*t).into(), (*c).into()))
-                    .collect();
-                tab_drag::route(&ctx, routing_id, target, &defaults, &all)
-            },
+                    .map(Vec::as_slice)
+                    .unwrap_or(&[]),
+                &scope.all_tabs_in_scope,
+            ),
             vec![moved_tab, target_own],
             "shared routing scope should keep moved tabs attached to their new owner before rendering"
         );
@@ -823,9 +824,10 @@ mod tests {
             );
 
             assert!(responses.contains_key(&target));
-            let mut target_buttons: Vec<Id> = tab_drag::button_cache(ui.ctx(), target_pane)
+            let mut target_buttons: Vec<MaraId> =
+                tab_drag::button_cache(ui.ctx(), target_pane.into())
                 .into_iter()
-                .filter(|button| button.container_id == target)
+                .filter(|button| button.container_id == MaraId::from(target))
                 .map(|button| button.tab_id)
                 .collect();
             target_buttons.sort_by_key(|id| format!("{id:?}"));

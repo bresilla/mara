@@ -1034,7 +1034,7 @@ fn render_shelf_body(input: ShelfBodyInput<'_, '_, '_, '_>) {
                     },
                 );
             }
-            pane::tab_drag::begin_frame(viewport.ctx(), pane_id);
+            pane::tab_drag::begin_frame(viewport.ctx(), pane_id.into());
 
             let screen_shelf_rect = shelf_rect.translate(screen_offset);
             let pointer_cursor = input.interact_pointer.or(input.pointer).map(Into::into);
@@ -1295,12 +1295,12 @@ fn render_shelf_body(input: ShelfBodyInput<'_, '_, '_, '_>) {
             // a normal Pane, so the drag STARTS work in a Shelf. Without
             // this block the pointer-release event has nowhere to commit /
             // clear, leaving the dragged tab stuck to the cursor.
-            if let Some(tab_drag_state) = pane::tab_drag::drag_state(viewport.ctx(), pane_id) {
+            if let Some(tab_drag_state) = pane::tab_drag::drag_state(viewport.ctx(), pane_id.into()) {
                 let cursor = input.pointer.map(Into::into).or(tab_drag_state.cursor);
                 if let Some(c) = cursor {
                     pane::tab_drag::set_drag(
                         viewport.ctx(),
-                        pane_id,
+                        pane_id.into(),
                         pane::tab_drag::TabDragState {
                             cursor: Some(c),
                             ..tab_drag_state
@@ -1308,7 +1308,7 @@ fn render_shelf_body(input: ShelfBodyInput<'_, '_, '_, '_>) {
                     );
                     pane::tab_drag::paint_drag_preview(
                         viewport.ctx(),
-                        pane_id,
+                        pane_id.into(),
                         MaraVec2::new(28.0, 28.0),
                         c,
                         shelf.accent.into(),
@@ -1324,21 +1324,21 @@ fn render_shelf_body(input: ShelfBodyInput<'_, '_, '_, '_>) {
                     if let Some(c) = cursor
                         && let Some((tgt_cid, slot)) = pane::tab_drag::find_drop_target_for_drag(
                             viewport.ctx(),
-                            pane_id,
+                            pane_id.into(),
                             c,
                             tab_drag_state,
                         )
                     {
                         pane::tab_drag::commit_drop(
                             viewport.ctx(),
-                            tab_routing_id,
+                            tab_routing_id.into(),
                             tab_drag_state.tab_id,
                             tab_drag_state.source_container,
                             tgt_cid,
                             slot,
                         );
                     }
-                    pane::tab_drag::clear_drag(viewport.ctx(), pane_id);
+                    pane::tab_drag::clear_drag(viewport.ctx(), pane_id.into());
                 }
             }
         },

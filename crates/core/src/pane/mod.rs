@@ -1302,7 +1302,7 @@ impl Pane {
             // user closure only sees the typed API, never the raw Ui.
             // After the closure returns, `PaneBody::finish` dispatches
             // the accumulated container specs through `render_containers`.
-            tab_drag::begin_frame(ui.ctx(), id);
+            tab_drag::begin_frame(ui.ctx(), id.into());
             let mut pane_body = PaneBody::new(ui, id, anchor, accent);
             let body = body
                 .take()
@@ -1379,7 +1379,7 @@ impl Pane {
             }
 
             // ── Tab drag: preview + commit-on-release ──
-            if let Some(tab_drag_state) = tab_drag::drag_state(ui.ctx(), id) {
+            if let Some(tab_drag_state) = tab_drag::drag_state(ui.ctx(), id.into()) {
                 let cursor = crate::backend::egui::pointer_latest_pos(ui.ctx())
                     .map(Into::into)
                     .or(tab_drag_state.cursor);
@@ -1388,7 +1388,7 @@ impl Pane {
                     // the right spot even if egui drops the input.
                     tab_drag::set_drag(
                         ui.ctx(),
-                        id,
+                        id.into(),
                         tab_drag::TabDragState {
                             cursor: Some(c),
                             ..tab_drag_state
@@ -1400,7 +1400,7 @@ impl Pane {
                     let preview_size = MaraVec2::new(28.0, 28.0);
                     tab_drag::paint_drag_preview(
                         ui.ctx(),
-                        id,
+                        id.into(),
                         preview_size,
                         c,
                         accent,
@@ -1415,18 +1415,18 @@ impl Pane {
                 if crate::backend::egui::pointer_any_released(ui.ctx()) {
                     if let Some(c) = cursor
                         && let Some((tgt_cid, slot)) =
-                            tab_drag::find_drop_target_for_drag(ui.ctx(), id, c, tab_drag_state)
+                            tab_drag::find_drop_target_for_drag(ui.ctx(), id.into(), c, tab_drag_state)
                     {
                         tab_drag::commit_drop(
                             ui.ctx(),
-                            id,
+                            id.into(),
                             tab_drag_state.tab_id,
                             tab_drag_state.source_container,
                             tgt_cid,
                             slot,
                         );
                     }
-                    tab_drag::clear_drag(ui.ctx(), id);
+                    tab_drag::clear_drag(ui.ctx(), id.into());
                 }
             }
         };

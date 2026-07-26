@@ -476,7 +476,7 @@ impl Normal {
         {
             pane::push_rect_with_frame(
                 ui.ctx(),
-                parent_pane_id,
+                parent_pane_id.into(),
                 pane_id,
                 union_rect.into(),
                 Some(used),
@@ -1902,15 +1902,15 @@ fn paint_folder_tabs(
         .ctx()
         .data(|d| d.get_temp(pane::active_pane_key()))
         .unwrap_or(pane_id);
-    let drag = pane::tab_drag::drag_state(ui.ctx(), parent_pane_id);
+    let drag = pane::tab_drag::drag_state(ui.ctx(), parent_pane_id.into());
     let cursor_pos = crate::backend::egui::pointer_latest_pos(ui.ctx()).map(Into::into);
     let drop_target = match (drag, cursor_pos) {
         (Some(drag), Some(p)) => {
-            pane::tab_drag::find_drop_target_for_drag(ui.ctx(), parent_pane_id, p, drag)
+            pane::tab_drag::find_drop_target_for_drag(ui.ctx(), parent_pane_id.into(), p, drag)
         }
         _ => None,
     };
-    pane::tab_drag::reset_container_buttons(ui.ctx(), parent_pane_id, pane_id);
+    pane::tab_drag::reset_container_buttons(ui.ctx(), parent_pane_id.into(), pane_id.into());
 
     // Build the visible cell list. `Some(i)` = paint tab_meta[i] in
     // this cell; `None` = ghost gap (drop preview). Filters out the
@@ -1984,10 +1984,10 @@ fn paint_folder_tabs(
         };
         pane::tab_drag::push_button(
             ui.ctx(),
-            parent_pane_id,
+            parent_pane_id.into(),
             pane::tab_drag::TabButtonEntry {
-                container_id: pane_id,
-                tab_id,
+                container_id: pane_id.into(),
+                tab_id: tab_id.into(),
                 rect: base_rect,
             },
         );
@@ -2006,10 +2006,10 @@ fn paint_folder_tabs(
         if resp.drag_started() {
             pane::tab_drag::set_drag(
                 ui.ctx(),
-                parent_pane_id,
+                parent_pane_id.into(),
                 pane::tab_drag::TabDragState {
-                    tab_id,
-                    source_container: pane_id,
+                    tab_id: tab_id.into(),
+                    source_container: pane_id.into(),
                     cursor: crate::backend::egui::pointer_latest_pos(ui.ctx()).map(Into::into),
                     icon: Some(*icn),
                 },
@@ -2065,9 +2065,9 @@ fn paint_folder_tabs(
     }
     pane::tab_drag::push_strip(
         ui.ctx(),
-        parent_pane_id,
+        parent_pane_id.into(),
         pane::tab_drag::TabStripEntry {
-            container_id: pane_id,
+            container_id: pane_id.into(),
             rect: strip_rect.into(),
             axis_horizontal: strip_horizontal,
         },
@@ -2101,15 +2101,15 @@ fn paint_top_tabs(
         .ctx()
         .data(|d| d.get_temp(pane::active_pane_key()))
         .unwrap_or(pane_id);
-    let drag = pane::tab_drag::drag_state(ui.ctx(), parent_pane_id);
+    let drag = pane::tab_drag::drag_state(ui.ctx(), parent_pane_id.into());
     let cursor_pos = crate::backend::egui::pointer_latest_pos(ui.ctx()).map(Into::into);
     let drop_target = match (drag, cursor_pos) {
         (Some(drag), Some(p)) => {
-            pane::tab_drag::find_drop_target_for_drag(ui.ctx(), parent_pane_id, p, drag)
+            pane::tab_drag::find_drop_target_for_drag(ui.ctx(), parent_pane_id.into(), p, drag)
         }
         _ => None,
     };
-    pane::tab_drag::reset_container_buttons(ui.ctx(), parent_pane_id, pane_id);
+    pane::tab_drag::reset_container_buttons(ui.ctx(), parent_pane_id.into(), pane_id.into());
 
     // Visible cell list — same logic as paint_folder_tabs.
     let visible: Vec<Option<usize>> = {
@@ -2192,10 +2192,10 @@ fn paint_top_tabs(
         };
         pane::tab_drag::push_button(
             ui.ctx(),
-            parent_pane_id,
+            parent_pane_id.into(),
             pane::tab_drag::TabButtonEntry {
-                container_id: pane_id,
-                tab_id,
+                container_id: pane_id.into(),
+                tab_id: tab_id.into(),
                 rect: cell_rect_egui,
             },
         );
@@ -2214,10 +2214,10 @@ fn paint_top_tabs(
         if resp.drag_started() {
             pane::tab_drag::set_drag(
                 ui.ctx(),
-                parent_pane_id,
+                parent_pane_id.into(),
                 pane::tab_drag::TabDragState {
-                    tab_id,
-                    source_container: pane_id,
+                    tab_id: tab_id.into(),
+                    source_container: pane_id.into(),
                     cursor: crate::backend::egui::pointer_latest_pos(ui.ctx()).map(Into::into),
                     icon: Some(*icn),
                 },
@@ -2286,9 +2286,9 @@ fn paint_top_tabs(
     }
     pane::tab_drag::push_strip(
         ui.ctx(),
-        parent_pane_id,
+        parent_pane_id.into(),
         pane::tab_drag::TabStripEntry {
-            container_id: pane_id,
+            container_id: pane_id.into(),
             rect: title_rect.into(),
             axis_horizontal: true,
         },

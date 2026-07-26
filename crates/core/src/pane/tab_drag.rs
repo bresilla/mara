@@ -9,7 +9,8 @@
 
 use std::collections::{HashMap, HashSet};
 
-use egui::{Color32, Context, Id, Pos2, Rect};
+use crate::vocab::Id;
+use egui::{Color32, Context, Pos2, Rect};
 
 use crate::icons::Icon;
 use crate::layout::{AreaHost, Layer, UiBackend};
