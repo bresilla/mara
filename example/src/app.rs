@@ -58,6 +58,7 @@ use mara_core::ribbon::{
 use mara_core::shelf::{ShelfContainer, ShelfDef, ShelfEdge, ShelfState};
 use mara_core::style::{AccentColor, GlassOpacity, Mode, srgb_to_color};
 use mara_core::vocab::Color32 as MaraColor32;
+use mara_core::vocab::Pos2 as MaraPos2;
 use mara_core::widget::{FillStyle, TreeBranchGuide, TreeIconKind, TreeIconSlot};
 use mara_map::{
     DEFAULT_SVG_MARKER, MapAnnotation, MapDocument, MapFeatureGeometry, MapFeatureInfo, MapIcon,
@@ -67,17 +68,17 @@ use mara_map::{
 // Vendored extras — node graph + code editor. In the unified `mara`
 // facade they live under `mara::extras::*`; the node-graph
 // offscreen renderer is created from `mara::host::MaraHostCtx`.
+use mara::extras::code::{PodCodeEditorExt, Syntax};
+use mara::extras::graph::PaneBodyNodeGraphExt;
+use mara::extras::graph::{
+    Graph, InPin, InPinId, NodePin, NodeViewState, NodeViewer, OutPin, OutPinId, PinInfo,
+};
 use mara::host::{EframeNodeViewBackend, MaraHostCtx};
 use mara::ui::modules::bevy::MaraBevyViewport;
 use mara::ui::modules::board::{Board, BoardPaint};
 use mara::ui::modules::canvas::{CanvasDocument, CanvasSurface};
 use mara::ui::modules::image::{ImageDocument, ImageSurface};
 use mara::ui::modules::three_d::{Scene3d, TriangleMesh3d, View3d};
-use mara::extras::code::{PodCodeEditorExt, Syntax};
-use mara::extras::graph::PaneBodyNodeGraphExt;
-use mara::extras::graph::{
-    Graph, InPin, InPinId, NodePin, NodeViewState, NodeViewer, OutPin, OutPinId, PinInfo,
-};
 use mara_core::vocab::Id as MaraId;
 use mara_core::{Layout, MaraView, RibbonAvoidance, Tab, Tabs, ViewNode, WorkspaceStack};
 
@@ -6944,7 +6945,7 @@ impl NodeViewer<GraphNode> for DemoViewer {
 
         let mut spawn = |ui: &mut egui::Ui, label: &str, n: GraphNode| {
             if ui.button(label).clicked() {
-                graph.insert_node(pos, n);
+                graph.insert_node(pos.into(), n);
                 ui.close();
             }
         };
@@ -7239,24 +7240,27 @@ fn default_graph() -> Graph<GraphNode> {
     //  Time       Mul       Sin       Mul        Add       Display
     //  Num(1.5)             Num(0.5)  Num(0.5)
     //
-    let t = g.insert_node(egui::pos2(col(0), row(0.0)), GraphNode::Time);
-    let freq = g.insert_node(egui::pos2(col(0), row(170.0)), GraphNode::Number(1.5));
+    let t = g.insert_node(MaraPos2::new(col(0), row(0.0)), GraphNode::Time);
+    let freq = g.insert_node(MaraPos2::new(col(0), row(170.0)), GraphNode::Number(1.5));
     let mul = g.insert_node(
-        egui::pos2(col(1), row(60.0)),
+        MaraPos2::new(col(1), row(60.0)),
         GraphNode::ScalarMath(ScalarOp::Mul),
     );
-    let sin = g.insert_node(egui::pos2(col(2), row(60.0)), GraphNode::Trig(TrigFn::Sin));
-    let half = g.insert_node(egui::pos2(col(2), row(230.0)), GraphNode::Number(0.5));
+    let sin = g.insert_node(
+        MaraPos2::new(col(2), row(60.0)),
+        GraphNode::Trig(TrigFn::Sin),
+    );
+    let half = g.insert_node(MaraPos2::new(col(2), row(230.0)), GraphNode::Number(0.5));
     let bias = g.insert_node(
-        egui::pos2(col(3), row(60.0)),
+        MaraPos2::new(col(3), row(60.0)),
         GraphNode::ScalarMath(ScalarOp::Mul),
     );
-    let half2 = g.insert_node(egui::pos2(col(3), row(230.0)), GraphNode::Number(0.5));
+    let half2 = g.insert_node(MaraPos2::new(col(3), row(230.0)), GraphNode::Number(0.5));
     let lift = g.insert_node(
-        egui::pos2(col(4), row(60.0)),
+        MaraPos2::new(col(4), row(60.0)),
         GraphNode::ScalarMath(ScalarOp::Add),
     );
-    let display = g.insert_node(egui::pos2(col(5), row(60.0)), GraphNode::Display);
+    let display = g.insert_node(MaraPos2::new(col(5), row(60.0)), GraphNode::Display);
 
     // ── Colour mix branch (below pipeline 1, fed by `lift`) ──
     //
@@ -7265,15 +7269,15 @@ fn default_graph() -> Graph<GraphNode> {
     //  Color(blue)                 ColorMix      Preview
     //
     let red = g.insert_node(
-        egui::pos2(col(3), row(480.0)),
+        MaraPos2::new(col(3), row(480.0)),
         GraphNode::Color(MaraColor32::from_rgb(0xE0, 0x6C, 0x4F)),
     );
     let blue = g.insert_node(
-        egui::pos2(col(3), row(620.0)),
+        MaraPos2::new(col(3), row(620.0)),
         GraphNode::Color(MaraColor32::from_rgb(0x4D, 0xA8, 0xDA)),
     );
-    let cmix = g.insert_node(egui::pos2(col(4), row(540.0)), GraphNode::ColorMix);
-    let preview = g.insert_node(egui::pos2(col(5), row(540.0)), GraphNode::Preview);
+    let cmix = g.insert_node(MaraPos2::new(col(4), row(540.0)), GraphNode::ColorMix);
+    let preview = g.insert_node(MaraPos2::new(col(5), row(540.0)), GraphNode::Preview);
 
     // ── Pipeline 2: vector → length → output ──
     //
@@ -7281,11 +7285,11 @@ fn default_graph() -> Graph<GraphNode> {
     //  Vector ────→   Length ──→ Output
     //
     let vec = g.insert_node(
-        egui::pos2(col(0), row(920.0)),
+        MaraPos2::new(col(0), row(920.0)),
         GraphNode::Vector([1.0, 2.0, 3.0]),
     );
-    let len = g.insert_node(egui::pos2(col(1), row(920.0)), GraphNode::Length);
-    let out = g.insert_node(egui::pos2(col(2), row(920.0)), GraphNode::Output);
+    let len = g.insert_node(MaraPos2::new(col(1), row(920.0)), GraphNode::Length);
+    let out = g.insert_node(MaraPos2::new(col(2), row(920.0)), GraphNode::Output);
 
     // ── Pipeline 3: noise → compare → ifelse → display ──
     //
@@ -7294,21 +7298,21 @@ fn default_graph() -> Graph<GraphNode> {
     //            Num(0)               Num(+1), Num(-1)
     //
     let perlin = g.insert_node(
-        egui::pos2(col(0), row(1180.0)),
+        MaraPos2::new(col(0), row(1180.0)),
         GraphNode::Perlin {
             seed: 0xCAFE,
             frequency: 1.5,
         },
     );
-    let zero = g.insert_node(egui::pos2(col(1), row(1320.0)), GraphNode::Number(0.0));
+    let zero = g.insert_node(MaraPos2::new(col(1), row(1320.0)), GraphNode::Number(0.0));
     let cmp = g.insert_node(
-        egui::pos2(col(1), row(1180.0)),
+        MaraPos2::new(col(1), row(1180.0)),
         GraphNode::Compare(CompareOp::Gt),
     );
-    let one = g.insert_node(egui::pos2(col(2), row(1320.0)), GraphNode::Number(1.0));
-    let neg = g.insert_node(egui::pos2(col(2), row(1460.0)), GraphNode::Number(-1.0));
-    let gate = g.insert_node(egui::pos2(col(2), row(1180.0)), GraphNode::IfElse);
-    let display2 = g.insert_node(egui::pos2(col(3), row(1180.0)), GraphNode::Display);
+    let one = g.insert_node(MaraPos2::new(col(2), row(1320.0)), GraphNode::Number(1.0));
+    let neg = g.insert_node(MaraPos2::new(col(2), row(1460.0)), GraphNode::Number(-1.0));
+    let gate = g.insert_node(MaraPos2::new(col(2), row(1180.0)), GraphNode::IfElse);
+    let display2 = g.insert_node(MaraPos2::new(col(3), row(1180.0)), GraphNode::Display);
 
     // ── Pipeline 4: sophisticated 4-channel scope ──
     //
@@ -7319,44 +7323,44 @@ fn default_graph() -> Graph<GraphNode> {
     //  Time ─→ ×freq[2] ─→  sin² ─ │
     //  Time ─→ ×freq[3] ─→  saw ─  ┘
     //
-    let t2 = g.insert_node(egui::pos2(col(0), row(1620.0)), GraphNode::Time);
-    let f1 = g.insert_node(egui::pos2(col(0), row(1760.0)), GraphNode::Number(1.0));
-    let f2 = g.insert_node(egui::pos2(col(0), row(1900.0)), GraphNode::Number(2.0));
-    let f3 = g.insert_node(egui::pos2(col(0), row(2040.0)), GraphNode::Number(3.0));
-    let f4 = g.insert_node(egui::pos2(col(0), row(2180.0)), GraphNode::Number(0.5));
+    let t2 = g.insert_node(MaraPos2::new(col(0), row(1620.0)), GraphNode::Time);
+    let f1 = g.insert_node(MaraPos2::new(col(0), row(1760.0)), GraphNode::Number(1.0));
+    let f2 = g.insert_node(MaraPos2::new(col(0), row(1900.0)), GraphNode::Number(2.0));
+    let f3 = g.insert_node(MaraPos2::new(col(0), row(2040.0)), GraphNode::Number(3.0));
+    let f4 = g.insert_node(MaraPos2::new(col(0), row(2180.0)), GraphNode::Number(0.5));
     let m1 = g.insert_node(
-        egui::pos2(col(1), row(1620.0)),
+        MaraPos2::new(col(1), row(1620.0)),
         GraphNode::ScalarMath(ScalarOp::Mul),
     );
     let m2 = g.insert_node(
-        egui::pos2(col(1), row(1760.0)),
+        MaraPos2::new(col(1), row(1760.0)),
         GraphNode::ScalarMath(ScalarOp::Mul),
     );
     let m3 = g.insert_node(
-        egui::pos2(col(1), row(1900.0)),
+        MaraPos2::new(col(1), row(1900.0)),
         GraphNode::ScalarMath(ScalarOp::Mul),
     );
     let m4 = g.insert_node(
-        egui::pos2(col(1), row(2040.0)),
+        MaraPos2::new(col(1), row(2040.0)),
         GraphNode::ScalarMath(ScalarOp::Mul),
     );
     let s1 = g.insert_node(
-        egui::pos2(col(2), row(1620.0)),
+        MaraPos2::new(col(2), row(1620.0)),
         GraphNode::Trig(TrigFn::Sin),
     );
     let s2 = g.insert_node(
-        egui::pos2(col(2), row(1760.0)),
+        MaraPos2::new(col(2), row(1760.0)),
         GraphNode::Trig(TrigFn::Cos),
     );
     let s3 = g.insert_node(
-        egui::pos2(col(2), row(1900.0)),
+        MaraPos2::new(col(2), row(1900.0)),
         GraphNode::Wave(WaveShape::Triangle),
     );
     let s4 = g.insert_node(
-        egui::pos2(col(2), row(2040.0)),
+        MaraPos2::new(col(2), row(2040.0)),
         GraphNode::Wave(WaveShape::Saw),
     );
-    let mplot = g.insert_node(egui::pos2(col(3), row(1620.0)), GraphNode::MultiPlot);
+    let mplot = g.insert_node(MaraPos2::new(col(3), row(1620.0)), GraphNode::MultiPlot);
 
     // ── Pipeline 5: sophisticated noise field ──
     //
@@ -7376,23 +7380,23 @@ fn default_graph() -> Graph<GraphNode> {
     //  Num(2.1) lacunarity ─→───────────────┤
     //  Num(1.0) gain ──────→────────────────┘
     //
-    let t3 = g.insert_node(egui::pos2(col(0), row(2400.0)), GraphNode::Time);
-    let speed = g.insert_node(egui::pos2(col(0), row(2540.0)), GraphNode::Number(0.4));
+    let t3 = g.insert_node(MaraPos2::new(col(0), row(2400.0)), GraphNode::Time);
+    let speed = g.insert_node(MaraPos2::new(col(0), row(2540.0)), GraphNode::Number(0.4));
     let drift_x = g.insert_node(
-        egui::pos2(col(1), row(2400.0)),
+        MaraPos2::new(col(1), row(2400.0)),
         GraphNode::ScalarMath(ScalarOp::Mul),
     );
-    let drift_y = g.insert_node(egui::pos2(col(1), row(2540.0)), GraphNode::Number(0.0));
-    let freq_n = g.insert_node(egui::pos2(col(1), row(2680.0)), GraphNode::Number(1.5));
+    let drift_y = g.insert_node(MaraPos2::new(col(1), row(2540.0)), GraphNode::Number(0.0));
+    let freq_n = g.insert_node(MaraPos2::new(col(1), row(2680.0)), GraphNode::Number(1.5));
     let seed_n = g.insert_node(
-        egui::pos2(col(1), row(2820.0)),
+        MaraPos2::new(col(1), row(2820.0)),
         GraphNode::Number(0xCAFE as f64),
     );
-    let oct_n = g.insert_node(egui::pos2(col(1), row(2960.0)), GraphNode::Number(5.0));
-    let pers_n = g.insert_node(egui::pos2(col(1), row(3100.0)), GraphNode::Number(0.55));
-    let lac_n = g.insert_node(egui::pos2(col(1), row(3240.0)), GraphNode::Number(2.1));
-    let gain_n = g.insert_node(egui::pos2(col(1), row(3380.0)), GraphNode::Number(1.0));
-    let nfield = g.insert_node(egui::pos2(col(2), row(2400.0)), GraphNode::NoiseField);
+    let oct_n = g.insert_node(MaraPos2::new(col(1), row(2960.0)), GraphNode::Number(5.0));
+    let pers_n = g.insert_node(MaraPos2::new(col(1), row(3100.0)), GraphNode::Number(0.55));
+    let lac_n = g.insert_node(MaraPos2::new(col(1), row(3240.0)), GraphNode::Number(2.1));
+    let gain_n = g.insert_node(MaraPos2::new(col(1), row(3380.0)), GraphNode::Number(1.0));
+    let nfield = g.insert_node(MaraPos2::new(col(2), row(2400.0)), GraphNode::NoiseField);
 
     // ── Wire it up ──
     let connect = |g: &mut Graph<GraphNode>, src, sout, dst, dinp| {

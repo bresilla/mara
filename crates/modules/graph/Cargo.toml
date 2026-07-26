@@ -1,12 +1,16 @@
 [package]
 name = "mara_graph"
-description = "Standalone egui node-graph crate. Vendored fork of an upstream node-graph widget (see ACKNOWLEDGEMENTS.md for attribution) so we can iterate without external dep churn. Theme-neutral — call sites pick a `GraphStyle` (default builder ships sensible egui defaults; mara-tinted styling lives in `mara_core` under the optional `graph` feature)."
+description = "Standalone egui node-graph crate. Vendored fork of an upstream node-graph widget (see ACKNOWLEDGEMENTS.md for attribution) so we can iterate without external dep churn. Theme-neutral — call sites pick a `GraphStyle`; the mara-tinted wrapper lives in `mara::extras::graph`."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
 [dependencies]
+# The widget-crate cycle is gone — the mara-tinted wrappers moved to the
+# `mara` facade — so this crate can finally speak Mara vocab directly
+# instead of duplicating a geometry type. PLAN.md WS-D1.
+mara_core = { workspace = true }
 egui = { workspace = true, default-features = false }
 # Used by `node_view` to render the graph into a secondary egui
 # context backed by a wgpu texture, so the graph stays sharp at

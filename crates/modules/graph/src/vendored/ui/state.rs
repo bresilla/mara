@@ -280,7 +280,7 @@ impl GraphState {
         let mut bb = Rect::NOTHING;
 
         for (_, node) in &graph.nodes {
-            bb.extend_with(node.pos);
+            bb.extend_with(egui::Pos2::from(node.pos));
         }
 
         if bb.is_finite() {

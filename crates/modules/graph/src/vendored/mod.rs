@@ -21,8 +21,9 @@ pub mod ui;
 
 use std::ops::{Index, IndexMut};
 
-use egui::{Pos2, ahash::HashSet};
+use mara_core::vocab::Pos2;
 use slab::Slab;
+use std::collections::HashSet;
 
 impl<T> Default for Graph<T> {
     fn default() -> Self {
@@ -53,7 +54,7 @@ pub struct Node<T> {
 
     /// Position of the top-left corner of the node.
     /// This does not include frame margin.
-    pub pos: egui::Pos2,
+    pub pos: Pos2,
 
     /// Flag indicating that the node is open - not collapsed.
     pub open: bool,
@@ -134,7 +135,7 @@ impl<'de> serde::Deserialize<'de> for Wires {
             where
                 A: serde::de::SeqAccess<'de>,
             {
-                let mut wires = HashSet::with_hasher(egui::ahash::RandomState::new());
+                let mut wires = HashSet::new();
                 while let Some(wire) = seq.next_element()? {
                     wires.insert(wire);
                 }
@@ -150,7 +151,7 @@ impl<'de> serde::Deserialize<'de> for Wires {
 impl Wires {
     fn new() -> Self {
         Wires {
-            wires: HashSet::with_hasher(egui::ahash::RandomState::new()),
+            wires: HashSet::new(),
         }
     }
 
@@ -237,9 +238,9 @@ impl<T> Graph<T> {
     /// ```
     /// # use mara_graph::Graph;
     /// let mut graph = Graph::<()>::new();
-    /// graph.insert_node(egui::pos2(0.0, 0.0), ());
+    /// graph.insert_node(mara_core::vocab::pos2(0.0, 0.0), ());
     /// ```
-    pub fn insert_node(&mut self, pos: egui::Pos2, node: T) -> NodeId {
+    pub fn insert_node(&mut self, pos: Pos2, node: T) -> NodeId {
         let idx = self.nodes.insert(Node {
             value: node,
             pos,
@@ -257,9 +258,9 @@ impl<T> Graph<T> {
     /// ```
     /// # use mara_graph::Graph;
     /// let mut graph = Graph::<()>::new();
-    /// graph.insert_node_collapsed(egui::pos2(0.0, 0.0), ());
+    /// graph.insert_node_collapsed(mara_core::vocab::pos2(0.0, 0.0), ());
     /// ```
-    pub fn insert_node_collapsed(&mut self, pos: egui::Pos2, node: T) -> NodeId {
+    pub fn insert_node_collapsed(&mut self, pos: Pos2, node: T) -> NodeId {
         let idx = self.nodes.insert(Node {
             value: node,
             pos,
@@ -291,7 +292,7 @@ impl<T> Graph<T> {
     /// ```
     /// # use mara_graph::Graph;
     /// let mut graph = Graph::<()>::new();
-    /// let node = graph.insert_node(egui::pos2(0.0, 0.0), ());
+    /// let node = graph.insert_node(mara_core::vocab::pos2(0.0, 0.0), ());
     /// graph.remove_node(node);
     /// ```
     #[track_caller]

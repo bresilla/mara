@@ -1529,11 +1529,11 @@ where
         if graph_state.selected_nodes().contains(&node) {
             for node in graph_state.selected_nodes() {
                 let node = &mut graph.nodes[node.0];
-                node.pos += delta;
+                node.pos += mara_core::vocab::Vec2::from(delta);
             }
         } else {
             let node = &mut graph.nodes[node.0];
-            node.pos += delta;
+            node.pos += mara_core::vocab::Vec2::from(delta);
         }
     }
 
@@ -1929,7 +1929,7 @@ where
         .map(|idx| OutPin::new(graph, OutPinId { node, output: idx }))
         .collect::<Vec<_>>();
 
-    let node_pos = pos.round_ui();
+    let node_pos = egui::Pos2::from(pos).round_ui();
 
     // Generate persistent id for the node.
     let node_id = graph_id.with(("graph-node", node));

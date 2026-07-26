@@ -791,7 +791,7 @@ mod view_module_bridge_tests {
     #[test]
     fn graph_surface_is_both_view_and_module() {
         let mut graph = Graph::new();
-        graph.insert_node(egui::pos2(0.0, 0.0), TestNode("Node"));
+        graph.insert_node(mara_core::vocab::pos2(0.0, 0.0), TestNode("Node"));
         let surface = GraphSurface::new("graph-surface", "Graph", graph, TestViewer);
         assert_view(&surface);
         assert_module(&surface);

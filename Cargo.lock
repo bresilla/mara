@@ -3699,6 +3699,7 @@ dependencies = [
  "egui",
  "egui-scale",
  "egui-wgpu",
+ "mara_core",
  "serde",
  "slab",
  "smallvec",
