@@ -1698,14 +1698,16 @@ where
                 },
             );
 
-            new_heights.push(pin_ui.min_rect().height());
+            new_heights.push(with_mara_ui(pin_ui, |mara| mara.occupied_rect()).height());
 
             pin_ui.expand_to_include_y(outer_rect.bottom());
         });
     }
 
-    let final_rect = inputs_ui.min_rect();
-    node_ui.expand_to_include_rect(final_rect.intersect(payload_clip_rect.into()));
+    let final_rect = with_mara_ui(&mut inputs_ui, |mara| mara.occupied_rect());
+    with_mara_ui(node_ui, |mara| {
+        mara.expand_to_include(final_rect.intersect(payload_clip_rect))
+    });
 
     DrawPinsResponse {
         drag_released,
@@ -1871,13 +1873,15 @@ where
                 },
             );
 
-            new_heights.push(pin_ui.min_rect().height());
+            new_heights.push(with_mara_ui(pin_ui, |mara| mara.occupied_rect()).height());
 
             pin_ui.expand_to_include_y(outer_rect.bottom());
         });
     }
-    let final_rect = outputs_ui.min_rect();
-    node_ui.expand_to_include_rect(final_rect.intersect(payload_clip_rect.into()));
+    let final_rect = with_mara_ui(&mut outputs_ui, |mara| mara.occupied_rect());
+    with_mara_ui(node_ui, |mara| {
+        mara.expand_to_include(final_rect.intersect(payload_clip_rect))
+    });
 
     DrawPinsResponse {
         drag_released,
@@ -1915,8 +1919,10 @@ where
         viewer.show_body(node, inputs, outputs, mui, graph)
     });
 
-    let final_rect = body_ui.min_rect();
-    ui.expand_to_include_rect(final_rect.intersect(payload_clip_rect.into()));
+    let final_rect = with_mara_ui(&mut body_ui, |mara| mara.occupied_rect());
+    with_mara_ui(ui, |mara| {
+        mara.expand_to_include(final_rect.intersect(payload_clip_rect))
+    });
     // node_state.set_body_width(body_size.x);
 
     DrawBodyResponse { final_rect: final_rect.into() }
@@ -2568,8 +2574,10 @@ where
                 viewer.show_footer(node, &inputs, &outputs, mui, graph)
             });
 
-            let final_rect = footer_ui.min_rect();
-            ui.expand_to_include_rect(final_rect.intersect(payload_clip_rect.into()));
+            let final_rect = with_mara_ui(&mut footer_ui, |mara| mara.occupied_rect());
+            with_mara_ui(ui, |mara| {
+                mara.expand_to_include(final_rect.intersect(payload_clip_rect))
+            });
             let footer_size = final_rect.size();
 
             new_pins_size.x = f32::max(new_pins_size.x, footer_size.x);
@@ -2631,7 +2639,7 @@ where
                     viewer.show_header(node, &inputs, &outputs, mui, graph)
                 });
 
-                header_rect = ui.min_rect().into();
+                header_rect = with_mara_ui(ui, |mara| mara.occupied_rect());
             });
 
             header_frame_rect = 
@@ -2648,7 +2656,7 @@ where
             ));
         });
 
-        ui.expand_to_include_rect(header_rect.into());
+        with_mara_ui(ui, |mara| mara.expand_to_include(header_rect));
         let header_size = header_rect.size();
         node_state.set_header_height(header_size.y);
 
