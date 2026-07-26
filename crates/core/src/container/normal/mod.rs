@@ -930,9 +930,19 @@ impl Normal {
         // pane's outer size and the container's body slot — no
         // anchor lag, no per-frame edge drift.
         let pane_id = self.pane_id;
-        let open: bool = ui
-            .ctx()
-            .data_mut(|d| *d.get_persisted_mut_or_insert_with(egui::Id::from(pane_id.with("body_open")), || true));
+        // Defaults to open, and the default is persisted so a later
+        // read sees the same answer.
+        let open: bool = {
+            let key = pane_id.with("body_open");
+            let mut memory = crate::memory::MaraMemoryCtx::new(ui.ctx());
+            match memory.get_persisted::<bool>(key) {
+                Some(open) => open,
+                None => {
+                    memory.set_persisted(key, true);
+                    true
+                }
+            }
+        };
         let openness = pane::body_openness(ui.ctx(), pane_id);
         // Body's full flow-axis size when fully open. Used as the
         // child UI's `max_rect` extent so widgets ALWAYS render at
@@ -1203,20 +1213,22 @@ impl Normal {
                         //   use the measurement directly. Lets expandable
                         //   widgets (color picker, etc.) still grow the
                         //   container.
-                        let recorded_h = child.ctx().data(|d| {
-                            if let Some(exact) = d.get_temp::<f32>(egui::Id::from(
+                        let recorded_h = {
+                            let memory = crate::memory::MaraMemoryCtx::new(child.ctx());
+                            match memory.get_temp::<f32>(
                                 pane_id.with("mara_container_intrinsic_natural_override"),
-                            )) {
-                                exact
-                            } else {
-                                let floor = d
-                                    .get_temp::<f32>(egui::Id::from(
-                                        pane_id.with("mara_container_intrinsic_natural_floor"),
-                                    ))
-                                    .unwrap_or(0.0);
-                                content_h.max(floor)
+                            ) {
+                                Some(exact) => exact,
+                                None => {
+                                    let floor = memory
+                                        .get_temp::<f32>(
+                                            pane_id.with("mara_container_intrinsic_natural_floor"),
+                                        )
+                                        .unwrap_or(0.0);
+                                    content_h.max(floor)
+                                }
                             }
-                        });
+                        };
                         crate::container::record_container_intrinsic(
                             child.ctx(),
                             pane_id,
@@ -1284,27 +1296,27 @@ impl Normal {
         // Restore the parent ui's opacity so subsequent containers
         // in the same body callback start from a clean baseline.
         ui.set_opacity(prev_opacity);
-        ui.ctx().data_mut(|d| {
-            d.insert_temp(
-                egui::Id::from(pane::active_container_frame_rect_key()),
-                frame_response.response.rect,
-            );
-        });
+        crate::memory::MaraMemoryCtx::new(ui.ctx()).set_temp(
+            pane::active_container_frame_rect_key(),
+            frame_response.response.rect,
+        );
 
         // Publish the rendered Frame's outer rect to the parent
         // pane's per-frame cache. `Pane`'s finalize builds next
         // frame's snapshot from this (with the dragged
         // container's prev rect carried forward).
         if let Some((active_pane_id, _)) = active {
-            let published_rect = ui
-                .ctx()
-                .data_mut(|d| {
-                    let key = pane::active_tabbed_container_rect_key();
-                    let rect = d.get_temp::<egui::Rect>(egui::Id::from(key));
-                    d.remove::<egui::Rect>(egui::Id::from(key));
-                    rect
-                })
-                .unwrap_or(frame_response.response.rect);
+            // Take, not read: a tabbed container publishes the union
+            // of strip+body here, and leaving it behind would let the
+            // next container inherit this one's rect.
+            let published_rect = {
+                let key = pane::active_tabbed_container_rect_key();
+                let mut memory = crate::memory::MaraMemoryCtx::new(ui.ctx());
+                let rect = memory.get_temp::<egui::Rect>(key);
+                memory.remove_temp::<egui::Rect>(key);
+                rect
+            }
+            .unwrap_or(frame_response.response.rect);
             pane::push_rect(ui.ctx(), active_pane_id, pane_id, published_rect);
         }
         // Custom debug inspector — outline the container's full
@@ -1992,10 +2004,11 @@ fn paint_folder_tabs(
             );
         }
         if resp.clicked() && drag.is_none() {
-            ui.ctx().data_mut(|d| {
-                d.insert_persisted(egui::Id::from(active_idx_key), i);
-                d.insert_persisted(egui::Id::from(active_tab_id_key(active_idx_key)), tab_id);
-            });
+            {
+                let mut memory = crate::memory::MaraMemoryCtx::new(ui.ctx());
+                memory.set_persisted(active_idx_key, i);
+                memory.set_persisted(active_tab_id_key(active_idx_key), tab_id);
+            }
         }
         if resp.drag_started() {
             pane::tab_drag::set_drag(
@@ -2198,10 +2211,11 @@ fn paint_top_tabs(
             );
         }
         if resp.clicked() && drag.is_none() {
-            ui.ctx().data_mut(|d| {
-                d.insert_persisted(egui::Id::from(active_idx_key), i);
-                d.insert_persisted(egui::Id::from(active_tab_id_key(active_idx_key)), tab_id);
-            });
+            {
+                let mut memory = crate::memory::MaraMemoryCtx::new(ui.ctx());
+                memory.set_persisted(active_idx_key, i);
+                memory.set_persisted(active_tab_id_key(active_idx_key), tab_id);
+            }
         }
         if resp.drag_started() {
             pane::tab_drag::set_drag(
