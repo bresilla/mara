@@ -75,13 +75,25 @@ pub struct MaraResponse {
     /// Pointer position while hovering this widget, if any.
     pub hover_pos: Option<vocab::Pos2>,
     pub rect: vocab::Rect,
+    /// Per-button click flags, indexed by [`vocab::PointerButton`].
+    /// Captured at construction because a `MaraResponse` is a snapshot
+    /// — there is no live backend response to re-query later.
+    clicked_by: [bool; 3],
+    /// Per-button drag flags, same indexing as `clicked_by`.
+    dragged_by: [bool; 3],
     backend_response: vocab::Id,
 }
 
 impl From<egui::Response> for MaraResponse {
     fn from(inner: egui::Response) -> Self {
         let backend_response = backend::egui::remember_response(&inner);
+        let clicked_by = vocab::PointerButton::ALL
+            .map(|button| inner.clicked_by(backend::egui::egui_pointer_button(button)));
+        let dragged_by = vocab::PointerButton::ALL
+            .map(|button| inner.dragged_by(backend::egui::egui_pointer_button(button)));
         Self {
+            clicked_by,
+            dragged_by,
             clicked: inner.clicked(),
             double_clicked: inner.double_clicked(),
             secondary_clicked: inner.secondary_clicked(),
@@ -118,8 +130,22 @@ impl MaraResponse {
             interact_pointer: None,
             hover_pos: None,
             rect,
+            clicked_by: [false; 3],
+            dragged_by: [false; 3],
             backend_response: vocab::Id::new(("mara_response", "synthetic")),
         }
+    }
+
+    /// Was this widget clicked with `button` specifically?
+    #[must_use]
+    pub fn clicked_by(&self, button: vocab::PointerButton) -> bool {
+        self.clicked_by[button.index()]
+    }
+
+    /// Is this widget being dragged with `button` specifically?
+    #[must_use]
+    pub fn dragged_by(&self, button: vocab::PointerButton) -> bool {
+        self.dragged_by[button.index()]
     }
 
     /// Headless-test harness: an inert response at `rect`, for driving a
@@ -196,6 +222,9 @@ pub struct MaraInput {
     pub any_released: bool,
     pub secondary_down: bool,
     pub secondary_pressed: bool,
+    pub middle_down: bool,
+    pub middle_pressed: bool,
+    pub middle_released: bool,
     /// Smooth scroll delta this frame.
     pub scroll_delta: vocab::Vec2,
     /// Pointer movement since last frame.
@@ -205,14 +234,228 @@ pub struct MaraInput {
     pub modifiers_shift: bool,
     pub modifiers_ctrl: bool,
     pub modifiers_alt: bool,
+    /// Keys that went down this frame. Surfaces that own their own
+    /// key handling (map, 3D, canvas) read this instead of reaching
+    /// for the backend's input state.
+    pub keys_pressed: MaraKeySet,
 }
 
+impl MaraInput {
+    /// Did `key` go down this frame?
+    #[must_use]
+    pub fn key_pressed(&self, key: MaraKey) -> bool {
+        self.keys_pressed.contains(key)
+    }
+
+    /// Is `button` currently held?
+    #[must_use]
+    pub fn button_down(&self, button: vocab::PointerButton) -> bool {
+        match button {
+            vocab::PointerButton::Primary => self.primary_down,
+            vocab::PointerButton::Secondary => self.secondary_down,
+            vocab::PointerButton::Middle => self.middle_down,
+        }
+    }
+
+    /// Did `button` go down this frame?
+    #[must_use]
+    pub fn button_pressed(&self, button: vocab::PointerButton) -> bool {
+        match button {
+            vocab::PointerButton::Primary => self.primary_pressed,
+            vocab::PointerButton::Secondary => self.secondary_pressed,
+            vocab::PointerButton::Middle => self.middle_pressed,
+        }
+    }
+}
+
+/// A set of [`MaraKey`]s, held as a bitset so [`MaraInput`] stays
+/// `Copy` and snapshotting input allocates nothing per frame.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct MaraKeySet(u128);
+
+impl MaraKey {
+    /// Every key, in declaration order.
+    pub const ALL: [Self; 66] = [
+        Self::Escape,
+        Self::ArrowDown,
+        Self::ArrowUp,
+        Self::ArrowLeft,
+        Self::ArrowRight,
+        Self::Enter,
+        Self::Tab,
+        Self::Space,
+        Self::Backspace,
+        Self::Delete,
+        Self::Insert,
+        Self::Home,
+        Self::End,
+        Self::PageUp,
+        Self::PageDown,
+        Self::Minus,
+        Self::Plus,
+        Self::Equals,
+        Self::A,
+        Self::B,
+        Self::C,
+        Self::D,
+        Self::E,
+        Self::F,
+        Self::G,
+        Self::H,
+        Self::I,
+        Self::J,
+        Self::K,
+        Self::L,
+        Self::M,
+        Self::N,
+        Self::O,
+        Self::P,
+        Self::Q,
+        Self::R,
+        Self::S,
+        Self::T,
+        Self::U,
+        Self::V,
+        Self::W,
+        Self::X,
+        Self::Y,
+        Self::Z,
+        Self::Num0,
+        Self::Num1,
+        Self::Num2,
+        Self::Num3,
+        Self::Num4,
+        Self::Num5,
+        Self::Num6,
+        Self::Num7,
+        Self::Num8,
+        Self::Num9,
+        Self::F1,
+        Self::F2,
+        Self::F3,
+        Self::F4,
+        Self::F5,
+        Self::F6,
+        Self::F7,
+        Self::F8,
+        Self::F9,
+        Self::F10,
+        Self::F11,
+        Self::F12,
+    ];
+}
+
+impl MaraKeySet {
+    #[must_use]
+    pub const fn empty() -> Self {
+        Self(0)
+    }
+
+    #[must_use]
+    pub const fn contains(self, key: MaraKey) -> bool {
+        self.0 & (1u128 << (key as u8)) != 0
+    }
+
+    pub const fn insert(&mut self, key: MaraKey) {
+        self.0 |= 1u128 << (key as u8);
+    }
+
+    #[must_use]
+    pub const fn is_empty(self) -> bool {
+        self.0 == 0
+    }
+
+    /// The keys in this set, in [`MaraKey::ALL`] order.
+    pub fn iter(self) -> impl Iterator<Item = MaraKey> {
+        MaraKey::ALL.into_iter().filter(move |&k| self.contains(k))
+    }
+}
+
+impl FromIterator<MaraKey> for MaraKeySet {
+    fn from_iter<T: IntoIterator<Item = MaraKey>>(iter: T) -> Self {
+        let mut set = Self::empty();
+        for key in iter {
+            set.insert(key);
+        }
+        set
+    }
+}
+
+/// Keyboard keys Mara surfaces can react to.
+///
+/// `repr(u8)` and the declaration order are load-bearing:
+/// [`MaraKeySet`] indexes its bitset by `key as u8`, so the count must
+/// stay at or below 128 and existing variants must not be reordered
+/// across a release.
+#[repr(u8)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum MaraKey {
     Escape,
     ArrowDown,
     ArrowUp,
+    ArrowLeft,
+    ArrowRight,
     Enter,
+    Tab,
+    Space,
+    Backspace,
+    Delete,
+    Insert,
+    Home,
+    End,
+    PageUp,
+    PageDown,
+    Minus,
+    Plus,
+    Equals,
+    A,
+    B,
+    C,
+    D,
+    E,
+    F,
+    G,
+    H,
+    I,
+    J,
+    K,
+    L,
+    M,
+    N,
+    O,
+    P,
+    Q,
+    R,
+    S,
+    T,
+    U,
+    V,
+    W,
+    X,
+    Y,
+    Z,
+    Num0,
+    Num1,
+    Num2,
+    Num3,
+    Num4,
+    Num5,
+    Num6,
+    Num7,
+    Num8,
+    Num9,
+    F1,
+    F2,
+    F3,
+    F4,
+    F5,
+    F6,
+    F7,
+    F8,
+    F9,
+    F10,
+    F11,
+    F12,
 }
 
 // ─── MaraPainter ──────────────────────────────────────────────────
@@ -535,6 +778,62 @@ impl MaraPainter {
     #[must_use]
     pub fn full_uv() -> vocab::Rect {
         vocab::Rect::from_min_max(vocab::Pos2::ZERO, vocab::Pos2::new(1.0, 1.0))
+    }
+
+    /// Gouraud-shaded triangle mesh — the primitive for gradients and
+    /// any fill a solid colour cannot express. `indices` are triplets
+    /// into `vertices`; a length that is not a multiple of three, or an
+    /// index past the end of `vertices`, draws nothing.
+    pub fn mesh(&self, vertices: Vec<crate::paint::PaintVertex>, indices: Vec<u32>) {
+        if indices.len() % 3 != 0 {
+            return;
+        }
+        let len = vertices.len() as u32;
+        if indices.iter().any(|&i| i >= len) {
+            return;
+        }
+        self.paint_cmd(PaintCmd::Mesh { vertices, indices });
+    }
+
+    /// Soft drop shadow cast by `rect`. `offset` is in points,
+    /// `blur`/`spread` in pixels.
+    pub fn shadow(
+        &self,
+        rect: impl Into<vocab::Rect>,
+        corner: impl Into<vocab::CornerRadius>,
+        offset: [i8; 2],
+        blur: u8,
+        spread: u8,
+        color: impl Into<vocab::Color32>,
+    ) {
+        self.paint_cmd(PaintCmd::Shadow {
+            rect: rect.into(),
+            corner: corner.into(),
+            offset,
+            blur,
+            spread,
+            color: color.into(),
+        });
+    }
+
+    /// Size `text` would occupy at `size` points, without painting it.
+    ///
+    /// Lets drawing code lay out labels (collision tests, centring,
+    /// leader lines) without reaching for the backend's text engine.
+    /// Command-recording painters have no font atlas and return the
+    /// same coarse estimate the recording backend uses, so headless
+    /// layout stays deterministic rather than collapsing to zero.
+    #[must_use]
+    pub fn measure_text(&self, text: &str, size: f32, mono: bool) -> vocab::Vec2 {
+        match &self.sink {
+            MaraPainterSink::Egui(painter) => backend::egui::measure_text_for_spec(
+                painter,
+                &crate::layout::TextMeasureSpec::new(text, size, mono),
+            ),
+            MaraPainterSink::Commands { .. } => {
+                vocab::Vec2::new(text.chars().count() as f32 * size * 0.5, size)
+            }
+        }
     }
 
     /// Render a Mara paint command through the current backend.

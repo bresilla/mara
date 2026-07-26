@@ -353,6 +353,9 @@ fn apply_palette_key(
                 PaletteKeyOutcome::None
             }
         }
+        // The palette only consumes its four navigation keys; every
+        // other key belongs to the focused text field.
+        _ => PaletteKeyOutcome::None,
     }
 }
 

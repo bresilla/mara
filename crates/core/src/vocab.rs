@@ -454,6 +454,34 @@ impl From<ColorImage> for egui::ColorImage {
     }
 }
 
+/// Which physical pointer button an interaction used.
+///
+/// Mara's own enum rather than the backend's, so drawing surfaces can
+/// branch on middle-drag / right-click without naming egui. Extra
+/// buttons some backends report (side/extra) collapse into nothing —
+/// Mara exposes only the three every platform agrees on.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum PointerButton {
+    Primary,
+    Secondary,
+    Middle,
+}
+
+impl PointerButton {
+    /// All three buttons, in the order [`crate::mui::MaraResponse`]
+    /// stores its per-button flags.
+    pub const ALL: [Self; 3] = [Self::Primary, Self::Secondary, Self::Middle];
+
+    #[must_use]
+    pub(crate) const fn index(self) -> usize {
+        match self {
+            Self::Primary => 0,
+            Self::Secondary => 1,
+            Self::Middle => 2,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Align2(egui::Align2);
 
