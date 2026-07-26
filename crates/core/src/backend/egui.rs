@@ -4,12 +4,11 @@ use egui::{FontId, layers::ShapeIdx};
 
 use crate::{
     layout::{
-        AreaHost, AreaSlotSpec, ChildRegion, ColorPickerAlpha, ContainerBodySpec, CursorIcon,
-        FrameHostSpec, InlinePickerSpec, ItemSpacingSpec, Layer, PaintSurfaceRegion,
-        PaintSurfaceSpec, PaneBodyScrollAxis, PaneBodyScrollSpec, PaneFlexSpec, PopupAlign,
-        PopupListSpec, PopupSpec, PopupTrigger, ScrollAxis, ScrollRegion, Sense,
-        SlotRibbonLayoutSpec, SpaceSpec, StackAlign, StackDirection, TextEditRegion, TextEditSpec,
-        TextMeasureSpec, UiBackend,
+        AreaHost, AreaSlotSpec, ChildRegion, ContainerBodySpec, CursorIcon, FrameHostSpec,
+        InlinePickerSpec, ItemSpacingSpec, Layer, PaintSurfaceRegion, PaintSurfaceSpec,
+        PaneBodyScrollAxis, PaneBodyScrollSpec, PaneFlexSpec, PopupAlign, PopupListSpec, PopupSpec,
+        PopupTrigger, ScrollAxis, ScrollRegion, Sense, SlotRibbonLayoutSpec, SpaceSpec, StackAlign,
+        StackDirection, TextEditRegion, TextEditSpec, TextMeasureSpec, UiBackend,
     },
     memory::MaraMemoryCtx,
     mui::{MaraInput, MaraKey, MaraResponse},
@@ -562,23 +561,6 @@ pub(crate) fn viewport_maximized(ctx: &egui::Context) -> bool {
 
 pub(crate) fn color32_for_backend(color: vocab::Color32) -> egui::Color32 {
     color.into()
-}
-
-pub(crate) fn show_color_picker_for_ui(
-    ui: &mut egui::Ui,
-    color: &mut vocab::Color32,
-    alpha: ColorPickerAlpha,
-) -> bool {
-    let mut backend_color: egui::Color32 = (*color).into();
-    let alpha = match alpha {
-        ColorPickerAlpha::Opaque => egui::color_picker::Alpha::Opaque,
-        ColorPickerAlpha::OnlyBlend => egui::color_picker::Alpha::OnlyBlend,
-    };
-    let changed = egui::color_picker::color_picker_color32(ui, &mut backend_color, alpha);
-    if changed {
-        *color = backend_color.into();
-    }
-    changed
 }
 
 pub(crate) fn egui_order_for_layer(layer: Layer) -> egui::Order {

@@ -11,7 +11,7 @@
 //! ctx data keyed off `(ui_id, label)` so every callsite remembers
 //! frame-to-frame independently.
 //!
-//! The picker body is currently hosted by the egui backend — we
+//! The picker body is drawn from paint primitives (WS-E1.3) — we
 //! don't reinvent the HSV / hue / saturation controls yet; we just
 //! keep the widget surface and colour data on Mara contracts.
 
@@ -57,8 +57,9 @@ pub(crate) fn color_rgb(
         );
         let mut color32 = preview;
         let changed = picker_scope(ui, |ui| {
-            crate::backend::egui::show_color_picker_for_ui(
-                ui,
+            let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
+            crate::widget::color_picker::color_picker_backend(
+                &mut backend,
                 &mut color32,
                 ColorPickerAlpha::Opaque,
             )
@@ -106,8 +107,9 @@ pub(crate) fn color_rgba(
         );
         let mut color32 = preview;
         let changed = picker_scope(ui, |ui| {
-            crate::backend::egui::show_color_picker_for_ui(
-                ui,
+            let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
+            crate::widget::color_picker::color_picker_backend(
+                &mut backend,
                 &mut color32,
                 ColorPickerAlpha::OnlyBlend,
             )

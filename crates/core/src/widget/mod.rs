@@ -9,6 +9,7 @@ pub mod badge;
 pub mod button;
 pub mod chip;
 pub mod color;
+pub mod color_picker;
 pub(crate) mod context_menu;
 pub mod drag_value;
 pub mod dropdown;
