@@ -257,7 +257,8 @@ impl<'a> MaraHostCtx<'a> {
     /// underlying egui-wgpu types (ADR 0002).
     #[must_use]
     pub fn gpu(&self) -> Option<mara_gpu::MaraRenderState<'a>> {
-        self.render_state.map(mara_gpu::MaraRenderState::__internal_new)
+        self.render_state
+            .map(mara_gpu::MaraRenderState::__internal_new)
     }
 
     /// Render the enforced shell top bar and return its events — the

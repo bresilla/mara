@@ -3,7 +3,7 @@
 //! through the same maximise / restore affordance the graph
 //! widget uses.
 //!
-//! Minimal usage (inside a [`section`](crate::widget::section)
+//! Minimal usage (inside a [`section`](mara_core::widget::section)
 //! body, since panes require containers):
 //!
 //! ```ignore
@@ -35,14 +35,14 @@ use egui;
 
 pub use mara_code::{CodeEditor, ColorTheme, Syntax};
 
-use crate::vocab::{Color32 as MaraColor32, Vec2 as MaraVec2};
+use mara_core::vocab::{Color32 as MaraColor32, Vec2 as MaraVec2};
 
 // `maximizable` is no longer called directly from this file — both
 // `mara_code_editor` and `mara_code_editor_with_opts` route
-// through `crate::embed::maximizable_with_opts` so the opts path
+// through `mara_core::embed::maximizable_with_opts` so the opts path
 // is always live. `pub use` re-exports the symbol callers expect
 // when migrating from the older signature.
-pub use crate::embed::OverlayOpts;
+pub use mara_core::embed::OverlayOpts;
 
 /// Render a syntax-highlighted code editor bound to `text`,
 /// wrapped in the shared maximise / restore toggle. The caller
@@ -67,18 +67,18 @@ pub fn mara_code_editor(
         syntax,
         accent,
         min_size,
-        crate::embed::OverlayOpts::default(),
+        mara_core::embed::OverlayOpts::default(),
     )
 }
 
 /// The maximise-state key the code-editor wrapper registers with
-/// [`crate::embed`], computed from the caller-supplied `id_salt`
+/// [`mara_core::embed`], computed from the caller-supplied `id_salt`
 /// (the same one passed to [`mara_code_editor`]). Compare against
-/// [`crate::ViewCtx::fullscreen_owner`] or the facade host context
+/// [`mara_core::ViewCtx::fullscreen_owner`] or the facade host context
 /// to detect "is THIS code editor the one currently in fullscreen?".
 #[must_use]
-pub fn code_fullscreen_key(id_salt: impl Hash) -> crate::vocab::Id {
-    crate::embed::maximize_state_key(id_salt)
+pub fn code_fullscreen_key(id_salt: impl Hash) -> mara_core::vocab::Id {
+    mara_core::embed::maximize_state_key(id_salt)
 }
 
 /// Same as [`mara_code_editor`] but accepts an [`OverlayOpts`] so
@@ -91,19 +91,19 @@ pub fn mara_code_editor_with_opts(
     syntax: Syntax,
     accent: impl Into<MaraColor32>,
     min_size: impl Into<MaraVec2>,
-    fs_opts: crate::embed::OverlayOpts,
+    fs_opts: mara_core::embed::OverlayOpts,
 ) {
     let accent = accent.into();
     let min_size = min_size.into();
-    let accent_egui = crate::backend::egui::color32_for_backend(accent);
-    crate::embed::__internal_maximizable_with_opts_egui(
+    let accent_egui = mara_core::backend::egui::color32_for_backend(accent);
+    mara_core::embed::__internal_maximizable_with_opts_egui(
         ui,
         id_salt,
         accent,
         min_size,
         fs_opts,
         |ui| {
-            let code = crate::style::theme().code;
+            let code = mara_core::style::theme().code;
             let line_h = code.font_size * code.line_height_factor;
             let rows = ((ui.available_height() / line_h).floor() as usize).max(code.min_rows);
             let editor = CodeEditor::default()
@@ -111,22 +111,22 @@ pub fn mara_code_editor_with_opts(
                 .with_theme(mara_code_theme(accent_egui))
                 .with_fontsize(code.font_size)
                 .with_rows(rows);
-            let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
+            let mut backend = mara_core::backend::egui::EguiUiBackend::new(ui);
             show_code_text_area(&mut backend, id_salt, &editor, text, accent);
         },
     );
 }
 
 /// Render a [`CodeEditor`]'s configuration through the sealed
-/// [`crate::MaraTextArea`] (PLAN.md WS-D2).
+/// [`mara_core::MaraTextArea`] (PLAN.md WS-D2).
 ///
 /// This is the boundary the WS-D split creates: `mara_code` supplies
 /// the tokeniser and palette as plain data, and the *adapter* owns the
 /// rendering. The highlighter is a closure mapping each token to a
-/// [`crate::paint::TextRun`], so syntax colouring reaches the paint IR
+/// [`mara_core::paint::TextRun`], so syntax colouring reaches the paint IR
 /// with no backend coupling of its own.
 fn show_code_text_area(
-    backend: &mut dyn crate::layout::UiBackend,
+    backend: &mut dyn mara_core::layout::UiBackend,
     id_salt: impl Hash,
     editor: &CodeEditor,
     text: &mut String,
@@ -134,28 +134,29 @@ fn show_code_text_area(
 ) {
     let theme = editor.theme();
     let fontsize = editor.fontsize();
-    let highlight = |line: &str| -> Vec<crate::paint::TextRun> {
+    let highlight = |line: &str| -> Vec<mara_core::paint::TextRun> {
         editor
             .highlight_line(line)
             .into_iter()
             .map(|(text, ty)| {
                 let c = theme.type_color(ty).to_array();
-                crate::paint::TextRun {
+                mara_core::paint::TextRun {
                     text,
                     size: fontsize,
                     color: MaraColor32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]),
-                    family: crate::paint::TextFamily::Monospace,
+                    family: mara_core::paint::TextFamily::Monospace,
                     extra_letter_spacing: 0.0,
                     leading_space: 0.0,
                 }
             })
             .collect()
     };
-    let area = crate::MaraTextArea::new(crate::vocab::Id::new(("mara_code_editor", id_salt)))
-        .rows(editor.rows())
-        .font_size(fontsize)
-        .accent(accent)
-        .highlight(&highlight);
+    let area =
+        mara_core::MaraTextArea::new(mara_core::vocab::Id::new(("mara_code_editor", id_salt)))
+            .rows(editor.rows())
+            .font_size(fontsize)
+            .accent(accent)
+            .highlight(&highlight);
     let _ = area.show(backend, text);
 }
 
@@ -181,14 +182,16 @@ fn show_code_text_area(
 /// other crate, and `mara_code` cannot depend on `mara_core` (the
 /// dependency already runs the other way). So the adapter owns the
 /// conversion — which is where a boundary conversion belongs anyway.
-fn code_color(c: impl Into<crate::vocab::Color32>) -> mara_code::CodeColor {
+fn code_color(c: impl Into<mara_core::vocab::Color32>) -> mara_code::CodeColor {
     let c = c.into();
     mara_code::CodeColor::from_rgba_unmultiplied(c.r(), c.g(), c.b(), c.a())
 }
 
 fn mara_code_theme(accent: egui::Color32) -> ColorTheme {
-    use crate::style::{accent_pressed, glass_alpha_window, glass_fill, on_panel_dim, pane_fill};
-    let code = crate::style::theme().code;
+    use mara_core::style::{
+        accent_pressed, glass_alpha_window, glass_fill, on_panel_dim, pane_fill,
+    };
+    let code = mara_core::style::theme().code;
     ColorTheme {
         name: "Mara",
         dark: code.force_dark,
@@ -223,10 +226,35 @@ fn mara_code_theme(accent: egui::Color32) -> ColorTheme {
 // text buffer is stashed in backend memory under `text_id`; the
 // editor reads / writes it each frame.
 
-impl crate::pod::Pod {
+/// Code-editor constructors for [`mara_core::pod::Pod`].
+///
+/// An extension trait rather than inherent methods: the adapters live
+/// in the facade now (so the vendored crates can depend on `mara_core`
+/// without a cycle), and Rust only allows inherent `impl`s in the
+/// crate that defines the type. Bring it into scope to use them.
+pub trait PodCodeEditorExt: Sized {
+    #[must_use]
+    fn with_code_editor(
+        self,
+        text_id: impl Into<mara_core::vocab::Id>,
+        syntax: Syntax,
+        default_text: impl Into<String>,
+    ) -> Self;
+
+    #[must_use]
+    fn with_code_editor_opts(
+        self,
+        text_id: impl Into<mara_core::vocab::Id>,
+        syntax: Syntax,
+        default_text: impl Into<String>,
+        fs_opts: OverlayOpts,
+    ) -> Self;
+}
+
+impl PodCodeEditorExt for mara_core::pod::Pod {
     /// Append a mara-themed code editor to this pod. The editor's
     /// text lives in backend memory under `text_id` — pre-seed it
-    /// (`crate::memory::MaraMemoryCtx::new(ctx).set_temp(text_id, "default".to_string())`)
+    /// (`mara_core::memory::MaraMemoryCtx::__internal_from_backend_ctx(ctx).set_temp(text_id, "default".to_string())`)
     /// or rely on `default_text` to seed on first render.
     ///
     /// Uses `mara_core::style::active_accent()` for the inline
@@ -234,10 +262,9 @@ impl crate::pod::Pod {
     /// corner toggles fullscreen via `mara_core::embed`.
     ///
     /// Reserves 10 row-height units of pod space.
-    #[must_use]
-    pub fn with_code_editor(
+    fn with_code_editor(
         self,
-        text_id: impl Into<crate::vocab::Id>,
+        text_id: impl Into<mara_core::vocab::Id>,
         syntax: Syntax,
         default_text: impl Into<String>,
     ) -> Self {
@@ -245,17 +272,16 @@ impl crate::pod::Pod {
             text_id,
             syntax,
             default_text,
-            OverlayOpts::default().avoid_ribbons(crate::RibbonAvoidance::all()),
+            OverlayOpts::default().avoid_ribbons(mara_core::RibbonAvoidance::all()),
         )
     }
 
     /// Append a mara-themed code editor with explicit fullscreen
     /// overlay options. The fullscreen background stays full-window;
     /// these options only affect the body/chip.
-    #[must_use]
-    pub fn with_code_editor_opts(
+    fn with_code_editor_opts(
         self,
-        text_id: impl Into<crate::vocab::Id>,
+        text_id: impl Into<mara_core::vocab::Id>,
         syntax: Syntax,
         default_text: impl Into<String>,
         fs_opts: OverlayOpts,
@@ -268,7 +294,7 @@ impl crate::pod::Pod {
                 .data(|d| d.get_temp::<String>(text_id))
                 .unwrap_or_else(|| default.clone());
             let avail = ui.available_size_before_wrap();
-            let accent = crate::style::active_accent();
+            let accent = mara_core::style::active_accent();
             mara_code_editor_with_opts(
                 ui,
                 text_id,
@@ -289,8 +315,8 @@ impl crate::pod::Pod {
 // exposing a PLAN.md-native surface: code can now be routed as a
 // top-level L0 view or embedded as an L1-capable module.
 
-/// A retained code editor surface that implements both [`crate::MaraView`]
-/// and [`crate::MaraModule`].
+/// A retained code editor surface that implements both [`mara_core::MaraView`]
+/// and [`mara_core::MaraModule`].
 #[derive(Clone, Debug)]
 pub struct CodeEditorSurface {
     id: egui::Id,
@@ -332,45 +358,48 @@ impl CodeEditorSurface {
         self
     }
 
-    fn toolbar(&self, scope: crate::RibbonScope) -> crate::RibbonSlotDef {
-        let format = crate::RibbonSlotItem::new(
+    fn toolbar(&self, scope: mara_core::RibbonScope) -> mara_core::RibbonSlotDef {
+        let format = mara_core::RibbonSlotItem::new(
             egui::Id::new(("code.format", self.id)),
             "code",
             "Format",
             "Format code document",
-            crate::RibbonAction::Command(crate::vocab::Id::new(("code.format.command", self.id))),
+            mara_core::RibbonAction::Command(mara_core::vocab::Id::new((
+                "code.format.command",
+                self.id,
+            ))),
         );
-        crate::RibbonSlotDef::new(
+        mara_core::RibbonSlotDef::new(
             egui::Id::new(("code.ribbon", self.id)),
             scope,
-            crate::RibbonEdge::Top,
-            crate::RibbonCluster::Middle,
-            vec![crate::RibbonSlot::new(
-                crate::RibbonSlotId::new(("code.format.slot", self.id)),
+            mara_core::RibbonEdge::Top,
+            mara_core::RibbonCluster::Middle,
+            vec![mara_core::RibbonSlot::new(
+                mara_core::RibbonSlotId::new(("code.format.slot", self.id)),
                 Some(format),
-                crate::RibbonOverridePolicy::Fixed,
+                mara_core::RibbonOverridePolicy::Fixed,
             )],
         )
     }
 
     fn show_editor(&mut self, ui: &mut egui::Ui) {
         let min_size = ui.available_size_before_wrap();
-        let content_avoidance = crate::module::MaraModule::fullscreen_content_avoidance(self);
+        let content_avoidance = mara_core::module::MaraModule::fullscreen_content_avoidance(self);
         mara_code_editor_with_opts(
             ui,
             self.id,
             &mut self.text,
             self.syntax.clone(),
-            crate::style::active_accent(),
+            mara_core::style::active_accent(),
             min_size,
             OverlayOpts::default().avoid_ribbons(content_avoidance),
         );
     }
 }
 
-impl crate::MaraView for CodeEditorSurface {
-    fn id(&self) -> crate::ViewId {
-        crate::ViewId::from(self.id)
+impl mara_core::MaraView for CodeEditorSurface {
+    fn id(&self) -> mara_core::ViewId {
+        mara_core::ViewId::from(self.id)
     }
 
     fn title(&self) -> &str {
@@ -381,19 +410,23 @@ impl crate::MaraView for CodeEditorSurface {
         "code"
     }
 
-    fn ribbons(&mut self) -> Vec<crate::RibbonSlotDef> {
-        vec![self.toolbar(crate::RibbonScope::View(crate::ViewId::from(self.id)))]
+    fn ribbons(&mut self) -> Vec<mara_core::RibbonSlotDef> {
+        vec![
+            self.toolbar(mara_core::RibbonScope::View(mara_core::ViewId::from(
+                self.id,
+            ))),
+        ]
     }
 
-    fn content_avoidance(&self) -> crate::RibbonAvoidance {
-        crate::RibbonAvoidance::all()
+    fn content_avoidance(&self) -> mara_core::RibbonAvoidance {
+        mara_core::RibbonAvoidance::all()
     }
 
-    fn show(&mut self, ctx: &mut crate::ViewCtx<'_>) {
+    fn show(&mut self, ctx: &mut mara_core::ViewCtx<'_>) {
         let rect = ctx.content_rect();
         #[allow(deprecated)]
         {
-            egui::CentralPanel::default().show(ctx.egui_ctx, |ui| {
+            egui::CentralPanel::default().show(ctx.__internal_egui_ctx(), |ui| {
                 let mut body = ui.new_child(
                     egui::UiBuilder::new()
                         .max_rect(rect.into())
@@ -405,8 +438,8 @@ impl crate::MaraView for CodeEditorSurface {
     }
 }
 
-impl crate::MaraModule for CodeEditorSurface {
-    fn id(&self) -> crate::vocab::Id {
+impl mara_core::MaraModule for CodeEditorSurface {
+    fn id(&self) -> mara_core::vocab::Id {
         self.id.into()
     }
 
@@ -418,15 +451,15 @@ impl crate::MaraModule for CodeEditorSurface {
         "code"
     }
 
-    fn fullscreen_content_avoidance(&self) -> crate::RibbonAvoidance {
-        crate::RibbonAvoidance::all()
+    fn fullscreen_content_avoidance(&self) -> mara_core::RibbonAvoidance {
+        mara_core::RibbonAvoidance::all()
     }
 
     fn inline(
         &mut self,
-        mui: &mut crate::mui::MaraUi<'_>,
-        ctx: crate::ModuleInlineCtx<'_>,
-    ) -> crate::ModuleResponse {
+        mui: &mut mara_core::mui::MaraUi<'_>,
+        ctx: mara_core::ModuleInlineCtx<'_>,
+    ) -> mara_core::ModuleResponse {
         let ui = mui.__internal_raw_ui();
         ui.group(|ui| {
             ui.horizontal(|ui| {
@@ -436,31 +469,35 @@ impl crate::MaraModule for CodeEditorSurface {
             self.show_editor(ui);
             if ctx.can_enter_workspace()
                 && ui
-                    .button(crate::style::theme().modules.inline_workspace_button_label)
+                    .button(
+                        mara_core::style::theme()
+                            .modules
+                            .inline_workspace_button_label,
+                    )
                     .clicked()
             {
-                crate::ModuleResponse::enter_workspace()
+                mara_core::ModuleResponse::enter_workspace()
             } else {
-                crate::ModuleResponse::none()
+                mara_core::ModuleResponse::none()
             }
         })
         .inner
     }
 
-    fn workspace(&mut self, ws: &mut crate::WorkspaceCtx<'_>) {
+    fn workspace(&mut self, ws: &mut mara_core::WorkspaceCtx<'_>) {
         ws.add_bar(
-            crate::WorkspaceBar::new(
+            mara_core::WorkspaceBar::new(
                 egui::Id::new(("code.workspace.bar", self.id)),
-                crate::WorkspaceBarEdge::Top,
-                crate::WorkspaceBarCluster::Middle,
+                mara_core::WorkspaceBarEdge::Top,
+                mara_core::WorkspaceBarCluster::Middle,
             )
-            .with_item(crate::WorkspaceBarItem::command(
+            .with_item(mara_core::WorkspaceBarItem::command(
                 egui::Id::new(("code.workspace.format", self.id)),
                 "Format",
                 Some("code"),
             )),
         );
-        ws.add_ribbon(self.toolbar(crate::RibbonScope::WorkspaceLevel(ws.level.id)));
+        ws.add_ribbon(self.toolbar(mara_core::RibbonScope::WorkspaceLevel(ws.level.id)));
     }
 }
 
@@ -468,8 +505,8 @@ impl crate::MaraModule for CodeEditorSurface {
 mod view_module_bridge_tests {
     use super::*;
 
-    fn assert_view<T: crate::MaraView>(_value: &T) {}
-    fn assert_module<T: crate::MaraModule>(_value: &T) {}
+    fn assert_view<T: mara_core::MaraView>(_value: &T) {}
+    fn assert_module<T: mara_core::MaraModule>(_value: &T) {}
 
     #[test]
     fn code_editor_surface_is_both_view_and_module() {
@@ -477,8 +514,8 @@ mod view_module_bridge_tests {
             CodeEditorSurface::new("code-surface", "Code", "fn main() {}", Syntax::rust());
         assert_view(&surface);
         assert_module(&surface);
-        assert_eq!(crate::MaraView::title(&surface), "Code");
-        assert_eq!(crate::MaraModule::icon(&surface), "code");
+        assert_eq!(mara_core::MaraView::title(&surface), "Code");
+        assert_eq!(mara_core::MaraModule::icon(&surface), "code");
         assert_eq!(surface.text(), "fn main() {}");
     }
 }

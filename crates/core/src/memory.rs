@@ -161,6 +161,15 @@ impl<'a> MaraMemoryCtx<'a> {
         Self { ctx }
     }
 
+    /// First-party hook: build a memory facade from a host's backend
+    /// context. Used by `mara::extras::*`, which lives outside this
+    /// crate but is still first-party. Doc-hidden; not a stable API.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn __internal_from_backend_ctx(ctx: &'a egui::Context) -> Self {
+        Self::new(ctx)
+    }
+
     #[must_use]
     pub fn get_persisted<T>(&self, id: impl Into<Id>) -> Option<T>
     where

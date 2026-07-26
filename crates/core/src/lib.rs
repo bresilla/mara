@@ -35,7 +35,6 @@ pub mod container;
 pub(crate) mod debug;
 pub mod embed;
 pub mod enforce;
-pub mod extras;
 pub mod focus;
 pub mod icons;
 pub mod layer;

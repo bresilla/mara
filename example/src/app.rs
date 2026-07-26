@@ -65,7 +65,7 @@ use mara_map::{
     lon_lat,
 };
 // Vendored extras — node graph + code editor. In the unified `mara`
-// facade they live under `mara_core::extras::*`; the node-graph
+// facade they live under `mara::extras::*`; the node-graph
 // offscreen renderer is created from `mara::host::MaraHostCtx`.
 use mara::host::{EframeNodeViewBackend, MaraHostCtx};
 use mara::ui::modules::bevy::MaraBevyViewport;
@@ -73,8 +73,9 @@ use mara::ui::modules::board::{Board, BoardPaint};
 use mara::ui::modules::canvas::{CanvasDocument, CanvasSurface};
 use mara::ui::modules::image::{ImageDocument, ImageSurface};
 use mara::ui::modules::three_d::{Scene3d, TriangleMesh3d, View3d};
-use mara_core::extras::code::Syntax;
-use mara_core::extras::graph::{
+use mara::extras::code::{PodCodeEditorExt, Syntax};
+use mara::extras::graph::PaneBodyNodeGraphExt;
+use mara::extras::graph::{
     Graph, InPin, InPinId, NodePin, NodeViewState, NodeViewer, OutPin, OutPinId, PinInfo,
 };
 use mara_core::vocab::Id as MaraId;
@@ -2519,9 +2520,9 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
     // while a widget is fullscreen — the demo shows its own restore rail).
     *last_fs_active = fs_active;
     let fullscreen_owner = host.fullscreen_owner();
-    let graph_fs = fullscreen_owner == Some(mara_core::extras::graph::graph_fullscreen_key());
+    let graph_fs = fullscreen_owner == Some(mara::extras::graph::graph_fullscreen_key());
     let code_fs = fullscreen_owner
-        == Some(mara_core::extras::code::code_fullscreen_key(cid(
+        == Some(mara::extras::code::code_fullscreen_key(cid(
             PANE_EDITOR,
             "code_state",
         )));
@@ -6119,7 +6120,7 @@ fn rgb_to_hsv(r: f64, g: f64, b: f64) -> (f64, f64, f64) {
 fn eval_input_at(
     graph: &Graph<GraphNode>,
     time: f64,
-    node: mara_core::extras::graph::NodeId,
+    node: mara::extras::graph::NodeId,
     input: usize,
 ) -> Value {
     let in_pin = graph.in_pin(InPinId { node, input });
@@ -6171,7 +6172,7 @@ impl NodeViewer<GraphNode> for DemoViewer {
     fn header_frame(
         &mut self,
         default: egui::Frame,
-        node: mara_core::extras::graph::NodeId,
+        node: mara::extras::graph::NodeId,
         _inputs: &[InPin],
         _outputs: &[OutPin],
         graph: &Graph<GraphNode>,
@@ -6203,7 +6204,7 @@ impl NodeViewer<GraphNode> for DemoViewer {
     /// node is identifiable at a glance even when zoomed out.
     fn show_header(
         &mut self,
-        node: mara_core::extras::graph::NodeId,
+        node: mara::extras::graph::NodeId,
         _inputs: &[InPin],
         _outputs: &[OutPin],
         ui: &mut egui::Ui,
@@ -6342,7 +6343,7 @@ impl NodeViewer<GraphNode> for DemoViewer {
 
     fn show_body(
         &mut self,
-        node: mara_core::extras::graph::NodeId,
+        node: mara::extras::graph::NodeId,
         _inputs: &[InPin],
         _outputs: &[OutPin],
         ui: &mut egui::Ui,
@@ -7153,7 +7154,7 @@ where
 /// the graph node id so it survives across frames without leaking.
 fn draw_sparkline(
     graph: &Graph<GraphNode>,
-    node: mara_core::extras::graph::NodeId,
+    node: mara::extras::graph::NodeId,
     ui: &mut egui::Ui,
     current: f64,
 ) {

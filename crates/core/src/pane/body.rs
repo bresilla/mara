@@ -162,12 +162,12 @@ impl<'a> ContainerSpec<'a> {
         }
     }
 
-    /// Crate-internal raw-closure constructor. Used by
-    /// `mara_core::extras::*` to wrap host-widget integrations
-    /// (node graph, code editor) that need non-`'static` borrows.
-    /// Not reachable from outside `mara_core`.
+    /// First-party raw-closure constructor. Used by `mara::extras::*`
+    /// to wrap host-widget integrations (node graph, code editor) that
+    /// need non-`'static` borrows. Doc-hidden; not a stable API.
+    #[doc(hidden)]
     #[must_use]
-    pub(crate) fn raw_internal<F>(
+    pub fn raw_internal<F>(
         id: impl Into<Id>,
         title: impl Into<String>,
         icon: &'static str,

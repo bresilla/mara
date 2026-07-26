@@ -1427,7 +1427,8 @@ impl Pod {
     /// inter-pod resize-handle to share drag delta across pods
     /// proportionally to their content size. Public APIs should
     /// expose typed wrappers instead of raw egui closures.
-    pub(crate) fn with_custom_units(
+    #[doc(hidden)]
+    pub fn with_custom_units(
         mut self,
         units: usize,
         paint: impl FnOnce(&mut Ui) + Send + Sync + 'static,

@@ -3660,9 +3660,7 @@ dependencies = [
  "egui-wgpu",
  "egui_extras",
  "iconflow",
- "mara_code",
  "mara_gpu",
- "mara_graph",
  "pastel",
  "wgpu",
 ]

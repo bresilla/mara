@@ -16,7 +16,8 @@ use crate::{
     vocab,
 };
 
-pub(crate) fn egui_frame_for_style_spec(spec: crate::style::FrameSpec) -> egui::Frame {
+#[doc(hidden)]
+pub fn egui_frame_for_style_spec(spec: crate::style::FrameSpec) -> egui::Frame {
     let shadow = spec
         .shadow
         .map(|shadow| egui::epaint::Shadow {
@@ -35,7 +36,8 @@ pub(crate) fn egui_frame_for_style_spec(spec: crate::style::FrameSpec) -> egui::
         .shadow(shadow)
 }
 
-pub(crate) struct EguiUiBackend<'a> {
+#[doc(hidden)]
+pub struct EguiUiBackend<'a> {
     ui: &'a mut egui::Ui,
     clip_stack: Vec<egui::Rect>,
     /// Maps `PaintSlot` indices to reserved egui shape ids, so
@@ -44,7 +46,8 @@ pub(crate) struct EguiUiBackend<'a> {
 }
 
 impl<'a> EguiUiBackend<'a> {
-    pub(crate) fn new(ui: &'a mut egui::Ui) -> Self {
+    #[doc(hidden)]
+    pub fn new(ui: &'a mut egui::Ui) -> Self {
         Self {
             ui,
             clip_stack: Vec::new(),
@@ -559,7 +562,8 @@ pub(crate) fn viewport_maximized(ctx: &egui::Context) -> bool {
         .unwrap_or(false)
 }
 
-pub(crate) fn color32_for_backend(color: vocab::Color32) -> egui::Color32 {
+#[doc(hidden)]
+pub fn color32_for_backend(color: vocab::Color32) -> egui::Color32 {
     color.into()
 }
 

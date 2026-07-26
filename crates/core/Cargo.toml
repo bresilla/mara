@@ -6,7 +6,7 @@
 # The directory stays as `crates/core/`; the crate identifier is
 # `mara_core`, matching the `mara_graph` / `mara_code` siblings.
 name = "mara_core"
-description = "UI core for the mara editor kit — pane system, ribbon strips, containers, pods, widgets, theme runtime, bundled Iosevka fonts, and an embed mechanism that lets host widgets (node graph, code editor, …) toggle between inline and full-window. Optional `graph` and `code` features pull in `mara_graph` / `mara_code` and expose mara-tinted wrappers."
+description = "UI core for the mara editor kit — pane system, ribbon strips, containers, pods, widgets, theme runtime, bundled Iosevka fonts, and an embed mechanism that lets host widgets (node graph, code editor, …) toggle between inline and full-window. Depends on no widget crate: the mara-tinted `graph`/`code` wrappers live in the `mara` facade, which is what lets those crates depend on `mara_core` in turn."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -28,17 +28,12 @@ iconflow = { version = "1.0", default-features = false, features = ["pack-fluent
 # Lab-space colour manipulation — `style.rs` uses it to adapt
 # accents into the readable luma band per theme mode.
 pastel = { version = "0.12", default-features = false }
-# Optional standalone-extra crates. When the matching feature is
-# enabled, the corresponding `mara_core::extras::*` re-export + the
-# mara-tinted wrapper become available.
 # Offscreen UI surfaces (WS-A7) need a wgpu device + an egui-wgpu
 # renderer to rasterise a subtree into its own texture. Optional so a
 # UI-only build stays GPU-free.
 mara_gpu = { workspace = true, optional = true }
 egui-wgpu = { workspace = true, optional = true }
 wgpu = { workspace = true, optional = true }
-mara_graph = { workspace = true, optional = true }
-mara_code = { workspace = true, optional = true }
 # Optional Bevy integration. When OFF, the crate compiles as a
 # pure-egui crate. When ON, `AccentColor` / `GlassOpacity` /
 # ribbon resources derive `bevy::Resource`.
@@ -49,9 +44,7 @@ bevy = { workspace = true, optional = true }
 # about the embedded host widgets still get the same surface as
 # before. Apps that want a slim UI-only build drop them via
 # `default-features = false`.
-default = ["graph", "code", "svg"]
-graph = ["dep:mara_graph"]
-code = ["dep:mara_code"]
+default = ["svg"]
 # Rasterise `PaintCmd::Svg`. Off means SVG paint commands draw nothing
 # (the pre-0.4.2 behaviour), which is a real saving: `resvg` is a large
 # dependency and most apps never draw an SVG.

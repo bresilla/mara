@@ -175,11 +175,11 @@ check:
 	@! grep -RInE 'maximize_state_key[(].*[)] -> egui::Id|fullscreen_owner[(].*[)] -> Option<egui::Id>' crates/core/src/embed.rs
 	@! grep -RInE '^pub fn (fullscreen_owner|is_any_fullscreen|set_fullscreen_minimize_chip_visible|restore_fullscreen)[(][^)]*egui::Context' crates/core/src/embed.rs
 	@! grep -RInE 'mara_core::embed::(fullscreen_owner|is_any_fullscreen|set_fullscreen_minimize_chip_visible|restore_fullscreen)' example/src
-	@! grep -RIn 'maximize_state_key(egui::Id' crates/core/src/extras/graph.rs
-	@! grep -RInE 'pub fn is_(graph|code)_fullscreen[(][^#]*egui::Context' crates/core/src/extras/graph.rs crates/core/src/extras/code.rs
-	@! grep -RInE '^[[:space:]]*accent:[[:space:]]*egui::Color32|^[[:space:]]*desired_size:[[:space:]]*egui::Vec2|Option<egui::Vec2>|insert_temp::<egui::Vec2>' crates/core/src/extras/graph.rs
-	@! grep -RInE 'pub fn ctx[(]&self[)] -> &egui::Context|NodeViewState::ctx' crates/modules/graph/src/node_view.rs crates/core/src/extras/graph.rs
-	@! grep -RInE '^[[:space:]]*accent:[[:space:]]*egui::Color32|^[[:space:]]*min_size:[[:space:]]*egui::Vec2' crates/core/src/extras/code.rs
+	@! grep -RIn 'maximize_state_key(egui::Id' mara/src/extras/graph.rs
+	@! grep -RInE 'pub fn is_(graph|code)_fullscreen[(][^#]*egui::Context' mara/src/extras/graph.rs mara/src/extras/code.rs
+	@! grep -RInE '^[[:space:]]*accent:[[:space:]]*egui::Color32|^[[:space:]]*desired_size:[[:space:]]*egui::Vec2|Option<egui::Vec2>|insert_temp::<egui::Vec2>' mara/src/extras/graph.rs
+	@! grep -RInE 'pub fn ctx[(]&self[)] -> &egui::Context|NodeViewState::ctx' crates/modules/graph/src/node_view.rs mara/src/extras/graph.rs
+	@! grep -RInE '^[[:space:]]*accent:[[:space:]]*egui::Color32|^[[:space:]]*min_size:[[:space:]]*egui::Vec2' mara/src/extras/code.rs
 	@! grep -RInE 'egui::(Pos2|Vec2|Color32|FontId|Align2|Stroke::new)|allocate_painter|interact_pointer_pos' crates/modules/canvas/src/lib.rs
 	@! grep -RInE 'egui::(Pos2|Vec2|Color32|FontId|Align2|Stroke::new)|allocate_exact_size|painter_at|ui[.]painter|__internal_raw_ui' crates/modules/image/src/lib.rs
 	@! grep -RInE 'prewarm_tiles[(].*egui::Vec2|__internal_raw_ui|mara_core::(readout|button)[(]' crates/modules/map/src/lib.rs
