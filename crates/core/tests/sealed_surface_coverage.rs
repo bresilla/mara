@@ -808,6 +808,40 @@ fn d13_a_group_fills_a_single_slot() {
     }
 }
 
+/// WS-E4/G1 constraint, pinned as a test because it decides whether
+/// `Id` can go native.
+///
+/// An `Id` must survive a round trip through the backend unchanged —
+/// Mara's state store is keyed by it, and some ids originate on the
+/// backend side (a `Ui`'s own id, auto-ids). The obvious native shape,
+/// "store the u64 hash", cannot work: the backend's constructor from a
+/// raw hash is private, so the only way back is to hash the value a
+/// second time, which lands somewhere else entirely. This asserts both
+/// halves — the round trip that must hold, and the re-hash that breaks
+/// it.
+#[cfg(feature = "backend-egui-conv")]
+#[test]
+fn e4_id_must_round_trip_through_the_backend() {
+    use mara_core::vocab::Id;
+
+    for source in ["a_widget", "another", "mara.shelf.layout"] {
+        let mara = Id::new(source);
+        let there: egui::Id = mara.into();
+        let back: Id = there.into();
+        assert_eq!(back, mara, "an Id must survive the backend unchanged");
+
+        // Why `Id` stays wrapped: re-hashing the value is not identity,
+        // so a native `Id` holding only the hash could not be converted
+        // back, and every state lookup keyed by a backend-origin id
+        // would silently miss.
+        let rehashed = egui::Id::new(there.value());
+        assert_ne!(
+            rehashed, there,
+            "if this ever became equal, a native Id holding the hash would be viable"
+        );
+    }
+}
+
 /// `Color32` stores premultiplied bytes and does the premultiply
 /// arithmetic itself now. A rounding difference would tint every
 /// translucent surface in the UI by a step — invisible in review, and
