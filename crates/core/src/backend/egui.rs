@@ -2366,6 +2366,14 @@ impl crate::context::MaraCtx for egui::Context {
         request_repaint_after(self, after);
     }
 
+    fn now(&self) -> f64 {
+        input_time(self)
+    }
+
+    fn dt(&self) -> f32 {
+        unstable_dt(self)
+    }
+
     fn memory(&self) -> MaraMemoryCtx<'_> {
         MaraMemoryCtx::__internal_from_backend_ctx(self)
     }

@@ -52,6 +52,14 @@ pub trait MaraCtx {
     /// Schedule a frame no later than `after`.
     fn request_repaint_after(&self, after: std::time::Duration);
 
+    /// Seconds since the host started. Frame-level state in the same
+    /// category as [`pass_nr`](MaraCtx::pass_nr) — surfaces stamp it to
+    /// drive time-based animation without reaching for a clock.
+    fn now(&self) -> f64;
+
+    /// Duration of the previous frame, in seconds. Never negative.
+    fn dt(&self) -> f32;
+
     /// Backend-neutral state store.
     fn memory(&self) -> MaraMemoryCtx<'_>;
 }
@@ -89,6 +97,12 @@ mod tests {
         fn request_repaint_after(&self, _after: std::time::Duration) {
             self.repaints.set(self.repaints.get() + 1);
         }
+        fn now(&self) -> f64 {
+            42.0
+        }
+        fn dt(&self) -> f32 {
+            1.0 / 60.0
+        }
         fn memory(&self) -> MaraMemoryCtx<'_> {
             unimplemented!("this fake covers the frame-state half only")
         }
@@ -104,6 +118,8 @@ mod tests {
 
         assert_eq!(dynamic.pass_nr(), 7);
         assert_eq!(dynamic.pixels_per_point(), 2.0);
+        assert_eq!(dynamic.now(), 42.0);
+        assert!(dynamic.dt() > 0.0);
         assert_eq!(dynamic.content_rect().size(), Vec2::new(800.0, 600.0));
         assert!(!dynamic.input().primary_down);
 
