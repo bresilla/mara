@@ -2115,7 +2115,7 @@ where
     // body rect.
     let halo_slot = style
         .node_halo
-        .map(|_| node_ui.painter().add(egui::Shape::Noop));
+        .map(|_| with_mara_ui(node_ui, |mara| mara.reserve_paint_slot()));
 
     let r = node_frame.show(node_ui, |ui| {
         if viewer.has_node_style(node, &inputs, &outputs, graph) {
@@ -2684,16 +2684,16 @@ where
     // render the node frame.
     if let (Some(slot), Some(halo)) = (halo_slot, style.node_halo) {
         let halo_rect = r.response.rect.expand(halo.gap);
-        node_ui.painter().set(
-            slot,
-            egui::epaint::RectShape::new(
-                halo_rect,
-                egui::CornerRadius::same(halo.radius),
-                Color32::TRANSPARENT,
-                Stroke::new(halo.width, halo.color),
-                egui::epaint::StrokeKind::Inside,
-            ),
-        );
+        with_mara_ui(node_ui, |mara| {
+            mara.fill_paint_slot(
+                slot,
+                Some(mara_core::paint::PaintCmd::RectStroke {
+                    rect: halo_rect.into(),
+                    corner: mara_core::vocab::CornerRadius::same(halo.radius),
+                    stroke: mara_core::vocab::Stroke::new(halo.width, mara_core::vocab::Color32::from(halo.color)),
+                }),
+            );
+        });
     }
 
     if !graph.nodes.contains(node.0) {

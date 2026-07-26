@@ -1629,6 +1629,33 @@ impl<'a> MaraUi<'a> {
     /// Fill, stroke, corner radius, inner margin and shadow come from
     /// the [`crate::style::FrameSpec`], and the frame paints behind the
     /// content rather than over it.
+    /// Reserve a place in the paint order to fill in later.
+    ///
+    /// Paint order is submission order, so a surface that must draw
+    /// *behind* content whose size it only learns afterwards — a halo
+    /// around a node, a highlight behind a row — cannot simply draw
+    /// later. It reserves a slot first, then fills it once the geometry
+    /// is known, and the command lands at the reserved depth.
+    ///
+    /// Pair with [`MaraUi::fill_paint_slot`]. An unfilled slot paints
+    /// nothing.
+    #[must_use]
+    pub fn reserve_paint_slot(&mut self) -> crate::layout::PaintSlot {
+        self.backend.reserve_paint_slot()
+    }
+
+    /// Fill a slot from [`MaraUi::reserve_paint_slot`].
+    ///
+    /// `None` leaves the slot inert, so a caller that reserves
+    /// unconditionally and decides later needs no special case.
+    pub fn fill_paint_slot(
+        &mut self,
+        slot: crate::layout::PaintSlot,
+        cmd: Option<crate::paint::PaintCmd>,
+    ) {
+        self.backend.fill_paint_slot(slot, cmd);
+    }
+
     /// Multiply this surface's style metrics by `factor`.
     ///
     /// Used by zoomable surfaces that render at a magnified style and
