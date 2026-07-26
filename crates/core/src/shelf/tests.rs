@@ -247,8 +247,8 @@ fn publish_shelf_layout_sets_chrome_bounds_to_reserved_viewport() {
 
     __internal_publish_shelf_layout(&ctx, layout);
 
-    let chrome = ctx
-        .data(|d| d.get_temp::<MaraRect>(egui::Id::from(crate::ribbon::chrome::chrome_bounds_key())))
+    let chrome = crate::memory::MaraMemoryCtx::new(&ctx)
+        .get_temp::<MaraRect>(crate::ribbon::chrome::chrome_bounds_key())
         .expect("shelf layout should publish ribbon chrome bounds");
     assert_eq!(chrome, viewport.into());
     assert_eq!(__internal_shelf_layout(&ctx), Some(layout));
