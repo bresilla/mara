@@ -1920,14 +1920,14 @@ fn add_demo_obj_model(scene: &mut Scene3d) {
         "Stanford Bunny",
         STANFORD_BUNNY_OBJ,
         [-1.1, 0.0, -3.65],
-        egui::Color32::from_rgb(218, 186, 142),
+        MaraColor32::from_rgb(218, 186, 142),
     );
     add_demo_obj_asset(
         scene,
         "Stanford Dragon",
         STANFORD_DRAGON_OBJ,
         [1.15, 0.0, -3.65],
-        egui::Color32::from_rgb(155, 205, 220),
+        MaraColor32::from_rgb(155, 205, 220),
     );
 }
 
@@ -1936,7 +1936,7 @@ fn add_demo_obj_asset(
     label: &str,
     obj: &str,
     translation: [f32; 3],
-    color: egui::Color32,
+    color: MaraColor32,
 ) {
     let mut reader = Cursor::new(obj.as_bytes());
     let options = tobj::LoadOptions {
@@ -4766,13 +4766,13 @@ impl PinType {
     /// Combined with `WireColorMode::FromSource` in
     /// `mara_node_graph_style`, every wire takes the colour of its
     /// source pin uniformly — the "Unreal Blueprint" look.
-    fn color(self) -> egui::Color32 {
+    fn color(self) -> MaraColor32 {
         match self {
-            PinType::Number => egui::Color32::from_rgb(0xA4, 0xFF, 0x34),
-            PinType::Vector => egui::Color32::from_rgb(0xFF, 0xC2, 0x47),
-            PinType::Color => egui::Color32::from_rgb(0xFF, 0xA0, 0xFF),
-            PinType::Bool => egui::Color32::from_rgb(0x96, 0x00, 0x00),
-            PinType::Text => egui::Color32::from_rgb(0xFF, 0x38, 0xC9),
+            PinType::Number => MaraColor32::from_rgb(0xA4, 0xFF, 0x34),
+            PinType::Vector => MaraColor32::from_rgb(0xFF, 0xC2, 0x47),
+            PinType::Color => MaraColor32::from_rgb(0xFF, 0xA0, 0xFF),
+            PinType::Bool => MaraColor32::from_rgb(0x96, 0x00, 0x00),
+            PinType::Text => MaraColor32::from_rgb(0xFF, 0x38, 0xC9),
         }
     }
 
@@ -4786,14 +4786,17 @@ impl PinType {
     /// in the type colour) — visually telling the user "this slot
     /// expects a wire".
     fn pin(self, connected: bool) -> PinInfo {
-        let fill = self.color();
+        let fill: egui::Color32 = self.color().into();
         if connected {
             PinInfo::circle()
                 .with_fill(fill)
-                .with_stroke(egui::Stroke::new(1.0, egui::Color32::from_black_alpha(180)))
+                .with_stroke(egui::Stroke::new(
+                    1.0,
+                    egui::Color32::from(MaraColor32::from_black_alpha(180)),
+                ))
         } else {
             PinInfo::circle()
-                .with_fill(egui::Color32::TRANSPARENT)
+                .with_fill(egui::Color32::from(MaraColor32::TRANSPARENT))
                 .with_stroke(egui::Stroke::new(1.5, fill))
         }
     }
@@ -4809,7 +4812,7 @@ impl PinType {
 enum Value {
     Number(f64),
     Vector([f64; 3]),
-    Color(egui::Color32),
+    Color(MaraColor32),
     Bool(bool),
     Text(String),
 }
@@ -4846,23 +4849,23 @@ impl Value {
             Value::Text(_) => [0.0; 3],
         }
     }
-    fn as_color(&self) -> egui::Color32 {
+    fn as_color(&self) -> MaraColor32 {
         let to_u8 = |v: f64| (v.clamp(0.0, 1.0) * 255.0).round() as u8;
         match self {
             Value::Number(v) => {
                 let g = to_u8(*v);
-                egui::Color32::from_rgb(g, g, g)
+                MaraColor32::from_rgb(g, g, g)
             }
-            Value::Vector(v) => egui::Color32::from_rgb(to_u8(v[0]), to_u8(v[1]), to_u8(v[2])),
+            Value::Vector(v) => MaraColor32::from_rgb(to_u8(v[0]), to_u8(v[1]), to_u8(v[2])),
             Value::Color(c) => *c,
             Value::Bool(b) => {
                 if *b {
-                    egui::Color32::WHITE
+                    MaraColor32::WHITE
                 } else {
-                    egui::Color32::BLACK
+                    MaraColor32::BLACK
                 }
             }
-            Value::Text(_) => egui::Color32::GRAY,
+            Value::Text(_) => MaraColor32::GRAY,
         }
     }
     fn as_bool(&self) -> bool {
@@ -5212,7 +5215,7 @@ enum GraphNode {
     Number(f64),
     Integer(i64),
     Vector([f64; 3]),
-    Color(egui::Color32),
+    Color(MaraColor32),
     Bool(bool),
     Time,
 
@@ -5309,15 +5312,15 @@ impl Category {
     /// horizontal gradient `(tint @ alpha 0.85) → (transparent)`
     /// so the dark body fill bleeds through past the title (UE's
     /// "color spill" pattern but with Blender's palette).
-    fn color(self) -> egui::Color32 {
+    fn color(self) -> MaraColor32 {
         match self {
-            Category::Source => egui::Color32::from_rgb(0x82, 0x35, 0x4C), // syntaxn
-            Category::ScalarMath => egui::Color32::from_rgb(0x24, 0x62, 0x83), // syntaxv
-            Category::Vector => egui::Color32::from_rgb(0x3C, 0x3C, 0x83), // nodeclass_vector
-            Category::Color => egui::Color32::from_rgb(0x6E, 0x6E, 0x23),  // syntaxb
-            Category::Logic => egui::Color32::from_rgb(0x41, 0x2B, 0x51),  // nodeclass_filter
-            Category::Noise => egui::Color32::from_rgb(0x79, 0x46, 0x1D),  // nodeclass_texture
-            Category::Sink => egui::Color32::from_rgb(0x3E, 0x23, 0x2A),   // nodeclass_output
+            Category::Source => MaraColor32::from_rgb(0x82, 0x35, 0x4C), // syntaxn
+            Category::ScalarMath => MaraColor32::from_rgb(0x24, 0x62, 0x83), // syntaxv
+            Category::Vector => MaraColor32::from_rgb(0x3C, 0x3C, 0x83), // nodeclass_vector
+            Category::Color => MaraColor32::from_rgb(0x6E, 0x6E, 0x23),  // syntaxb
+            Category::Logic => MaraColor32::from_rgb(0x41, 0x2B, 0x51),  // nodeclass_filter
+            Category::Noise => MaraColor32::from_rgb(0x79, 0x46, 0x1D),  // nodeclass_texture
+            Category::Sink => MaraColor32::from_rgb(0x3E, 0x23, 0x2A),   // nodeclass_output
         }
     }
 }
@@ -5807,7 +5810,7 @@ fn eval_output(graph: &Graph<GraphNode>, time: f64, pin: &OutPin) -> Value {
             let g = eval_input_at(graph, time, pin.id.node, 1).as_number();
             let b = eval_input_at(graph, time, pin.id.node, 2).as_number();
             let to_u8 = |v: f64| (v.clamp(0.0, 1.0) * 255.0).round() as u8;
-            Value::Color(egui::Color32::from_rgb(to_u8(r), to_u8(g), to_u8(b)))
+            Value::Color(MaraColor32::from_rgb(to_u8(r), to_u8(g), to_u8(b)))
         }
         GraphNode::ColorMix => {
             let a = eval_input_at(graph, time, pin.id.node, 0).as_color();
@@ -5816,7 +5819,7 @@ fn eval_output(graph: &Graph<GraphNode>, time: f64, pin: &OutPin) -> Value {
                 .as_number()
                 .clamp(0.0, 1.0) as f32;
             let lerp = |x: u8, y: u8| (x as f32 * (1.0 - t) + y as f32 * t).round() as u8;
-            Value::Color(egui::Color32::from_rgba_unmultiplied(
+            Value::Color(MaraColor32::from_rgba_unmultiplied(
                 lerp(a.r(), b.r()),
                 lerp(a.g(), b.g()),
                 lerp(a.b(), b.b()),
@@ -5927,7 +5930,7 @@ fn eval_output(graph: &Graph<GraphNode>, time: f64, pin: &OutPin) -> Value {
                 .clamp(0.0, 1.0);
             let (r, g, b) = hsv_to_rgb(h, s, v);
             let to_u8 = |x: f64| (x.clamp(0.0, 1.0) * 255.0).round() as u8;
-            Value::Color(egui::Color32::from_rgb(to_u8(r), to_u8(g), to_u8(b)))
+            Value::Color(MaraColor32::from_rgb(to_u8(r), to_u8(g), to_u8(b)))
         }
         GraphNode::HueShift => {
             let c = eval_input_at(graph, time, pin.id.node, 0).as_color();
@@ -5940,7 +5943,7 @@ fn eval_output(graph: &Graph<GraphNode>, time: f64, pin: &OutPin) -> Value {
             h = (h + shift).rem_euclid(1.0);
             let (r, g, b) = hsv_to_rgb(h, s, v);
             let to_u8 = |x: f64| (x.clamp(0.0, 1.0) * 255.0).round() as u8;
-            Value::Color(egui::Color32::from_rgba_unmultiplied(
+            Value::Color(MaraColor32::from_rgba_unmultiplied(
                 to_u8(r),
                 to_u8(g),
                 to_u8(b),
@@ -5949,7 +5952,7 @@ fn eval_output(graph: &Graph<GraphNode>, time: f64, pin: &OutPin) -> Value {
         }
         GraphNode::ColorInvert => {
             let c = eval_input_at(graph, time, pin.id.node, 0).as_color();
-            Value::Color(egui::Color32::from_rgba_unmultiplied(
+            Value::Color(MaraColor32::from_rgba_unmultiplied(
                 255 - c.r(),
                 255 - c.g(),
                 255 - c.b(),
@@ -5962,7 +5965,7 @@ fn eval_output(graph: &Graph<GraphNode>, time: f64, pin: &OutPin) -> Value {
             let contrast = eval_input_at(graph, time, pin.id.node, 2).as_number();
             let adjust = |x: f64| ((x - 0.5) * (1.0 + contrast) + 0.5 + bright).clamp(0.0, 1.0);
             let to_u8 = |x: f64| (x * 255.0).round() as u8;
-            Value::Color(egui::Color32::from_rgba_unmultiplied(
+            Value::Color(MaraColor32::from_rgba_unmultiplied(
                 to_u8(adjust(c.r() as f64 / 255.0)),
                 to_u8(adjust(c.g() as f64 / 255.0)),
                 to_u8(adjust(c.b() as f64 / 255.0)),
@@ -5975,7 +5978,7 @@ fn eval_output(graph: &Graph<GraphNode>, time: f64, pin: &OutPin) -> Value {
                 .as_number()
                 .max(0.01);
             let to_u8 = |x: u8| ((x as f64 / 255.0).powf(g).clamp(0.0, 1.0) * 255.0).round() as u8;
-            Value::Color(egui::Color32::from_rgba_unmultiplied(
+            Value::Color(MaraColor32::from_rgba_unmultiplied(
                 to_u8(c.r()),
                 to_u8(c.g()),
                 to_u8(c.b()),
@@ -6398,7 +6401,9 @@ impl NodeViewer<GraphNode> for DemoViewer {
                 }
             }
             GraphNode::Color(c) => {
-                ui.color_edit_button_srgba(c);
+                let mut raw: egui::Color32 = (*c).into();
+                ui.color_edit_button_srgba(&mut raw);
+                *c = raw.into();
             }
             GraphNode::Bool(b) => {
                 let h = mara_core::widget::toggle::TOGGLE_ROW_H;
@@ -6950,7 +6955,7 @@ impl NodeViewer<GraphNode> for DemoViewer {
             spawn(
                 ui,
                 "Color",
-                GraphNode::Color(egui::Color32::from_rgb(180, 200, 220)),
+                GraphNode::Color(MaraColor32::from_rgb(180, 200, 220)),
             );
             spawn(ui, "Bool", GraphNode::Bool(false));
             spawn(ui, "Time", GraphNode::Time);
@@ -7260,11 +7265,11 @@ fn default_graph() -> Graph<GraphNode> {
     //
     let red = g.insert_node(
         egui::pos2(col(3), row(480.0)),
-        GraphNode::Color(egui::Color32::from_rgb(0xE0, 0x6C, 0x4F)),
+        GraphNode::Color(MaraColor32::from_rgb(0xE0, 0x6C, 0x4F)),
     );
     let blue = g.insert_node(
         egui::pos2(col(3), row(620.0)),
-        GraphNode::Color(egui::Color32::from_rgb(0x4D, 0xA8, 0xDA)),
+        GraphNode::Color(MaraColor32::from_rgb(0x4D, 0xA8, 0xDA)),
     );
     let cmix = g.insert_node(egui::pos2(col(4), row(540.0)), GraphNode::ColorMix);
     let preview = g.insert_node(egui::pos2(col(5), row(540.0)), GraphNode::Preview);
@@ -7487,7 +7492,7 @@ type DemoTreeRow = (
     &'static str,
     &'static str,
     &'static [&'static str],
-    egui::Color32,
+    MaraColor32,
 );
 
 const DEMO_TREE: &[DemoTreeRow] = &[
@@ -7496,49 +7501,49 @@ const DEMO_TREE: &[DemoTreeRow] = &[
         "World",
         "folder",
         &["/World/Robot", "/World/Lights"],
-        egui::Color32::from_rgb(0x55, 0x6E, 0x9C),
+        MaraColor32::from_rgb(0x55, 0x6E, 0x9C),
     ),
     (
         "/World/Robot",
         "Robot",
         "person",
         &["/World/Robot/base", "/World/Robot/arm"],
-        egui::Color32::from_rgb(0xE0, 0x6C, 0x4F),
+        MaraColor32::from_rgb(0xE0, 0x6C, 0x4F),
     ),
     (
         "/World/Robot/base",
         "base",
         "code",
         &[],
-        egui::Color32::from_rgb(0x4D, 0xA8, 0xDA),
+        MaraColor32::from_rgb(0x4D, 0xA8, 0xDA),
     ),
     (
         "/World/Robot/arm",
         "arm",
         "code",
         &["/World/Robot/arm/grip"],
-        egui::Color32::from_rgb(0xE6, 0xB7, 0x3D),
+        MaraColor32::from_rgb(0xE6, 0xB7, 0x3D),
     ),
     (
         "/World/Robot/arm/grip",
         "grip",
         "code",
         &[],
-        egui::Color32::from_rgb(0x9C, 0x55, 0xC0),
+        MaraColor32::from_rgb(0x9C, 0x55, 0xC0),
     ),
     (
         "/World/Lights",
         "Lights",
         "image",
         &["/World/Lights/sun"],
-        egui::Color32::from_rgb(0xF5, 0xC2, 0x42),
+        MaraColor32::from_rgb(0xF5, 0xC2, 0x42),
     ),
     (
         "/World/Lights/sun",
         "sun",
         "image",
         &[],
-        egui::Color32::from_rgb(0xFF, 0xE5, 0x6B),
+        MaraColor32::from_rgb(0xFF, 0xE5, 0x6B),
     ),
 ];
 
@@ -7549,7 +7554,7 @@ fn demo_tree_node(path: &str) -> Option<&'static DemoTreeRow> {
 fn demo_tree(
     tree: &mut mara_core::widget::TreeBody,
     root_id: egui::Id,
-    accent: egui::Color32,
+    accent: MaraColor32,
     filter: &str,
 ) {
     let sel_key = root_id.with("mara_demo_tree_selected");
@@ -7597,7 +7602,7 @@ fn walk_demo_tree(
     path: &'static str,
     depth: u32,
     selected: &str,
-    accent: egui::Color32,
+    accent: MaraColor32,
     filter: &str,
     clicked: &mut Option<String>,
 ) {

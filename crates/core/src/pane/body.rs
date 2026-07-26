@@ -250,8 +250,8 @@ impl<'ui, 'spec> PaneBody<'ui, 'spec> {
 
     /// The accent colour the pane was built with.
     #[must_use]
-    pub fn accent(&self) -> Color32 {
-        self.accent
+    pub fn accent(&self) -> crate::vocab::Color32 {
+        self.accent.into()
     }
 
     /// The pane's stable id.
