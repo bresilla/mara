@@ -2334,3 +2334,39 @@ mod offscreen {
 
 #[cfg(feature = "gpu")]
 pub(crate) use offscreen::{OffscreenInput, render_offscreen};
+
+// ─── The context seam (PLAN.md WS-E3) ─────────────────────────────
+//
+// Lives here, like the offscreen renderer, because it is backend code:
+// the ratchet accounts for egui coupling under `backend/`, and this is
+// the one place `MaraCtx` is allowed to know what a context is.
+
+impl crate::context::MaraCtx for egui::Context {
+    fn input(&self) -> MaraInput {
+        input_snapshot(self)
+    }
+
+    fn pass_nr(&self) -> u64 {
+        self.cumulative_pass_nr()
+    }
+
+    fn content_rect(&self) -> vocab::Rect {
+        context_content_rect(self)
+    }
+
+    fn pixels_per_point(&self) -> f32 {
+        context_pixels_per_point(self)
+    }
+
+    fn request_repaint(&self) {
+        request_repaint(self);
+    }
+
+    fn request_repaint_after(&self, after: std::time::Duration) {
+        request_repaint_after(self, after);
+    }
+
+    fn memory(&self) -> MaraMemoryCtx<'_> {
+        MaraMemoryCtx::__internal_from_backend_ctx(self)
+    }
+}

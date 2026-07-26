@@ -33,6 +33,7 @@ pub mod backend;
 pub mod cache;
 pub mod command_palette;
 pub mod container;
+pub mod context;
 pub(crate) mod debug;
 pub mod embed;
 pub mod enforce;
@@ -64,6 +65,7 @@ pub mod window_chrome;
 pub mod workspace;
 
 pub use cache::{MaraCache, SweptCache};
+pub use context::MaraCtx;
 pub use layout::{CrossAlign, Layer, Sense as MaraSense, UiBackend};
 pub use memory::{MaraMemory, MaraMemoryCtx};
 pub use mui::{MaraInput, MaraKey, MaraKeySet, MaraPainter, MaraResponse, MaraUi};

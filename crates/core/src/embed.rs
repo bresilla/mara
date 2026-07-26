@@ -158,10 +158,10 @@ pub fn __internal_with_node_region<R>(
 /// Public app code should reach this through a sealed host/view
 /// context method, not by receiving a raw `egui::Context`.
 #[doc(hidden)]
-pub fn __internal_fullscreen_owner(ctx: &egui::Context) -> Option<MaraId> {
+pub fn __internal_fullscreen_owner(ctx: &dyn crate::context::MaraCtx) -> Option<MaraId> {
     let global_key = maximize_global_key();
-    let pass_nr = ctx.cumulative_pass_nr();
-    let stored: Option<(u64, MaraId)> = crate::memory::MaraMemoryCtx::new(ctx).get_temp(global_key);
+    let pass_nr = ctx.pass_nr();
+    let stored: Option<(u64, MaraId)> = ctx.memory().get_temp(global_key);
     match stored {
         Some((f, id)) if f == pass_nr || f + 1 == pass_nr => Some(id),
         _ => None,
@@ -170,7 +170,7 @@ pub fn __internal_fullscreen_owner(ctx: &egui::Context) -> Option<MaraId> {
 
 /// Internal fullscreen-active predicate for first-party host adapters.
 #[doc(hidden)]
-pub fn __internal_is_any_fullscreen(ctx: &egui::Context) -> bool {
+pub fn __internal_is_any_fullscreen(ctx: &dyn crate::context::MaraCtx) -> bool {
     __internal_fullscreen_owner(ctx).is_some()
 }
 
