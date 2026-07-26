@@ -1,6 +1,8 @@
 #[cfg(feature = "bevy")]
 use bevy::prelude::*;
 use egui;
+
+use crate::context::MaraCtx;
 use std::collections::HashMap;
 
 use super::{
@@ -128,7 +130,7 @@ pub const fn ribbon_clearance() -> f32 {
 }
 
 #[must_use]
-pub(crate) fn ribbon_avoiding_rect(ctx: &egui::Context, avoidance: RibbonAvoidance) -> MaraRect {
+pub(crate) fn ribbon_avoiding_rect(ctx: &dyn crate::context::MaraCtx, avoidance: RibbonAvoidance) -> MaraRect {
     // Every edge is gated on a window rail actually existing there this
     // frame: avoidance reserves clearance for real rails only. Per-view
     // ribbons render inside their own leaf's region (PLAN Phase 3), so a
@@ -142,7 +144,7 @@ pub(crate) fn ribbon_avoiding_rect(ctx: &egui::Context, avoidance: RibbonAvoidan
         top: avoidance.top && has_top,
         bottom: avoidance.bottom && has_bottom,
     };
-    effective.apply_to_rect(crate::backend::egui::context_content_rect(ctx))
+    effective.apply_to_rect(MaraCtx::content_rect(ctx))
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -310,10 +312,10 @@ pub(crate) fn chrome_bounds_key() -> egui::Id {
     egui::Id::new("mara_ribbon_chrome_bounds")
 }
 
-fn chrome_rect(ctx: &egui::Context) -> MaraRect {
-    crate::memory::MaraMemoryCtx::new(ctx)
+fn chrome_rect(ctx: &dyn crate::context::MaraCtx) -> MaraRect {
+    ctx.memory()
         .get_temp::<MaraRect>(chrome_bounds_key())
-        .unwrap_or_else(|| crate::backend::egui::context_content_rect(ctx))
+        .unwrap_or_else(|| MaraCtx::content_rect(ctx))
 }
 
 /// The chrome bounds (= viewport that floating side ribbons / panes
@@ -328,10 +330,10 @@ fn chrome_rect(ctx: &egui::Context) -> MaraRect {
 /// the "side rail / panes stop tracking window resize" bug, and it
 /// bit hosts that never did anything wrong (a single stale write
 /// stuck forever). See [`crate::shelf::__internal_publish_shelf_layout`].
-pub(crate) fn fresh_chrome_bounds(ctx: &egui::Context) -> MaraRect {
+pub(crate) fn fresh_chrome_bounds(ctx: &dyn crate::context::MaraCtx) -> MaraRect {
     let rect = crate::shelf::__internal_shelf_layout(ctx)
         .map(|layout| layout.viewport)
-        .unwrap_or_else(|| crate::backend::egui::context_content_rect(ctx));
+        .unwrap_or_else(|| MaraCtx::content_rect(ctx));
     // The enforced top bar is full-width and owns the top strip. Reserve
     // that strip in the chrome bounds so CONTENT positioned inside it
     // (panes, side rails) renders BELOW the bar and is never hidden under
@@ -349,7 +351,7 @@ pub(crate) fn fresh_chrome_bounds(ctx: &egui::Context) -> MaraRect {
     rect
 }
 
-fn ribbon_rect(ctx: &egui::Context, ribbon: &ResolvedSlotRibbon) -> MaraRect {
+fn ribbon_rect(ctx: &dyn crate::context::MaraCtx, ribbon: &ResolvedSlotRibbon) -> MaraRect {
     // A ribbon rendered inside a view node belongs to that node: it
     // anchors to the node's region on ANY edge (including top), so a
     // leaf's own ribbons stay inside the leaf, not on the window.
@@ -360,7 +362,7 @@ fn ribbon_rect(ctx: &egui::Context, ribbon: &ResolvedSlotRibbon) -> MaraRect {
     // pass): the permanent top bar spans the whole window; every other
     // rail uses the post-shelf chrome bounds.
     if ribbon.edge == RibbonEdge::Top {
-        crate::backend::egui::context_content_rect(ctx)
+        MaraCtx::content_rect(ctx)
     } else {
         chrome_rect(ctx)
     }
@@ -371,9 +373,9 @@ fn main_bar_empty_drag_started_id() -> egui::Id {
 }
 
 #[must_use]
-pub(crate) fn main_bar_empty_drag_started(ctx: &egui::Context) -> bool {
+pub(crate) fn main_bar_empty_drag_started(ctx: &dyn crate::context::MaraCtx) -> bool {
     {
-        let memory = crate::memory::MaraMemoryCtx::new(ctx);
+        let memory = ctx.memory();
         memory
             .get_temp::<bool>(main_bar_empty_drag_started_id())
             .unwrap_or(false)
@@ -523,7 +525,7 @@ pub(crate) fn insets_for_ribbon(
     out
 }
 
-fn strip_rect(ribbon: &ResolvedSlotRibbon, ctx: &egui::Context, insets: SideInsets) -> MaraRect {
+fn strip_rect(ribbon: &ResolvedSlotRibbon, ctx: &dyn crate::context::MaraCtx, insets: SideInsets) -> MaraRect {
     let screen = ribbon_rect(ctx, ribbon);
     let strip_inset = |inset: f32| {
         if inset > EDGE_GAP {
@@ -579,7 +581,7 @@ fn strip_rect(ribbon: &ResolvedSlotRibbon, ctx: &egui::Context, insets: SideInse
 fn cluster_region(
     ribbon: &ResolvedSlotRibbon,
     cluster: RibbonCluster,
-    ctx: &egui::Context,
+    ctx: &dyn crate::context::MaraCtx,
     insets: SideInsets,
 ) -> MaraRect {
     let strip = strip_rect(ribbon, ctx, insets);
@@ -654,7 +656,7 @@ pub(crate) struct ButtonPlacement {
 }
 
 pub(crate) fn place_button(
-    ctx: &egui::Context,
+    ctx: &dyn crate::context::MaraCtx,
     ribbon: &ResolvedSlotRibbon,
     cluster: RibbonCluster,
     slot: u32,
@@ -824,7 +826,7 @@ pub fn draw_unified_ribbon_chrome(
     // Writes go through the backend-neutral memory facade.
     if !ribbons.is_empty() && crate::embed::current_node_region(ctx).is_none() {
         let chrome = fresh_chrome_bounds(ctx);
-        let mut memory = crate::memory::MaraMemoryCtx::new(ctx);
+        let mut memory = MaraCtx::memory(ctx);
         memory.set_temp(chrome_bounds_key(), chrome);
         memory.set_temp::<[bool; 4]>(
             egui::Id::new("mara_published_ribbon_edges"),
@@ -1259,7 +1261,7 @@ pub fn draw_unified_ribbon_chrome(
         );
     }
     {
-        let mut memory = crate::memory::MaraMemoryCtx::new(ctx);
+        let mut memory = MaraCtx::memory(ctx);
         memory.set_temp(
             main_bar_empty_drag_started_id(),
             empty_main_bar_drag_started,

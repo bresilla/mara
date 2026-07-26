@@ -23,7 +23,7 @@
 
 use std::hash::Hash;
 
-use egui::{Context, Id, Ui};
+use egui::{Id, Ui};
 
 use crate::container::SeparatorOrient;
 use crate::{
@@ -113,26 +113,26 @@ fn dot_rects_key(pane_id: Id) -> Id {
     pane_id.with("mara_pane_container_dot_rects")
 }
 
-pub(crate) fn clear_container_dot_rects(ctx: &Context, pane_id: Id) {
-    crate::memory::MaraMemoryCtx::new(ctx).remove_temp::<Vec<MaraRect>>(dot_rects_key(pane_id));
+pub(crate) fn clear_container_dot_rects(ctx: &dyn crate::context::MaraCtx, pane_id: Id) {
+    ctx.memory().remove_temp::<Vec<MaraRect>>(dot_rects_key(pane_id));
 }
 
-pub(crate) fn record_container_dot_rect(ctx: &Context, pane_id: Id, rect: impl Into<MaraRect>) {
+pub(crate) fn record_container_dot_rect(ctx: &dyn crate::context::MaraCtx, pane_id: Id, rect: impl Into<MaraRect>) {
     let rect = rect.into();
-    let mut memory = crate::memory::MaraMemoryCtx::new(ctx);
+    let mut memory = ctx.memory();
     let mut rects: Vec<MaraRect> = memory.get_temp(dot_rects_key(pane_id)).unwrap_or_default();
     rects.push(rect);
     memory.set_temp(dot_rects_key(pane_id), rects);
 }
 
 pub(crate) fn pointer_over_container_dots(
-    ctx: &Context,
+    ctx: &dyn crate::context::MaraCtx,
     pane_id: Id,
     pos: impl Into<MaraPos2>,
 ) -> bool {
     let pos = pos.into();
     {
-        let memory = crate::memory::MaraMemoryCtx::new(ctx);
+        let memory = ctx.memory();
         memory
             .get_temp::<Vec<MaraRect>>(dot_rects_key(pane_id))
             .unwrap_or_default()

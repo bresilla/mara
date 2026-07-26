@@ -211,7 +211,7 @@ fn host_capabilities_key() -> egui::Id {
 /// context data.
 #[doc(hidden)]
 pub fn __internal_publish_window_chrome_regions(
-    ctx: &egui::Context,
+    ctx: &dyn crate::context::MaraCtx,
     drag_regions: impl IntoIterator<Item = Rect>,
     exclusion_rects: impl IntoIterator<Item = Rect>,
 ) {
@@ -219,7 +219,7 @@ pub fn __internal_publish_window_chrome_regions(
         drag_regions: drag_regions.into_iter().collect(),
         exclusion_rects: exclusion_rects.into_iter().collect(),
     };
-    crate::memory::MaraMemoryCtx::new(ctx).set_temp(regions_key(), regions);
+    ctx.memory().set_temp(regions_key(), regions);
 }
 
 /// Read the latest published native-window chrome regions.
@@ -228,8 +228,8 @@ pub fn __internal_publish_window_chrome_regions(
 /// Mara chrome regions into native-window drag/resize APIs.
 #[must_use]
 #[doc(hidden)]
-pub fn __internal_window_chrome_regions(ctx: &egui::Context) -> WindowChromeRegions {
-    crate::memory::MaraMemoryCtx::new(ctx)
+pub fn __internal_window_chrome_regions(ctx: &dyn crate::context::MaraCtx) -> WindowChromeRegions {
+    ctx.memory()
         .get_temp::<WindowChromeRegions>(regions_key())
         .unwrap_or_default()
 }
@@ -241,10 +241,10 @@ pub fn __internal_window_chrome_regions(ctx: &egui::Context) -> WindowChromeRegi
 /// main bar into a window-drag region.
 #[doc(hidden)]
 pub fn __internal_publish_window_chrome_host_capabilities(
-    ctx: &egui::Context,
+    ctx: &dyn crate::context::MaraCtx,
     capabilities: WindowChromeHostCapabilities,
 ) {
-    crate::memory::MaraMemoryCtx::new(ctx).set_temp(host_capabilities_key(), capabilities);
+    ctx.memory().set_temp(host_capabilities_key(), capabilities);
 }
 
 /// Read the current frame's host native-window capabilities.
@@ -253,16 +253,16 @@ pub fn __internal_publish_window_chrome_host_capabilities(
 #[must_use]
 #[doc(hidden)]
 pub fn __internal_window_chrome_host_capabilities(
-    ctx: &egui::Context,
+    ctx: &dyn crate::context::MaraCtx,
 ) -> WindowChromeHostCapabilities {
-    crate::memory::MaraMemoryCtx::new(ctx)
+    ctx.memory()
         .get_temp::<WindowChromeHostCapabilities>(host_capabilities_key())
         .unwrap_or_default()
 }
 
 /// Clear published native-window chrome regions.
-pub(crate) fn clear_window_chrome_regions(ctx: &egui::Context) {
-    crate::memory::MaraMemoryCtx::new(ctx).remove_temp::<WindowChromeRegions>(regions_key());
+pub(crate) fn clear_window_chrome_regions(ctx: &dyn crate::context::MaraCtx) {
+    ctx.memory().remove_temp::<WindowChromeRegions>(regions_key());
 }
 
 /// Hit-test only the diagonal resize corners.
@@ -318,7 +318,7 @@ pub fn resize_direction(
 #[must_use]
 #[doc(hidden)]
 pub fn __internal_hit_test_window_chrome(
-    ctx: &egui::Context,
+    ctx: &dyn crate::context::MaraCtx,
     pos: Pos2,
     window_size: Vec2,
     metrics: WindowChromeTheme,

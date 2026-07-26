@@ -1,3 +1,4 @@
+use crate::context::MaraCtx;
 use egui::Context;
 
 use super::{
@@ -175,7 +176,7 @@ pub(crate) fn __internal_draw_view_ribbons(
     if ribbons.is_empty() {
         return Vec::new();
     }
-    let memory = crate::memory::MaraMemoryCtx::new(ctx);
+    let memory = MaraCtx::memory(ctx);
     let mut open: RibbonOpen = memory
         .get_temp(view_ribbon_open_key(salt))
         .unwrap_or_default();
@@ -242,8 +243,8 @@ pub(crate) fn __internal_draw_view_ribbons(
         has(RibbonEdge::Bottom),
     ];
 
-    let pass_nr = ctx.cumulative_pass_nr();
-    let mut memory = crate::memory::MaraMemoryCtx::new(ctx);
+    let pass_nr = MaraCtx::pass_nr(ctx);
+    let mut memory = MaraCtx::memory(ctx);
     memory.set_temp(view_ribbon_open_key(salt), open);
     memory.set_temp(view_ribbon_placement_key(salt), placement);
     memory.set_temp(view_ribbon_drag_key(salt), drag);
@@ -317,10 +318,10 @@ fn gc_view_ribbon_state(memory: &mut crate::memory::MaraMemoryCtx<'_>, salt: Mar
 /// ribbons. Entries from earlier passes are ignored — a view that
 /// stopped drawing ribbons (or a tab that went inactive) must not keep
 /// shrinking anyone's content rect.
-pub(crate) fn view_ribbon_edges(ctx: &Context, salt: MaraId) -> Option<[bool; 4]> {
-    let (pass, edges) = crate::memory::MaraMemoryCtx::new(ctx)
+pub(crate) fn view_ribbon_edges(ctx: &dyn crate::context::MaraCtx, salt: MaraId) -> Option<[bool; 4]> {
+    let (pass, edges) = ctx.memory()
         .get_temp::<(u64, [bool; 4])>(view_ribbon_edges_key(salt))?;
-    (pass == ctx.cumulative_pass_nr()).then_some(edges)
+    (pass == ctx.pass_nr()).then_some(edges)
 }
 
 fn draw_slot_ribbons_featureful_inner(
