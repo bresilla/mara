@@ -445,12 +445,8 @@ impl Normal {
         // which works for any layout direction (TopDown advances
         // downward, BottomUp upward, etc.).
         let union_rect = strip_rect.union(used.into());
-        ui.ctx().data_mut(|d| {
-            d.insert_temp::<egui::Rect>(
-                egui::Id::from(pane::active_tabbed_container_rect_key()),
-                union_rect.into(),
-            );
-        });
+        crate::memory::MaraMemoryCtx::new(ui.ctx())
+            .set_temp::<egui::Rect>(pane::active_tabbed_container_rect_key(), union_rect.into());
         // Overwrite the drag snapshot entry: `me.show()` already
         // pushed the body-only frame rect to the parent pane's
         // current cache (it runs BEFORE `strip_rect` is known), so
@@ -792,12 +788,13 @@ impl Normal {
         let min_w = self
             .min_width
             .unwrap_or_else(|| style::theme().container.default_min_width);
-        ui.ctx().data_mut(|d| {
+        {
             let key = parent_pane_id.with("mara_pane_container_min_widths");
-            let mut acc: Vec<f32> = d.get_temp(egui::Id::from(key)).unwrap_or_default();
+            let mut memory = crate::memory::MaraMemoryCtx::new(ui.ctx());
+            let mut acc: Vec<f32> = memory.get_temp(key).unwrap_or_default();
             acc.push(min_w);
-            d.insert_temp(egui::Id::from(key), acc);
-        });
+            memory.set_temp(key, acc);
+        }
 
         // Per-container default-flow override (set via
         // `Normal::initial_flow`). Persist on every frame the
@@ -847,12 +844,13 @@ impl Normal {
             + pad_flow_for_min
             + outer_flow_for_min
             + stroke_for_min;
-        ui.ctx().data_mut(|d| {
+        {
             let key = parent_pane_id.with("mara_pane_container_min_flows");
-            let mut acc: Vec<f32> = d.get_temp(egui::Id::from(key)).unwrap_or_default();
+            let mut memory = crate::memory::MaraMemoryCtx::new(ui.ctx());
+            let mut acc: Vec<f32> = memory.get_temp(key).unwrap_or_default();
             acc.push(min_flow);
-            d.insert_temp(egui::Id::from(key), acc);
-        });
+            memory.set_temp(key, acc);
+        }
         let pad = style::section_padding();
         let pad_w = (pad.left as f32) + (pad.right as f32);
         let pad_h = (pad.top as f32) + (pad.bottom as f32);
@@ -981,18 +979,23 @@ impl Normal {
             let scale = theme_now.pane_fade_scale.max(0.01);
             let stagger = STAGGER_BASE * scale;
             let fade = FADE_BASE * scale;
-            ui.ctx().data_mut(|d| {
-                let pane2_id: Id = d.get_temp::<Id>(egui::Id::from(pane::active_pane_key())).unwrap_or(pane_id);
-                let elapsed: f32 = d
-                    .get_temp(egui::Id::from(pane2_id.with("mara_pane_open_elapsed")))
+            {
+                let mut memory = crate::memory::MaraMemoryCtx::new(ui.ctx());
+                let pane2_id: Id = memory
+                    .get_temp::<Id>(pane::active_pane_key())
+                    .unwrap_or(pane_id);
+                let elapsed: f32 = memory
+                    .get_temp(pane2_id.with("mara_pane_open_elapsed"))
                     .unwrap_or(99.0);
+                // The index advances per container, which is what
+                // staggers them; it must be read and bumped together.
                 let idx_key = pane2_id.with("mara_pane_section_idx");
-                let idx: u32 = d.get_temp(egui::Id::from(idx_key)).unwrap_or(0);
-                d.insert_temp(egui::Id::from(idx_key), idx + 1);
+                let idx: u32 = memory.get_temp(idx_key).unwrap_or(0);
+                memory.set_temp(idx_key, idx + 1);
                 let start = (idx as f32) * stagger;
                 let raw = ((elapsed - start) / fade).clamp(0.0, 1.0);
                 raw * raw * (3.0 - 2.0 * raw) // smoothstep
-            })
+            }
         };
         let prev_opacity = ui.opacity();
         if stagger_opacity < 1.0 {
