@@ -739,6 +739,16 @@ impl CornerRadius {
     pub const fn from_corners(nw: u8, ne: u8, sw: u8, se: u8) -> Self {
         Self(egui::CornerRadius { nw, ne, sw, se })
     }
+
+    /// The four radii, clockwise from north-west: `[nw, ne, se, sw]`.
+    ///
+    /// A sealed type that can be built but not read forces callers back
+    /// to the backend type to inspect one — which is the coupling this
+    /// vocabulary exists to remove.
+    #[must_use]
+    pub const fn corners(self) -> [u8; 4] {
+        [self.0.nw, self.0.ne, self.0.se, self.0.sw]
+    }
 }
 
 impl From<egui::CornerRadius> for CornerRadius {

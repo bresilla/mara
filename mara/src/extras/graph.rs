@@ -95,10 +95,8 @@ pub fn mara_node_graph_style(accent: impl Into<MaraColor32>) -> GraphStyle {
     //     button / dropdown / search input renders.
     //   * `theme().radius_md` matches the container corner radius
     //     (PRO 6 px, GAME 0 px square).
-    let node_frame = mara_core::backend::egui::egui_frame_for_style_spec(
-        frame_for(FrameRole::Section, accent)
-            .with_inner_margin([graph.node_pad_x, graph.node_pad_y]),
-    );
+    let node_frame = frame_for(FrameRole::Section, accent)
+        .with_inner_margin([graph.node_pad_x, graph.node_pad_y]);
     let body_radius = mara_core::style::theme().shape.radius_md;
 
     // Header — TRANSPARENT here. The category-coloured band is
@@ -108,21 +106,17 @@ pub fn mara_node_graph_style(accent: impl Into<MaraColor32>) -> GraphStyle {
     // header rect. That keeps `mara_node_graph_style` host-agnostic
     // (no fixed colour palette baked in) and lets each app's
     // viewer decide which colour to spill.
-    let header_frame = egui::Frame::new()
-        .fill(egui::Color32::TRANSPARENT)
-        .stroke(egui::Stroke::NONE)
-        .corner_radius(egui::CornerRadius {
-            nw: body_radius,
-            ne: body_radius,
-            sw: 0,
-            se: 0,
-        })
-        .inner_margin(egui::Margin {
+    let header_frame = mara_core::style::FrameSpec::new(
+        mara_core::vocab::Color32::TRANSPARENT,
+        mara_core::vocab::Stroke::NONE,
+        mara_core::vocab::CornerRadius::from_corners(body_radius, body_radius, 0, 0),
+        mara_core::style::MarginSpec {
             left: graph.node_pad_x,
             right: graph.node_pad_x,
             top: graph.node_pad_y,
             bottom: graph.node_pad_y,
-        });
+        },
+    );
 
     // Background mirrors the code-editor recipe — `pane_fill(accent)`
     // routes through the theme so GAME's accent-tinted dark and
@@ -158,13 +152,12 @@ pub fn mara_node_graph_style(accent: impl Into<MaraColor32>) -> GraphStyle {
     GraphStyle {
         node_frame: Some(node_frame),
         header_frame: Some(header_frame),
-        bg_frame: Some(
-            egui::Frame::new()
-                .fill(bg_fill.into())
-                .stroke(stroke_for(StrokeRole::WidgetBorder, accent))
-                .corner_radius(radius_for(RadiusRole::Pane))
-                .inner_margin(egui::Margin::same(graph.bg_inner_margin)),
-        ),
+        bg_frame: Some(mara_core::style::FrameSpec::new(
+            bg_fill.into(),
+            stroke_for(StrokeRole::WidgetBorder, accent),
+            radius_for(RadiusRole::Pane),
+            mara_core::style::MarginSpec::symmetric(graph.bg_inner_margin, graph.bg_inner_margin),
+        )),
         // Canvas pattern is theme-driven:
         //   PRO  → Blender-style dot grid (30-px pitch, 1-px radius)
         //          — large enough to read as a grid when zoomed out,

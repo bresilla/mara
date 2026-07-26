@@ -3052,6 +3052,31 @@ pub struct MarginSpec {
 }
 
 impl MarginSpec {
+    /// The four edges as floats, for arithmetic against positions.
+    ///
+    /// Margins are stored as `i8` to stay small and hashable, but every
+    /// use is geometry — without these a caller casts at each site, and
+    /// a missed cast is a layout bug rather than a type error.
+    #[must_use]
+    pub const fn leftf(self) -> f32 {
+        self.left as f32
+    }
+
+    #[must_use]
+    pub const fn rightf(self) -> f32 {
+        self.right as f32
+    }
+
+    #[must_use]
+    pub const fn topf(self) -> f32 {
+        self.top as f32
+    }
+
+    #[must_use]
+    pub const fn bottomf(self) -> f32 {
+        self.bottom as f32
+    }
+
     pub const ZERO: Self = Self {
         left: 0,
         right: 0,

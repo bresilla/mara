@@ -6176,12 +6176,12 @@ impl NodeViewer<GraphNode> for DemoViewer {
     /// dark.
     fn header_frame(
         &mut self,
-        default: egui::Frame,
+        default: mara_core::style::FrameSpec,
         node: mara::extras::graph::NodeId,
         _inputs: &[InPin],
         _outputs: &[OutPin],
         graph: &Graph<GraphNode>,
-    ) -> egui::Frame {
+    ) -> mara_core::style::FrameSpec {
         let Some(n) = graph.get_node(node) else {
             return default;
         };
@@ -6192,14 +6192,11 @@ impl NodeViewer<GraphNode> for DemoViewer {
         // way Blender's `node_class` palette does. Alpha 0xB0
         // (~69 %) lands roughly where Blender's headers sit
         // visually against the `#303030` body.
-        default
-            .fill(egui::Color32::from_rgba_unmultiplied(
-                tint.r(),
-                tint.g(),
-                tint.b(),
-                0xB0,
-            ))
-            .stroke(egui::Stroke::NONE)
+        let mut frame = default;
+        frame.fill =
+            mara_core::vocab::Color32::from_rgba_unmultiplied(tint.r(), tint.g(), tint.b(), 0xB0);
+        frame.stroke = mara_core::vocab::Stroke::NONE;
+        frame
     }
 
     /// Two-line header content: [icon] [title / subtitle], laid

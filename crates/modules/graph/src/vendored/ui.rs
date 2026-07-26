@@ -3,16 +3,16 @@
 use std::{collections::HashMap, hash::Hash};
 
 use egui::{
-    Align, Color32, CornerRadius, Frame, Id, LayerId, Layout, Margin, Modifiers, PointerButton,
+    Align, Color32, CornerRadius, Id, LayerId, Layout, Margin, Modifiers, PointerButton,
     Pos2, Rect, Scene, Sense, Stroke, StrokeKind, Style, Ui, UiBuilder, UiKind, UiStackInfo,
     Vec2,
     collapsing_header::paint_default_icon,
     emath::{GuiRounding, TSTransform},
-    epaint::Shadow,
     pos2,
     response::Flags,
     vec2,
 };
+use mara_core::style::{FrameRole, FrameSpec, frame_for};
 use smallvec::SmallVec;
 
 use crate::vendored::{Graph, InPin, InPinId, Node, NodeId, OutPin, OutPinId, ui::wire::WireId};
@@ -371,13 +371,9 @@ pub struct GraphStyle {
     /// Defaults to [`Frame::window`] constructed from current ui's style.
     #[cfg_attr(
         feature = "serde",
-        serde(
-            skip_serializing_if = "Option::is_none",
-            default,
-            with = "serde_frame_option"
-        )
+        serde(skip_serializing_if = "Option::is_none", default)
     )]
-    pub node_frame: Option<Frame>,
+    pub node_frame: Option<FrameSpec>,
 
     /// Frame used to draw node headers.
     /// Defaults to [`node_frame`] without shadow and transparent fill.
@@ -386,13 +382,9 @@ pub struct GraphStyle {
     /// unless layering of header fill color with node fill color is desired.
     #[cfg_attr(
         feature = "serde",
-        serde(
-            skip_serializing_if = "Option::is_none",
-            default,
-            with = "serde_frame_option"
-        )
+        serde(skip_serializing_if = "Option::is_none", default)
     )]
-    pub header_frame: Option<Frame>,
+    pub header_frame: Option<FrameSpec>,
 
     /// Blank space for dragging node by its header.
     /// Elements in the header are placed after this space.
@@ -547,13 +539,9 @@ pub struct GraphStyle {
     /// Frame used to draw background
     #[cfg_attr(
         feature = "serde",
-        serde(
-            skip_serializing_if = "Option::is_none",
-            default,
-            with = "serde_frame_option"
-        )
+        serde(skip_serializing_if = "Option::is_none", default)
     )]
-    pub bg_frame: Option<Frame>,
+    pub bg_frame: Option<FrameSpec>,
 
     /// Background pattern.
     /// Defaults to [`BackgroundPattern::Grid`].
@@ -723,8 +711,9 @@ impl GraphStyle {
         self.collapsible.unwrap_or(true)
     }
 
-    fn get_bg_frame(&self, style: &Style) -> Frame {
-        self.bg_frame.unwrap_or_else(|| Frame::canvas(style))
+    fn get_bg_frame(&self, accent: mara_core::vocab::Color32) -> FrameSpec {
+        self.bg_frame
+            .unwrap_or_else(|| frame_for(FrameRole::Canvas, accent))
     }
 
     fn get_bg_pattern_stroke(&self, style: &Style) -> Stroke {
@@ -740,13 +729,19 @@ impl GraphStyle {
         self.max_scale.unwrap_or(2.0)
     }
 
-    fn get_node_frame(&self, style: &Style) -> Frame {
-        self.node_frame.unwrap_or_else(|| Frame::window(style))
+    fn get_node_frame(&self, accent: mara_core::vocab::Color32) -> FrameSpec {
+        self.node_frame
+            .unwrap_or_else(|| frame_for(FrameRole::Window, accent))
     }
 
-    fn get_header_frame(&self, style: &Style) -> Frame {
-        self.header_frame
-            .unwrap_or_else(|| self.get_node_frame(style).shadow(Shadow::NONE))
+    /// The header sits on top of the node body, so it must not cast its
+    /// own shadow over it.
+    fn get_header_frame(&self, accent: mara_core::vocab::Color32) -> FrameSpec {
+        self.header_frame.unwrap_or_else(|| {
+            let mut frame = self.get_node_frame(accent);
+            frame.shadow = None;
+            frame
+        })
     }
 
     fn get_centering(&self) -> bool {
@@ -786,55 +781,6 @@ impl GraphStyle {
 
     fn get_wire_smoothness(&self) -> f32 {
         self.wire_smoothness.unwrap_or(1.0)
-    }
-}
-
-#[cfg(feature = "serde")]
-mod serde_frame_option {
-    use serde::{Deserialize, Deserializer, Serialize, Serializer};
-
-    #[derive(Serialize, Deserialize)]
-    pub struct Frame {
-        pub inner_margin: egui::Margin,
-        pub outer_margin: egui::Margin,
-        pub rounding: egui::CornerRadius,
-        pub shadow: egui::epaint::Shadow,
-        pub fill: egui::Color32,
-        pub stroke: egui::Stroke,
-    }
-
-    #[allow(clippy::ref_option)]
-    pub fn serialize<S>(frame: &Option<egui::Frame>, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        match frame {
-            Some(frame) => Frame {
-                inner_margin: frame.inner_margin,
-                outer_margin: frame.outer_margin,
-                rounding: frame.corner_radius,
-                shadow: frame.shadow,
-                fill: frame.fill,
-                stroke: frame.stroke,
-            }
-            .serialize(serializer),
-            None => serializer.serialize_none(),
-        }
-    }
-
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<Option<egui::Frame>, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let frame_opt = Option::<Frame>::deserialize(deserializer)?;
-        Ok(frame_opt.map(|frame| egui::Frame {
-            inner_margin: frame.inner_margin,
-            outer_margin: frame.outer_margin,
-            corner_radius: frame.rounding,
-            shadow: frame.shadow,
-            fill: frame.fill,
-            stroke: frame.stroke,
-        }))
     }
 }
 
@@ -1038,15 +984,16 @@ where
 
     let (mut latest_pos, modifiers) = ui.ctx().input(|i| (i.pointer.latest_pos(), i.modifiers));
 
-    let bg_frame = style.get_bg_frame(ui.style());
+    let bg_frame = style.get_bg_frame(mara_core::style::active_accent());
+    let bg_frame_backend = mara_core::backend::egui::egui_frame_for_style_spec(bg_frame);
 
     let outer_size_bounds = ui.available_size_before_wrap().max(min_size).min(max_size);
 
     let outer_resp = ui.allocate_response(outer_size_bounds, Sense::hover());
 
-    ui.painter().add(bg_frame.paint(outer_resp.rect));
+    ui.painter().add(bg_frame_backend.paint(outer_resp.rect));
 
-    let mut content_rect = outer_resp.rect - bg_frame.total_margin();
+    let mut content_rect = outer_resp.rect - egui::Margin::from(bg_frame.total_margin());
 
     // Make sure we don't shrink to the negative:
     content_rect.max.x = content_rect.max.x.max(content_rect.min.x);
@@ -1069,7 +1016,7 @@ where
 
     let mut ui = ui.new_child(
         UiBuilder::new()
-            .ui_stack_info(UiStackInfo::new(UiKind::Frame).with_frame(bg_frame))
+            .ui_stack_info(UiStackInfo::new(UiKind::Frame).with_frame(bg_frame_backend))
             .layer_id(graph_layer_id)
             .max_rect(Rect::EVERYTHING)
             .sense(Sense::click_and_drag()),
@@ -2021,7 +1968,7 @@ where
     let mut pin_hovered = None;
 
     let node_frame = viewer.node_frame(
-        style.get_node_frame(ui.style()),
+        style.get_node_frame(mara_core::style::active_accent()),
         node,
         &inputs,
         &outputs,
@@ -2029,7 +1976,7 @@ where
     );
 
     let header_frame = viewer.header_frame(
-        style.get_header_frame(ui.style()),
+        style.get_header_frame(mara_core::style::active_accent()),
         node,
         &inputs,
         &outputs,
@@ -2037,7 +1984,7 @@ where
     );
 
     // Rect for node + frame margin.
-    let node_frame_rect = node_rect + node_frame.total_margin();
+    let node_frame_rect = node_rect + egui::Margin::from(node_frame.total_margin());
 
     if graph_state.selected_nodes().contains(&node) {
         let select_style = style.get_select_style(ui.style());
@@ -2131,7 +2078,7 @@ where
         .node_halo
         .map(|_| with_mara_ui(node_ui, |mara| mara.reserve_paint_slot()));
 
-    let r = node_frame.show(node_ui, |ui| {
+    let r = mara_core::backend::egui::egui_frame_for_style_spec(node_frame).show(node_ui, |ui| {
         if viewer.has_node_style(node, &inputs, &outputs, graph) {
             viewer.apply_node_style(ui.style_mut(), node, &inputs, &outputs, graph);
         }
@@ -2198,7 +2145,7 @@ where
                 node_rect.min.x,
                 node_rect.min.y
                     + node_state.header_height()
-                    + header_frame.total_margin().bottom
+                    + header_frame.total_margin().bottomf()
                     + ui.spacing().item_spacing.y
                     - node_state.payload_offset(openness),
             ),
@@ -2622,7 +2569,7 @@ where
         // Render header frame.
         let mut header_rect = Rect::NAN;
 
-        let mut header_frame_rect = Rect::NAN; //node_rect + header_frame.total_margin();
+        let mut header_frame_rect = Rect::NAN; //node_rect + egui::Margin::from(header_frame.total_margin());
 
         // Show node's header
         //
@@ -2640,12 +2587,12 @@ where
         // node editor does.
         let header_ui: &mut Ui = &mut ui.new_child(
             UiBuilder::new()
-                .max_rect(node_rect.round_ui() + header_frame.total_margin())
+                .max_rect(node_rect.round_ui() + egui::Margin::from(header_frame.total_margin()))
                 .layout(Layout::top_down(Align::Min))
                 .id_salt("header"),
         );
 
-        header_frame.show(header_ui, |ui: &mut Ui| {
+        mara_core::backend::egui::egui_frame_for_style_spec(header_frame).show(header_ui, |ui: &mut Ui| {
             ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
                 if style.get_collapsible() {
                     let (_, r) = ui.allocate_exact_size(
@@ -2669,7 +2616,7 @@ where
                 header_rect = ui.min_rect();
             });
 
-            header_frame_rect = header_rect + header_frame.total_margin();
+            header_frame_rect = header_rect + egui::Margin::from(header_frame.total_margin());
 
             ui.advance_cursor_after_rect(Rect::from_min_max(
                 header_rect.min,
@@ -2687,7 +2634,7 @@ where
         node_state.set_size(vec2(
             f32::max(header_size.x, new_pins_size.x),
             header_size.y
-                + header_frame.total_margin().bottom
+                + header_frame.total_margin().bottomf()
                 + ui.spacing().item_spacing.y
                 + new_pins_size.y,
         ));

@@ -27,12 +27,12 @@ pub trait NodeViewer<T> {
     /// Override this method to customize the frame for specific nodes.
     fn node_frame(
         &mut self,
-        default: egui::Frame,
+        default: mara_core::style::FrameSpec,
         node: NodeId,
         inputs: &[InPin],
         outputs: &[OutPin],
         graph: &Graph<T>,
-    ) -> egui::Frame {
+    ) -> mara_core::style::FrameSpec {
         let _ = (node, inputs, outputs, graph);
         default
     }
@@ -48,12 +48,12 @@ pub trait NodeViewer<T> {
     /// or constructed if both are `None`.
     fn header_frame(
         &mut self,
-        default: egui::Frame,
+        default: mara_core::style::FrameSpec,
         node: NodeId,
         inputs: &[InPin],
         outputs: &[OutPin],
         graph: &Graph<T>,
-    ) -> egui::Frame {
+    ) -> mara_core::style::FrameSpec {
         let _ = (node, inputs, outputs, graph);
         default
     }

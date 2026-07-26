@@ -67,11 +67,47 @@ impl Scale for egui::epaint::Shadow {
     }
 }
 
-impl Scale for egui::Frame {
+impl Scale for mara_core::style::MarginSpec {
+    fn scale(&mut self, scale: f32) {
+        self.left = (f32::from(self.left) * scale) as i8;
+        self.right = (f32::from(self.right) * scale) as i8;
+        self.top = (f32::from(self.top) * scale) as i8;
+        self.bottom = (f32::from(self.bottom) * scale) as i8;
+    }
+}
+
+impl Scale for mara_core::vocab::CornerRadius {
+    fn scale(&mut self, scale: f32) {
+        let scaled = self
+            .corners()
+            .map(|r| (f32::from(r) * scale).round().clamp(0.0, 255.0) as u8);
+        let [nw, ne, se, sw] = scaled;
+        *self = mara_core::vocab::CornerRadius::from_corners(nw, ne, sw, se);
+    }
+}
+
+impl Scale for mara_core::vocab::Stroke {
+    fn scale(&mut self, scale: f32) {
+        self.width *= scale;
+    }
+}
+
+impl Scale for mara_core::style::FrameShadowSpec {
+    fn scale(&mut self, scale: f32) {
+        self.offset = [
+            (f32::from(self.offset[0]) * scale) as i8,
+            (f32::from(self.offset[1]) * scale) as i8,
+        ];
+        self.blur = (f32::from(self.blur) * scale) as u8;
+        self.spread = (f32::from(self.spread) * scale) as u8;
+    }
+}
+
+impl Scale for mara_core::style::FrameSpec {
     fn scale(&mut self, scale: f32) {
         self.inner_margin.scale(scale);
         self.outer_margin.scale(scale);
-        self.corner_radius.scale(scale);
+        self.corner.scale(scale);
         self.shadow.scale(scale);
         self.stroke.scale(scale);
     }
