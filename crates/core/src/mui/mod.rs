@@ -1032,6 +1032,12 @@ impl crate::layout::UiBackend for MaraBackend<'_> {
             Self::Recording(b) => b.__internal_egui_ui_ref(),
         }
     }
+    fn set_layer_transform(&mut self, transform: crate::transform::Transform) {
+        match self {
+            Self::Egui(b) => b.set_layer_transform(transform),
+            Self::Recording(b) => b.set_layer_transform(transform),
+        }
+    }
     fn child_at(&mut self, rect: vocab::Rect, body: &mut dyn FnMut(&mut dyn UiBackend)) {
         match self {
             Self::Egui(b) => b.child_at(rect, body),

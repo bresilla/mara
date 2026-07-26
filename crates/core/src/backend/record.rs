@@ -131,6 +131,9 @@ pub struct RecordingBackend {
     /// Nested id-scope salts pushed by [`UiBackend::in_id_scope`], so
     /// `id()` yields unique ids per scope (egui's id stack, headless).
     pub id_stack: Vec<Id>,
+    /// Last transform applied via [`UiBackend::set_layer_transform`],
+    /// so a headless test can assert a surface panned/zoomed.
+    pub layer_transform: Option<crate::transform::Transform>,
     /// Bounds actually occupied so far — `None` until something is
     /// allocated or explicitly expanded into.
     pub occupied: Option<Rect>,
@@ -264,6 +267,10 @@ impl UiBackend for RecordingBackend {
 
     fn memory(&self) -> crate::memory::BackendMemory<'_> {
         crate::memory::BackendMemory::Recording(&self.memory)
+    }
+
+    fn set_layer_transform(&mut self, transform: crate::transform::Transform) {
+        self.layer_transform = Some(transform);
     }
 
     fn child_at(&mut self, rect: Rect, body: &mut dyn FnMut(&mut dyn UiBackend)) {

@@ -508,3 +508,52 @@ fn e14_advance_cursor_past_moves_flow_below_a_rect() {
     let next = backend.allocate(Vec2::new(10.0, 10.0), Sense::Hover).rect;
     assert_eq!(next.min.y, 60.0, "flow resumes below the consumed rect");
 }
+
+// ─── E1.4 · pan/zoom transform ────────────────────────────────────
+
+/// The last capability blocking `ui.rs`: a region that pans and zooms.
+/// The gesture logic is Mara's own, so it is fully testable headlessly;
+/// only applying the result to a layer needs a backend.
+#[test]
+fn e14_pan_zoom_drives_a_layer_transform_headlessly() {
+    use mara_core::backend::record::RecordingBackend;
+    use mara_core::layout::UiBackend;
+    use mara_core::{MaraInput, PanZoom};
+
+    let mut backend =
+        RecordingBackend::at(Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 300.0)));
+    assert!(
+        backend.layer_transform.is_none(),
+        "nothing applied before the first gesture"
+    );
+
+    let mut pan_zoom = PanZoom::new(0.25, 4.0);
+    let dragged = MaraInput {
+        pointer: Some(Pos2::new(200.0, 150.0)),
+        pointer_delta: Vec2::new(12.0, -8.0),
+        ..MaraInput::default()
+    };
+    assert!(pan_zoom.update(&dragged, true));
+    backend.set_layer_transform(pan_zoom.transform());
+
+    let applied = backend
+        .layer_transform
+        .expect("transform reached the layer");
+    assert_eq!(applied.translation, Vec2::new(12.0, -8.0));
+    assert_eq!(applied.scaling, 1.0, "dragging pans without zooming");
+}
+
+/// Content space is what hit testing runs in, so the inverse mapping
+/// has to be exact — a wrong inverse means clicks land on the wrong node.
+#[test]
+fn e14_transform_inverse_maps_screen_back_to_content() {
+    use mara_core::Transform;
+
+    let t = Transform::new(Vec2::new(-40.0, 15.0), 2.0);
+    let content = Pos2::new(33.0, -21.0);
+    let screen = t.mul_pos(content);
+    let back = t.inverse().mul_pos(screen);
+
+    assert!((back.x - content.x).abs() < 1e-3, "{back:?}");
+    assert!((back.y - content.y).abs() < 1e-3, "{back:?}");
+}

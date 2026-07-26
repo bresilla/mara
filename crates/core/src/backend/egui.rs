@@ -230,6 +230,16 @@ impl UiBackend for EguiUiBackend<'_> {
         Some(self.ui)
     }
 
+    fn set_layer_transform(&mut self, transform: crate::transform::Transform) {
+        self.ui.ctx().set_transform_layer(
+            self.ui.layer_id(),
+            egui::emath::TSTransform {
+                scaling: transform.scaling,
+                translation: transform.translation.into(),
+            },
+        );
+    }
+
     fn child_at(&mut self, rect: vocab::Rect, body: &mut dyn FnMut(&mut dyn UiBackend)) {
         let rect: egui::Rect = rect.into();
         let layout = *self.ui.layout();

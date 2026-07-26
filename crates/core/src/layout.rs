@@ -806,6 +806,17 @@ pub trait UiBackend {
     /// headers, pin rows). The parent's cursor is untouched; call
     /// [`UiBackend::advance_cursor_past`] if the child should consume
     /// flow space.
+    /// Apply `transform` to this region's whole layer — content space
+    /// to screen space (see [`crate::transform`]).
+    ///
+    /// Everything painted into the layer moves and scales together, so
+    /// a pannable canvas neither re-lays-out nor re-rasterises on every
+    /// gesture frame. Backends without a layer transform ignore it, and
+    /// the surface simply does not pan.
+    fn set_layer_transform(&mut self, transform: crate::transform::Transform) {
+        let _ = transform;
+    }
+
     fn child_at(&mut self, rect: Rect, body: &mut dyn FnMut(&mut dyn UiBackend));
 
     /// Move the flow cursor past `rect`, so subsequent `allocate` calls
@@ -970,6 +981,9 @@ impl<T: UiBackend + ?Sized> UiBackend for &mut T {
     }
     fn __internal_egui_ui_ref(&self) -> Option<&egui::Ui> {
         (**self).__internal_egui_ui_ref()
+    }
+    fn set_layer_transform(&mut self, transform: crate::transform::Transform) {
+        (**self).set_layer_transform(transform)
     }
     fn child_at(&mut self, rect: Rect, body: &mut dyn FnMut(&mut dyn UiBackend)) {
         (**self).child_at(rect, body)
