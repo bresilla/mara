@@ -811,35 +811,88 @@ impl PointerButton {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Align2(egui::Align2);
+/// Where a point sits along one axis.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Align {
+    Min,
+    Center,
+    Max,
+}
+
+impl Align {
+    /// Offset from `min` for a span of `size` — 0, half, or all of the
+    /// slack.
+    #[must_use]
+    fn offset(self, size: f32) -> f32 {
+        match self {
+            Self::Min => 0.0,
+            Self::Center => -size * 0.5,
+            Self::Max => -size,
+        }
+    }
+}
+
+/// Two-axis alignment — WS-E4 native (see [`CornerRadius`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct Align2 {
+    pub x: Align,
+    pub y: Align,
+}
 
 impl Align2 {
-    pub const LEFT_TOP: Self = Self(egui::Align2::LEFT_TOP);
-    pub const LEFT_CENTER: Self = Self(egui::Align2::LEFT_CENTER);
-    pub const LEFT_BOTTOM: Self = Self(egui::Align2::LEFT_BOTTOM);
-    pub const CENTER_TOP: Self = Self(egui::Align2::CENTER_TOP);
-    pub const CENTER_CENTER: Self = Self(egui::Align2::CENTER_CENTER);
-    pub const CENTER_BOTTOM: Self = Self(egui::Align2::CENTER_BOTTOM);
-    pub const RIGHT_TOP: Self = Self(egui::Align2::RIGHT_TOP);
-    pub const RIGHT_CENTER: Self = Self(egui::Align2::RIGHT_CENTER);
-    pub const RIGHT_BOTTOM: Self = Self(egui::Align2::RIGHT_BOTTOM);
+    pub const LEFT_TOP: Self = Self::new(Align::Min, Align::Min);
+    pub const LEFT_CENTER: Self = Self::new(Align::Min, Align::Center);
+    pub const LEFT_BOTTOM: Self = Self::new(Align::Min, Align::Max);
+    pub const CENTER_TOP: Self = Self::new(Align::Center, Align::Min);
+    pub const CENTER_CENTER: Self = Self::new(Align::Center, Align::Center);
+    pub const CENTER_BOTTOM: Self = Self::new(Align::Center, Align::Max);
+    pub const RIGHT_TOP: Self = Self::new(Align::Max, Align::Min);
+    pub const RIGHT_CENTER: Self = Self::new(Align::Max, Align::Center);
+    pub const RIGHT_BOTTOM: Self = Self::new(Align::Max, Align::Max);
 
     #[must_use]
+    pub const fn new(x: Align, y: Align) -> Self {
+        Self { x, y }
+    }
+
+    /// Place `rect` so that this alignment's anchor point sits at
+    /// `rect.min`, keeping its size.
+    #[must_use]
     pub fn anchor_rect(self, rect: Rect) -> Rect {
-        self.0.anchor_rect(rect.into()).into()
+        let size = rect.size();
+        let min = Pos2::new(
+            rect.min.x + self.x.offset(size.x),
+            rect.min.y + self.y.offset(size.y),
+        );
+        Rect::from_min_size(min, size)
     }
 }
 
+#[cfg(feature = "backend-egui-conv")]
 impl From<egui::Align2> for Align2 {
     fn from(a: egui::Align2) -> Self {
-        Self(a)
+        fn axis(a: egui::Align) -> Align {
+            match a {
+                egui::Align::Min => Align::Min,
+                egui::Align::Center => Align::Center,
+                egui::Align::Max => Align::Max,
+            }
+        }
+        Self::new(axis(a.x()), axis(a.y()))
     }
 }
 
+#[cfg(feature = "backend-egui-conv")]
 impl From<Align2> for egui::Align2 {
     fn from(a: Align2) -> Self {
-        a.0
+        fn axis(a: Align) -> egui::Align {
+            match a {
+                Align::Min => egui::Align::Min,
+                Align::Center => egui::Align::Center,
+                Align::Max => egui::Align::Max,
+            }
+        }
+        egui::Align2([axis(a.x), axis(a.y)])
     }
 }
 

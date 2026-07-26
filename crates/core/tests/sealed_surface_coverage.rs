@@ -808,6 +808,37 @@ fn d13_a_group_fills_a_single_slot() {
     }
 }
 
+/// `Align2` is native now, so `anchor_rect` is Mara's arithmetic
+/// rather than a delegation. Checked against the backend's own result
+/// for all nine alignments — a sign error in one axis would otherwise
+/// only show up as text drifting half a label off-target.
+#[cfg(feature = "backend-egui-conv")]
+#[test]
+fn e4_align2_anchoring_matches_the_backend() {
+    use mara_core::vocab::Align2;
+
+    let rect = Rect::from_min_size(Pos2::new(30.0, 40.0), Vec2::new(100.0, 20.0));
+    let all = [
+        Align2::LEFT_TOP,
+        Align2::LEFT_CENTER,
+        Align2::LEFT_BOTTOM,
+        Align2::CENTER_TOP,
+        Align2::CENTER_CENTER,
+        Align2::CENTER_BOTTOM,
+        Align2::RIGHT_TOP,
+        Align2::RIGHT_CENTER,
+        Align2::RIGHT_BOTTOM,
+    ];
+
+    for align in all {
+        let mine = align.anchor_rect(rect);
+        let theirs: Rect = egui::Align2::from(align)
+            .anchor_rect(egui::Rect::from(rect))
+            .into();
+        assert_eq!(mine, theirs, "anchor_rect disagrees for {align:?}");
+    }
+}
+
 /// WS-E4/G1: a vocab type must be usable without any backend
 /// conversion in scope. `CornerRadius` is the first native one — it
 /// owns its data instead of wrapping the backend's type, which is the
