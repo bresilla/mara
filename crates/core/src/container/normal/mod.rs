@@ -17,7 +17,8 @@
 //! ```
 
 use crate::memory::MaraAnim;
-use egui::{Color32, Frame, Id, Rect, Ui};
+use crate::vocab::Id;
+use egui::{Color32, Frame, Rect, Ui};
 
 use super::body::Body;
 use crate::icons::Icon;
@@ -328,7 +329,7 @@ impl Normal {
 
         let tab_meta: Vec<(String, Icon<'static>)> =
             tabs.iter().map(|t| (t.title.clone(), t.icon)).collect();
-        let tab_ids: Vec<Id> = tabs.iter().map(|t| t.egui_id()).collect();
+        let tab_ids: Vec<Id> = tabs.iter().map(|t| t.id()).collect();
         let active_idx_key = self.pane_id.with("mara_normal_active_tab");
         let active_idx = resolve_active_tab_idx(ui.ctx(), active_idx_key, &tab_ids);
         let active_pods = std::mem::take(&mut tabs[active_idx].pods);
@@ -388,7 +389,7 @@ impl Normal {
             tabbed_container_max_rect(avail, strip_side, strip_thickness, strip_outer_inset);
         ui.ctx().data_mut(|d| {
             let key = pane::active_container_frame_rect_key();
-            d.remove::<egui::Rect>(key);
+            d.remove::<egui::Rect>(egui::Id::from(key));
         });
         let mut child =
             crate::backend::egui::child_ui_with_current_layout_for_rect(ui, container_max_rect);
@@ -404,8 +405,8 @@ impl Normal {
             .ctx()
             .data_mut(|d| {
                 let key = pane::active_container_frame_rect_key();
-                let rect = d.get_temp::<egui::Rect>(key);
-                d.remove::<egui::Rect>(key);
+                let rect = d.get_temp::<egui::Rect>(egui::Id::from(key));
+                d.remove::<egui::Rect>(egui::Id::from(key));
                 rect
             })
             .unwrap_or_else(|| child.min_rect());
@@ -447,7 +448,7 @@ impl Normal {
         let union_rect = strip_rect.union(used.into());
         ui.ctx().data_mut(|d| {
             d.insert_temp::<egui::Rect>(
-                pane::active_tabbed_container_rect_key(),
+                egui::Id::from(pane::active_tabbed_container_rect_key()),
                 union_rect.into(),
             );
         });
@@ -472,7 +473,7 @@ impl Normal {
             .unwrap_or(false);
         if !dragging_self
             && let Some(parent_pane_id) =
-                ui.ctx().data(|d| d.get_temp::<Id>(pane::active_pane_key()))
+                ui.ctx().data(|d| d.get_temp::<Id>(egui::Id::from(pane::active_pane_key())))
         {
             pane::push_rect_with_frame(
                 ui.ctx(),
@@ -510,7 +511,7 @@ impl Normal {
         let max_tab_body_h = max_tab_natural_body_h(&tabs);
         let tab_meta: Vec<(String, Icon<'static>)> =
             tabs.iter().map(|t| (t.title.clone(), t.icon)).collect();
-        let tab_ids: Vec<Id> = tabs.iter().map(|t| t.egui_id()).collect();
+        let tab_ids: Vec<Id> = tabs.iter().map(|t| t.id()).collect();
         let active_idx_key = self.pane_id.with("mara_normal_active_tab");
         let active_idx = resolve_active_tab_idx(ui.ctx(), active_idx_key, &tab_ids);
         let active_pods = std::mem::take(&mut tabs[active_idx].pods);
@@ -541,7 +542,7 @@ impl Normal {
         // the tab paint — there's nothing to overlay on.
         let title_rect: Option<egui::Rect> = ui
             .ctx()
-            .data(|d| d.get_temp(pane_id.with("mara_normal_title_rect")));
+            .data(|d| d.get_temp(egui::Id::from(pane_id.with("mara_normal_title_rect"))));
         let Some(title_rect) = title_rect else {
             return out;
         };
@@ -606,7 +607,7 @@ impl Normal {
             .sum::<f32>()
             + separator_total_h;
         let body_flow_floor = pods_natural_total_h.max(self.min_body_flow.unwrap_or(0.0));
-        let fill_pod_id_and_others_h: Option<(egui::Id, f32)> = fill_pod_idx.map(|fi| {
+        let fill_pod_id_and_others_h: Option<(Id, f32)> = fill_pod_idx.map(|fi| {
             let mut others_h = 0.0_f32;
             for (i, p) in pods.iter().enumerate() {
                 if i == fi {
@@ -628,13 +629,13 @@ impl Normal {
         let intrinsic_floor_key = self.pane_id.with("mara_container_intrinsic_natural_floor");
         if fill_pod_idx.is_some() {
             ui.ctx().data_mut(|d| {
-                d.insert_temp::<f32>(intrinsic_override_key, body_flow_floor);
-                d.remove::<f32>(intrinsic_floor_key);
+                d.insert_temp::<f32>(egui::Id::from(intrinsic_override_key), body_flow_floor);
+                d.remove::<f32>(egui::Id::from(intrinsic_floor_key));
             });
         } else {
             ui.ctx().data_mut(|d| {
-                d.remove::<f32>(intrinsic_override_key);
-                d.insert_temp::<f32>(intrinsic_floor_key, body_flow_floor);
+                d.remove::<f32>(egui::Id::from(intrinsic_override_key));
+                d.insert_temp::<f32>(egui::Id::from(intrinsic_floor_key), body_flow_floor);
             });
         }
         self.show_with_body(ui, |body_ui| {
@@ -667,7 +668,7 @@ impl Normal {
                     (body_avail - others_h - pod_chrome_each).max(style::theme().pod.min_widget_h);
                 body_ui.ctx().data_mut(|d| {
                     let key: egui::Id = crate::pod::Pod::forced_height_key(fill_id).into();
-                    d.insert_temp(key, fill_h);
+                    d.insert_temp(egui::Id::from(key), fill_h);
                 });
             }
             for (i, pod) in pods.into_iter().enumerate() {
@@ -736,13 +737,13 @@ impl Normal {
                             let key: egui::Id = crate::pod::Pod::widget_height_key(pod_id).into();
                             let cur = body_ui
                                 .ctx()
-                                .data_mut(|d| d.get_persisted::<f32>(key))
+                                .data_mut(|d| d.get_persisted::<f32>(egui::Id::from(key)))
                                 .unwrap_or(crate::style::UNIT);
                             let new = (cur + resp.drag_delta.y).clamp(
                                 style::theme().pod.min_widget_h,
                                 style::theme().pod.max_widget_h,
                             );
-                            body_ui.ctx().data_mut(|d| d.insert_persisted(key, new));
+                            body_ui.ctx().data_mut(|d| d.insert_persisted(egui::Id::from(key), new));
                         }
                     } else {
                         crate::container::paint_separator(
@@ -794,16 +795,16 @@ impl Normal {
         // entry isn't lost.
         let parent_pane_id: Id = ui
             .ctx()
-            .data(|d| d.get_temp(pane::active_pane_key()))
+            .data(|d| d.get_temp(egui::Id::from(pane::active_pane_key())))
             .unwrap_or(self.pane_id);
         let min_w = self
             .min_width
             .unwrap_or_else(|| style::theme().container.default_min_width);
         ui.ctx().data_mut(|d| {
             let key = parent_pane_id.with("mara_pane_container_min_widths");
-            let mut acc: Vec<f32> = d.get_temp(key).unwrap_or_default();
+            let mut acc: Vec<f32> = d.get_temp(egui::Id::from(key)).unwrap_or_default();
             acc.push(min_w);
-            d.insert_temp(key, acc);
+            d.insert_temp(egui::Id::from(key), acc);
         });
 
         // Per-container default-flow override (set via
@@ -856,9 +857,9 @@ impl Normal {
             + stroke_for_min;
         ui.ctx().data_mut(|d| {
             let key = parent_pane_id.with("mara_pane_container_min_flows");
-            let mut acc: Vec<f32> = d.get_temp(key).unwrap_or_default();
+            let mut acc: Vec<f32> = d.get_temp(egui::Id::from(key)).unwrap_or_default();
             acc.push(min_flow);
-            d.insert_temp(key, acc);
+            d.insert_temp(egui::Id::from(key), acc);
         });
         let pad = style::section_padding();
         let pad_w = (pad.left as f32) + (pad.right as f32);
@@ -941,7 +942,7 @@ impl Normal {
         let pane_id = self.pane_id;
         let open: bool = ui
             .ctx()
-            .data_mut(|d| *d.get_persisted_mut_or_insert_with(pane_id.with("body_open"), || true));
+            .data_mut(|d| *d.get_persisted_mut_or_insert_with(egui::Id::from(pane_id.with("body_open")), || true));
         let openness = pane::body_openness(ui.ctx(), pane_id);
         // Body's full flow-axis size when fully open. Used as the
         // child UI's `max_rect` extent so widgets ALWAYS render at
@@ -989,13 +990,13 @@ impl Normal {
             let stagger = STAGGER_BASE * scale;
             let fade = FADE_BASE * scale;
             ui.ctx().data_mut(|d| {
-                let pane2_id: Id = d.get_temp::<Id>(pane::active_pane_key()).unwrap_or(pane_id);
+                let pane2_id: Id = d.get_temp::<Id>(egui::Id::from(pane::active_pane_key())).unwrap_or(pane_id);
                 let elapsed: f32 = d
-                    .get_temp(pane2_id.with("mara_pane_open_elapsed"))
+                    .get_temp(egui::Id::from(pane2_id.with("mara_pane_open_elapsed")))
                     .unwrap_or(99.0);
                 let idx_key = pane2_id.with("mara_pane_section_idx");
-                let idx: u32 = d.get_temp(idx_key).unwrap_or(0);
-                d.insert_temp(idx_key, idx + 1);
+                let idx: u32 = d.get_temp(egui::Id::from(idx_key)).unwrap_or(0);
+                d.insert_temp(egui::Id::from(idx_key), idx + 1);
                 let start = (idx as f32) * stagger;
                 let raw = ((elapsed - start) / fade).clamp(0.0, 1.0);
                 raw * raw * (3.0 - 2.0 * raw) // smoothstep
@@ -1110,7 +1111,7 @@ impl Normal {
                         }
                         if resp.drag_started()
                             && let Some(active_pane_id) =
-                                ui.ctx().data(|d| d.get_temp::<Id>(pane::active_pane_key()))
+                                ui.ctx().data(|d| d.get_temp::<Id>(egui::Id::from(pane::active_pane_key())))
                         {
                             pane::set_drag(
                                 ui.ctx(),
@@ -1208,15 +1209,15 @@ impl Normal {
                         //   widgets (color picker, etc.) still grow the
                         //   container.
                         let recorded_h = child.ctx().data(|d| {
-                            if let Some(exact) = d.get_temp::<f32>(
+                            if let Some(exact) = d.get_temp::<f32>(egui::Id::from(
                                 pane_id.with("mara_container_intrinsic_natural_override"),
-                            ) {
+                            )) {
                                 exact
                             } else {
                                 let floor = d
-                                    .get_temp::<f32>(
+                                    .get_temp::<f32>(egui::Id::from(
                                         pane_id.with("mara_container_intrinsic_natural_floor"),
-                                    )
+                                    ))
                                     .unwrap_or(0.0);
                                 content_h.max(floor)
                             }
@@ -1290,7 +1291,7 @@ impl Normal {
         ui.set_opacity(prev_opacity);
         ui.ctx().data_mut(|d| {
             d.insert_temp(
-                pane::active_container_frame_rect_key(),
+                egui::Id::from(pane::active_container_frame_rect_key()),
                 frame_response.response.rect,
             );
         });
@@ -1304,8 +1305,8 @@ impl Normal {
                 .ctx()
                 .data_mut(|d| {
                     let key = pane::active_tabbed_container_rect_key();
-                    let rect = d.get_temp::<egui::Rect>(key);
-                    d.remove::<egui::Rect>(key);
+                    let rect = d.get_temp::<egui::Rect>(egui::Id::from(key));
+                    d.remove::<egui::Rect>(egui::Id::from(key));
                     rect
                 })
                 .unwrap_or(frame_response.response.rect);
@@ -1900,7 +1901,7 @@ fn paint_folder_tabs(
     // cleanly.
     let parent_pane_id: Id = ui
         .ctx()
-        .data(|d| d.get_temp(pane::active_pane_key()))
+        .data(|d| d.get_temp(egui::Id::from(pane::active_pane_key())))
         .unwrap_or(pane_id);
     let drag = pane::tab_drag::drag_state(ui.ctx(), parent_pane_id.into());
     let cursor_pos = crate::backend::egui::pointer_latest_pos(ui.ctx()).map(Into::into);
@@ -1999,8 +2000,8 @@ fn paint_folder_tabs(
         }
         if resp.clicked() && drag.is_none() {
             ui.ctx().data_mut(|d| {
-                d.insert_persisted(active_idx_key, i);
-                d.insert_persisted(active_tab_id_key(active_idx_key), tab_id);
+                d.insert_persisted(egui::Id::from(active_idx_key), i);
+                d.insert_persisted(egui::Id::from(active_tab_id_key(active_idx_key)), tab_id);
             });
         }
         if resp.drag_started() {
@@ -2099,7 +2100,7 @@ fn paint_top_tabs(
     // ── Tab drag state (cross-container reorder within this pane) ──
     let parent_pane_id: Id = ui
         .ctx()
-        .data(|d| d.get_temp(pane::active_pane_key()))
+        .data(|d| d.get_temp(egui::Id::from(pane::active_pane_key())))
         .unwrap_or(pane_id);
     let drag = pane::tab_drag::drag_state(ui.ctx(), parent_pane_id.into());
     let cursor_pos = crate::backend::egui::pointer_latest_pos(ui.ctx()).map(Into::into);
@@ -2207,8 +2208,8 @@ fn paint_top_tabs(
         }
         if resp.clicked() && drag.is_none() {
             ui.ctx().data_mut(|d| {
-                d.insert_persisted(active_idx_key, i);
-                d.insert_persisted(active_tab_id_key(active_idx_key), tab_id);
+                d.insert_persisted(egui::Id::from(active_idx_key), i);
+                d.insert_persisted(egui::Id::from(active_tab_id_key(active_idx_key)), tab_id);
             });
         }
         if resp.drag_started() {
@@ -2495,7 +2496,7 @@ fn paint_title(
     // `Normal::show_tabs` (GAME path) to overlay tab buttons on the
     // title row after the container has rendered.
     ui.ctx().data_mut(|d| {
-        d.insert_temp(pane_id.with("mara_normal_title_rect"), rect);
+        d.insert_temp(egui::Id::from(pane_id.with("mara_normal_title_rect")), rect);
     });
 
     let theme = style::theme();
@@ -3056,7 +3057,7 @@ fn paint_corner_ticks(
     let now = crate::backend::egui::input_time(ui.ctx());
     let opacity_active = ui.opacity() >= OPACITY_GATE;
     let body_open_now: bool = ui.ctx().data_mut(|d| {
-        d.get_persisted::<bool>(container_id.with("body_open"))
+        d.get_persisted::<bool>(egui::Id::from(container_id.with("body_open")))
             .unwrap_or(true)
     });
     // `first_seen` is the start-of-snap timestamp. It's set on
@@ -3072,14 +3073,14 @@ fn paint_corner_ticks(
     //      re-fire (the container is going away, the brackets just
     //      track its shrinking edge).
     let first_seen: Option<f64> = ui.ctx().data_mut(|d| {
-        let prev_active = d.get_temp::<bool>(prev_active_id).unwrap_or(false);
-        d.insert_temp(prev_active_id, opacity_active);
+        let prev_active = d.get_temp::<bool>(egui::Id::from(prev_active_id)).unwrap_or(false);
+        d.insert_temp(egui::Id::from(prev_active_id), opacity_active);
         let became_inactive = prev_active && !opacity_active;
 
         let prev_body_open = d
-            .get_temp::<bool>(prev_body_open_id)
+            .get_temp::<bool>(egui::Id::from(prev_body_open_id))
             .unwrap_or(body_open_now);
-        d.insert_temp(prev_body_open_id, body_open_now);
+        d.insert_temp(egui::Id::from(prev_body_open_id), body_open_now);
         let just_unfolded = !prev_body_open && body_open_now;
 
         if became_inactive || just_unfolded {
@@ -3087,9 +3088,9 @@ fn paint_corner_ticks(
             // back in shortly), or the user just unfolded this
             // section. Drop the recorded `first_seen` so the next
             // active frame re-arms the snap.
-            d.remove::<f64>(first_seen_id);
+            d.remove::<f64>(egui::Id::from(first_seen_id));
         }
-        let existing = d.get_temp::<f64>(first_seen_id);
+        let existing = d.get_temp::<f64>(egui::Id::from(first_seen_id));
         match (existing, opacity_active) {
             (Some(t), _) => Some(t),
             (None, true) => {
@@ -3100,7 +3101,7 @@ fn paint_corner_ticks(
                 // snap then kicks off naturally once `now` catches
                 // up with the biased first_seen.
                 let biased = now + DELAY_AFTER_FADE;
-                d.insert_temp(first_seen_id, biased);
+                d.insert_temp(egui::Id::from(first_seen_id), biased);
                 Some(biased)
             }
             (None, false) => None,

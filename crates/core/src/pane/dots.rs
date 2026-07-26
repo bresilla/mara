@@ -23,7 +23,8 @@
 
 use std::hash::Hash;
 
-use egui::{Id, Ui};
+use crate::vocab::Id;
+use egui::Ui;
 
 use crate::container::SeparatorOrient;
 use crate::{
@@ -75,7 +76,7 @@ pub(crate) fn paint_container_dots(
     // containers would compress / clip variably.
     if let Some(pane_id) = ui
         .ctx()
-        .data(|d| d.get_temp::<Id>(super::active_pane_key()))
+        .data(|d| d.get_temp::<Id>(egui::Id::from(super::active_pane_key())))
     {
         record_container_dot_rect(ui.ctx(), pane_id, rect);
         // The strip consumes `DOTS_STRIP_H` along the pane's flow

@@ -1,6 +1,7 @@
 //! Small helpers around egui scroll areas.
 
-use egui::{Id, Vec2};
+use crate::vocab::Id;
+use egui::Vec2;
 
 #[derive(Clone, Copy)]
 pub(crate) enum StickyScrollAxis {

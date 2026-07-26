@@ -16,7 +16,8 @@
 //! * **A floating preview** of the dragged container's last-known
 //!   rect renders at the cursor (paint-only, separate Area).
 
-use egui::{Color32, Context, Id, Pos2, Rect, Ui, Vec2};
+use crate::vocab::Id;
+use egui::{Color32, Context, Pos2, Rect, Ui, Vec2};
 
 use crate::layout::{AreaHost, Layer, Sense, UiBackend};
 use crate::paint::PaintCmd;

@@ -1,4 +1,5 @@
-use egui::{Id, Rect, pos2};
+use egui::{Rect, pos2};
+use mara_core::vocab::Id;
 use mara_core::{
     RibbonEdge, ShelfContainer, ShelfDef, ShelfEdge, ShelfEdgeError, ShelfState, layout_shelves,
     pane::{PaneAnchor, RailZone, TitleSide},

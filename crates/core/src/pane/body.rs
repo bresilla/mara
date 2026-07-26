@@ -18,7 +18,8 @@
 
 use std::collections::{HashMap, HashSet};
 
-use egui::{Color32, Id, Ui};
+use crate::vocab::Id;
+use egui::{Color32, Ui};
 
 use crate::container::{Normal, SeparatorOrient, Tab, container_flow, set_container_flow};
 use crate::pod::{Pod, PodResponse};
@@ -275,7 +276,7 @@ impl<'ui, 'spec> PaneBody<'ui, 'spec> {
     #[must_use]
     pub fn temp_string(&self, id: impl Into<MaraId>) -> Option<String> {
         let id: Id = id.into().into();
-        self.ui.ctx().data(|d| d.get_temp::<String>(id))
+        self.ui.ctx().data(|d| d.get_temp::<String>(egui::Id::from(id)))
     }
 
     /// Append a normal container (single body, pod list).
@@ -466,7 +467,7 @@ pub(crate) fn render_containers_with_tab_scope<'a>(
             }
             let dot_resp = paint_container_dots(body_ui, dots_orient, cid, accent);
             let body_open: bool = body_ui.ctx().data_mut(|d| {
-                d.get_persisted::<bool>(cid.with("body_open"))
+                d.get_persisted::<bool>(egui::Id::from(cid.with("body_open")))
                     .unwrap_or(true)
             });
             if dot_resp.dragged() && body_open {
@@ -516,7 +517,7 @@ pub(crate) fn render_containers_with_tab_scope<'a>(
 
         let dot_resp = paint_container_dots(body_ui, dots_orient, cid, accent);
         let body_open: bool = body_ui.ctx().data_mut(|d| {
-            d.get_persisted::<bool>(cid.with("body_open"))
+            d.get_persisted::<bool>(egui::Id::from(cid.with("body_open")))
                 .unwrap_or(true)
         });
         if dot_resp.dragged() && body_open {
@@ -641,7 +642,7 @@ mod tests {
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             egui::CentralPanel::default().show(&ctx, |ui| {
                 ui.ctx()
-                    .data_mut(|d| d.insert_temp(active_pane_key(), pane_id));
+                    .data_mut(|d| d.insert_temp(egui::Id::from(active_pane_key()), pane_id));
                 let _ = render_containers(
                     ui,
                     pane_id,
@@ -686,7 +687,7 @@ mod tests {
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             egui::CentralPanel::default().show(&ctx, |ui| {
                 ui.ctx()
-                    .data_mut(|d| d.insert_temp(active_pane_key(), pane_id));
+                    .data_mut(|d| d.insert_temp(egui::Id::from(active_pane_key()), pane_id));
                 let _ = render_containers(
                     ui,
                     pane_id,
@@ -721,7 +722,7 @@ mod tests {
         });
         egui::CentralPanel::default().show(&ctx, |ui| {
             ui.ctx()
-                .data_mut(|d| d.insert_temp(active_pane_key(), pane_id));
+                .data_mut(|d| d.insert_temp(egui::Id::from(active_pane_key()), pane_id));
             let responses = render_containers(
                 ui,
                 pane_id,
@@ -820,7 +821,7 @@ mod tests {
         });
         egui::CentralPanel::default().show(&ctx, |ui| {
             ui.ctx()
-                .data_mut(|d| d.insert_temp(active_pane_key(), target_pane));
+                .data_mut(|d| d.insert_temp(egui::Id::from(active_pane_key()), target_pane));
             let responses = render_containers_with_tab_scope(
                 ui,
                 target_pane,

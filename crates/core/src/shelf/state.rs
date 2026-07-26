@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
-use egui::{Color32, Id, Pos2, Rect, Vec2};
+use crate::vocab::Id;
+use egui::{Color32, Pos2, Rect, Vec2};
 
 use super::{ShelfEdge, sanitize_extent, shelf_active_container_key_for};
 

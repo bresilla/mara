@@ -8,7 +8,8 @@
 //! read the host context through backend helpers and crate-internal
 //! style helpers while egui remains the only backend.
 
-use egui::{Color32, Id, Rect};
+use crate::vocab::Id;
+use egui::{Color32, Rect};
 
 use super::anchor::{PaneAnchor, TitleSide};
 use crate::paint::{PaintCmd, TextRun};

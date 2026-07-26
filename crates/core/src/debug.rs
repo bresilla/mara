@@ -42,7 +42,8 @@
 #![allow(dead_code)]
 
 use crate::memory::MaraMemory;
-use egui::{Color32, FontId, Id, Rect, Stroke, StrokeKind, Ui};
+use crate::vocab::Id;
+use egui::{Color32, FontId, Rect, Stroke, StrokeKind, Ui};
 
 const ENABLED_KEY: &str = "mara_debug_inspector_enabled";
 const BEST_KEY: &str = "mara_debug_inspector_best";
@@ -104,7 +105,7 @@ pub fn tag(ui: &Ui, rect: Rect, label: impl Into<String>) {
     }
     let label = label.into();
     ui.ctx().data_mut(|d| {
-        let prev: Option<Best> = d.get_temp::<Best>(best_id());
+        let prev: Option<Best> = d.get_temp::<Best>(egui::Id::from(best_id()));
         let take = match prev {
             None => true,
             // Always take the SMALLER rect (compared by area). Both
@@ -117,7 +118,7 @@ pub fn tag(ui: &Ui, rect: Rect, label: impl Into<String>) {
             Some(p) => rect.area() < p.rect.area(),
         };
         if take {
-            d.insert_temp(best_id(), Best { rect, label });
+            d.insert_temp(egui::Id::from(best_id()), Best { rect, label });
         }
     });
 }

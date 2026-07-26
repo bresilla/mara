@@ -21,7 +21,7 @@ pub use separator::{SeparatorOrient, SeparatorStyle};
 pub(crate) use separator::{paint_separator, paint_separator_resize};
 pub use tabbed::Tab;
 
-use egui::Id;
+use crate::vocab::Id;
 
 use crate::vocab::Id as MaraId;
 
