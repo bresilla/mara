@@ -4,14 +4,13 @@ use std::{collections::HashMap, hash::Hash};
 
 use egui::{
     Align, CornerRadius, Id, LayerId, Layout, Margin, Modifiers, PointerButton,
-    Pos2, Rect, Scene, Sense, StrokeKind, Style, Ui, UiBuilder, UiKind, UiStackInfo,
+    Rect, Scene, Sense, StrokeKind, Style, Ui, UiBuilder, UiKind, UiStackInfo,
     collapsing_header::paint_default_icon,
     emath::{GuiRounding, TSTransform},
-    pos2,
     response::Flags,
 };
 use mara_core::MaraResponse;
-use mara_core::vocab::{Color32, Stroke, Vec2, vec2};
+use mara_core::vocab::{Color32, Pos2, Stroke, Vec2, pos2, vec2};
 use mara_core::style::{FrameRole, FrameSpec, frame_for};
 use smallvec::SmallVec;
 
@@ -1693,7 +1692,7 @@ where
             input_positions.insert(
                 in_pin.id,
                 PinResponse {
-                    pos: r.rect.center(),
+                    pos: r.rect.center().into(),
                     wire_color: wire_info.color.into(),
                     wire_style: wire_info.style,
                 },
@@ -1866,7 +1865,7 @@ where
             output_positions.insert(
                 out_pin.id,
                 PinResponse {
-                    pos: r.rect.center(),
+                    pos: r.rect.center().into(),
                     wire_color: wire_info.color.into(),
                     wire_style: wire_info.style,
                 },
@@ -2160,7 +2159,8 @@ where
                     + header_frame.total_margin().bottomf()
                     + ui.spacing().item_spacing.y
                     - node_state.payload_offset(openness),
-            ),
+            )
+            .into(),
             node_rect.max,
         );
 
@@ -2168,7 +2168,7 @@ where
             viewer.node_layout(style.get_node_layout(), node, &inputs, &outputs, graph);
 
         let payload_clip_rect =
-            Rect::from_min_max(node_rect.min, pos2(node_rect.max.x, f32::INFINITY));
+            Rect::from_min_max(node_rect.min, pos2(node_rect.max.x, f32::INFINITY).into());
 
         let pins_rect = match node_layout.kind {
             NodeLayoutKind::Coil => {
@@ -2263,11 +2263,13 @@ where
                         pos2(
                             inputs_rect.right() + ui.spacing().item_spacing.x,
                             payload_rect.top(),
-                        ),
+                        )
+                        .into(),
                         pos2(
                             outputs_rect.left() - ui.spacing().item_spacing.x,
                             payload_rect.bottom(),
-                        ),
+                        )
+                        .into(),
                     );
 
                     let r = draw_body(
@@ -2549,8 +2551,9 @@ where
                 pos2(
                     node_rect.left(),
                     pins_rect.bottom() + ui.spacing().item_spacing.y,
-                ),
-                pos2(node_rect.right(), node_rect.bottom()),
+                )
+                .into(),
+                pos2(node_rect.right(), node_rect.bottom()).into(),
             );
 
             let mut footer_ui = ui.new_child(
@@ -2640,7 +2643,8 @@ where
                 pos2(
                     f32::max(header_rect.max.x, node_rect.max.x),
                     header_rect.min.y,
-                ),
+                )
+                .into(),
             ));
         });
 
