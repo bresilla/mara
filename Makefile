@@ -68,6 +68,12 @@ test-all:
 check:
 	@$(CARGO) check --workspace --all-targets
 	@$(CARGO) check --manifest-path example/sealed/Cargo.toml
+# Workspace feature unification masks crates that don't build on their own
+# feature set: `mara_3d` had an ungated `wgpu::` reference and was broken
+# under `default = []` for as long as anyone had `gpu-preview` on somewhere.
+# Check the optional-GPU crate both ways.
+	@$(CARGO) check -p mara_3d
+	@$(CARGO) check -p mara_3d --features gpu-preview
 	@./scripts/ratchet.sh
 # ── Sealed tier (PLAN.md decision F1) ────────────────────────────────
 # `crates/modules/*` is the sealed tier: a crate there names NO backend
