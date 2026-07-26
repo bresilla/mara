@@ -106,19 +106,19 @@ pub fn maximize_state_key(id_salt: impl std::hash::Hash) -> MaraId {
     MaraId::new(("mara_maximize", id_salt))
 }
 
-fn pending_restore_fullscreen_key() -> egui::Id {
-    egui::Id::new("mara_pending_restore_fullscreen")
+fn pending_restore_fullscreen_key() -> crate::vocab::Id {
+    crate::vocab::Id::new("mara_pending_restore_fullscreen")
 }
 
-fn current_node_region_key() -> egui::Id {
-    egui::Id::new("mara_current_node_region")
+fn current_node_region_key() -> crate::vocab::Id {
+    crate::vocab::Id::new("mara_current_node_region")
 }
 
 /// The single key for the global "who owns the fullscreen overlay this
 /// pass" record — reader and every writer construct it HERE, never
 /// inline, so they can't drift apart.
-fn maximize_global_key() -> egui::Id {
-    egui::Id::new("mara_maximize_global")
+fn maximize_global_key() -> crate::vocab::Id {
+    crate::vocab::Id::new("mara_maximize_global")
 }
 
 /// The rect the current view node renders into, if a scoped node
@@ -174,8 +174,8 @@ pub fn __internal_is_any_fullscreen(ctx: &dyn crate::context::MaraCtx) -> bool {
     __internal_fullscreen_owner(ctx).is_some()
 }
 
-fn suppress_fullscreen_minimize_chip_key() -> egui::Id {
-    egui::Id::new("mara_suppress_fullscreen_minimize_chip")
+fn suppress_fullscreen_minimize_chip_key() -> crate::vocab::Id {
+    crate::vocab::Id::new("mara_suppress_fullscreen_minimize_chip")
 }
 
 /// Internal fullscreen restore-chip visibility setter for
@@ -254,10 +254,10 @@ pub fn __internal_maximizable_with_opts_egui(
     // / context-sensitive logic based on "is THIS widget
     // currently full-window?".
     let max_id = maximize_state_key(id_salt);
-    let max_key: egui::Id = max_id.into();
+    let max_key: crate::vocab::Id = max_id.into();
     let mut maximized: bool = ui
         .ctx()
-        .data(|d| d.get_temp::<bool>(max_key))
+        .data(|d| d.get_temp::<bool>(egui::Id::from(max_key)))
         .unwrap_or(false);
     let pending_restore = crate::memory::MaraMemoryCtx::new(ui.ctx())
         .get_temp::<MaraId>(pending_restore_fullscreen_key())
@@ -289,7 +289,7 @@ pub fn __internal_maximizable_with_opts_egui(
     };
     if maximized {
         ui.ctx()
-            .data_mut(|d| d.insert_temp(global_key, (pass_nr, max_id)));
+            .data_mut(|d| d.insert_temp(egui::Id::from(global_key), (pass_nr, max_id)));
     }
 
     let overlay = crate::style::theme().overlay;
@@ -360,7 +360,7 @@ pub fn __internal_maximizable_with_opts_egui(
         // frames. Painted in its OWN `Order::Tooltip` Area so it
         // sits on top of the `Foreground` overlay above.
         let suppress_minimize_chip: bool = ctx
-            .data(|d| d.get_temp(suppress_fullscreen_minimize_chip_key()))
+            .data(|d| d.get_temp(egui::Id::from(suppress_fullscreen_minimize_chip_key())))
             .unwrap_or(false);
         if !suppress_minimize_chip
             && fullscreen_minimize_button(
@@ -406,7 +406,7 @@ pub fn __internal_maximizable_with_opts_egui(
 
     if toggle {
         ui.ctx()
-            .data_mut(|d| d.insert_temp::<bool>(max_key, !maximized));
+            .data_mut(|d| d.insert_temp::<bool>(egui::Id::from(max_key), !maximized));
     }
 }
 
@@ -596,14 +596,14 @@ fn fullscreen_minimize_button(
     let accent_egui = crate::backend::egui::color32_for_backend(accent);
     // Persisted user-chosen anchor (set on drag-release). When
     // empty, fall back to the caller-supplied `opts`.
-    let anchor_key = egui::Id::new("mara_maximize_chip_anchor").with(id_salt);
+    let anchor_key = crate::vocab::Id::new("mara_maximize_chip_anchor").with(id_salt);
     let stored: Option<(RibbonEdge, RibbonCluster)> =
         crate::memory::MaraMemoryCtx::new(ctx).get_temp(anchor_key);
     let active_anchor = stored.unwrap_or((opts.minimize_edge, opts.minimize_cluster));
     // While the user is mid-drag, override the chip position with
     // the cursor (so the chip follows the pointer) — keyed by the
     // SAME id so the value clears on release.
-    let drag_pos_key = egui::Id::new("mara_maximize_chip_drag_pos").with(id_salt);
+    let drag_pos_key = crate::vocab::Id::new("mara_maximize_chip_drag_pos").with(id_salt);
     let drag_cursor: Option<MaraPos2> =
         crate::memory::MaraMemoryCtx::new(ctx).get_temp(drag_pos_key);
     let chip_pos: MaraPos2 = if let Some(c) = drag_cursor {
@@ -635,7 +635,7 @@ fn fullscreen_minimize_button(
             if resp.dragged()
                 && let Some(p) = crate::backend::egui::pointer_interact_pos(ui.ctx())
             {
-                ui.ctx().data_mut(|d| d.insert_temp(drag_pos_key, p));
+                ui.ctx().data_mut(|d| d.insert_temp(egui::Id::from(drag_pos_key), p));
                 // Compute the live snap target so we can paint
                 // a ghost outline showing where the chip WILL
                 // land on release.
@@ -651,8 +651,8 @@ fn fullscreen_minimize_button(
                     .unwrap_or_else(|| rect.center());
                 let snapped = nearest_anchor(screen, cursor, btn_size, edge_gap);
                 ui.ctx().data_mut(|d| {
-                    d.insert_temp(anchor_key, snapped);
-                    d.remove::<MaraPos2>(drag_pos_key);
+                    d.insert_temp(egui::Id::from(anchor_key), snapped);
+                    d.remove::<MaraPos2>(egui::Id::from(drag_pos_key));
                 });
             }
             if ui.is_rect_visible(rect.into()) {
