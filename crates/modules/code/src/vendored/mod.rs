@@ -1,91 +1,18 @@
-#![allow(rustdoc::invalid_rust_codeblocks)]
-//! Text Editor Widget for [egui](https://github.com/emilk/egui) with numbered lines and simple syntax highlighting based on keywords sets.
+//! Syntax definitions, lexer, and colour themes.
 //!
-//! ## Usage with egui
-//!
-//! ```ignore
-//! use mara_code::{CodeEditor, ColorTheme, Syntax};
-//!
-//! CodeEditor::default()
-//!   .id_source("code editor")
-//!   .with_rows(12)
-//!   .with_fontsize(14.0)
-//!   .with_theme(ColorTheme::GRUVBOX)
-//!   .with_syntax(Syntax::rust())
-//!   .with_numlines(true)
-//!   .show(ui, &mut self.code);
-//! ```
-//!
-//! ## Usage as lexer without egui
-//!
-//! **Cargo.toml**
-//!
-//! ```toml
-//! [dependencies]
-//! egui_code_editor = { version = "0.2" , default-features = false }
-//! colorful = "0.2.2"
-//! ```
-//!
-//! **main.rs**
-//!
-//! ```ignore
-//! use colorful::{Color, Colorful};
-//! use mara_code::{Syntax, Token, TokenType};
-//!
-//! fn color(token: TokenType) -> Color {
-//!     match token {
-//!         TokenType::Comment(_) => Color::Grey37,
-//!         TokenType::Function => Color::Yellow3b,
-//!         TokenType::Keyword => Color::IndianRed1c,
-//!         TokenType::Literal => Color::NavajoWhite1,
-//!         TokenType::Numeric(_) => Color::MediumPurple,
-//!         TokenType::Punctuation(_) => Color::Orange3,
-//!         TokenType::Special => Color::Cyan,
-//!         TokenType::Str(_) => Color::Green,
-//!         TokenType::Type => Color::GreenYellow,
-//!         TokenType::Whitespace(_) => Color::White,
-//!         TokenType::Unknown => Color::Pink1,
-//!     }
-//! }
-//!
-//! fn main() {
-//!     let text = r#"// Code Editor
-//! CodeEditor::default()
-//!     .id_source("code editor")
-//!     .with_rows(12)
-//!     .with_fontsize(14.0)
-//!     .with_theme(self.theme)
-//!     .with_syntax(self.syntax.to_owned())
-//!     .with_numlines(true)
-//!     .vscroll(true)
-//!     .show(ui, &mut self.code);
-//!     "#;
-//!
-//!     let syntax = Syntax::rust();
-//!     for token in Token::default().tokens(&syntax, text) {
-//!         print!("{}", token.buffer().color(color(token.ty())));
-//!     }
-//! }
-//! ```
-mod completer;
+//! Vendored from `egui_code_editor`, with the widget half removed:
+//! rendering now lives in the Mara adapter, which drives
+//! `MaraTextArea` (PLAN.md WS-D2). What remains is the tokeniser and
+//! the palette, and neither names a UI type.
+
 pub mod highlighting;
 mod syntax;
 mod themes;
 
-use egui::text::LayoutJob;
-use egui::widgets::text_edit::TextEditOutput;
 pub use highlighting::Token;
-use highlighting::highlight;
 use std::hash::{Hash, Hasher};
 pub use syntax::{Syntax, TokenType};
 pub use themes::ColorTheme;
-
-pub use crate::vendored::completer::Completer;
-
-pub trait Editor: Hash {
-    fn append(&self, job: &mut LayoutJob, token: &Token);
-    fn syntax(&self) -> &Syntax;
-}
 
 #[derive(Clone, Debug, PartialEq)]
 /// CodeEditor struct which stores settings for highlighting.
@@ -161,13 +88,6 @@ impl CodeEditor {
     }
 
     /// Use UI font size
-    pub fn with_ui_fontsize(self, ui: &mut egui::Ui) -> Self {
-        CodeEditor {
-            fontsize: egui::TextStyle::Monospace.resolve(ui.style()).size,
-            ..self
-        }
-    }
-
     /// Show or hide lines numbering
     ///
     /// **Default: true**
@@ -244,156 +164,36 @@ impl CodeEditor {
         }
     }
 
-    pub fn format_token(&self, ty: TokenType) -> egui::text::TextFormat {
-        format_token(&self.theme, self.fontsize, ty)
+    /// Split one line into `(text, token type)` pairs.
+    ///
+    /// The UI-free highlighting entry point (PLAN.md WS-D2): a host maps
+    /// each pair to its own styled run using [`ColorTheme::type_color`].
+    /// Concatenating the texts reproduces `line` exactly, so a renderer
+    /// can rely on it for layout.
+    #[must_use]
+    pub fn highlight_line(&self, line: &str) -> Vec<(String, TokenType)> {
+        Token::default()
+            .tokens(&self.syntax, line)
+            .into_iter()
+            .map(|token| (token.buffer().to_owned(), token.ty()))
+            .collect()
     }
 
-    fn numlines_show(&self, ui: &mut egui::Ui, text: &str) {
-        use egui::TextBuffer;
-
-        let total = if text.ends_with('\n') || text.is_empty() {
-            text.lines().count() + 1
-        } else {
-            text.lines().count()
-        }
-        .max(self.rows) as isize;
-        let max_indent = total
-            .to_string()
-            .len()
-            .max(!self.numlines_only_natural as usize * self.numlines_shift.to_string().len());
-        let mut counter = (1..=total)
-            .map(|i| {
-                let num = i + self.numlines_shift;
-                if num <= 0 && self.numlines_only_natural {
-                    String::new()
-                } else {
-                    let label = num.to_string();
-                    format!(
-                        "{}{label}",
-                        " ".repeat(max_indent.saturating_sub(label.len()))
-                    )
-                }
-            })
-            .collect::<Vec<String>>()
-            .join("\n");
-
-        #[allow(clippy::cast_precision_loss)]
-        let width = max_indent as f32
-            * self.fontsize
-            * 0.5
-            * !(total + self.numlines_shift <= 0 && self.numlines_only_natural) as u8 as f32;
-
-        let mut layouter = |ui: &egui::Ui, text_buffer: &dyn TextBuffer, _wrap_width: f32| {
-            let layout_job = egui::text::LayoutJob::single_section(
-                text_buffer.as_str().to_string(),
-                egui::TextFormat::simple(
-                    egui::FontId::monospace(self.fontsize),
-                    self.theme.type_color(TokenType::Comment(true)).into(),
-                ),
-            );
-            ui.fonts_mut(|f| f.layout_job(layout_job))
-        };
-
-        ui.add(
-            egui::TextEdit::multiline(&mut counter)
-                .id_source(format!("{}_numlines", self.id))
-                .font(egui::TextStyle::Monospace)
-                .interactive(false)
-                .frame(egui::Frame::NONE)
-                .desired_rows(self.rows)
-                .desired_width(width)
-                .layouter(&mut layouter),
-        );
+    /// The palette this editor renders with.
+    #[must_use]
+    pub fn theme(&self) -> &ColorTheme {
+        &self.theme
     }
 
-    /// Show Code Editor with auto-completion feature
-    pub fn show_with_completer(
-        &mut self,
-        ui: &mut egui::Ui,
-        text: &mut dyn egui::TextBuffer,
-        completer: &mut Completer,
-    ) -> TextEditOutput {
-        completer.handle_input(ui.ctx());
-        let mut editor_output = self.show(ui, text);
-        completer.show(&self.syntax, &self.theme, self.fontsize, &mut editor_output);
-        editor_output
+    /// Configured font size in points.
+    #[must_use]
+    pub fn fontsize(&self) -> f32 {
+        self.fontsize
     }
 
-    /// Show Code Editor
-    pub fn show(&mut self, ui: &mut egui::Ui, text: &mut dyn egui::TextBuffer) -> TextEditOutput {
-        use egui::TextBuffer;
-
-        let mut text_edit_output: Option<TextEditOutput> = None;
-        let mut code_editor = |ui: &mut egui::Ui| {
-            ui.horizontal_top(|h| {
-                apply_theme_style(h, &self.theme, self.fontsize);
-                if self.numlines {
-                    self.numlines_show(h, text.as_str());
-                }
-                egui::ScrollArea::horizontal()
-                    .id_salt(format!("{}_inner_scroll", self.id))
-                    .show(h, |ui| {
-                        let mut layouter =
-                            |ui: &egui::Ui, text_buffer: &dyn TextBuffer, _wrap_width: f32| {
-                                let layout_job = highlight(ui.ctx(), self, text_buffer.as_str());
-                                ui.fonts_mut(|f| f.layout_job(layout_job))
-                            };
-                        let output = egui::TextEdit::multiline(text)
-                            .id_source(&self.id)
-                            .lock_focus(true)
-                            .desired_rows(self.rows)
-                            .frame(egui::Frame::NONE)
-                            .desired_width(self.desired_width)
-                            .layouter(&mut layouter)
-                            .show(ui);
-                        text_edit_output = Some(output);
-                    });
-            });
-        };
-        if self.vscroll {
-            egui::ScrollArea::vertical()
-                .id_salt(format!("{}_outer_scroll", self.id))
-                .stick_to_bottom(self.stick_to_bottom)
-                .show(ui, code_editor);
-        } else {
-            code_editor(ui);
-        }
-
-        text_edit_output.expect("TextEditOutput should exist at this point")
+    /// Configured visible row count.
+    #[must_use]
+    pub fn rows(&self) -> usize {
+        self.rows
     }
-}
-
-impl Editor for CodeEditor {
-    fn append(&self, job: &mut LayoutJob, token: &Token) {
-        if !token.buffer().is_empty() {
-            job.append(token.buffer(), 0.0, self.format_token(token.ty()));
-        }
-    }
-
-    fn syntax(&self) -> &Syntax {
-        &self.syntax
-    }
-}
-
-pub fn format_token(theme: &ColorTheme, fontsize: f32, ty: TokenType) -> egui::text::TextFormat {
-    let font_id = egui::FontId::monospace(fontsize);
-    let color = theme.type_color(ty);
-    egui::text::TextFormat::simple(font_id, color.into())
-}
-
-/// Apply a [`ColorTheme`] to an egui `Style`.
-///
-/// This used to be `ColorTheme::modify_style`, but a palette should not
-/// know about a backend's style struct — that coupling is what kept the
-/// theme layer unsealed. It lives here, at the widget boundary that
-/// still owns a `Ui`, and moves out with the widget in WS-D2.
-fn apply_theme_style(ui: &mut egui::Ui, theme: &ColorTheme, fontsize: f32) {
-    let style = ui.style_mut();
-    style.visuals.widgets.noninteractive.bg_fill = theme.bg().into();
-    style.visuals.window_fill = theme.bg().into();
-    style.visuals.selection.stroke.color = theme.cursor().into();
-    style.visuals.selection.bg_fill = theme.selection().into();
-    style.visuals.extreme_bg_color = theme.bg().into();
-    style.override_font_id = Some(egui::FontId::monospace(fontsize));
-    style.visuals.text_cursor.stroke.width = fontsize * 0.1;
 }

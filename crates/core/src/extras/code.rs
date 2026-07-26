@@ -103,20 +103,60 @@ pub fn mara_code_editor_with_opts(
         min_size,
         fs_opts,
         |ui| {
-            let id = format!("mara_code_editor_{:?}", ui.id());
             let code = crate::style::theme().code;
             let line_h = code.font_size * code.line_height_factor;
             let rows = ((ui.available_height() / line_h).floor() as usize).max(code.min_rows);
-            CodeEditor::default()
-                .id_source(id)
+            let editor = CodeEditor::default()
                 .with_syntax(syntax)
                 .with_theme(mara_code_theme(accent_egui))
                 .with_fontsize(code.font_size)
-                .with_rows(rows)
-                .with_numlines(true)
-                .show(ui, text);
+                .with_rows(rows);
+            let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
+            show_code_text_area(&mut backend, id_salt, &editor, text, accent);
         },
     );
+}
+
+/// Render a [`CodeEditor`]'s configuration through the sealed
+/// [`crate::MaraTextArea`] (PLAN.md WS-D2).
+///
+/// This is the boundary the WS-D split creates: `mara_code` supplies
+/// the tokeniser and palette as plain data, and the *adapter* owns the
+/// rendering. The highlighter is a closure mapping each token to a
+/// [`crate::paint::TextRun`], so syntax colouring reaches the paint IR
+/// with no backend coupling of its own.
+fn show_code_text_area(
+    backend: &mut dyn crate::layout::UiBackend,
+    id_salt: impl Hash,
+    editor: &CodeEditor,
+    text: &mut String,
+    accent: MaraColor32,
+) {
+    let theme = editor.theme();
+    let fontsize = editor.fontsize();
+    let highlight = |line: &str| -> Vec<crate::paint::TextRun> {
+        editor
+            .highlight_line(line)
+            .into_iter()
+            .map(|(text, ty)| {
+                let c = theme.type_color(ty).to_array();
+                crate::paint::TextRun {
+                    text,
+                    size: fontsize,
+                    color: MaraColor32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]),
+                    family: crate::paint::TextFamily::Monospace,
+                    extra_letter_spacing: 0.0,
+                    leading_space: 0.0,
+                }
+            })
+            .collect()
+    };
+    let area = crate::MaraTextArea::new(crate::vocab::Id::new(("mara_code_editor", id_salt)))
+        .rows(editor.rows())
+        .font_size(fontsize)
+        .accent(accent)
+        .highlight(&highlight);
+    let _ = area.show(backend, text);
 }
 
 /// Build a [`ColorTheme`] whose background / text / selection

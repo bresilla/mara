@@ -1,7 +1,7 @@
 //! # mara_code
 //!
-//! Standalone code-editor crate for egui. Vendored fork of
-//! [`egui_code_editor`](https://crates.io/crates/egui_code_editor).
+//! Standalone syntax-highlighting and palette crate. Vendored fork
+//! of `egui_code_editor`, with all UI rendering removed.
 //!
 //! The crate is theme-neutral: the bundled [`ColorTheme`] presets
 //! (`GRUVBOX`, `GITHUB_LIGHT`, `SONOKAI`, …) cover the common
@@ -27,12 +27,11 @@
 
 /// An sRGB colour, as the theme presets store them.
 ///
-/// This crate deliberately has **no UI dependency at all** — not egui,
-/// not `mara_core`. It cannot depend on `mara_core` because
-/// `mara_core` optionally depends on *it* (the `code` feature), and
-/// Cargo forbids the cycle. So the palette speaks its own tiny colour
-/// type and the Mara adapter converts it to `vocab::Color32` at the
-/// boundary. See PLAN.md WS-D2.
+/// This crate deliberately has **no UI dependency at all**. It cannot
+/// depend on `mara_core` because `mara_core` optionally depends on
+/// *it* (the `code` feature), and Cargo forbids the cycle. So the
+/// palette speaks its own tiny colour type and the Mara adapter
+/// converts it at the boundary. See PLAN.md WS-D2.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct CodeColor {
     pub r: u8,
@@ -56,16 +55,6 @@ impl CodeColor {
     #[must_use]
     pub const fn to_array(self) -> [u8; 4] {
         [self.r, self.g, self.b, self.a]
-    }
-}
-
-/// Bridge for the parts of this crate that still render through egui —
-/// the `CodeEditor` widget and its completion popup. Those move to the
-/// Mara adapter in WS-D2; when they do, this impl and the `egui`
-/// dependency go with them, and the crate becomes UI-free.
-impl From<CodeColor> for egui::Color32 {
-    fn from(c: CodeColor) -> Self {
-        egui::Color32::from_rgba_unmultiplied(c.r, c.g, c.b, c.a)
     }
 }
 
@@ -129,7 +118,7 @@ mod seal_tests {
     }
 
     /// The palette layer must not name a UI type at all — that is what
-    /// lets `mara_code` stay free of both egui and `mara_core` (which
+    /// lets `mara_code` stay free of any UI crate and of `mara_core` (which
     /// it cannot depend on: `mara_core` optionally depends on *it*).
     #[test]
     fn theme_colours_are_plain_data() {

@@ -79,15 +79,15 @@ check:
 # `crates/modules/*` is the sealed tier: a crate there names NO backend
 # type. This is a blanket ban over the whole directory, not a per-crate
 # allowlist, so a new module is sealed by default and a regression is a
-# build failure rather than a review miss. `graph` and `code` are the
-# two known exceptions, pending their WS-D rewrite.
+# build failure rather than a review miss. `graph` is the last exception,
+# pending its WS-D1 split; `code` graduated when WS-D2 landed.
 #
 # Renderer-owning crates live in `hosts/` instead — see the Cargo.toml
 # layout comment for why that is honest rather than a loophole.
 	@! grep -RlnE '^(egui|egui[_-][a-z]+|wgpu)[[:space:]]*=' \
-		$$(ls -d crates/modules/*/Cargo.toml | grep -vE 'modules/(graph|code)/')
+		$$(ls -d crates/modules/*/Cargo.toml | grep -vE 'modules/graph/')
 	@! grep -RInE '\begui[_-]?[a-z]*::|\bwgpu::' \
-		$$(ls -d crates/modules/*/src | grep -vE 'modules/(graph|code)/')
+		$$(ls -d crates/modules/*/src | grep -vE 'modules/graph/')
 	@! grep -n 'raw-egui' example/Cargo.toml
 	@! grep -n 'raw-egui' crates/core/Cargo.toml mara/Cargo.toml
 	@! grep -RInE 'cfg[(]feature[[:space:]]*=[[:space:]]*"raw-egui"|^[[:space:]]*pub[[:space:]]+use[[:space:]]+egui([:;]|$$)|^[[:space:]]*pub[[:space:]]+fn[[:space:]]+(from_raw|raw_ui_mut|raw|egui|egui_ctx|ctx)[(]' crates/core/src mara/src

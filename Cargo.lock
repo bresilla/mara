@@ -3648,7 +3648,6 @@ dependencies = [
 name = "mara_code"
 version = "0.4.1"
 dependencies = [
- "egui",
  "serde",
 ]
 
