@@ -1033,13 +1033,13 @@ pub fn fg_dim() -> MaraColor32 {
 /// counter as a salt on per-id animation ids so each fresh
 /// appearance gets a clean animation cycle instead of replaying
 /// the previous session's locked-in state.
-pub(crate) fn appearance_session(ctx: &egui::Context, id: impl Into<MaraId>) -> u64 {
+pub(crate) fn appearance_session(ctx: &dyn crate::context::MaraCtx, id: impl Into<MaraId>) -> u64 {
     let id: egui::Id = id.into().into();
     let key_seen = id.with("mara_last_seen_pass");
     let key_sess = id.with("mara_session_count");
-    let now = ctx.cumulative_pass_nr();
-    let last: Option<u64> = crate::memory::MaraMemoryCtx::new(ctx).get_temp(key_seen);
-    let mut sess: u64 = crate::memory::MaraMemoryCtx::new(ctx)
+    let now = ctx.pass_nr();
+    let last: Option<u64> = ctx.memory().get_temp(key_seen);
+    let mut sess: u64 = ctx.memory()
         .get_temp(key_sess)
         .unwrap_or(0);
     let bumped = !matches!(last, Some(p) if p + 1 == now);
@@ -1047,7 +1047,7 @@ pub(crate) fn appearance_session(ctx: &egui::Context, id: impl Into<MaraId>) -> 
         sess = sess.wrapping_add(1);
     }
     {
-        let mut memory = crate::memory::MaraMemoryCtx::new(ctx);
+        let mut memory = ctx.memory();
         memory.set_temp(key_seen, now);
         memory.set_temp(key_sess, sess);
     };
@@ -1077,7 +1077,7 @@ const SCRAMBLE_CHARS: &[char] = &[
 /// Calls `request_repaint` while any character is still scrambling
 /// (or while gated, so the random glyphs keep cycling).
 pub(crate) fn scramble_text(
-    ctx: &egui::Context,
+    ctx: &dyn crate::context::MaraCtx,
     id: impl Into<MaraId>,
     current: &str,
     active: bool,
@@ -1097,7 +1097,7 @@ pub(crate) fn scramble_text(
     /// `STAGGER`.
     const MIN_DUR: f64 = 0.65;
 
-    let now = ctx.input(|i| i.time);
+    let now = ctx.now();
     let id_seed = id.value().wrapping_mul(0x9E37_79B9);
     let frame_phase = (now * 70.0) as u64;
 
@@ -1124,8 +1124,8 @@ pub(crate) fn scramble_text(
 
     let key_start = id.with("mara_scramble_start");
     let key_prev = id.with("mara_scramble_prev");
-    let prev: Option<String> = crate::memory::MaraMemoryCtx::new(ctx).get_temp(key_prev);
-    let mut start: f64 = crate::memory::MaraMemoryCtx::new(ctx)
+    let prev: Option<String> = ctx.memory().get_temp(key_prev);
+    let mut start: f64 = ctx.memory()
         .get_temp(key_start)
         .unwrap_or(now);
     // Restart scramble whenever the text changes (or on first sight,
@@ -1133,7 +1133,7 @@ pub(crate) fn scramble_text(
     if prev.as_deref() != Some(current) {
         start = now;
         {
-            let mut memory = crate::memory::MaraMemoryCtx::new(ctx);
+            let mut memory = ctx.memory();
             memory.set_temp(key_prev, current.to_string());
             memory.set_temp(key_start, start);
         };
@@ -1177,7 +1177,7 @@ pub(crate) fn scramble_text(
 /// (the scramble is about to start) or when elapsed is below the
 /// last-character lock time.
 pub(crate) fn scramble_active(
-    ctx: &egui::Context,
+    ctx: &dyn crate::context::MaraCtx,
     scramble_id: impl Into<MaraId>,
     current: &str,
 ) -> bool {
@@ -1187,12 +1187,12 @@ pub(crate) fn scramble_active(
     const MIN_DUR: f64 = 0.65;
     let key_start = scramble_id.with("mara_scramble_start");
     let key_prev = scramble_id.with("mara_scramble_prev");
-    let prev: Option<String> = crate::memory::MaraMemoryCtx::new(ctx).get_temp(key_prev);
+    let prev: Option<String> = ctx.memory().get_temp(key_prev);
     if prev.as_deref() != Some(current) {
         return true;
     }
-    let now = ctx.input(|i| i.time);
-    let start: f64 = crate::memory::MaraMemoryCtx::new(ctx)
+    let now = ctx.now();
+    let start: f64 = ctx.memory()
         .get_temp(key_start)
         .unwrap_or(now);
     let elapsed = now - start;
@@ -1209,7 +1209,7 @@ pub(crate) fn scramble_active(
 /// Intended to follow `scramble_text` so the title plays its decode
 /// cycle on appear, then the occasional glitch flickers a single
 /// letter every few seconds against the locked text.
-pub(crate) fn glitch_text(ctx: &egui::Context, id: impl Into<MaraId>, base: &str) -> String {
+pub(crate) fn glitch_text(ctx: &dyn crate::context::MaraCtx, id: impl Into<MaraId>, base: &str) -> String {
     let id: egui::Id = id.into().into();
     const GLITCH_DUR: f64 = 0.18;
 
@@ -1233,7 +1233,7 @@ pub(crate) fn glitch_text(ctx: &egui::Context, id: impl Into<MaraId>, base: &str
     let period_h = id_seed.wrapping_mul(0xC229_6164_8C84_38AB);
     let bucket_period = 3.0 + ((period_h as f64) / (u64::MAX as f64)) * 6.0;
 
-    let now = ctx.input(|i| i.time);
+    let now = ctx.now();
     let bucket = (now / bucket_period).floor() as u64;
     let bucket_start = (bucket as f64) * bucket_period;
     let phase = now - bucket_start;
@@ -1285,7 +1285,7 @@ pub(crate) fn glitch_text(ctx: &egui::Context, id: impl Into<MaraId>, base: &str
 ///
 /// Same hash-driven timing pattern as [`glitch_text`] so different titles
 /// fire on staggered, deterministic schedules.
-pub(crate) fn chromatic_aberration_offset(ctx: &egui::Context, id: impl Into<MaraId>) -> f32 {
+pub(crate) fn chromatic_aberration_offset(ctx: &dyn crate::context::MaraCtx, id: impl Into<MaraId>) -> f32 {
     let id: egui::Id = id.into().into();
     /// Total split duration, peak in the middle.
     const DUR: f64 = 0.28;
@@ -1299,7 +1299,7 @@ pub(crate) fn chromatic_aberration_offset(ctx: &egui::Context, id: impl Into<Mar
     let period_h = id_seed.wrapping_mul(0xC229_6164_8C84_38AB);
     // 5 + [0, 8) seconds → 5–13 s between firings, deterministic per id.
     let bucket_period = 5.0 + ((period_h as f64) / (u64::MAX as f64)) * 8.0;
-    let now = ctx.input(|i| i.time);
+    let now = ctx.now();
     let bucket = (now / bucket_period).floor() as u64;
     let bucket_start = (bucket as f64) * bucket_period;
     let phase = now - bucket_start;
@@ -2613,7 +2613,7 @@ pub fn set_touch_density_override(force: Option<bool>) {
 /// laying out, so [`screen_class`] / [`screen_metrics`] are current.
 /// Internal theme application also calls it, so theme-driven hosts get
 /// it for free.
-pub(crate) fn set_screen_metrics(ctx: &egui::Context) {
+pub(crate) fn set_screen_metrics(ctx: &dyn crate::context::MaraCtx) {
     let rect = ctx.content_rect();
     let ppp = ctx.pixels_per_point().max(0.1);
     let metrics = ScreenMetrics {
