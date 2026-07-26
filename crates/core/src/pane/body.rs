@@ -40,7 +40,7 @@ use super::{PaneAnchor, TitleSide, active_drag, paint_container_dots, section_or
 /// host-widget integrations (node graph / code editor) without
 /// leaking arbitrary-closure access to consumer code.
 pub struct ContainerSpec<'a> {
-    id: Id,
+    id: MaraId,
     title: String,
     icon: &'static str,
     body: SpecBody<'a>,
@@ -65,11 +65,11 @@ pub(crate) enum SpecBody<'a> {
 /// moved container. Shelves therefore build one scope across all
 /// Shelf containers before rendering individual Shelf panes.
 pub(crate) struct TabRoutingScope {
-    tab_pool: HashMap<Id, Tab>,
-    tabbed_specs: HashMap<Id, (String, &'static str)>,
-    declared_tabs_per_container: HashMap<Id, Vec<Id>>,
-    all_tabs_in_scope: Vec<(Id, Id)>,
-    seen_tab_ids: HashSet<Id>,
+    tab_pool: HashMap<MaraId, Tab>,
+    tabbed_specs: HashMap<MaraId, (String, &'static str)>,
+    declared_tabs_per_container: HashMap<MaraId, Vec<MaraId>>,
+    all_tabs_in_scope: Vec<(MaraId, MaraId)>,
+    seen_tab_ids: HashSet<MaraId>,
 }
 
 impl TabRoutingScope {
@@ -91,7 +91,7 @@ impl TabRoutingScope {
             .insert(spec.id, (spec.title.clone(), spec.icon));
         let mut ids = Vec::with_capacity(tabs.len());
         for tab in std::mem::take(tabs) {
-            let tid = tab.egui_id();
+            let tid = tab.id();
             assert!(
                 self.seen_tab_ids.insert(tid),
                 "tabbed containers in one tab routing scope require globally unique tab ids"
@@ -109,7 +109,7 @@ impl TabRoutingScope {
         }
     }
 
-    fn is_tabbed_container(&self, container_id: Id) -> bool {
+    fn is_tabbed_container(&self, container_id: MaraId) -> bool {
         self.tabbed_specs.contains_key(&container_id)
     }
 }
@@ -168,7 +168,7 @@ impl<'a> ContainerSpec<'a> {
     #[doc(hidden)]
     #[must_use]
     pub fn raw_internal<F>(
-        id: impl Into<Id>,
+        id: impl Into<MaraId>,
         title: impl Into<String>,
         icon: &'static str,
         body: F,
@@ -191,11 +191,11 @@ impl<'a> ContainerSpec<'a> {
     /// pod response map).
     #[must_use]
     pub fn container_id(&self) -> MaraId {
-        self.id.into()
+        self.id
     }
 
     pub(crate) fn egui_container_id(&self) -> Id {
-        self.id
+        self.id.into()
     }
 }
 
@@ -386,16 +386,16 @@ pub(crate) fn render_containers_with_tab_scope<'a>(
     tab_scope: &mut TabRoutingScope,
     tabbed_strip_side: Option<TitleSide>,
 ) -> HashMap<Id, Vec<PodResponse>> {
-    let mut seen_container_ids: HashSet<Id> = HashSet::with_capacity(containers.len());
+    let mut seen_container_ids: HashSet<MaraId> = HashSet::with_capacity(containers.len());
     assert!(
         containers
             .iter()
             .all(|container| seen_container_ids.insert(container.id)),
         "pane containers require unique container ids"
     );
-    let defaults: Vec<Id> = containers.iter().map(|c| c.id).collect();
+    let defaults: Vec<Id> = containers.iter().map(|c| c.id.into()).collect();
     let order = section_order_for(body_ui.ctx(), pane_id, &defaults);
-    let mut by_id: HashMap<Id, ContainerSpec<'a>> =
+    let mut by_id: HashMap<MaraId, ContainerSpec<'a>> =
         containers.into_iter().map(|c| (c.id, c)).collect();
 
     let containers_stack_horizontally = !anchor.title_side().is_horizontal_strip();
@@ -409,27 +409,38 @@ pub(crate) fn render_containers_with_tab_scope<'a>(
 
     let mut responses: HashMap<Id, Vec<PodResponse>> = HashMap::new();
     for cid in order.into_iter() {
+        // `order` comes back from the backend-keyed reorder store; the tab
+        // bookkeeping is keyed by Mara identity.
+        let cid_mara: MaraId = cid.into();
         // Tabbed containers — pull routed tabs from the pool.
-        if tab_scope.is_tabbed_container(cid) {
-            let Some((title, icon)) = tab_scope.tabbed_specs.get(&cid).cloned() else {
+        if tab_scope.is_tabbed_container(cid_mara) {
+            let Some((title, icon)) = tab_scope.tabbed_specs.get(&cid_mara).cloned() else {
                 continue;
             };
-            let _ = by_id.remove(&cid);
-            let empty: Vec<Id> = Vec::new();
+            let _ = by_id.remove(&cid_mara);
+            let empty: Vec<MaraId> = Vec::new();
             let defaults_here = tab_scope
                 .declared_tabs_per_container
-                .get(&cid)
+                .get(&cid_mara)
                 .unwrap_or(&empty);
+            // `tab_drag` is still backend-keyed (WS-E4 step 4), so the
+            // Mara-keyed bookkeeping converts across this call.
+            let defaults_backend: Vec<Id> = defaults_here.iter().map(|id| (*id).into()).collect();
+            let all_tabs_backend: Vec<(Id, Id)> = tab_scope
+                .all_tabs_in_scope
+                .iter()
+                .map(|(tab, container)| ((*tab).into(), (*container).into()))
+                .collect();
             let routed_ids = super::tab_drag::route(
                 body_ui.ctx(),
                 tab_routing_id,
                 cid,
-                defaults_here,
-                &tab_scope.all_tabs_in_scope,
+                &defaults_backend,
+                &all_tabs_backend,
             );
             let mut routed_tabs: Vec<crate::container::Tab> = Vec::with_capacity(routed_ids.len());
             for tid in &routed_ids {
-                if let Some(tab) = tab_scope.tab_pool.remove(tid) {
+                if let Some(tab) = tab_scope.tab_pool.remove(&MaraId::from(*tid)) {
                     routed_tabs.push(tab);
                 }
             }
@@ -470,7 +481,7 @@ pub(crate) fn render_containers_with_tab_scope<'a>(
             continue;
         }
 
-        let Some(spec) = by_id.remove(&cid) else {
+        let Some(spec) = by_id.remove(&cid_mara) else {
             continue;
         };
         let normal = Normal::new(spec.title.as_str(), anchor, accent, cid).icon(spec.icon);
@@ -773,17 +784,19 @@ mod tests {
 
         tab_drag::commit_drop(&ctx, routing_id, moved_tab, source, target, 0);
         assert_eq!(
-            tab_drag::route(
-                &ctx,
-                routing_id,
-                target,
-                scope
+            {
+                let defaults: Vec<Id> = scope
                     .declared_tabs_per_container
-                    .get(&target)
-                    .map(Vec::as_slice)
-                    .unwrap_or(&[]),
-                &scope.all_tabs_in_scope,
-            ),
+                    .get(&MaraId::from(target))
+                    .map(|ids| ids.iter().map(|id| (*id).into()).collect())
+                    .unwrap_or_default();
+                let all: Vec<(Id, Id)> = scope
+                    .all_tabs_in_scope
+                    .iter()
+                    .map(|(t, c)| ((*t).into(), (*c).into()))
+                    .collect();
+                tab_drag::route(&ctx, routing_id, target, &defaults, &all)
+            },
             vec![moved_tab, target_own],
             "shared routing scope should keep moved tabs attached to their new owner before rendering"
         );
