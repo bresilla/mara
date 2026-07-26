@@ -434,3 +434,77 @@ fn d13_cache_sweeps_once_per_frame_not_once_per_access() {
         );
     });
 }
+
+// ─── E1.4 · cursor-region layout ──────────────────────────────────
+
+/// `mara_graph`'s node renderer computes its own geometry and places
+/// children at explicit rects (`new_child` ×7, `advance_cursor_after_rect`
+/// ×4). `UiBackend` had no equivalent, which is what blocks the last file
+/// of WS-D1.3. These are the semantics the port depends on.
+#[test]
+fn e14_child_at_does_not_disturb_parent_flow() {
+    use mara_core::backend::record::RecordingBackend;
+    use mara_core::layout::{Sense, UiBackend};
+
+    let mut backend =
+        RecordingBackend::at(Rect::from_min_size(Pos2::ZERO, Vec2::new(200.0, 200.0)));
+
+    let first = backend.allocate(Vec2::new(50.0, 20.0), Sense::Hover).rect;
+    assert_eq!(first.min.y, 0.0);
+
+    // A child placed far away must not move the parent's cursor.
+    let cursor_before = backend.cursor();
+    backend.child_at(
+        Rect::from_min_size(Pos2::new(120.0, 120.0), Vec2::new(40.0, 40.0)),
+        &mut |child| {
+            let _ = child.allocate(Vec2::new(10.0, 10.0), Sense::Hover);
+        },
+    );
+    assert_eq!(
+        backend.cursor(),
+        cursor_before,
+        "child_at must leave the parent's flow cursor alone"
+    );
+
+    // The next parent allocation still follows the first one.
+    let second = backend.allocate(Vec2::new(50.0, 20.0), Sense::Hover).rect;
+    assert_eq!(second.min.y, first.max.y);
+}
+
+#[test]
+fn e14_occupied_rect_grows_to_cover_explicit_placement() {
+    use mara_core::backend::record::RecordingBackend;
+    use mara_core::layout::UiBackend;
+
+    let mut backend =
+        RecordingBackend::at(Rect::from_min_size(Pos2::ZERO, Vec2::new(200.0, 200.0)));
+
+    // Nothing placed yet, so nothing is occupied.
+    assert_eq!(backend.occupied_rect().size(), Vec2::ZERO);
+
+    backend.expand_to_include(Rect::from_min_size(
+        Pos2::new(10.0, 10.0),
+        Vec2::new(30.0, 30.0),
+    ));
+    backend.expand_to_include(Rect::from_min_size(
+        Pos2::new(100.0, 5.0),
+        Vec2::new(20.0, 20.0),
+    ));
+
+    let occupied = backend.occupied_rect();
+    assert_eq!(occupied.min, Pos2::new(10.0, 5.0));
+    assert_eq!(occupied.max, Pos2::new(120.0, 40.0));
+}
+
+#[test]
+fn e14_advance_cursor_past_moves_flow_below_a_rect() {
+    use mara_core::backend::record::RecordingBackend;
+    use mara_core::layout::{Sense, UiBackend};
+
+    let mut backend =
+        RecordingBackend::at(Rect::from_min_size(Pos2::ZERO, Vec2::new(200.0, 200.0)));
+
+    backend.advance_cursor_past(Rect::from_min_size(Pos2::ZERO, Vec2::new(100.0, 60.0)));
+    let next = backend.allocate(Vec2::new(10.0, 10.0), Sense::Hover).rect;
+    assert_eq!(next.min.y, 60.0, "flow resumes below the consumed rect");
+}

@@ -131,6 +131,9 @@ pub struct RecordingBackend {
     /// Nested id-scope salts pushed by [`UiBackend::in_id_scope`], so
     /// `id()` yields unique ids per scope (egui's id stack, headless).
     pub id_stack: Vec<Id>,
+    /// Bounds actually occupied so far — `None` until something is
+    /// allocated or explicitly expanded into.
+    pub occupied: Option<Rect>,
     /// Every canvas painter handed out by [`UiBackend::make_painter`],
     /// retained so a test can read back what a module's `on_draw` /
     /// canvas body emitted. `MaraPainter` is `Clone` and shares its
@@ -261,6 +264,51 @@ impl UiBackend for RecordingBackend {
 
     fn memory(&self) -> crate::memory::BackendMemory<'_> {
         crate::memory::BackendMemory::Recording(&self.memory)
+    }
+
+    fn child_at(&mut self, rect: Rect, body: &mut dyn FnMut(&mut dyn UiBackend)) {
+        // An explicit-rect child gets its own cursor and must not
+        // disturb where the parent places its next widget.
+        let saved_available = self.available;
+        let saved_cursor = self.cursor;
+        let saved_horizontal = self.flow_horizontal;
+        self.available = rect;
+        self.cursor = rect.min;
+        self.flow_horizontal = false;
+        body(self);
+        self.available = saved_available;
+        self.cursor = saved_cursor;
+        self.flow_horizontal = saved_horizontal;
+        self.expand_to_include(rect);
+    }
+
+    fn advance_cursor_past(&mut self, rect: Rect) {
+        if self.flow_horizontal {
+            self.cursor.x = self.cursor.x.max(rect.max.x);
+            self.row_bottom = self.row_bottom.max(rect.max.y);
+        } else {
+            self.cursor.y = self.cursor.y.max(rect.max.y);
+        }
+        self.expand_to_include(rect);
+    }
+
+    fn expand_to_include(&mut self, rect: Rect) {
+        self.occupied = Some(match self.occupied {
+            Some(current) => Rect::from_min_max(
+                Pos2::new(current.min.x.min(rect.min.x), current.min.y.min(rect.min.y)),
+                Pos2::new(current.max.x.max(rect.max.x), current.max.y.max(rect.max.y)),
+            ),
+            None => rect,
+        });
+    }
+
+    fn occupied_rect(&self) -> Rect {
+        self.occupied
+            .unwrap_or_else(|| Rect::from_min_size(self.available.min, Vec2::ZERO))
+    }
+
+    fn cursor(&self) -> Pos2 {
+        self.cursor
     }
 
     fn in_child(

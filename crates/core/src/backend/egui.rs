@@ -230,6 +230,32 @@ impl UiBackend for EguiUiBackend<'_> {
         Some(self.ui)
     }
 
+    fn child_at(&mut self, rect: vocab::Rect, body: &mut dyn FnMut(&mut dyn UiBackend)) {
+        let rect: egui::Rect = rect.into();
+        let layout = *self.ui.layout();
+        let mut child = self
+            .ui
+            .new_child(egui::UiBuilder::new().max_rect(rect).layout(layout));
+        let mut backend = EguiUiBackend::new(&mut child);
+        body(&mut backend);
+    }
+
+    fn advance_cursor_past(&mut self, rect: vocab::Rect) {
+        self.ui.advance_cursor_after_rect(rect.into());
+    }
+
+    fn expand_to_include(&mut self, rect: vocab::Rect) {
+        self.ui.expand_to_include_rect(rect.into());
+    }
+
+    fn occupied_rect(&self) -> vocab::Rect {
+        self.ui.min_rect().into()
+    }
+
+    fn cursor(&self) -> vocab::Pos2 {
+        self.ui.next_widget_position().into()
+    }
+
     fn in_child(
         &mut self,
         id: vocab::Id,

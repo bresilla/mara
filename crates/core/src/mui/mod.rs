@@ -1032,6 +1032,36 @@ impl crate::layout::UiBackend for MaraBackend<'_> {
             Self::Recording(b) => b.__internal_egui_ui_ref(),
         }
     }
+    fn child_at(&mut self, rect: vocab::Rect, body: &mut dyn FnMut(&mut dyn UiBackend)) {
+        match self {
+            Self::Egui(b) => b.child_at(rect, body),
+            Self::Recording(b) => b.child_at(rect, body),
+        }
+    }
+    fn advance_cursor_past(&mut self, rect: vocab::Rect) {
+        match self {
+            Self::Egui(b) => b.advance_cursor_past(rect),
+            Self::Recording(b) => b.advance_cursor_past(rect),
+        }
+    }
+    fn expand_to_include(&mut self, rect: vocab::Rect) {
+        match self {
+            Self::Egui(b) => b.expand_to_include(rect),
+            Self::Recording(b) => b.expand_to_include(rect),
+        }
+    }
+    fn occupied_rect(&self) -> vocab::Rect {
+        match self {
+            Self::Egui(b) => b.occupied_rect(),
+            Self::Recording(b) => b.occupied_rect(),
+        }
+    }
+    fn cursor(&self) -> vocab::Pos2 {
+        match self {
+            Self::Egui(b) => b.cursor(),
+            Self::Recording(b) => b.cursor(),
+        }
+    }
     fn in_child(
         &mut self,
         id: vocab::Id,

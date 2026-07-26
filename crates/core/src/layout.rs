@@ -798,6 +798,32 @@ pub trait UiBackend {
     /// takes `&mut dyn UiBackend`, so `MaraUi` (which holds
     /// `&mut dyn UiBackend`) can wrap the child. `id` salts the child
     /// scope's persisted state.
+    /// Run `body` in a sub-region occupying exactly `rect`.
+    ///
+    /// Unlike [`UiBackend::in_child`], which insets and inherits the
+    /// parent's flow, this places the child at an explicit rect — what a
+    /// renderer that computes its own geometry needs (node bodies,
+    /// headers, pin rows). The parent's cursor is untouched; call
+    /// [`UiBackend::advance_cursor_past`] if the child should consume
+    /// flow space.
+    fn child_at(&mut self, rect: Rect, body: &mut dyn FnMut(&mut dyn UiBackend));
+
+    /// Move the flow cursor past `rect`, so subsequent `allocate` calls
+    /// land below (or right of) it.
+    fn advance_cursor_past(&mut self, rect: Rect);
+
+    /// Grow this region's occupied bounds to include `rect`, so the
+    /// parent sizes around content placed at an explicit position.
+    fn expand_to_include(&mut self, rect: Rect);
+
+    /// Bounds actually occupied so far — the union of everything
+    /// allocated or expanded into. Starts empty, unlike
+    /// [`UiBackend::available_rect`].
+    fn occupied_rect(&self) -> Rect;
+
+    /// Current flow cursor position.
+    fn cursor(&self) -> Pos2;
+
     fn in_child(&mut self, id: Id, inset_left: f32, body: &mut dyn FnMut(&mut dyn UiBackend));
 
     /// Run `body` in a sub-scope that flows horizontally (left→right)
@@ -944,6 +970,21 @@ impl<T: UiBackend + ?Sized> UiBackend for &mut T {
     }
     fn __internal_egui_ui_ref(&self) -> Option<&egui::Ui> {
         (**self).__internal_egui_ui_ref()
+    }
+    fn child_at(&mut self, rect: Rect, body: &mut dyn FnMut(&mut dyn UiBackend)) {
+        (**self).child_at(rect, body)
+    }
+    fn advance_cursor_past(&mut self, rect: Rect) {
+        (**self).advance_cursor_past(rect)
+    }
+    fn expand_to_include(&mut self, rect: Rect) {
+        (**self).expand_to_include(rect)
+    }
+    fn occupied_rect(&self) -> Rect {
+        (**self).occupied_rect()
+    }
+    fn cursor(&self) -> Pos2 {
+        (**self).cursor()
     }
     fn in_child(&mut self, id: Id, inset_left: f32, body: &mut dyn FnMut(&mut dyn UiBackend)) {
         (**self).in_child(id, inset_left, body)
