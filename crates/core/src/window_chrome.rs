@@ -391,13 +391,13 @@ pub fn __internal_paint_resize_corner_hover(
     let direction = __internal_hovered_resize_corner(ctx, window_rect, metrics)?;
     let (horizontal, vertical) = resize_corner_paint_rects(window_rect, direction, metrics)?;
 
-    let painter = ctx.layer_painter(crate::layer::layer_id(
-        "mara_window_resize_corner_hover",
-        crate::layer::z::WINDOW_CHROME,
-    ));
-    let fill = egui::Color32::from(accent);
-    painter.rect_filled(egui::Rect::from(horizontal), 0.0, fill);
-    painter.rect_filled(egui::Rect::from(vertical), 0.0, fill);
+    let painter =
+        crate::MaraPainter::__internal_from_egui(ctx.layer_painter(crate::layer::layer_id(
+            "mara_window_resize_corner_hover",
+            crate::layer::z::WINDOW_CHROME,
+        )));
+    painter.rect_filled(horizontal, crate::vocab::CornerRadius::ZERO, accent);
+    painter.rect_filled(vertical, crate::vocab::CornerRadius::ZERO, accent);
     Some(direction)
 }
 
