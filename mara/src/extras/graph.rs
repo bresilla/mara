@@ -150,7 +150,7 @@ pub fn mara_node_graph_style(accent: impl Into<MaraColor32>) -> GraphStyle {
 
     let bg_pattern = match graph.canvas_pattern {
         GraphCanvasPattern::Dots { spacing, radius } => {
-            BackgroundPattern::Dots(Dots::new(egui::vec2(spacing, spacing), radius))
+            BackgroundPattern::Dots(Dots::new(mara_core::vocab::vec2(spacing, spacing), radius))
         }
         GraphCanvasPattern::Hex { radius } => BackgroundPattern::Hex(Hex::new(radius)),
     };

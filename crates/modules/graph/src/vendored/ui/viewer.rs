@@ -338,7 +338,19 @@ pub trait NodeViewer<T> {
         let _ = graph;
 
         if let Some(background) = background {
-            background.draw(viewport, graph_style, style, painter);
+            // The background pattern is fully ported to `MaraPainter`
+            // (WS-D1.3); the surrounding renderer is not yet, so the
+            // stroke resolves and the painter wraps here, at the seam
+            // that shrinks as the rest of the port lands.
+            let stroke = graph_style.get_bg_pattern_stroke(style);
+            background.draw(
+                &(*viewport).into(),
+                mara_core::vocab::Stroke::new(
+                    stroke.width,
+                    mara_core::vocab::Color32::from(stroke.color),
+                ),
+                &mara_core::MaraPainter::__internal_from_egui(painter.clone()),
+            );
         }
     }
 

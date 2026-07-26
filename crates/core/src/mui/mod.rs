@@ -501,6 +501,18 @@ impl MaraPainter {
         }
     }
 
+    /// First-party hook: wrap a backend painter.
+    ///
+    /// Exists for incremental renderer ports (PLAN.md WS-D1.3), where a
+    /// ported leaf draws through `MaraPainter` while its still-unported
+    /// caller holds the backend's painter. Doc-hidden; the seam shrinks
+    /// to nothing as the port completes.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn __internal_from_egui(painter: egui::Painter) -> Self {
+        Self::new(painter)
+    }
+
     /// A painter that records into an internal command list rather than
     /// an egui painter — used by non-egui backends (their painter output
     /// isn't rasterised, so it's discarded) and by tests.

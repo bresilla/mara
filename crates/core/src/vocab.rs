@@ -39,6 +39,12 @@ impl Vec2 {
         self.x * self.x + self.y * self.y
     }
 
+    /// This offset read as a position from the origin.
+    #[must_use]
+    pub const fn to_pos2(self) -> Pos2 {
+        Pos2::new(self.x, self.y)
+    }
+
     /// Unit vector in the same direction, or [`Vec2::ZERO`] when this
     /// vector has no length (rather than producing NaNs).
     #[must_use]

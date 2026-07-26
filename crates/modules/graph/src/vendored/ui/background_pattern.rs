@@ -1,6 +1,34 @@
-use egui::{Painter, Rect, Style, Vec2, emath::Rot2, vec2};
+use mara_core::MaraPainter;
+use mara_core::vocab::{Rect, Stroke, Vec2, pos2, vec2};
 
-use super::GraphStyle;
+/// Rotate `v` by `angle` radians.
+///
+/// Replaces the backend's `Rot2`, which was the only reason this file
+/// used to name a backend type. The grid pattern needs exactly this
+/// and its inverse, so a pair of helpers is cheaper than a vocab
+/// rotation type nothing else would use.
+fn rotate(v: Vec2, angle: f32) -> Vec2 {
+    let (sin, cos) = angle.sin_cos();
+    Vec2::new(cos * v.x - sin * v.y, sin * v.x + cos * v.y)
+}
+
+/// Axis-aligned bounds of `rect` after rotating it by `angle`.
+///
+/// Replaces `Rect::rotate_bb`. Rotating all four corners and taking
+/// their extent is what the original does.
+fn rotated_bounds(rect: Rect, angle: f32) -> Rect {
+    let corners = [
+        rotate(Vec2::new(rect.min.x, rect.min.y), angle),
+        rotate(Vec2::new(rect.max.x, rect.min.y), angle),
+        rotate(Vec2::new(rect.min.x, rect.max.y), angle),
+        rotate(Vec2::new(rect.max.x, rect.max.y), angle),
+    ];
+    let min_x = corners.iter().fold(f32::INFINITY, |a, c| a.min(c.x));
+    let min_y = corners.iter().fold(f32::INFINITY, |a, c| a.min(c.y));
+    let max_x = corners.iter().fold(f32::NEG_INFINITY, |a, c| a.max(c.x));
+    let max_y = corners.iter().fold(f32::NEG_INFINITY, |a, c| a.max(c.y));
+    Rect::from_min_max(pos2(min_x, min_y), pos2(max_x, max_y))
+}
 
 ///Grid background pattern.
 ///Use `GraphStyle::background_pattern_stroke` for change stroke options
@@ -44,15 +72,12 @@ impl Grid {
         Self { spacing, angle }
     }
 
-    fn draw(&self, viewport: &Rect, graph_style: &GraphStyle, style: &Style, painter: &Painter) {
-        let bg_stroke = graph_style.get_bg_pattern_stroke(style);
+    fn draw(&self, viewport: &Rect, stroke: Stroke, painter: &MaraPainter) {
+        let bg_stroke = stroke;
 
         let spacing = vec2(self.spacing.x.max(1.0), self.spacing.y.max(1.0));
 
-        let rot = Rot2::from_angle(self.angle);
-        let rot_inv = rot.inverse();
-
-        let pattern_bounds = viewport.rotate_bb(rot_inv);
+        let pattern_bounds = rotated_bounds(*viewport, -self.angle);
 
         let min_x = (pattern_bounds.min.x / spacing.x).ceil();
         let max_x = (pattern_bounds.max.x / spacing.x).floor();
@@ -62,10 +87,10 @@ impl Grid {
             #[allow(clippy::cast_precision_loss)]
             let x = (x as f32 + min_x) * spacing.x;
 
-            let top = (rot * vec2(x, pattern_bounds.min.y)).to_pos2();
-            let bottom = (rot * vec2(x, pattern_bounds.max.y)).to_pos2();
+            let top = rotate(vec2(x, pattern_bounds.min.y), self.angle).to_pos2();
+            let bottom = rotate(vec2(x, pattern_bounds.max.y), self.angle).to_pos2();
 
-            painter.line_segment([top, bottom], bg_stroke);
+            painter.line_segment(top, bottom, bg_stroke);
         }
 
         let min_y = (pattern_bounds.min.y / spacing.y).ceil();
@@ -76,10 +101,10 @@ impl Grid {
             #[allow(clippy::cast_precision_loss)]
             let y = (y as f32 + min_y) * spacing.y;
 
-            let top = (rot * vec2(pattern_bounds.min.x, y)).to_pos2();
-            let bottom = (rot * vec2(pattern_bounds.max.x, y)).to_pos2();
+            let top = rotate(vec2(pattern_bounds.min.x, y), self.angle).to_pos2();
+            let bottom = rotate(vec2(pattern_bounds.max.x, y), self.angle).to_pos2();
 
-            painter.line_segment([top, bottom], bg_stroke);
+            painter.line_segment(top, bottom, bg_stroke);
         }
     }
 }
@@ -111,8 +136,7 @@ impl Dots {
         Self { spacing, radius }
     }
 
-    fn draw(&self, viewport: &Rect, graph_style: &GraphStyle, style: &Style, painter: &Painter) {
-        let stroke = graph_style.get_bg_pattern_stroke(style);
+    fn draw(&self, viewport: &Rect, stroke: Stroke, painter: &MaraPainter) {
         let fill = stroke.color;
 
         let spacing = vec2(self.spacing.x.max(1.0), self.spacing.y.max(1.0));
@@ -133,7 +157,7 @@ impl Dots {
             for iy in 0..=ny {
                 #[allow(clippy::cast_precision_loss)]
                 let y = (iy as f32 + min_y) * spacing.y;
-                painter.circle_filled(egui::pos2(x, y), self.radius, fill);
+                painter.circle_filled(pos2(x, y), self.radius, fill);
             }
         }
     }
@@ -164,8 +188,7 @@ impl Hex {
         Self { size }
     }
 
-    fn draw(&self, viewport: &Rect, graph_style: &GraphStyle, style: &Style, painter: &Painter) {
-        let stroke = graph_style.get_bg_pattern_stroke(style);
+    fn draw(&self, viewport: &Rect, stroke: Stroke, painter: &MaraPainter) {
         let s = self.size.max(2.0);
         // Pointy-top hex: row pitch = 1.5 * s, col pitch =
         // sqrt(3) * s, odd rows offset by half-col.
@@ -198,12 +221,12 @@ impl Hex {
             };
             for col in min_col..=max_col {
                 let cx = col as f32 * col_pitch + row_offset;
-                let centre = egui::pos2(cx, cy);
+                let centre = pos2(cx, cy);
                 // Draw 6 segments forming the hex outline.
                 for i in 0..6 {
                     let a = centre + verts[i];
                     let b = centre + verts[(i + 1) % 6];
-                    painter.line_segment([a, b], stroke);
+                    painter.line_segment(a, b, stroke);
                 }
             }
         }
@@ -254,17 +277,11 @@ impl BackgroundPattern {
     }
 
     /// Draws background pattern.
-    pub fn draw(
-        &self,
-        viewport: &Rect,
-        graph_style: &GraphStyle,
-        style: &Style,
-        painter: &Painter,
-    ) {
+    pub fn draw(&self, viewport: &Rect, stroke: Stroke, painter: &MaraPainter) {
         match self {
-            BackgroundPattern::Grid(g) => g.draw(viewport, graph_style, style, painter),
-            BackgroundPattern::Dots(d) => d.draw(viewport, graph_style, style, painter),
-            BackgroundPattern::Hex(h) => h.draw(viewport, graph_style, style, painter),
+            BackgroundPattern::Grid(g) => g.draw(viewport, stroke, painter),
+            BackgroundPattern::Dots(d) => d.draw(viewport, stroke, painter),
+            BackgroundPattern::Hex(h) => h.draw(viewport, stroke, painter),
             BackgroundPattern::NoPattern => {}
         }
     }
