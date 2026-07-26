@@ -693,7 +693,7 @@ impl Normal {
                     crate::container::SeparatorStyle::None
                 };
                 let frame_resp = Frame::new()
-                    .inner_margin(egui::Margin::symmetric(pod_pad_x, pod_pad_y))
+                    .inner_margin(egui::Margin::from(style::MarginSpec::symmetric(pod_pad_x, pod_pad_y)))
                     .show(body_ui, |inner_ui| {
                         out.push(pod.show(inner_ui));
                     });
@@ -1344,25 +1344,25 @@ impl Normal {
         // (the two sides parallel to the title strip) always uses
         // `cross`.
         let mut outer = match title_side {
-            TitleSide::Top => egui::Margin {
+            TitleSide::Top => style::MarginSpec {
                 left: cross,
                 right: cross,
                 top: main_title,
                 bottom: main_body,
             },
-            TitleSide::Bottom => egui::Margin {
+            TitleSide::Bottom => style::MarginSpec {
                 left: cross,
                 right: cross,
                 top: main_body,
                 bottom: main_title,
             },
-            TitleSide::Left => egui::Margin {
+            TitleSide::Left => style::MarginSpec {
                 top: cross,
                 bottom: cross,
                 left: main_title,
                 right: main_body,
             },
-            TitleSide::Right => egui::Margin {
+            TitleSide::Right => style::MarginSpec {
                 top: cross,
                 bottom: cross,
                 left: main_body,
