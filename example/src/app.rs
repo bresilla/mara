@@ -21,9 +21,10 @@
 //!
 //! * **Host glue** (frame drivers like `ui_system`, the ribbon
 //!   assembly, the Bevy/eframe/winit bridges, and the node-graph
-//!   `NodeViewer` impl whose vendored trait hands out `egui::Ui` by
 //!   design) legitimately uses host-owned egui from eframe. It does
-//!   **not** enable Mara's `raw-egui` feature.
+//!   **not** enable Mara's `raw-egui` feature. The node-graph
+//!   `NodeViewer` impl is no longer among them — it speaks `MaraUi`
+//!   since WS-D1.4.
 //! * **App content** (pane bodies, pods, trees, the canvas
 //!   whiteboard body) goes through the sealed Mara surface —
 //!   `PaneBody`, `Pod`, `TreeBody`, `MaraUi`, `MaraPainter`,
@@ -48,6 +49,8 @@ use std::io::Cursor;
 use egui;
 
 use mara::ui::{mara_core, modules::map as mara_map};
+use mara_core::LabelSpec;
+use mara_core::MaraMemory as _;
 use mara_core::container::SeparatorStyle;
 use mara_core::pane::{Pane, PaneAnchor, PaneBody, RailZone};
 use mara_core::pod::Pod;
@@ -60,6 +63,7 @@ use mara_core::style::{AccentColor, GlassOpacity, Mode, srgb_to_color};
 use mara_core::vocab::Color32 as MaraColor32;
 use mara_core::vocab::Pos2 as MaraPos2;
 use mara_core::vocab::Stroke as MaraStroke;
+use mara_core::vocab::Vec2 as MaraVec2;
 use mara_core::widget::{FillStyle, TreeBranchGuide, TreeIconKind, TreeIconSlot};
 use mara_map::{
     DEFAULT_SVG_MARKER, MapAnnotation, MapDocument, MapFeatureGeometry, MapFeatureInfo, MapIcon,
@@ -6208,63 +6212,32 @@ impl NodeViewer<GraphNode> for DemoViewer {
         node: mara::extras::graph::NodeId,
         _inputs: &[InPin],
         _outputs: &[OutPin],
-        ui: &mut egui::Ui,
+        ui: &mut mara_core::MaraUi<'_>,
         graph: &mut Graph<GraphNode>,
     ) {
         let Some(n) = graph.get_node(node).cloned() else {
             return;
         };
-        let title_color = egui::Color32::from_rgb(0xEE, 0xEE, 0xEE);
-        let subtitle_color = egui::Color32::from_rgba_unmultiplied(0xEE, 0xEE, 0xEE, 0xB0);
+        let title_color = MaraColor32::from_rgb(0xEE, 0xEE, 0xEE);
+        let subtitle_color = MaraColor32::from_rgba_unmultiplied(0xEE, 0xEE, 0xEE, 0xB0);
 
-        // No header width clamp — title bar sizes to its
-        // natural content width (icon + title + subtitle).
-        // The whole node ends up `max(title_w, every_pin_row_w,
-        // body_w)`, exactly UE Slate's behaviour.
-
-        // With graph's header layout fixed to `top_down(Min)`,
-        // a normal horizontal block is left-anchored as expected.
+        // No header width clamp — the title bar sizes to its natural
+        // content width, so the node ends up
+        // `max(title_w, every_pin_row_w, body_w)`.
         ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = 6.0;
-            let no_wrap = egui::TextWrapMode::Extend;
-
-            // Icon — large enough to span both text rows so it
-            // visually centres against the title+subtitle stack.
-            if let Some((glyph, family)) = mara_core::icons::icon_glyph(n.icon_name()) {
-                let rt = egui::RichText::new(glyph.to_string())
-                    .font(egui::FontId::new(
-                        22.0,
-                        egui::FontFamily::Name(family.into()),
-                    ))
-                    .color(title_color);
-                ui.add(egui::Label::new(rt).wrap_mode(no_wrap).selectable(false));
-            } else {
-                ui.add(
-                    egui::Label::new(egui::RichText::new("•").size(22.0).color(title_color))
-                        .wrap_mode(no_wrap)
-                        .selectable(false),
-                );
-            }
+            // Icon, sized to span both text rows so it centres against
+            // the title+subtitle stack.
+            let glyph = mara_core::icons::icon_glyph(n.icon_name())
+                .map_or_else(|| "\u{2022}".to_owned(), |(glyph, _)| glyph.to_string());
+            ui.label_spec(&glyph, &LabelSpec::new(22.0, title_color).truncate(false));
             ui.vertical(|ui| {
-                ui.spacing_mut().item_spacing.y = 0.0;
-                ui.add(
-                    egui::Label::new(
-                        egui::RichText::new(n.title())
-                            .strong()
-                            .size(13.0)
-                            .color(title_color),
-                    )
-                    .wrap_mode(no_wrap)
-                    .selectable(false),
+                ui.label_spec(
+                    &n.title(),
+                    &LabelSpec::new(13.0, title_color).truncate(false),
                 );
-                ui.add(
-                    egui::Label::new(
-                        egui::RichText::new(n.subtitle())
-                            .size(10.0)
-                            .color(subtitle_color),
-                    )
-                    .wrap_mode(no_wrap)
-                    .selectable(false),
+                ui.label_spec(
+                    &n.subtitle(),
+                    &LabelSpec::new(10.0, subtitle_color).truncate(false),
                 );
             });
         });
@@ -6273,7 +6246,7 @@ impl NodeViewer<GraphNode> for DemoViewer {
     fn show_input(
         &mut self,
         pin: &InPin,
-        ui: &mut egui::Ui,
+        ui: &mut mara_core::MaraUi<'_>,
         graph: &mut Graph<GraphNode>,
     ) -> impl NodePin + 'static {
         // UE Blueprint pin row:
@@ -6297,7 +6270,7 @@ impl NodeViewer<GraphNode> for DemoViewer {
     fn show_output(
         &mut self,
         pin: &OutPin,
-        ui: &mut egui::Ui,
+        ui: &mut mara_core::MaraUi<'_>,
         graph: &mut Graph<GraphNode>,
     ) -> impl NodePin + 'static {
         // UE Blueprint output row: just `[label] [pin glyph]`.
@@ -6347,7 +6320,7 @@ impl NodeViewer<GraphNode> for DemoViewer {
         node: mara::extras::graph::NodeId,
         _inputs: &[InPin],
         _outputs: &[OutPin],
-        ui: &mut egui::Ui,
+        ui: &mut mara_core::MaraUi<'_>,
         graph: &mut Graph<GraphNode>,
     ) {
         // No body width clamp — body sizes to its content like
@@ -6356,7 +6329,6 @@ impl NodeViewer<GraphNode> for DemoViewer {
         // grow per-frame when a value changes.
 
         let time = self.time;
-        let accent = mara_core::style::active_accent();
         let Some(n) = graph.get_node_mut(node) else {
             return;
         };
@@ -6364,26 +6336,22 @@ impl NodeViewer<GraphNode> for DemoViewer {
             // ── Source-node value editors (UE: Make-* nodes) ──
             GraphNode::Number(v) => {
                 let h = mara_core::widget::drag_value::DRAG_VALUE_ROW_H;
-                ui.allocate_ui_with_layout(
-                    egui::vec2(125.0, h),
-                    egui::Layout::left_to_right(egui::Align::Center),
+                ui.row(
+                    MaraVec2::new(125.0, h),
+                    mara_core::CrossAlign::Center,
                     |ui| {
-                        let mut __raw = mara_core::MaraUi::__internal_backend_from_raw(ui);
-                        let mut mui = mara_core::MaraUi::__internal_over(&mut __raw, accent);
-                        mui.drag_value("", v, 0.05, f64::MIN..=f64::MAX, 2, "");
+                        ui.drag_value("", v, 0.05, f64::MIN..=f64::MAX, 2, "");
                     },
                 );
             }
             GraphNode::Integer(i) => {
                 let h = mara_core::widget::drag_value::DRAG_VALUE_ROW_H;
                 let mut tmp = *i as f64;
-                ui.allocate_ui_with_layout(
-                    egui::vec2(125.0, h),
-                    egui::Layout::left_to_right(egui::Align::Center),
+                ui.row(
+                    MaraVec2::new(125.0, h),
+                    mara_core::CrossAlign::Center,
                     |ui| {
-                        let mut __raw = mara_core::MaraUi::__internal_backend_from_raw(ui);
-                        let mut mui = mara_core::MaraUi::__internal_over(&mut __raw, accent);
-                        mui.drag_value("", &mut tmp, 1.0, f64::MIN..=f64::MAX, 0, "");
+                        ui.drag_value("", &mut tmp, 1.0, f64::MIN..=f64::MAX, 0, "");
                     },
                 );
                 *i = tmp as i64;
@@ -6391,31 +6359,39 @@ impl NodeViewer<GraphNode> for DemoViewer {
             GraphNode::Vector(v) => {
                 let h = mara_core::widget::drag_value::DRAG_VALUE_ROW_H;
                 for (axis, comp) in ["x", "y", "z"].iter().zip(v.iter_mut()) {
-                    ui.allocate_ui_with_layout(
-                        egui::vec2(125.0, h),
-                        egui::Layout::left_to_right(egui::Align::Center),
+                    ui.row(
+                        MaraVec2::new(125.0, h),
+                        mara_core::CrossAlign::Center,
                         |ui| {
-                            let mut __raw = mara_core::MaraUi::__internal_backend_from_raw(ui);
-                            let mut mui = mara_core::MaraUi::__internal_over(&mut __raw, accent);
-                            mui.drag_value(axis, comp, 0.05, f64::MIN..=f64::MAX, 2, "");
+                            ui.drag_value(axis, comp, 0.05, f64::MIN..=f64::MAX, 2, "");
                         },
                     );
                 }
             }
             GraphNode::Color(c) => {
-                let mut raw: egui::Color32 = (*c).into();
-                ui.color_edit_button_srgba(&mut raw);
-                *c = raw.into();
+                let mut rgba = [
+                    f32::from(c.r()) / 255.0,
+                    f32::from(c.g()) / 255.0,
+                    f32::from(c.b()) / 255.0,
+                    f32::from(c.a()) / 255.0,
+                ];
+                if ui.color_rgba("", &mut rgba).changed() {
+                    let byte = |v: f32| (v.clamp(0.0, 1.0) * 255.0).round() as u8;
+                    *c = MaraColor32::from_rgba_unmultiplied(
+                        byte(rgba[0]),
+                        byte(rgba[1]),
+                        byte(rgba[2]),
+                        byte(rgba[3]),
+                    );
+                }
             }
             GraphNode::Bool(b) => {
                 let h = mara_core::widget::toggle::TOGGLE_ROW_H;
-                ui.allocate_ui_with_layout(
-                    egui::vec2(125.0, h),
-                    egui::Layout::left_to_right(egui::Align::Center),
+                ui.row(
+                    MaraVec2::new(125.0, h),
+                    mara_core::CrossAlign::Center,
                     |ui| {
-                        let mut __raw = mara_core::MaraUi::__internal_backend_from_raw(ui);
-                        let mut mui = mara_core::MaraUi::__internal_over(&mut __raw, accent);
-                        mui.toggle("", b);
+                        ui.toggle("", b);
                     },
                 );
             }
@@ -6525,23 +6501,19 @@ impl NodeViewer<GraphNode> for DemoViewer {
                 const SLOT_W: f32 = 140.0;
                 let drag_h = mara_core::widget::drag_value::DRAG_VALUE_ROW_H;
                 let mut seed_f = *seed as f64;
-                ui.allocate_ui_with_layout(
-                    egui::vec2(SLOT_W, drag_h),
-                    egui::Layout::left_to_right(egui::Align::Center),
+                ui.row(
+                    MaraVec2::new(SLOT_W, drag_h),
+                    mara_core::CrossAlign::Center,
                     |ui| {
-                        let mut __raw = mara_core::MaraUi::__internal_backend_from_raw(ui);
-                        let mut mui = mara_core::MaraUi::__internal_over(&mut __raw, accent);
-                        mui.drag_value("seed", &mut seed_f, 1.0, 0.0..=u32::MAX as f64, 0, "");
+                        ui.drag_value("seed", &mut seed_f, 1.0, 0.0..=u32::MAX as f64, 0, "");
                     },
                 );
                 *seed = seed_f as u32;
-                ui.allocate_ui_with_layout(
-                    egui::vec2(SLOT_W, drag_h * 2.0),
-                    egui::Layout::left_to_right(egui::Align::Center),
+                ui.row(
+                    MaraVec2::new(SLOT_W, drag_h * 2.0),
+                    mara_core::CrossAlign::Center,
                     |ui| {
-                        let mut __raw = mara_core::MaraUi::__internal_backend_from_raw(ui);
-                        let mut mui = mara_core::MaraUi::__internal_over(&mut __raw, accent);
-                        mui.slider("freq", frequency, 0.05..=8.0, 2, "");
+                        ui.slider("freq", frequency, 0.05..=8.0, 2, "");
                     },
                 );
             }
@@ -6549,13 +6521,11 @@ impl NodeViewer<GraphNode> for DemoViewer {
                 const SLOT_W: f32 = 140.0;
                 let drag_h = mara_core::widget::drag_value::DRAG_VALUE_ROW_H;
                 let mut seed_f = *seed as f64;
-                ui.allocate_ui_with_layout(
-                    egui::vec2(SLOT_W, drag_h),
-                    egui::Layout::left_to_right(egui::Align::Center),
+                ui.row(
+                    MaraVec2::new(SLOT_W, drag_h),
+                    mara_core::CrossAlign::Center,
                     |ui| {
-                        let mut __raw = mara_core::MaraUi::__internal_backend_from_raw(ui);
-                        let mut mui = mara_core::MaraUi::__internal_over(&mut __raw, accent);
-                        mui.drag_value("seed", &mut seed_f, 1.0, 0.0..=u32::MAX as f64, 0, "");
+                        ui.drag_value("seed", &mut seed_f, 1.0, 0.0..=u32::MAX as f64, 0, "");
                     },
                 );
                 *seed = seed_f as u32;
@@ -6574,51 +6544,37 @@ impl NodeViewer<GraphNode> for DemoViewer {
             //    samples on the X axis, value on the Y axis with
             //    auto-fit, gridlines and axis labels). ──
             GraphNode::PlotXY => {
-                use egui_plot::{Line, Plot, PlotPoints};
+                // Line chart drawn from paint primitives rather than a
+                // plotting crate: two demo nodes did not justify keeping
+                // an egui-only widget in the sealed path (PLAN.md WS-D1.4).
                 const HISTORY: usize = 256;
                 let v = eval_input_at(graph, time, node, 0).as_number();
-                let key = egui::Id::new(("mara_demo_plotxy", node));
-                let mut buf: Vec<f64> = ui
-                    .ctx()
-                    .data(|d| d.get_temp::<Vec<f64>>(key))
-                    .unwrap_or_default();
+                let key = MaraId::new(("mara_demo_plotxy", node));
+                let mut buf: Vec<f64> = ui.memory().get_temp::<Vec<f64>>(key).unwrap_or_default();
                 if buf.len() >= HISTORY {
                     buf.remove(0);
                 }
                 buf.push(v);
-                ui.ctx().data_mut(|d| d.insert_temp(key, buf.clone()));
-                let points: PlotPoints = buf
-                    .iter()
-                    .enumerate()
-                    .map(|(i, y)| [i as f64, *y])
-                    .collect();
-                let line = Line::new(format!("plot_{:?}", node), points)
-                    .color(egui::Color32::from_rgb(0xA4, 0xFF, 0x34))
-                    .width(1.5);
-                Plot::new(("mara_demo_plot", node))
-                    .height(80.0)
-                    .width(220.0)
-                    .show_axes([false, true])
-                    .show_grid([false, true])
-                    .allow_drag(false)
-                    .allow_zoom(false)
-                    .allow_scroll(false)
-                    .auto_bounds(egui::Vec2b::TRUE)
-                    .show(ui, |plot_ui| {
-                        plot_ui.line(line);
-                    });
-                ui.ctx().request_repaint();
+                ui.memory().set_temp(key, buf.clone());
+
+                let (painter, _) = ui.canvas(MaraVec2::new(220.0, 80.0));
+                let rect = painter.clip_rect();
+                paint_line_chart(
+                    &painter,
+                    rect,
+                    &[(&buf, MaraColor32::from_rgb(0xA4, 0xFF, 0x34))],
+                );
+                ui.request_repaint();
             }
             GraphNode::Preview => {
                 let c = eval_input_at(graph, time, node, 0).as_color();
-                let (rect, _) =
-                    ui.allocate_exact_size(egui::vec2(96.0, 40.0), egui::Sense::hover());
-                ui.painter().rect_filled(rect, 4.0, c);
-                ui.painter().rect_stroke(
+                let (painter, __resp) = ui.canvas(MaraVec2::new(96.0, 40.0));
+                let rect = __resp.rect;
+                painter.rect_filled(rect, mara_core::vocab::CornerRadius::same(4), c);
+                painter.rect_stroke(
                     rect,
-                    4.0,
-                    egui::Stroke::new(1.0, egui::Color32::from_gray(80)),
-                    egui::StrokeKind::Inside,
+                    mara_core::vocab::CornerRadius::same(4),
+                    MaraStroke::new(1.0, MaraColor32::from_gray(80)),
                 );
             }
             // ── Sophisticated 2-D noise image preview (à la
@@ -6632,19 +6588,19 @@ impl NodeViewer<GraphNode> for DemoViewer {
                 let seed = *seed;
                 let scale = *scale;
                 let offset = eval_input_at(graph, time, node, 0).as_number();
-                let key = egui::Id::new(("mara_demo_noise_image", node));
+                let key = MaraId::new(("mara_demo_noise_image", node));
                 // Cache the previous frame's parameters so we
                 // only regenerate the texture when something
                 // actually changed (otherwise this would burn a
                 // 96×64 hash + tessellator update every frame).
-                let prev = ui.ctx().data(|d| d.get_temp::<(u32, u64, u64)>(key));
+                let prev = ui.memory().get_temp::<(u32, u64, u64)>(key);
                 let scale_bits = scale.to_bits();
                 let offset_bits = offset.to_bits();
                 let new_state = (seed, scale_bits, offset_bits);
                 let needs_redraw = prev != Some(new_state);
 
                 if needs_redraw {
-                    let mut pixels = vec![egui::Color32::BLACK; W * H];
+                    let mut pixels = vec![MaraColor32::BLACK; W * H];
                     for j in 0..H {
                         for i in 0..W {
                             let x = (i as f64) * scale + offset;
@@ -6652,40 +6608,38 @@ impl NodeViewer<GraphNode> for DemoViewer {
                             let n = sample_2d_value_noise(seed, x, y);
                             // 0..1 → grey, then accent-tint it.
                             let g = (n * 255.0).clamp(0.0, 255.0) as u8;
-                            pixels[j * W + i] = egui::Color32::from_rgb(
+                            pixels[j * W + i] = MaraColor32::from_rgb(
                                 ((g as u16 * 0xA4) / 255) as u8,
                                 ((g as u16 * 0xFF) / 255) as u8,
                                 ((g as u16 * 0x34) / 255) as u8,
                             );
                         }
                     }
-                    let img = egui::ColorImage {
-                        size: [W, H],
-                        pixels,
-                        source_size: egui::vec2(W as f32, H as f32),
-                    };
-                    let tex = ui.ctx().load_texture(
-                        format!("mara_demo_noise_{:?}", node),
+                    let img = mara_core::vocab::ColorImage::from_rgba_pixels([W, H], &pixels);
+                    let tex = ui.load_texture(
+                        &format!("mara_demo_noise_{:?}", node),
                         img,
-                        egui::TextureOptions::NEAREST,
+                        mara_core::vocab::TextureOptions::NEAREST,
                     );
                     let tex_key = key.with("tex");
-                    ui.ctx().data_mut(|d| {
-                        d.insert_temp::<egui::TextureHandle>(tex_key, tex);
-                        d.insert_temp::<(u32, u64, u64)>(key, new_state);
-                    });
+                    if let Some(tex) = tex {
+                        ui.memory().set_temp(tex_key, tex);
+                        ui.memory().set_temp(key, new_state);
+                    }
                 }
                 let tex_key = key.with("tex");
                 if let Some(tex) = ui
-                    .ctx()
-                    .data(|d| d.get_temp::<egui::TextureHandle>(tex_key))
+                    .memory()
+                    .get_temp::<mara_core::vocab::TextureHandle>(tex_key)
                 {
-                    let resp = ui.add(
-                        egui::Image::new((tex.id(), egui::vec2(W as f32 * 1.5, H as f32 * 1.5)))
-                            .corner_radius(egui::CornerRadius::same(3))
-                            .sense(egui::Sense::hover()),
+                    let size = MaraVec2::new(W as f32 * 1.5, H as f32 * 1.5);
+                    let (painter, resp) = ui.canvas(size);
+                    painter.image(
+                        tex.id(),
+                        resp.rect,
+                        mara_core::MaraPainter::full_uv(),
+                        MaraColor32::WHITE,
                     );
-                    let _ = resp;
                 }
             }
             // ── Output sink — displays the connected input's
@@ -6710,14 +6664,11 @@ impl NodeViewer<GraphNode> for DemoViewer {
                     Value::Text(_) => PinType::Text,
                 };
                 ui.horizontal(|ui| {
-                    ui.add(
-                        egui::Label::new(
-                            egui::RichText::new("=")
-                                .monospace()
-                                .size(12.0)
-                                .color(egui::Color32::from_gray(170)),
-                        )
-                        .selectable(false),
+                    ui.label_spec(
+                        "=",
+                        &LabelSpec::new(12.0, MaraColor32::from_gray(170))
+                            .mono(true)
+                            .truncate(false),
                     );
                     inline_value_readout(&v, inferred_ty, ui);
                 });
@@ -6778,7 +6729,7 @@ impl NodeViewer<GraphNode> for DemoViewer {
 
                 // Cache + render the image. Re-roll only when any
                 // param changed — otherwise blit the texture.
-                let key = egui::Id::new(("mara_demo_noise_field", node));
+                let key = MaraId::new(("mara_demo_noise_field", node));
                 let new_state = (
                     seed,
                     octaves,
@@ -6791,10 +6742,10 @@ impl NodeViewer<GraphNode> for DemoViewer {
                     freq.to_bits(),
                 );
                 let prev = ui
-                    .ctx()
-                    .data(|d| d.get_temp::<(u32, u32, u64, u64, u64, u8, u64, u64, u64)>(key));
+                    .memory()
+                    .get_temp::<(u32, u32, u64, u64, u64, u8, u64, u64, u64)>(key);
                 if prev != Some(new_state) {
-                    let mut pixels = vec![egui::Color32::BLACK; W * H];
+                    let mut pixels = vec![MaraColor32::BLACK; W * H];
                     let scale = 0.04 * freq;
                     let g_pow = gain;
                     for j in 0..H {
@@ -6804,58 +6755,54 @@ impl NodeViewer<GraphNode> for DemoViewer {
                             let n = mode.sample(seed, x, y, octaves, pers, lac);
                             let n = n.clamp(0.0, 1.0).powf(g_pow);
                             let g = (n * 255.0).clamp(0.0, 255.0) as u8;
-                            pixels[j * W + i] = egui::Color32::from_rgb(
+                            pixels[j * W + i] = MaraColor32::from_rgb(
                                 ((g as u16 * 0xA4) / 255) as u8,
                                 ((g as u16 * 0xFF) / 255) as u8,
                                 ((g as u16 * 0x34) / 255) as u8,
                             );
                         }
                     }
-                    let img = egui::ColorImage {
-                        size: [W, H],
-                        pixels,
-                        source_size: egui::vec2(W as f32, H as f32),
-                    };
-                    let tex = ui.ctx().load_texture(
-                        format!("mara_demo_noise_field_{:?}", node),
+                    let img = mara_core::vocab::ColorImage::from_rgba_pixels([W, H], &pixels);
+                    let tex = ui.load_texture(
+                        &format!("mara_demo_noise_field_{:?}", node),
                         img,
-                        egui::TextureOptions::NEAREST,
+                        mara_core::vocab::TextureOptions::NEAREST,
                     );
                     let tex_key = key.with("tex");
-                    ui.ctx().data_mut(|d| {
-                        d.insert_temp::<egui::TextureHandle>(tex_key, tex);
-                        d.insert_temp::<(u32, u32, u64, u64, u64, u8, u64, u64, u64)>(
-                            key, new_state,
-                        );
-                    });
+                    if let Some(tex) = tex {
+                        ui.memory().set_temp(tex_key, tex);
+                        ui.memory().set_temp(key, new_state);
+                    }
                 }
                 let tex_key = key.with("tex");
                 if let Some(tex) = ui
-                    .ctx()
-                    .data(|d| d.get_temp::<egui::TextureHandle>(tex_key))
+                    .memory()
+                    .get_temp::<mara_core::vocab::TextureHandle>(tex_key)
                 {
-                    ui.add(
-                        egui::Image::new((tex.id(), egui::vec2(W as f32 * 1.4, H as f32 * 1.4)))
-                            .corner_radius(egui::CornerRadius::same(3))
-                            .sense(egui::Sense::hover()),
+                    let size = MaraVec2::new(W as f32 * 1.4, H as f32 * 1.4);
+                    let (painter, resp) = ui.canvas(size);
+                    painter.image(
+                        tex.id(),
+                        resp.rect,
+                        mara_core::MaraPainter::full_uv(),
+                        MaraColor32::WHITE,
                     );
                 }
             }
             // ── 4-channel oscilloscope plot — each input
             //    rendered as its own coloured line. ──
             GraphNode::MultiPlot => {
-                use egui_plot::{Line, Plot, PlotPoints};
                 const HISTORY: usize = 256;
-                const COLORS: [egui::Color32; 4] = [
-                    egui::Color32::from_rgb(0xA4, 0xFF, 0x34), // lime (Float)
-                    egui::Color32::from_rgb(0xFF, 0xC2, 0x47), // gold (Vector)
-                    egui::Color32::from_rgb(0xFF, 0xA0, 0xFF), // pink
-                    egui::Color32::from_rgb(0x6E, 0xC0, 0xFF), // cyan
+                const COLORS: [MaraColor32; 4] = [
+                    MaraColor32::from_rgb(0xA4, 0xFF, 0x34), // lime (Float)
+                    MaraColor32::from_rgb(0xFF, 0xC2, 0x47), // gold (Vector)
+                    MaraColor32::from_rgb(0xFF, 0xA0, 0xFF), // pink
+                    MaraColor32::from_rgb(0x6E, 0xC0, 0xFF), // cyan
                 ];
-                let key = egui::Id::new(("mara_demo_multiplot", node));
+                let key = MaraId::new(("mara_demo_multiplot", node));
                 let mut buf: Vec<[f64; 4]> = ui
-                    .ctx()
-                    .data(|d| d.get_temp::<Vec<[f64; 4]>>(key))
+                    .memory()
+                    .get_temp::<Vec<[f64; 4]>>(key)
                     .unwrap_or_default();
                 let sample = [
                     eval_input_at(graph, time, node, 0).as_number(),
@@ -6867,39 +6814,33 @@ impl NodeViewer<GraphNode> for DemoViewer {
                     buf.remove(0);
                 }
                 buf.push(sample);
-                ui.ctx().data_mut(|d| d.insert_temp(key, buf.clone()));
+                ui.memory().set_temp(key, buf.clone());
 
-                Plot::new(("mara_demo_multiplot", node))
-                    .height(110.0)
-                    .width(260.0)
-                    .show_axes([false, true])
-                    .show_grid([true, true])
-                    .allow_drag(false)
-                    .allow_zoom(false)
-                    .allow_scroll(false)
-                    .auto_bounds(egui::Vec2b::TRUE)
-                    .show(ui, |plot_ui| {
-                        for ch in 0..4 {
-                            let pts: PlotPoints = buf
-                                .iter()
-                                .enumerate()
-                                .map(|(i, s)| [i as f64, s[ch]])
-                                .collect();
-                            plot_ui.line(
-                                Line::new(format!("ch{ch}_{:?}", node), pts)
-                                    .color(COLORS[ch])
-                                    .width(1.5),
-                            );
-                        }
-                    });
-                ui.ctx().request_repaint();
+                // Split the interleaved samples into one series per
+                // channel, then share a range so the four stay comparable.
+                let channels: Vec<Vec<f64>> = (0..4)
+                    .map(|ch| buf.iter().map(|s| s[ch]).collect())
+                    .collect();
+                let series: Vec<(&[f64], MaraColor32)> = channels
+                    .iter()
+                    .zip(COLORS)
+                    .map(|(values, color)| (values.as_slice(), color))
+                    .collect();
+
+                let (painter, _) = ui.canvas(MaraVec2::new(260.0, 110.0));
+                let rect = painter.clip_rect();
+                paint_line_chart(&painter, rect, &series);
+                ui.request_repaint();
             }
             GraphNode::VectorPreview => {
                 let v = eval_input_at(graph, time, node, 0).as_vector();
-                let (rect, _) =
-                    ui.allocate_exact_size(egui::vec2(140.0, 40.0), egui::Sense::hover());
-                let painter = ui.painter();
-                painter.rect_filled(rect, 3.0, egui::Color32::from_black_alpha(40));
+                let (painter, resp) = ui.canvas(MaraVec2::new(140.0, 40.0));
+                let rect = resp.rect;
+                painter.rect_filled(
+                    rect,
+                    mara_core::vocab::CornerRadius::same(3),
+                    MaraColor32::from_black_alpha(40),
+                );
                 let bar_h = (rect.height() - 8.0) / 3.0;
                 let max = v[0].abs().max(v[1].abs()).max(v[2].abs()).max(1.0) as f32;
                 let colors = [
@@ -6911,122 +6852,168 @@ impl NodeViewer<GraphNode> for DemoViewer {
                     let y0 = rect.top() + 4.0 + (i as f32) * bar_h;
                     let centre_x = rect.center().x;
                     let len = (*comp as f32 / max) * (rect.width() * 0.5 - 8.0);
-                    let bar_rect = egui::Rect::from_min_max(
-                        egui::pos2(centre_x.min(centre_x + len), y0 + 2.0),
-                        egui::pos2(centre_x.max(centre_x + len), y0 + bar_h - 2.0),
+                    let bar_rect = mara_core::vocab::Rect::from_min_max(
+                        MaraPos2::new(centre_x.min(centre_x + len), y0 + 2.0),
+                        MaraPos2::new(centre_x.max(centre_x + len), y0 + bar_h - 2.0),
                     );
-                    painter.rect_filled(bar_rect, 1.0, colors[i]);
+                    painter.rect_filled(
+                        bar_rect,
+                        mara_core::vocab::CornerRadius::same(1),
+                        colors[i],
+                    );
                 }
                 // Centre rule
                 painter.line_segment(
-                    [
-                        egui::pos2(rect.center().x, rect.top() + 2.0),
-                        egui::pos2(rect.center().x, rect.bottom() - 2.0),
-                    ],
-                    egui::Stroke::new(1.0, egui::Color32::from_gray(120)),
+                    MaraPos2::new(rect.center().x, rect.top() + 2.0),
+                    MaraPos2::new(rect.center().x, rect.bottom() - 2.0),
+                    MaraStroke::new(1.0, MaraColor32::from_gray(120)),
                 );
             }
             _ => {}
         }
     }
 
-    fn has_graph_menu(&mut self, _: egui::Pos2, _: &mut Graph<GraphNode>) -> bool {
+    fn has_graph_menu(&mut self, _: MaraPos2, _: &mut Graph<GraphNode>) -> bool {
         true
     }
     fn show_graph_menu(
         &mut self,
-        pos: egui::Pos2,
-        ui: &mut egui::Ui,
+        pos: MaraPos2,
+        ui: &mut mara_core::MaraUi<'_>,
         graph: &mut Graph<GraphNode>,
     ) {
-        ui.set_min_width(180.0);
-        ui.label(egui::RichText::new("Add node").strong());
+        ui.label_spec(
+            "Add node",
+            &LabelSpec::new(13.0, mara_core::style::on_panel()).truncate(false),
+        );
         ui.separator();
 
-        let mut spawn = |ui: &mut egui::Ui, label: &str, n: GraphNode| {
+        // Each submenu closes itself once an item spawns, so the menu
+        // dismisses rather than staying open behind the new node.
+        let mut spawn = |ui: &mut mara_core::MaraUi<'_>, menu: &str, label: &str, n: GraphNode| {
             if ui.button(label).clicked() {
-                graph.insert_node(pos.into(), n);
-                ui.close();
+                graph.insert_node(pos, n);
+                ui.close_menu(MaraId::new(("demo_graph_menu", menu)));
             }
         };
 
-        ui.menu_button("Sources", |ui| {
-            spawn(ui, "Number", GraphNode::Number(0.0));
-            spawn(ui, "Integer", GraphNode::Integer(0));
-            spawn(ui, "Vector", GraphNode::Vector([0.0; 3]));
+        ui.menu_button(
+            MaraId::new(("demo_graph_menu", "Sources")),
+            "Sources",
+            |ui| {
+                spawn(ui, "Sources", "Number", GraphNode::Number(0.0));
+                spawn(ui, "Sources", "Integer", GraphNode::Integer(0));
+                spawn(ui, "Sources", "Vector", GraphNode::Vector([0.0; 3]));
+                spawn(
+                    ui,
+                    "Sources",
+                    "Color",
+                    GraphNode::Color(MaraColor32::from_rgb(180, 200, 220)),
+                );
+                spawn(ui, "Sources", "Bool", GraphNode::Bool(false));
+                spawn(ui, "Sources", "Time", GraphNode::Time);
+            },
+        );
+        ui.menu_button(
+            MaraId::new(("demo_graph_menu", "Scalar math")),
+            "Scalar math",
+            |ui| {
+                spawn(
+                    ui,
+                    "Scalar math",
+                    "Scalar Math",
+                    GraphNode::ScalarMath(ScalarOp::Add),
+                );
+                spawn(ui, "Scalar math", "Math Func", GraphNode::Trig(TrigFn::Sin));
+                spawn(
+                    ui,
+                    "Scalar math",
+                    "Compare",
+                    GraphNode::Compare(CompareOp::Lt),
+                );
+                spawn(ui, "Scalar math", "Mix", GraphNode::Mix);
+                spawn(ui, "Scalar math", "Clamp", GraphNode::Clamp);
+                spawn(ui, "Scalar math", "Map Range", GraphNode::MapRange);
+                spawn(ui, "Scalar math", "Smoothstep", GraphNode::Smoothstep);
+                spawn(ui, "Scalar math", "Step", GraphNode::Step);
+            },
+        );
+        ui.menu_button(MaraId::new(("demo_graph_menu", "Vector")), "Vector", |ui| {
             spawn(
                 ui,
-                "Color",
-                GraphNode::Color(MaraColor32::from_rgb(180, 200, 220)),
+                "Vector",
+                "Vector Math",
+                GraphNode::VectorMath(VectorOp::Add),
             );
-            spawn(ui, "Bool", GraphNode::Bool(false));
-            spawn(ui, "Time", GraphNode::Time);
+            spawn(ui, "Vector", "Compose", GraphNode::Compose);
+            spawn(ui, "Vector", "Decompose", GraphNode::Decompose);
+            spawn(ui, "Vector", "Length", GraphNode::Length);
+            spawn(ui, "Vector", "Dot Product", GraphNode::Dot);
+            spawn(ui, "Vector", "Distance", GraphNode::Distance);
+            spawn(ui, "Vector", "Normalize", GraphNode::Normalize);
+            spawn(ui, "Vector", "Vector Rotate", GraphNode::VectorRotate);
+            spawn(ui, "Vector", "Reflect", GraphNode::Reflect);
         });
-        ui.menu_button("Scalar math", |ui| {
-            spawn(ui, "Scalar Math", GraphNode::ScalarMath(ScalarOp::Add));
-            spawn(ui, "Math Func", GraphNode::Trig(TrigFn::Sin));
-            spawn(ui, "Compare", GraphNode::Compare(CompareOp::Lt));
-            spawn(ui, "Mix", GraphNode::Mix);
-            spawn(ui, "Clamp", GraphNode::Clamp);
-            spawn(ui, "Map Range", GraphNode::MapRange);
-            spawn(ui, "Smoothstep", GraphNode::Smoothstep);
-            spawn(ui, "Step", GraphNode::Step);
+        ui.menu_button(MaraId::new(("demo_graph_menu", "Color")), "Color", |ui| {
+            spawn(ui, "Color", "RGB → Color", GraphNode::RgbToColor);
+            spawn(ui, "Color", "HSV → Color", GraphNode::HsvToColor);
+            spawn(ui, "Color", "Color Mix", GraphNode::ColorMix);
+            spawn(ui, "Color", "Hue Shift", GraphNode::HueShift);
+            spawn(ui, "Color", "Invert", GraphNode::ColorInvert);
+            spawn(ui, "Color", "Bright/Contrast", GraphNode::BrightContrast);
+            spawn(ui, "Color", "Gamma", GraphNode::Gamma);
         });
-        ui.menu_button("Vector", |ui| {
-            spawn(ui, "Vector Math", GraphNode::VectorMath(VectorOp::Add));
-            spawn(ui, "Compose", GraphNode::Compose);
-            spawn(ui, "Decompose", GraphNode::Decompose);
-            spawn(ui, "Length", GraphNode::Length);
-            spawn(ui, "Dot Product", GraphNode::Dot);
-            spawn(ui, "Distance", GraphNode::Distance);
-            spawn(ui, "Normalize", GraphNode::Normalize);
-            spawn(ui, "Vector Rotate", GraphNode::VectorRotate);
-            spawn(ui, "Reflect", GraphNode::Reflect);
-        });
-        ui.menu_button("Color", |ui| {
-            spawn(ui, "RGB → Color", GraphNode::RgbToColor);
-            spawn(ui, "HSV → Color", GraphNode::HsvToColor);
-            spawn(ui, "Color Mix", GraphNode::ColorMix);
-            spawn(ui, "Hue Shift", GraphNode::HueShift);
-            spawn(ui, "Invert", GraphNode::ColorInvert);
-            spawn(ui, "Bright/Contrast", GraphNode::BrightContrast);
-            spawn(ui, "Gamma", GraphNode::Gamma);
-        });
-        ui.menu_button("Logic", |ui| {
-            spawn(ui, "If / Else", GraphNode::IfElse);
-            spawn(ui, "Boolean Math", GraphNode::BooleanMath(BoolOp::And));
-            spawn(ui, "Float → Bool", GraphNode::FloatToBool);
-            spawn(ui, "Bool → Float", GraphNode::BoolToFloat);
-        });
-        ui.menu_button("Noise / Wave", |ui| {
+        ui.menu_button(MaraId::new(("demo_graph_menu", "Logic")), "Logic", |ui| {
+            spawn(ui, "Logic", "If / Else", GraphNode::IfElse);
             spawn(
                 ui,
-                "Perlin",
-                GraphNode::Perlin {
-                    seed: 12345,
-                    frequency: 1.0,
-                },
+                "Logic",
+                "Boolean Math",
+                GraphNode::BooleanMath(BoolOp::And),
             );
-            spawn(ui, "White Noise", GraphNode::WhiteNoise { seed: 12345 });
-            spawn(ui, "Wave", GraphNode::Wave(WaveShape::Sine));
+            spawn(ui, "Logic", "Float → Bool", GraphNode::FloatToBool);
+            spawn(ui, "Logic", "Bool → Float", GraphNode::BoolToFloat);
         });
-        ui.menu_button("Sinks", |ui| {
-            spawn(ui, "Display", GraphNode::Display);
-            spawn(ui, "Plot", GraphNode::Plot);
-            spawn(ui, "Plot XY", GraphNode::PlotXY);
-            spawn(ui, "Preview", GraphNode::Preview);
-            spawn(ui, "Vector Preview", GraphNode::VectorPreview);
+        ui.menu_button(
+            MaraId::new(("demo_graph_menu", "Noise / Wave")),
+            "Noise / Wave",
+            |ui| {
+                spawn(
+                    ui,
+                    "Noise / Wave",
+                    "Perlin",
+                    GraphNode::Perlin {
+                        seed: 12345,
+                        frequency: 1.0,
+                    },
+                );
+                spawn(
+                    ui,
+                    "Noise / Wave",
+                    "White Noise",
+                    GraphNode::WhiteNoise { seed: 12345 },
+                );
+                spawn(ui, "Noise / Wave", "Wave", GraphNode::Wave(WaveShape::Sine));
+            },
+        );
+        ui.menu_button(MaraId::new(("demo_graph_menu", "Sinks")), "Sinks", |ui| {
+            spawn(ui, "Sinks", "Display", GraphNode::Display);
+            spawn(ui, "Sinks", "Plot", GraphNode::Plot);
+            spawn(ui, "Sinks", "Plot XY", GraphNode::PlotXY);
+            spawn(ui, "Sinks", "Preview", GraphNode::Preview);
+            spawn(ui, "Sinks", "Vector Preview", GraphNode::VectorPreview);
             spawn(
                 ui,
+                "Sinks",
                 "Noise Image",
                 GraphNode::NoiseImage {
                     seed: 0xCAFE,
                     scale: 0.05,
                 },
             );
-            spawn(ui, "Noise Field", GraphNode::NoiseField);
-            spawn(ui, "Multi Plot", GraphNode::MultiPlot);
-            spawn(ui, "Output", GraphNode::Output);
+            spawn(ui, "Sinks", "Noise Field", GraphNode::NoiseField);
+            spawn(ui, "Sinks", "Multi Plot", GraphNode::MultiPlot);
+            spawn(ui, "Sinks", "Output", GraphNode::Output);
         });
     }
 }
@@ -7043,45 +7030,37 @@ fn inline_input_editor(
     _graph: &mut Graph<GraphNode>,
     _pin: &InPin,
     ty: PinType,
-    ui: &mut egui::Ui,
+    ui: &mut mara_core::MaraUi<'_>,
 ) {
     // Stable-width placeholders matching `inline_value_readout`'s
     // column counts, so swapping between connected (live readout)
     // and unconnected (placeholder) doesn't change the row width.
     let placeholder = match ty {
-        PinType::Number => format!("{:>9}", "—"),
-        PinType::Vector => format!("[{:>7}, {:>7}, {:>7}]", "—", "—", "—"),
-        PinType::Color => format!("{:>9}", "—"),
-        PinType::Bool => format!("{:>4}", "—"),
-        PinType::Text => format!("{:<9}", "—"),
+        PinType::Number => format!("{:>9}", "\u{2014}"),
+        PinType::Vector => format!("[{:>7}, {:>7}, {:>7}]", "\u{2014}", "\u{2014}", "\u{2014}"),
+        PinType::Color => format!("{:>9}", "\u{2014}"),
+        PinType::Bool => format!("{:>4}", "\u{2014}"),
+        PinType::Text => format!("{:<9}", "\u{2014}"),
     };
-    ui.add(
-        egui::Label::new(
-            egui::RichText::new(placeholder)
-                .monospace()
-                .size(11.0)
-                .color(egui::Color32::from_gray(140)),
-        )
-        .wrap_mode(egui::TextWrapMode::Extend)
-        .selectable(false),
+    ui.label_spec(
+        &placeholder,
+        &LabelSpec::new(11.0, MaraColor32::from_gray(140))
+            .mono(true)
+            .truncate(false),
     );
 }
 
-fn inline_value_readout(v: &Value, ty: PinType, ui: &mut egui::Ui) {
+fn inline_value_readout(v: &Value, ty: PinType, ui: &mut mara_core::MaraUi<'_>) {
     // Monospace + right-aligned fixed-width formatting so the
     // node body width doesn't reflow when a value's digit count
     // changes (e.g. `0.123` → `12.345`). Each readout reserves
     // the same number of glyph columns regardless of magnitude.
     let mut mono = |text: String| {
-        ui.add(
-            egui::Label::new(
-                egui::RichText::new(text)
-                    .monospace()
-                    .size(11.0)
-                    .color(egui::Color32::from_gray(200)),
-            )
-            .wrap_mode(egui::TextWrapMode::Extend)
-            .selectable(false),
+        ui.label_spec(
+            &text,
+            &LabelSpec::new(11.0, MaraColor32::from_gray(200))
+                .mono(true)
+                .truncate(false),
         )
     };
     match (ty, v) {
@@ -7098,8 +7077,8 @@ fn inline_value_readout(v: &Value, ty: PinType, ui: &mut egui::Ui) {
         }
         (_, Value::Color(c)) => {
             // Fixed-width swatch — never reflows.
-            let (rect, _) = ui.allocate_exact_size(egui::vec2(28.0, 14.0), egui::Sense::hover());
-            ui.painter().rect_filled(rect, 2.0, *c);
+            let (painter, resp) = ui.canvas(MaraVec2::new(28.0, 14.0));
+            painter.rect_filled(resp.rect, mara_core::vocab::CornerRadius::same(2), *c);
         }
         (_, Value::Bool(b)) => {
             mono(format!("{:>4}", if *b { "true" } else { "false" }));
@@ -7116,7 +7095,7 @@ fn inline_value_readout(v: &Value, ty: PinType, ui: &mut egui::Ui) {
 /// `dropdown` consumes `ui.available_width()`, so without the
 /// slot it'd grow the node arbitrarily wide; the slot caps it
 /// at a stable column.
-fn op_dropdown<T>(ui: &mut egui::Ui, current: &mut T, options: &[(&str, T)])
+fn op_dropdown<T>(ui: &mut mara_core::MaraUi<'_>, current: &mut T, options: &[(&str, T)])
 where
     T: Copy + PartialEq,
 {
@@ -7125,17 +7104,14 @@ where
         .position(|(_, v)| *v == *current)
         .unwrap_or(0);
     let labels: Vec<&str> = options.iter().map(|(l, _)| *l).collect();
-    let accent = mara_core::style::active_accent();
     const SLOT_W: f32 = 140.0;
     let h = mara_core::widget::dropdown::DROPDOWN_ROW_H;
     let mut changed = false;
-    ui.allocate_ui_with_layout(
-        egui::vec2(SLOT_W, h),
-        egui::Layout::left_to_right(egui::Align::Center),
+    ui.row(
+        MaraVec2::new(SLOT_W, h),
+        mara_core::CrossAlign::Center,
         |ui| {
-            let mut __raw = mara_core::MaraUi::__internal_backend_from_raw(ui);
-            let mut mui = mara_core::MaraUi::__internal_over(&mut __raw, accent);
-            let resp = mui.dropdown(
+            let resp = ui.dropdown(
                 ("mara_demo_op_dropdown", current as *const T as usize),
                 &mut idx,
                 &labels,
@@ -7156,28 +7132,34 @@ where
 fn draw_sparkline(
     graph: &Graph<GraphNode>,
     node: mara::extras::graph::NodeId,
-    ui: &mut egui::Ui,
+    ui: &mut mara_core::MaraUi<'_>,
     current: f64,
 ) {
     let _ = graph; // signature parity for future inline-editor use
     const HISTORY: usize = 96;
-    let key = egui::Id::new(("mara_demo_sparkline", node));
-    let mut buf: Vec<f32> = ui
-        .ctx()
-        .data(|d| d.get_temp::<Vec<f32>>(key))
-        .unwrap_or_default();
+    let key = MaraId::new(("mara_demo_sparkline", node));
+    let mut buf: Vec<f32> = ui.memory().get_temp::<Vec<f32>>(key).unwrap_or_default();
     if buf.len() >= HISTORY {
         buf.remove(0);
     }
     buf.push(current as f32);
-    ui.ctx().data_mut(|d| d.insert_temp(key, buf.clone()));
+    ui.memory().set_temp(key, buf.clone());
 
     let label = format!("{current:.3}");
-    ui.label(egui::RichText::new(label).monospace());
+    ui.label_spec(
+        &label,
+        &LabelSpec::new(11.0, mara_core::style::on_panel())
+            .mono(true)
+            .truncate(false),
+    );
 
-    let (rect, _) = ui.allocate_exact_size(egui::vec2(140.0, 36.0), egui::Sense::hover());
-    let painter = ui.painter_at(rect);
-    painter.rect_filled(rect, 3.0, egui::Color32::from_black_alpha(40));
+    let (painter, resp) = ui.canvas(MaraVec2::new(140.0, 36.0));
+    let rect = resp.rect;
+    painter.rect_filled(
+        rect,
+        mara_core::vocab::CornerRadius::same(3),
+        MaraColor32::from_black_alpha(40),
+    );
 
     if buf.len() >= 2 {
         let (lo, hi) = buf
@@ -7195,14 +7177,14 @@ fn draw_sparkline(
                 + (i as f32 / (n.saturating_sub(1).max(1) as f32)) * (rect.width() - 2.0 * pad);
             let t = 1.0 - (v - lo) / span;
             let y = rect.top() + pad + t * (rect.height() - 2.0 * pad);
-            points.push(egui::pos2(x, y));
+            points.push(MaraPos2::new(x, y));
         }
-        painter.add(egui::epaint::PathShape::line(
+        painter.polyline(
             points,
-            egui::Stroke::new(1.5, egui::Color32::from_rgb(0xFF, 0xB9, 0x38)),
-        ));
+            MaraStroke::new(1.5, MaraColor32::from_rgb(0xFF, 0xB9, 0x38)),
+        );
     }
-    ui.ctx().request_repaint();
+    ui.request_repaint();
 }
 
 /// A demo graph that wires several capabilities together so the
@@ -7663,5 +7645,63 @@ fn walk_demo_tree(
                 clicked,
             );
         }
+    }
+}
+
+/// Draw one or more series as an auto-fitted line chart.
+///
+/// Replaces the `egui_plot` widget the demo's Plot nodes used: axes are
+/// a baseline plus a mid-line, and each series is a single polyline
+/// scaled to the combined value range. Enough for a scope readout, and
+/// it keeps the node body on the sealed surface (PLAN.md WS-D1.4).
+fn paint_line_chart(
+    painter: &mara_core::MaraPainter,
+    rect: mara_core::vocab::Rect,
+    series: &[(&[f64], MaraColor32)],
+) {
+    let grid = MaraColor32::from_rgba_unmultiplied(0xEE, 0xEE, 0xEE, 40);
+    painter.line_segment(
+        MaraPos2::new(rect.min.x, rect.center().y),
+        MaraPos2::new(rect.max.x, rect.center().y),
+        MaraStroke::new(1.0, grid),
+    );
+
+    // One shared range so multiple series stay comparable.
+    let (mut lo, mut hi) = (f64::INFINITY, f64::NEG_INFINITY);
+    for (values, _) in series {
+        for v in *values {
+            lo = lo.min(*v);
+            hi = hi.max(*v);
+        }
+    }
+    if !lo.is_finite() || !hi.is_finite() {
+        return;
+    }
+    // A flat series would divide by zero; give it a unit window so it
+    // draws along the middle instead of vanishing.
+    let span = if (hi - lo).abs() < f64::EPSILON {
+        1.0
+    } else {
+        hi - lo
+    };
+
+    for (values, color) in series {
+        if values.len() < 2 {
+            continue;
+        }
+        let last = (values.len() - 1) as f32;
+        let points: Vec<MaraPos2> = values
+            .iter()
+            .enumerate()
+            .map(|(i, v)| {
+                let t = i as f32 / last;
+                let norm = ((*v - lo) / span) as f32;
+                MaraPos2::new(
+                    rect.min.x + rect.width() * t,
+                    rect.max.y - rect.height() * norm,
+                )
+            })
+            .collect();
+        painter.polyline(points, MaraStroke::new(1.5, *color));
     }
 }

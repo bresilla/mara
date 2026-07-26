@@ -1,4 +1,6 @@
-use egui::{Painter, Pos2, Rect, Style, Ui, emath::TSTransform};
+use egui::{Painter, Style, emath::TSTransform};
+use mara_core::MaraUi;
+use mara_core::vocab::{Pos2, Rect};
 
 use crate::vendored::{Graph, InPin, InPinId, NodeId, OutPin, OutPinId};
 
@@ -112,11 +114,11 @@ pub trait NodeViewer<T> {
         node: NodeId,
         inputs: &[InPin],
         outputs: &[OutPin],
-        ui: &mut Ui,
+        ui: &mut MaraUi<'_>,
         graph: &mut Graph<T>,
     ) {
         let _ = (inputs, outputs);
-        ui.label(self.title(&graph[node]));
+        ui.label(&self.title(&graph[node]));
     }
 
     /// Returns number of input pins of the node.
@@ -128,7 +130,7 @@ pub trait NodeViewer<T> {
     fn show_input(
         &mut self,
         pin: &InPin,
-        ui: &mut Ui,
+        ui: &mut MaraUi<'_>,
         graph: &mut Graph<T>,
     ) -> impl NodePin + 'static;
 
@@ -141,7 +143,7 @@ pub trait NodeViewer<T> {
     fn show_output(
         &mut self,
         pin: &OutPin,
-        ui: &mut Ui,
+        ui: &mut MaraUi<'_>,
         graph: &mut Graph<T>,
     ) -> impl NodePin + 'static;
 
@@ -159,7 +161,7 @@ pub trait NodeViewer<T> {
         node: NodeId,
         inputs: &[InPin],
         outputs: &[OutPin],
-        ui: &mut Ui,
+        ui: &mut MaraUi<'_>,
         graph: &mut Graph<T>,
     ) {
         let _ = (node, inputs, outputs, ui, graph);
@@ -179,7 +181,7 @@ pub trait NodeViewer<T> {
         node: NodeId,
         inputs: &[InPin],
         outputs: &[OutPin],
-        ui: &mut Ui,
+        ui: &mut MaraUi<'_>,
         graph: &mut Graph<T>,
     ) {
         let _ = (node, inputs, outputs, ui, graph);
@@ -190,7 +192,13 @@ pub trait NodeViewer<T> {
     /// It aimed to be used for custom positioning of nodes that requires node dimensions for calculations.
     /// Node's position can be modified directly in this method.
     #[inline]
-    fn final_node_rect(&mut self, node: NodeId, rect: Rect, ui: &mut Ui, graph: &mut Graph<T>) {
+    fn final_node_rect(
+        &mut self,
+        node: NodeId,
+        rect: Rect,
+        ui: &mut MaraUi<'_>,
+        graph: &mut Graph<T>,
+    ) {
         let _ = (node, rect, ui, graph);
     }
 
@@ -208,7 +216,7 @@ pub trait NodeViewer<T> {
         node: NodeId,
         inputs: &[InPin],
         outputs: &[OutPin],
-        ui: &mut Ui,
+        ui: &mut MaraUi<'_>,
         graph: &mut Graph<T>,
     ) {
         let _ = (node, inputs, outputs, ui, graph);
@@ -225,7 +233,13 @@ pub trait NodeViewer<T> {
     /// Renders the wire's widget.
     /// This may not be called if wire is invisible.
     #[inline]
-    fn show_wire_widget(&mut self, from: &OutPin, to: &InPin, ui: &mut Ui, graph: &mut Graph<T>) {
+    fn show_wire_widget(
+        &mut self,
+        from: &OutPin,
+        to: &InPin,
+        ui: &mut MaraUi<'_>,
+        graph: &mut Graph<T>,
+    ) {
         let _ = (from, to, ui, graph);
     }
 
@@ -240,7 +254,7 @@ pub trait NodeViewer<T> {
     ///
     /// This can be used to implement menu for adding new nodes.
     #[inline]
-    fn show_graph_menu(&mut self, pos: Pos2, ui: &mut Ui, graph: &mut Graph<T>) {
+    fn show_graph_menu(&mut self, pos: Pos2, ui: &mut MaraUi<'_>, graph: &mut Graph<T>) {
         let _ = (pos, ui, graph);
     }
 
@@ -258,7 +272,7 @@ pub trait NodeViewer<T> {
     fn show_dropped_wire_menu(
         &mut self,
         pos: Pos2,
-        ui: &mut Ui,
+        ui: &mut MaraUi<'_>,
         src_pins: AnyPins,
         graph: &mut Graph<T>,
     ) {
@@ -281,7 +295,7 @@ pub trait NodeViewer<T> {
         node: NodeId,
         inputs: &[InPin],
         outputs: &[OutPin],
-        ui: &mut Ui,
+        ui: &mut MaraUi<'_>,
         graph: &mut Graph<T>,
     ) {
         let _ = (node, inputs, outputs, ui, graph);

@@ -765,7 +765,7 @@ mod view_module_bridge_tests {
         fn show_input(
             &mut self,
             _pin: &InPin,
-            _ui: &mut egui::Ui,
+            _ui: &mut mara_core::MaraUi<'_>,
             _graph: &mut Graph<TestNode>,
         ) -> impl NodePin + 'static {
             PinInfo::default()
@@ -778,7 +778,7 @@ mod view_module_bridge_tests {
         fn show_output(
             &mut self,
             _pin: &OutPin,
-            _ui: &mut egui::Ui,
+            _ui: &mut mara_core::MaraUi<'_>,
             _graph: &mut Graph<TestNode>,
         ) -> impl NodePin + 'static {
             PinInfo::default()

@@ -1117,7 +1117,7 @@ where
 
     viewer.draw_background(
         style.bg_pattern.as_ref(),
-        &viewport,
+        &viewport.into(),
         &style,
         ui.style(),
         ui.painter(),
@@ -1453,7 +1453,9 @@ where
                     wire_end_pos = menu_pos;
 
                     // The context menu is opened as *link* graph menu.
-                    viewer.show_dropped_wire_menu(menu_pos, ui, pins, graph);
+                    with_mara_ui(ui, |mui| {
+                        viewer.show_dropped_wire_menu(menu_pos.into(), mui, pins, graph)
+                    });
 
                     // Even though menu could be closed in `show_dropped_wire_menu`,
                     // we need to revert the new wires here, because menu state is inaccessible.
@@ -1461,11 +1463,13 @@ where
                     graph_state.set_new_wires_menu(new_wires);
                 });
             }
-        } else if viewer.has_graph_menu(interact_pos, graph) {
+        } else if viewer.has_graph_menu(interact_pos.into(), graph) {
             graph_resp.context_menu(|ui| {
                 let menu_pos = from_global * ui.cursor().min;
 
-                viewer.show_graph_menu(menu_pos, ui, graph);
+                with_mara_ui(ui, |mui| {
+                    viewer.show_graph_menu(menu_pos.into(), mui, graph)
+                });
             });
         }
     }
@@ -1632,7 +1636,12 @@ where
             let y1 = pin_ui.max_rect().max.y;
 
             // Show input content
-            let node_pin = viewer.show_input(in_pin, pin_ui, graph);
+            let node_pin = {
+                let accent = mara_core::style::active_accent();
+                let mut raw = mara_core::MaraUi::__internal_backend_from_raw(pin_ui);
+                let mut mui = mara_core::MaraUi::__internal_over(&mut raw, accent);
+                viewer.show_input(in_pin, &mut mui, graph)
+            };
             if !graph.nodes.contains(node.0) {
                 // If removed
                 return;
@@ -1800,7 +1809,12 @@ where
             let y1 = pin_ui.max_rect().max.y;
 
             // Show output content
-            let node_pin = viewer.show_output(out_pin, pin_ui, graph);
+            let node_pin = {
+                let accent = mara_core::style::active_accent();
+                let mut raw = mara_core::MaraUi::__internal_backend_from_raw(pin_ui);
+                let mut mui = mara_core::MaraUi::__internal_over(&mut raw, accent);
+                viewer.show_output(out_pin, &mut mui, graph)
+            };
             if !graph.nodes.contains(node.0) {
                 // If removed
                 return;
@@ -1925,7 +1939,9 @@ where
 
     body_ui.shrink_clip_rect(payload_clip_rect);
 
-    viewer.show_body(node, inputs, outputs, &mut body_ui, graph);
+    with_mara_ui(&mut body_ui, |mui| {
+        viewer.show_body(node, inputs, outputs, mui, graph)
+    });
 
     let final_rect = body_ui.min_rect();
     ui.expand_to_include_rect(final_rect.intersect(payload_clip_rect));
@@ -2054,7 +2070,9 @@ where
 
     if viewer.has_node_menu(&graph.nodes[node.0].value) {
         r.context_menu(|ui| {
-            viewer.show_node_menu(node, &inputs, &outputs, ui, graph);
+            with_mara_ui(ui, |mui| {
+                viewer.show_node_menu(node, &inputs, &outputs, mui, graph)
+            });
         });
     }
 
@@ -2066,7 +2084,9 @@ where
 
     if viewer.has_on_hover_popup(&graph.nodes[node.0].value) {
         r.on_hover_ui_at_pointer(|ui| {
-            viewer.show_on_hover_popup(node, &inputs, &outputs, ui, graph);
+            with_mara_ui(ui, |mui| {
+                viewer.show_on_hover_popup(node, &inputs, &outputs, mui, graph)
+            });
         });
     }
 
@@ -2566,7 +2586,9 @@ where
             );
             footer_ui.shrink_clip_rect(payload_clip_rect);
 
-            viewer.show_footer(node, &inputs, &outputs, &mut footer_ui, graph);
+            with_mara_ui(&mut footer_ui, |mui| {
+                viewer.show_footer(node, &inputs, &outputs, mui, graph)
+            });
 
             let final_rect = footer_ui.min_rect();
             ui.expand_to_include_rect(final_rect.intersect(payload_clip_rect));
@@ -2624,7 +2646,9 @@ where
 
                 ui.allocate_exact_size(header_drag_space, Sense::hover());
 
-                viewer.show_header(node, &inputs, &outputs, ui, graph);
+                with_mara_ui(ui, |mui| {
+                    viewer.show_header(node, &inputs, &outputs, mui, graph)
+                });
 
                 header_rect = ui.min_rect();
             });
@@ -2677,7 +2701,10 @@ where
         return None;
     }
 
-    viewer.final_node_rect(node, r.response.rect, ui, graph);
+    let final_rect = r.response.rect;
+    with_mara_ui(ui, |mui| {
+        viewer.final_node_rect(node, final_rect.into(), mui, graph)
+    });
 
     node_state.store(ui.ctx());
     Some(DrawNodeResponse {
@@ -2846,4 +2873,16 @@ fn wire_shapes_to_shapes(cmds: Vec<mara_core::paint::PaintCmd>) -> Vec<Shape> {
             _ => Shape::Noop,
         })
         .collect()
+}
+
+/// Run `body` with the sealed surface over a backend `Ui`.
+///
+/// `NodeViewer` speaks `MaraUi` since WS-D1.4, while this file's render
+/// path is still backend-typed. Wrapping here keeps the two changes
+/// separable; the helper disappears when the render path ports.
+fn with_mara_ui<R>(ui: &mut Ui, body: impl for<'a> FnOnce(&mut mara_core::MaraUi<'a>) -> R) -> R {
+    let accent = mara_core::style::active_accent();
+    let mut raw = mara_core::MaraUi::__internal_backend_from_raw(ui);
+    let mut mara = mara_core::MaraUi::__internal_over(&mut raw, accent);
+    body(&mut mara)
 }
