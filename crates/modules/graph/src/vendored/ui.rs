@@ -12,6 +12,7 @@ use egui::{
     response::Flags,
     vec2,
 };
+use mara_core::MaraResponse;
 use mara_core::style::{FrameRole, FrameSpec, frame_for};
 use smallvec::SmallVec;
 
@@ -948,8 +949,12 @@ impl GraphWidget {
     }
 
     /// Render [`Graph`] using given viewer and style into the [`Ui`].
+    ///
+    /// Returns the graph area's interaction, in Mara vocabulary — a
+    /// caller never has to name a backend response type to ask whether
+    /// the canvas was clicked or dragged.
     #[inline]
-    pub fn show<T, V>(&self, graph: &mut Graph<T>, viewer: &mut V, ui: &mut Ui) -> egui::Response
+    pub fn show<T, V>(&self, graph: &mut Graph<T>, viewer: &mut V, ui: &mut Ui) -> MaraResponse
     where
         V: NodeViewer<T>,
     {
@@ -976,7 +981,7 @@ fn show_graph<T, V>(
     graph: &mut Graph<T>,
     viewer: &mut V,
     ui: &mut Ui,
-) -> egui::Response
+) -> MaraResponse
 where
     V: NodeViewer<T>,
 {
@@ -1531,7 +1536,7 @@ where
 
     graph_state.store(graph, ui.ctx());
 
-    graph_resp
+    graph_resp.into()
 }
 
 #[allow(clippy::too_many_arguments)]
