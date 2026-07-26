@@ -77,7 +77,7 @@ impl NodeState {
     pub fn node_rect(&self, pos: Pos2, openness: f32) -> Rect {
         Rect::from_min_size(
             pos,
-            egui::vec2(
+            Vec2::new(
                 self.size.x,
                 f32::max(self.header_height, self.size.y * openness),
             ),
@@ -280,7 +280,7 @@ impl GraphState {
         let mut bb = Rect::NOTHING;
 
         for (_, node) in &graph.nodes {
-            bb.extend_with(egui::Pos2::from(node.pos));
+            bb.extend_with(Pos2::from(node.pos));
         }
 
         if bb.is_finite() {
@@ -641,6 +641,6 @@ impl GraphWidget {
 fn fit_points(from: Pos2, to: Pos2, scaling: f32) -> TSTransform {
     TSTransform {
         scaling,
-        translation: egui::vec2(to.x - scaling * from.x, to.y - scaling * from.y),
+        translation: Vec2::new(to.x - scaling * from.x, to.y - scaling * from.y),
     }
 }
