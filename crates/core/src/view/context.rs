@@ -310,6 +310,20 @@ impl<'a> ViewCtx<'a> {
             .into()
     }
 
+    /// Device pixels per logical point — the scale factor a view
+    /// rendering into its own pixel buffer must size that buffer by.
+    #[must_use]
+    pub fn pixels_per_point(&self) -> f32 {
+        backend::egui::context_pixels_per_point(self.egui_ctx)
+    }
+
+    /// Seconds since the host started, for time-based animation and
+    /// throttling. Monotonic within a run; not a wall clock.
+    #[must_use]
+    pub fn now(&self) -> f64 {
+        backend::egui::context_time(self.egui_ctx)
+    }
+
     /// Ask the host to schedule another frame.
     pub fn request_repaint(&self) {
         backend::egui::request_repaint(self.egui_ctx);

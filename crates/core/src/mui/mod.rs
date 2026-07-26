@@ -1049,6 +1049,12 @@ impl crate::layout::UiBackend for MaraBackend<'_> {
             Self::Recording(b) => b.now(),
         }
     }
+    fn pixels_per_point(&self) -> f32 {
+        match self {
+            Self::Egui(b) => b.pixels_per_point(),
+            Self::Recording(b) => b.pixels_per_point(),
+        }
+    }
     fn request_repaint(&self) {
         match self {
             Self::Egui(b) => b.request_repaint(),
@@ -1240,6 +1246,20 @@ impl<'a> MaraUi<'a> {
     #[must_use]
     pub fn input(&self) -> MaraInput {
         self.backend.input()
+    }
+
+    /// Device pixels per logical point — the scale factor a surface
+    /// rendering into its own pixel buffer must size that buffer by.
+    #[must_use]
+    pub fn pixels_per_point(&self) -> f32 {
+        self.backend.pixels_per_point()
+    }
+
+    /// Seconds since the host started, for time-based animation and
+    /// throttling. Monotonic within a run; not a wall clock.
+    #[must_use]
+    pub fn now(&self) -> f64 {
+        self.backend.now()
     }
 
     /// Ask the host to schedule another frame.

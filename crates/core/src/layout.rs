@@ -826,6 +826,14 @@ pub trait UiBackend {
         0.0
     }
 
+    /// Device pixels per logical point. Surfaces that render into a
+    /// pixel-sized target (embedded renderers, offscreen textures) size
+    /// that target by `logical_size * pixels_per_point`. Backends with
+    /// no display scaling report `1.0`.
+    fn pixels_per_point(&self) -> f32 {
+        1.0
+    }
+
     /// Ask the host to schedule another frame (e.g. an animation is in
     /// flight). No-op on backends without an event loop.
     fn request_repaint(&self) {}
@@ -938,6 +946,9 @@ impl<T: UiBackend + ?Sized> UiBackend for &mut T {
     }
     fn now(&self) -> f64 {
         (**self).now()
+    }
+    fn pixels_per_point(&self) -> f32 {
+        (**self).pixels_per_point()
     }
     fn request_repaint(&self) {
         (**self).request_repaint()

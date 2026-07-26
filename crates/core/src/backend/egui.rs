@@ -262,6 +262,10 @@ impl UiBackend for EguiUiBackend<'_> {
         input_time(self.ui.ctx())
     }
 
+    fn pixels_per_point(&self) -> f32 {
+        self.ui.ctx().pixels_per_point()
+    }
+
     fn request_repaint(&self) {
         self.ui.ctx().request_repaint();
     }
@@ -489,6 +493,14 @@ pub(crate) fn request_repaint_after_ms(ctx: &egui::Context, ms: u64) {
 
 pub(crate) fn request_repaint_after(ctx: &egui::Context, after: std::time::Duration) {
     ctx.request_repaint_after(after);
+}
+
+pub(crate) fn context_pixels_per_point(ctx: &egui::Context) -> f32 {
+    ctx.pixels_per_point()
+}
+
+pub(crate) fn context_time(ctx: &egui::Context) -> f64 {
+    ctx.input(|input| input.time)
 }
 
 pub(crate) fn unstable_dt(ctx: &egui::Context) -> f32 {
