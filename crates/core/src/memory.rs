@@ -170,6 +170,41 @@ impl<'a> MaraMemoryCtx<'a> {
         Self::new(ctx)
     }
 
+    /// A frame-scoped memoisation cache, created on first use.
+    ///
+    /// Swept once per frame — the first call in a frame drops entries
+    /// the previous frame did not touch (see [`crate::cache`]). Use it
+    /// for derived geometry that is expensive to recompute and cheap to
+    /// keep: bezier curves, tessellated glyph runs, laid-out text.
+    ///
+    /// `id` separates independent caches of the same type, so two graph
+    /// instances do not evict each other's entries.
+    #[must_use]
+    pub fn cache<T: crate::cache::SweptCache>(
+        &mut self,
+        id: impl Into<Id>,
+    ) -> crate::cache::MaraCache<T> {
+        let id = id.into();
+        let handle = match self.get_temp::<crate::cache::MaraCache<T>>(id) {
+            Some(existing) => existing,
+            None => {
+                let fresh = crate::cache::MaraCache::<T>::default();
+                self.set_temp(id, fresh.clone());
+                fresh
+            }
+        };
+
+        // Sweep at most once per frame, keyed by the host's pass number
+        // so repeated access within a frame is free.
+        let pass = self.ctx.cumulative_pass_nr();
+        let swept_key = id.with("mara_cache_swept_pass");
+        if self.get_temp::<u64>(swept_key) != Some(pass) {
+            handle.sweep();
+            self.set_temp(swept_key, pass);
+        }
+        handle
+    }
+
     #[must_use]
     pub fn get_persisted<T>(&self, id: impl Into<Id>) -> Option<T>
     where

@@ -375,3 +375,62 @@ fn a8_text_area_emits_highlighter_runs_verbatim() {
     assert_eq!(runs[0].color, Color32::from_rgb(200, 120, 255));
     assert_eq!(runs[1].text, "x");
 }
+
+// ─── D1.3 · frame-scoped cache ────────────────────────────────────
+
+/// `MaraCache` replaces the egui frame-cache that `mara_graph`'s wire
+/// geometry depends on (PLAN.md WS-D1.3). The contract that matters is
+/// "swept once per frame, not once per access" — a cache swept on every
+/// lookup would evict entries mid-frame and defeat the memoisation.
+#[test]
+fn d13_cache_sweeps_once_per_frame_not_once_per_access() {
+    use mara_core::MaraMemoryCtx;
+    use mara_core::SweptCache;
+    use std::collections::HashMap;
+
+    #[derive(Default)]
+    struct Counted {
+        sweeps: u64,
+        entries: HashMap<u32, u64>,
+    }
+    impl SweptCache for Counted {
+        fn sweep(&mut self) {
+            self.sweeps += 1;
+            let current = self.sweeps;
+            self.entries.retain(|_, stamp| *stamp + 1 >= current);
+        }
+    }
+
+    let ctx = egui::Context::default();
+    let key = mara_core::vocab::Id::new("wires");
+
+    let _ = ctx.run_ui(Default::default(), |ui| {
+        let mut memory = MaraMemoryCtx::__internal_from_backend_ctx(ui.ctx());
+        // Three accesses inside one frame must produce exactly one sweep.
+        for _ in 0..3 {
+            let cache = memory.cache::<Counted>(key);
+            cache.with(|c| c.entries.insert(1, c.sweeps)).unwrap();
+        }
+        let cache = memory.cache::<Counted>(key);
+        assert_eq!(
+            cache.with(|c| c.sweeps),
+            Some(1),
+            "repeated access within a frame must not re-sweep"
+        );
+    });
+
+    let _ = ctx.run_ui(Default::default(), |ui| {
+        let mut memory = MaraMemoryCtx::__internal_from_backend_ctx(ui.ctx());
+        let cache = memory.cache::<Counted>(key);
+        assert_eq!(
+            cache.with(|c| c.sweeps),
+            Some(2),
+            "a new frame sweeps exactly once more"
+        );
+        assert_eq!(
+            cache.with(|c| c.entries.len()),
+            Some(1),
+            "the entry touched last frame survives one sweep"
+        );
+    });
+}

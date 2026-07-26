@@ -30,6 +30,7 @@
 pub mod app_shell;
 #[doc(hidden)]
 pub mod backend;
+pub mod cache;
 pub mod command_palette;
 pub mod container;
 pub(crate) mod debug;
@@ -61,6 +62,7 @@ pub mod widget;
 pub mod window_chrome;
 pub mod workspace;
 
+pub use cache::{MaraCache, SweptCache};
 pub use layout::{Layer, Sense as MaraSense, UiBackend};
 pub use memory::{MaraMemory, MaraMemoryCtx};
 pub use mui::{MaraInput, MaraKey, MaraKeySet, MaraPainter, MaraResponse, MaraUi};
