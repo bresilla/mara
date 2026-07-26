@@ -3661,6 +3661,7 @@ dependencies = [
 name = "mara_core"
 version = "0.4.1"
 dependencies = [
+ "ahash",
  "bevy",
  "egui",
  "egui-scale",

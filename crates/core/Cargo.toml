@@ -78,3 +78,6 @@ bevy = ["dep:bevy"]
 mara_gpu = { workspace = true }
 # Drives the `serde` round-trip test for the sealed spec types.
 serde_json = "1"
+# Checks that Mara ids would hash identically to the backend's — the
+# premise of the native-`Id` migration (PLAN.md WS-E4).
+ahash = "0.8"

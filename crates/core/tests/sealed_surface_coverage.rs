@@ -808,6 +808,39 @@ fn d13_a_group_fills_a_single_slot() {
     }
 }
 
+/// The premise of a native `Id` (WS-E4, user-selected option 2): hashing
+/// with the backend's own algorithm and seeds must produce the *same
+/// number* the backend would. If this holds, a backend-origin id can be
+/// carried as a plain `u64` and handed back without loss.
+///
+/// If this ever fails, a native `Id` is not viable and the type must go
+/// back behind `backend-egui-conv`.
+#[cfg(feature = "backend-egui-conv")]
+#[test]
+fn e4_id_hash_matches_the_backend() {
+    use std::hash::BuildHasher as _;
+
+    let state = ahash::RandomState::with_seeds(1, 2, 3, 4);
+    for source in [
+        "mara.shelf.layout",
+        "a_widget",
+        "",
+        "mara_maximize_global",
+        "some/rather/longer/identifier/with/segments",
+    ] {
+        assert_eq!(
+            state.hash_one(source),
+            egui::Id::new(source).value(),
+            "hashing {source:?} disagrees with the backend"
+        );
+    }
+
+    // And for non-string sources, which ids are also built from.
+    for n in [0_u64, 1, 42, u64::MAX] {
+        assert_eq!(state.hash_one(n), egui::Id::new(n).value());
+    }
+}
+
 /// `lerp` must not clamp — animation curves rely on overshoot outside
 /// `0..=1` — and must agree with the backend term for term, since the
 /// two are used interchangeably during the port.
