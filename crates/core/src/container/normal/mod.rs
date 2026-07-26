@@ -535,7 +535,8 @@ impl Normal {
         // Read the title rect that `paint_title` stashed during
         // render. If absent (folded container or first frame), skip
         // the tab paint — there's nothing to overlay on.
-        let title_rect: Option<egui::Rect> = crate::memory::MaraMemoryCtx::new(ui.ctx()).get_temp(pane_id.with("mara_normal_title_rect"));
+        let title_rect: Option<MaraRect> =
+            crate::memory::MaraMemoryCtx::new(ui.ctx()).get_temp(pane_id.with("mara_normal_title_rect"));
         let Some(title_rect) = title_rect else {
             return out;
         };
@@ -727,7 +728,7 @@ impl Normal {
                             // pixel height (clipping content beyond)
                             // rather than scaling individual
                             // widgets.
-                            let key: egui::Id = crate::pod::Pod::widget_height_key(pod_id).into();
+                            let key = crate::pod::Pod::widget_height_key(pod_id);
                             let cur = crate::memory::MaraMemoryCtx::new(body_ui.ctx()).get_persisted::<f32>(key).unwrap_or(crate::style::UNIT);
                             let new = (cur + resp.drag_delta.y).clamp(
                                 style::theme().pod.min_widget_h,
@@ -1637,9 +1638,13 @@ fn active_tab_id_key(active_idx_key: Id) -> Id {
     active_idx_key.with("tab_id")
 }
 
-fn resolve_active_tab_idx(ctx: &egui::Context, active_idx_key: Id, tab_ids: &[Id]) -> usize {
+fn resolve_active_tab_idx(
+    ctx: &dyn crate::context::MaraCtx,
+    active_idx_key: Id,
+    tab_ids: &[Id],
+) -> usize {
     debug_assert!(!tab_ids.is_empty());
-    let mut memory = crate::memory::MaraMemoryCtx::new(ctx);
+    let mut memory = ctx.memory();
     if let Some(active_id) = memory.get_persisted::<Id>(active_tab_id_key(active_idx_key))
         && let Some(idx) = tab_ids.iter().position(|id| *id == active_id)
     {
