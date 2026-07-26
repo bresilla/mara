@@ -126,8 +126,8 @@ fn maximize_global_key() -> egui::Id {
 /// of the whole window, and per-view ribbons anchor here, so a leaf's
 /// chrome stays inside its cell. `None` (outside any node render) means
 /// whole-window.
-pub(crate) fn current_node_region(ctx: &egui::Context) -> Option<MaraRect> {
-    crate::memory::MaraMemoryCtx::new(ctx).get_temp::<MaraRect>(current_node_region_key())
+pub(crate) fn current_node_region(ctx: &dyn crate::context::MaraCtx) -> Option<MaraRect> {
+    ctx.memory().get_temp::<MaraRect>(current_node_region_key())
 }
 
 /// Publish `region` as the current node region for the duration of
@@ -136,16 +136,16 @@ pub(crate) fn current_node_region(ctx: &egui::Context) -> Option<MaraRect> {
 /// `ViewCtx` around its render entry points.
 #[doc(hidden)]
 pub fn __internal_with_node_region<R>(
-    ctx: &egui::Context,
+    ctx: &dyn crate::context::MaraCtx,
     region: MaraRect,
     body: impl FnOnce() -> R,
 ) -> R {
     let key = current_node_region_key();
-    let mut memory = crate::memory::MaraMemoryCtx::new(ctx);
+    let mut memory = ctx.memory();
     let prev = memory.get_temp::<MaraRect>(key);
     memory.set_temp(key, region);
     let out = body();
-    let mut memory = crate::memory::MaraMemoryCtx::new(ctx);
+    let mut memory = ctx.memory();
     match prev {
         Some(rect) => memory.set_temp(key, rect),
         None => memory.remove_temp::<MaraRect>(key),
@@ -181,9 +181,12 @@ fn suppress_fullscreen_minimize_chip_key() -> egui::Id {
 /// Internal fullscreen restore-chip visibility setter for
 /// first-party host adapters.
 #[doc(hidden)]
-pub fn __internal_set_fullscreen_minimize_chip_visible(ctx: &egui::Context, visible: bool) {
+pub fn __internal_set_fullscreen_minimize_chip_visible(
+    ctx: &dyn crate::context::MaraCtx,
+    visible: bool,
+) {
     {
-        let mut memory = crate::memory::MaraMemoryCtx::new(ctx);
+        let mut memory = ctx.memory();
         memory.set_temp::<bool>(suppress_fullscreen_minimize_chip_key(), !visible);
     };
 }
@@ -192,12 +195,12 @@ pub fn __internal_set_fullscreen_minimize_chip_visible(ctx: &egui::Context, visi
 ///
 /// Returns `true` when a fullscreen owner was found and toggled off.
 #[doc(hidden)]
-pub fn __internal_restore_fullscreen(ctx: &egui::Context) -> bool {
+pub fn __internal_restore_fullscreen(ctx: &dyn crate::context::MaraCtx) -> bool {
     let Some(owner) = __internal_fullscreen_owner(ctx) else {
         return false;
     };
     {
-        let mut memory = crate::memory::MaraMemoryCtx::new(ctx);
+        let mut memory = ctx.memory();
         memory.set_temp::<MaraId>(pending_restore_fullscreen_key(), owner);
     };
     true

@@ -735,7 +735,6 @@ fn d13_frame_paints_behind_its_content() {
 /// its own border.
 #[test]
 fn d13_frame_insets_content_by_its_margin() {
-    use mara_core::MaraUi;
     use mara_core::backend::record::RecordingBackend;
     use mara_core::layout::{Sense, UiBackend};
     use mara_core::style::{FrameSpec, MarginSpec};
