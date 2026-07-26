@@ -388,7 +388,7 @@ impl Normal {
         let container_max_rect =
             tabbed_container_max_rect(avail, strip_side, strip_thickness, strip_outer_inset);
         crate::memory::MaraMemoryCtx::new(ui.ctx())
-            .remove_temp::<egui::Rect>(pane::active_container_frame_rect_key());
+            .remove_temp::<MaraRect>(pane::active_container_frame_rect_key());
         let mut child =
             crate::backend::egui::child_ui_with_current_layout_for_rect(ui, container_max_rect);
         let out = me.show(&mut child, active_pods);
@@ -404,11 +404,11 @@ impl Normal {
         let used = {
             let key = pane::active_container_frame_rect_key();
             let mut memory = crate::memory::MaraMemoryCtx::new(ui.ctx());
-            let rect = memory.get_temp::<egui::Rect>(key);
-            memory.remove_temp::<egui::Rect>(key);
+            let rect = memory.get_temp::<MaraRect>(key);
+            memory.remove_temp::<MaraRect>(key);
             rect
         }
-        .unwrap_or_else(|| child.min_rect());
+        .map_or_else(|| child.min_rect(), egui::Rect::from);
 
         // Place the strip ALIGNED to where the container actually
         // rendered. `used` already accounts for parent layout
@@ -446,7 +446,7 @@ impl Normal {
         // downward, BottomUp upward, etc.).
         let union_rect = strip_rect.union(used.into());
         crate::memory::MaraMemoryCtx::new(ui.ctx())
-            .set_temp::<egui::Rect>(pane::active_tabbed_container_rect_key(), union_rect.into());
+            .set_temp::<MaraRect>(pane::active_tabbed_container_rect_key(), union_rect);
         // Overwrite the drag snapshot entry: `me.show()` already
         // pushed the body-only frame rect to the parent pane's
         // current cache (it runs BEFORE `strip_rect` is known), so
@@ -1298,7 +1298,7 @@ impl Normal {
         ui.set_opacity(prev_opacity);
         crate::memory::MaraMemoryCtx::new(ui.ctx()).set_temp(
             pane::active_container_frame_rect_key(),
-            frame_response.response.rect,
+            MaraRect::from(frame_response.response.rect),
         );
 
         // Publish the rendered Frame's outer rect to the parent
@@ -1312,11 +1312,11 @@ impl Normal {
             let published_rect = {
                 let key = pane::active_tabbed_container_rect_key();
                 let mut memory = crate::memory::MaraMemoryCtx::new(ui.ctx());
-                let rect = memory.get_temp::<egui::Rect>(key);
-                memory.remove_temp::<egui::Rect>(key);
+                let rect = memory.get_temp::<MaraRect>(key);
+                memory.remove_temp::<MaraRect>(key);
                 rect
             }
-            .unwrap_or(frame_response.response.rect);
+            .map_or(frame_response.response.rect, egui::Rect::from);
             pane::push_rect(ui.ctx(), active_pane_id, pane_id, published_rect);
         }
         // Custom debug inspector — outline the container's full
