@@ -826,6 +826,16 @@ pub trait UiBackend {
         0.0
     }
 
+    /// Text typed this frame (composed characters, not raw keys).
+    ///
+    /// Separate from [`UiBackend::input`] because [`crate::MaraInput`]
+    /// is `Copy` and snapshotted every frame — a `String` there would
+    /// cost an allocation per frame for every surface, typing or not.
+    /// Only text-editing surfaces ask for this.
+    fn text_typed(&self) -> String {
+        String::new()
+    }
+
     /// Device pixels per logical point. Surfaces that render into a
     /// pixel-sized target (embedded renderers, offscreen textures) size
     /// that target by `logical_size * pixels_per_point`. Backends with
@@ -946,6 +956,9 @@ impl<T: UiBackend + ?Sized> UiBackend for &mut T {
     }
     fn now(&self) -> f64 {
         (**self).now()
+    }
+    fn text_typed(&self) -> String {
+        (**self).text_typed()
     }
     fn pixels_per_point(&self) -> f32 {
         (**self).pixels_per_point()

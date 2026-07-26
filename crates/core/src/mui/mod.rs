@@ -1049,6 +1049,12 @@ impl crate::layout::UiBackend for MaraBackend<'_> {
             Self::Recording(b) => b.now(),
         }
     }
+    fn text_typed(&self) -> String {
+        match self {
+            Self::Egui(b) => b.text_typed(),
+            Self::Recording(b) => b.text_typed(),
+        }
+    }
     fn pixels_per_point(&self) -> f32 {
         match self {
             Self::Egui(b) => b.pixels_per_point(),
@@ -1487,6 +1493,19 @@ impl<'a> MaraUi<'a> {
             accent,
             height,
         )
+    }
+
+    /// Multi-line text editing surface — the sealed counterpart to a
+    /// code editor's text pane (PLAN.md WS-A8).
+    ///
+    /// Build it with [`crate::widget::text_area::MaraTextArea`] to set
+    /// rows, font size and a per-line syntax highlighter.
+    pub fn text_area(
+        &mut self,
+        area: crate::widget::text_area::MaraTextArea<'_>,
+        text: &mut String,
+    ) -> crate::widget::text_area::MaraTextAreaResponse {
+        area.show(&mut *self.backend, text)
     }
 
     pub fn text_input(&mut self, text: &mut String, placeholder: &str) -> MaraResponse {

@@ -138,6 +138,7 @@ pub use workspace::{
 // `egui::Ui` helpers. The TYPE-style names (`Button`,
 // `TreeIconSlot`, …) sit here too so trait-shaped widgets compose
 // without a longer path.
+pub use widget::text_area::{MaraTextArea, MaraTextAreaResponse};
 pub use widget::{
     BADGE_LABEL_COL_W, BADGE_ROW_H, BUTTON_LABEL_FONT, BUTTON_ROW_H, BUTTON_ROW_H_SUBTITLE, Button,
     CARD_BUTTON_ROW_H, CHIP_H, COLOR_SWATCH_H, DROPDOWN_ROW_H, FillStyle, HYBRID_SELECT_ROW_H,

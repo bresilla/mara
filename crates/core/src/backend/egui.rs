@@ -262,6 +262,19 @@ impl UiBackend for EguiUiBackend<'_> {
         input_time(self.ui.ctx())
     }
 
+    fn text_typed(&self) -> String {
+        self.ui.ctx().input(|input| {
+            input
+                .events
+                .iter()
+                .filter_map(|event| match event {
+                    egui::Event::Text(text) => Some(text.as_str()),
+                    _ => None,
+                })
+                .collect()
+        })
+    }
+
     fn pixels_per_point(&self) -> f32 {
         self.ui.ctx().pixels_per_point()
     }

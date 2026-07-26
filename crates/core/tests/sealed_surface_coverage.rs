@@ -282,3 +282,90 @@ fn a7_offscreen_entry_point_speaks_only_vocab() {
         })
     }
 }
+
+// ─── A8 · multi-line text editing ─────────────────────────────────
+
+/// The text area must render entirely through the paint IR — no egui
+/// in the call path — so a code editor rewritten onto it (WS-D2) is
+/// sealed by construction. Driving it over the recording backend and
+/// inspecting the command stream is the proof.
+#[test]
+fn a8_text_area_renders_through_the_paint_ir() {
+    use mara_core::MaraTextArea;
+    use mara_core::backend::record::RecordingBackend;
+
+    let mut backend =
+        RecordingBackend::at(Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 300.0)));
+    let mut text = String::from("fn main() {\n    let x = 1;\n}");
+    let out = MaraTextArea::new("editor")
+        .rows(6)
+        .show(&mut backend, &mut text);
+
+    assert_eq!(out.caret, (2, 1), "caret starts at the end of the buffer");
+    assert!(!out.changed, "no input this pass, so no edit");
+
+    let kinds: Vec<&str> = backend
+        .paints
+        .iter()
+        .map(|cmd| match cmd {
+            PaintCmd::RectFilled { .. } => "rect",
+            PaintCmd::TextRuns { .. } => "runs",
+            _ => "other",
+        })
+        .collect();
+    assert!(
+        kinds.contains(&"rect"),
+        "expected a background and a caret rect, got {kinds:?}"
+    );
+    assert_eq!(
+        kinds.iter().filter(|k| **k == "runs").count(),
+        3,
+        "one TextRuns command per line of the buffer, got {kinds:?}"
+    );
+}
+
+/// A per-line highlighter is the seam a tokeniser plugs into: its runs
+/// must reach the paint stream unchanged.
+#[test]
+fn a8_text_area_emits_highlighter_runs_verbatim() {
+    use mara_core::MaraTextArea;
+    use mara_core::backend::record::RecordingBackend;
+    use mara_core::paint::{TextFamily, TextRun};
+
+    let mut backend =
+        RecordingBackend::at(Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 100.0)));
+    let mut text = String::from("let x");
+    let highlight = |line: &str| {
+        line.split_inclusive(' ')
+            .map(|word| TextRun {
+                text: word.to_owned(),
+                size: 13.0,
+                color: if word.starts_with("let") {
+                    Color32::from_rgb(200, 120, 255)
+                } else {
+                    Color32::WHITE
+                },
+                family: TextFamily::Monospace,
+                extra_letter_spacing: 0.0,
+                leading_space: 0.0,
+            })
+            .collect()
+    };
+    let _ = MaraTextArea::new("hl")
+        .rows(1)
+        .highlight(&highlight)
+        .show(&mut backend, &mut text);
+
+    let runs = backend
+        .paints
+        .iter()
+        .find_map(|cmd| match cmd {
+            PaintCmd::TextRuns { runs, .. } => Some(runs.clone()),
+            _ => None,
+        })
+        .expect("a TextRuns command");
+    assert_eq!(runs.len(), 2, "highlighter split the line into two runs");
+    assert_eq!(runs[0].text, "let ");
+    assert_eq!(runs[0].color, Color32::from_rgb(200, 120, 255));
+    assert_eq!(runs[1].text, "x");
+}
