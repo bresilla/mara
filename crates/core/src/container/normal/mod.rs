@@ -2500,9 +2500,8 @@ fn paint_title(
     // know exactly where the title row landed — used by
     // `Normal::show_tabs` (GAME path) to overlay tab buttons on the
     // title row after the container has rendered.
-    ui.ctx().data_mut(|d| {
-        d.insert_temp(egui::Id::from(pane_id.with("mara_normal_title_rect")), rect);
-    });
+    crate::memory::MaraMemoryCtx::new(ui.ctx())
+        .set_temp(pane_id.with("mara_normal_title_rect"), rect);
 
     let theme = style::theme();
     let container_theme = theme.container;
@@ -3061,10 +3060,9 @@ fn paint_corner_ticks(
     let first_seen_id = snap_id.with("first_seen");
     let now = crate::backend::egui::input_time(ui.ctx());
     let opacity_active = ui.opacity() >= OPACITY_GATE;
-    let body_open_now: bool = ui.ctx().data_mut(|d| {
-        d.get_persisted::<bool>(egui::Id::from(container_id.with("body_open")))
-            .unwrap_or(true)
-    });
+    let body_open_now: bool = crate::memory::MaraMemoryCtx::new(ui.ctx())
+        .get_persisted::<bool>(container_id.with("body_open"))
+        .unwrap_or(true);
     // `first_seen` is the start-of-snap timestamp. It's set on
     // either of two events and otherwise left alone, so idle paints
     // never replay the animation:
@@ -3077,15 +3075,18 @@ fn paint_corner_ticks(
     //      affected container only; folding (true → false) doesn't
     //      re-fire (the container is going away, the brackets just
     //      track its shrinking edge).
-    let first_seen: Option<f64> = ui.ctx().data_mut(|d| {
-        let prev_active = d.get_temp::<bool>(egui::Id::from(prev_active_id)).unwrap_or(false);
-        d.insert_temp(egui::Id::from(prev_active_id), opacity_active);
+    let first_seen: Option<f64> = {
+        // Each of these is a read-then-write of the *previous* frame's
+        // value; splitting a pair would lose the edge it detects.
+        let mut memory = crate::memory::MaraMemoryCtx::new(ui.ctx());
+        let prev_active = memory.get_temp::<bool>(prev_active_id).unwrap_or(false);
+        memory.set_temp(prev_active_id, opacity_active);
         let became_inactive = prev_active && !opacity_active;
 
-        let prev_body_open = d
-            .get_temp::<bool>(egui::Id::from(prev_body_open_id))
+        let prev_body_open = memory
+            .get_temp::<bool>(prev_body_open_id)
             .unwrap_or(body_open_now);
-        d.insert_temp(egui::Id::from(prev_body_open_id), body_open_now);
+        memory.set_temp(prev_body_open_id, body_open_now);
         let just_unfolded = !prev_body_open && body_open_now;
 
         if became_inactive || just_unfolded {
@@ -3093,9 +3094,9 @@ fn paint_corner_ticks(
             // back in shortly), or the user just unfolded this
             // section. Drop the recorded `first_seen` so the next
             // active frame re-arms the snap.
-            d.remove::<f64>(egui::Id::from(first_seen_id));
+            memory.remove_temp::<f64>(first_seen_id);
         }
-        let existing = d.get_temp::<f64>(egui::Id::from(first_seen_id));
+        let existing = memory.get_temp::<f64>(first_seen_id);
         match (existing, opacity_active) {
             (Some(t), _) => Some(t),
             (None, true) => {
@@ -3106,12 +3107,12 @@ fn paint_corner_ticks(
                 // snap then kicks off naturally once `now` catches
                 // up with the biased first_seen.
                 let biased = now + DELAY_AFTER_FADE;
-                d.insert_temp(egui::Id::from(first_seen_id), biased);
+                memory.set_temp(first_seen_id, biased);
                 Some(biased)
             }
             (None, false) => None,
         }
-    });
+    };
     let appear = match first_seen {
         Some(t) => (((now - t) as f32) / APPEAR_DUR).clamp(0.0, 1.0),
         None => 0.0,
