@@ -54,6 +54,9 @@ graph = ["dep:mara_graph", "mara_core/graph"]
 image = ["dep:mara_image"]
 map = ["dep:mara_map"]
 three-d = ["dep:mara_3d", "mara_3d/gpu-preview"]
+# Offscreen UI surfaces (`ViewCtx::offscreen`). Forwarded from
+# `mara_core` so a consumer enables it once, on the facade.
+gpu = ["mara_core/gpu"]
 bevy = ["dep:mara_bevy"]
 window = [
     "egui-wgpu/winit",

@@ -310,6 +310,43 @@ impl<'a> ViewCtx<'a> {
             .into()
     }
 
+    /// Render a sealed UI body into its own texture at an independent
+    /// scale, and get back the texture to paint.
+    ///
+    /// The body runs in a surface whose rasterisation scale is `scale`,
+    /// not the window's — so text stays crisp when the result is
+    /// composited at a different zoom. Use it for zoomable editors,
+    /// thumbnails, minimaps, or anything that wants "this UI, as an
+    /// image".
+    ///
+    /// `salt` keys the retained surface: pass a stable per-instance
+    /// value, because each surface owns a texture, a renderer and its
+    /// own font atlas. Reusing a salt reuses that state; a changing
+    /// salt leaks a surface per frame.
+    ///
+    /// Returns `None` when the surface cannot be prepared (degenerate
+    /// size, or GPU allocation failure) — paint a fallback rather than
+    /// assuming a texture.
+    #[cfg(feature = "gpu")]
+    pub fn offscreen(
+        &mut self,
+        salt: impl std::hash::Hash,
+        gpu: mara_gpu::MaraRenderState<'_>,
+        size: impl Into<crate::vocab::Vec2>,
+        scale: f32,
+        mut body: impl FnMut(&mut MaraUi<'_>),
+    ) -> Option<crate::vocab::TextureId> {
+        crate::backend::egui::render_offscreen(
+            self.egui_ctx,
+            gpu,
+            self.workspace.current().id.with(salt),
+            size.into(),
+            scale,
+            self.accent,
+            &mut body,
+        )
+    }
+
     /// Device pixels per logical point — the scale factor a view
     /// rendering into its own pixel buffer must size that buffer by.
     #[must_use]

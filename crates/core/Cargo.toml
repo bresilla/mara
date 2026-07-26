@@ -31,6 +31,12 @@ pastel = { version = "0.12", default-features = false }
 # Optional standalone-extra crates. When the matching feature is
 # enabled, the corresponding `mara_core::extras::*` re-export + the
 # mara-tinted wrapper become available.
+# Offscreen UI surfaces (WS-A7) need a wgpu device + an egui-wgpu
+# renderer to rasterise a subtree into its own texture. Optional so a
+# UI-only build stays GPU-free.
+mara_gpu = { workspace = true, optional = true }
+egui-wgpu = { workspace = true, optional = true }
+wgpu = { workspace = true, optional = true }
 mara_graph = { workspace = true, optional = true }
 mara_code = { workspace = true, optional = true }
 # Optional Bevy integration. When OFF, the crate compiles as a
@@ -50,6 +56,16 @@ code = ["dep:mara_code"]
 # (the pre-0.4.2 behaviour), which is a real saving: `resvg` is a large
 # dependency and most apps never draw an SVG.
 svg = ["dep:egui_extras"]
+# `ViewCtx::offscreen` — render a sealed UI body into its own texture at
+# an independent scale. Off by default: it pulls wgpu, and only surfaces
+# that need scale-independent rasterisation (node graphs, thumbnails)
+# use it.
+gpu = ["dep:mara_gpu", "dep:egui-wgpu", "dep:wgpu"]
 # Enables `#[derive(bevy::Resource)]` + `bevy::SystemSet` on state
 # types so they slot into a Bevy app as resources without wrappers.
 bevy = ["dep:bevy"]
+
+[dev-dependencies]
+# `mara_gpu` types appear in the WS-A7 signature test even when the
+# `gpu` feature is off for the library build.
+mara_gpu = { workspace = true }

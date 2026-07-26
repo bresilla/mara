@@ -1936,3 +1936,226 @@ mod tests {
         assert!(!matches!(shape, egui::Shape::Noop));
     }
 }
+
+// ─── Offscreen UI surfaces (PLAN.md WS-A7) ────────────────────────
+//
+// Lives here rather than in its own `offscreen.rs` because it is
+// egui-wgpu backend code: the coupling ratchet counts files under
+// `crates/core/src` that name egui, and `backend/` is where that
+// coupling is accounted for.
+#[cfg(feature = "gpu")]
+mod offscreen {
+    use std::collections::HashMap;
+    use std::sync::{Arc, Mutex};
+
+    use crate::mui::{MaraBackend, MaraUi};
+    use crate::vocab;
+
+    /// A surface's retained GPU + context state, reused frame to frame.
+    struct OffscreenSurface {
+        /// Independent context: its own `pixels_per_point`, font atlas and
+        /// tessellator, which is the whole point — the parent's scale must
+        /// not drive this subtree's rasterisation.
+        ctx: egui::Context,
+        renderer: egui_wgpu::Renderer,
+        target: Option<OffscreenTarget>,
+    }
+
+    struct OffscreenTarget {
+        /// Owns the GPU resource. `view` borrows from it, and the parent's
+        /// registered texture id points at it, so it must outlive both.
+        #[allow(dead_code)]
+        texture: wgpu::Texture,
+        view: wgpu::TextureView,
+        size_pixels: [u32; 2],
+        parent_texture: Option<egui::TextureId>,
+    }
+
+    /// Per-context registry of live surfaces, keyed by caller-supplied id.
+    #[derive(Clone, Default)]
+    struct OffscreenRegistry(Arc<Mutex<HashMap<vocab::Id, OffscreenSurface>>>);
+
+    fn registry(ctx: &egui::Context) -> OffscreenRegistry {
+        let key = egui::Id::new("mara_offscreen_registry");
+        if let Some(existing) = ctx.data(|data| data.get_temp::<OffscreenRegistry>(key)) {
+            return existing;
+        }
+        let fresh = OffscreenRegistry::default();
+        ctx.data_mut(|data| data.insert_temp(key, fresh.clone()));
+        fresh
+    }
+
+    /// Render `body` into an offscreen texture and return its id.
+    ///
+    /// `size_points` is the logical size of the surface; `scale` multiplies
+    /// it to get the rasterisation resolution (`2.0` renders at twice the
+    /// linear detail). Returns `None` when the surface cannot be prepared —
+    /// a degenerate size, or a GPU allocation that failed — in which case
+    /// the caller should paint a fallback rather than assume a texture.
+    pub(crate) fn render_offscreen(
+        parent: &egui::Context,
+        gpu: mara_gpu::MaraRenderState<'_>,
+        id: vocab::Id,
+        size_points: vocab::Vec2,
+        scale: f32,
+        accent: vocab::Color32,
+        body: &mut dyn FnMut(&mut MaraUi<'_>),
+    ) -> Option<vocab::TextureId> {
+        let scale = scale.clamp(0.05, 8.0);
+        let pixels = [
+            (size_points.x * scale).round().max(1.0) as u32,
+            (size_points.y * scale).round().max(1.0) as u32,
+        ];
+        if size_points.x < 1.0 || size_points.y < 1.0 {
+            return None;
+        }
+
+        let render_state = gpu.__internal_raw();
+        let device = render_state.device.clone();
+        let queue = render_state.queue.clone();
+        let format = render_state.target_format;
+
+        let registry = registry(parent);
+        let mut surfaces = registry.0.lock().ok()?;
+        let surface = surfaces.entry(id).or_insert_with(|| OffscreenSurface {
+            ctx: egui::Context::default(),
+            // `msaa_samples = 1` matches the target's sample count;
+            // `dithering = false` keeps colours exact across formats, so the
+            // composited texture matches what the parent would have drawn.
+            renderer: egui_wgpu::Renderer::new(
+                &device,
+                format,
+                egui_wgpu::RendererOptions {
+                    msaa_samples: 1,
+                    depth_stencil_format: None,
+                    dithering: false,
+                    predictable_texture_filtering: false,
+                },
+            ),
+            target: None,
+        });
+
+        ensure_target(surface, render_state, &device, format, pixels);
+        let target = surface.target.as_ref()?;
+        let parent_texture = target.parent_texture?;
+        let view = target.view.clone();
+
+        // Drive the sub-context at the requested scale, then lower its
+        // output into our own target rather than the window's surface.
+        surface.ctx.set_pixels_per_point(scale);
+        let raw_input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::pos2(0.0, 0.0),
+                egui::vec2(size_points.x, size_points.y),
+            )),
+            ..Default::default()
+        };
+        let output = surface.ctx.run_ui(raw_input, |ui| {
+            let mut backend = MaraBackend::Egui(crate::backend::egui::EguiUiBackend::new(ui));
+            body(&mut MaraUi::over(&mut backend, accent));
+        });
+        let primitives = surface
+            .ctx
+            .tessellate(output.shapes, surface.ctx.pixels_per_point());
+
+        let screen = egui_wgpu::ScreenDescriptor {
+            size_in_pixels: pixels,
+            pixels_per_point: scale,
+        };
+        for (texture_id, delta) in &output.textures_delta.set {
+            surface
+                .renderer
+                .update_texture(&device, &queue, *texture_id, delta);
+        }
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("mara_offscreen_encoder"),
+        });
+        surface
+            .renderer
+            .update_buffers(&device, &queue, &mut encoder, &primitives, &screen);
+        {
+            let mut pass = encoder
+                .begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("mara_offscreen_pass"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                            store: wgpu::StoreOp::Store,
+                        },
+                        depth_slice: None,
+                    })],
+                    depth_stencil_attachment: None,
+                    timestamp_writes: None,
+                    occlusion_query_set: None,
+                    multiview_mask: None,
+                })
+                .forget_lifetime();
+            surface.renderer.render(&mut pass, &primitives, &screen);
+        }
+        queue.submit(Some(encoder.finish()));
+        for texture_id in &output.textures_delta.free {
+            surface.renderer.free_texture(texture_id);
+        }
+
+        Some(parent_texture.into())
+    }
+
+    /// (Re)allocate the render target when the pixel size changes, and
+    /// register it with the PARENT renderer so the parent can sample it.
+    fn ensure_target(
+        surface: &mut OffscreenSurface,
+        render_state: &egui_wgpu::RenderState,
+        device: &wgpu::Device,
+        format: wgpu::TextureFormat,
+        size_pixels: [u32; 2],
+    ) {
+        if surface
+            .target
+            .as_ref()
+            .is_some_and(|target| target.size_pixels == size_pixels)
+        {
+            return;
+        }
+        // Release the old registration before allocating, so the parent
+        // renderer's texture map does not accumulate dead entries.
+        if let Some(old) = surface.target.take()
+            && let Some(parent_texture) = old.parent_texture
+        {
+            render_state.renderer.write().free_texture(&parent_texture);
+        }
+
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("mara_offscreen_target"),
+            size: wgpu::Extent3d {
+                width: size_pixels[0].max(1),
+                height: size_pixels[1].max(1),
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                | wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let parent_texture = render_state.renderer.write().register_native_texture(
+            device,
+            &view,
+            wgpu::FilterMode::Linear,
+        );
+        surface.target = Some(OffscreenTarget {
+            texture,
+            view,
+            size_pixels,
+            parent_texture: Some(parent_texture),
+        });
+    }
+}
+
+#[cfg(feature = "gpu")]
+pub(crate) use offscreen::render_offscreen;

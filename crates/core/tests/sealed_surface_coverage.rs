@@ -258,3 +258,27 @@ fn f3_svg_paint_command_reaches_a_rasteriser() {
         "SVG never rasterised — the `svg` feature's loader is not reaching PaintCmd::Svg"
     );
 }
+
+// ─── A7 · offscreen UI surface ────────────────────────────────────
+
+/// `ViewCtx::offscreen` needs a live GPU device, which a unit test has
+/// no way to obtain — so this asserts the part that *is* testable
+/// headlessly: the entry point exists, is feature-gated, and speaks
+/// only vocab types. The rendering path itself is exercised by the
+/// consumer that replaces `mara_graph`'s private second-context
+/// machinery (PLAN.md WS-D1.4).
+///
+/// Compile-time assertion: if the signature ever grows an egui or wgpu
+/// type, this stops building.
+#[cfg(feature = "gpu")]
+#[test]
+fn a7_offscreen_entry_point_speaks_only_vocab() {
+    fn _assert_signature(
+        ctx: &mut mara_core::ViewCtx<'_>,
+        gpu: mara_gpu::MaraRenderState<'_>,
+    ) -> Option<mara_core::vocab::TextureId> {
+        ctx.offscreen("editor", gpu, Vec2::new(320.0, 200.0), 2.0, |ui| {
+            let _ = ui.button("inside the offscreen surface");
+        })
+    }
+}

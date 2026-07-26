@@ -3658,11 +3658,14 @@ version = "0.4.1"
 dependencies = [
  "bevy",
  "egui",
+ "egui-wgpu",
  "egui_extras",
  "iconflow",
  "mara_code",
+ "mara_gpu",
  "mara_graph",
  "pastel",
+ "wgpu",
 ]
 
 [[package]]
