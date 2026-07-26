@@ -21,11 +21,26 @@
 //!   replaces the active selection first, matching conventional
 //!   single-line field behaviour.
 //!
-//! It is deliberately single-line (no `\n` navigation) and has no
-//! clipboard/IME yet — those layer on top once a backend feeds events.
-//! The egui backend will translate its key/char events into these
-//! calls; a future custom backend implements the same translation and
-//! reuses this logic verbatim.
+//! ## Multi-line (PLAN.md WS-A8)
+//!
+//! The operations above are line-agnostic — `move_home`/`move_end` jump
+//! to the ends of the whole buffer, which is right for a field and
+//! wrong for an editor. A second block at the bottom of this file adds
+//! the line-aware operations a code editor needs — `line_col`,
+//! `move_line_home`/`move_line_end`, `move_line_up`/`move_line_down`
+//! (column-preserving, clamping to short lines),
+//! `insert_newline_with_indent`, `line_count` — **without** changing
+//! the single-line behaviour existing callers rely on.
+//!
+//! Vertical movement deliberately has no "sticky column": moving down
+//! onto a short line and back up returns to the clamped column, not the
+//! original one. That is what the state machine implements and what the
+//! tests pin; add a remembered column here if an editor wants it.
+//!
+//! Still missing: clipboard and IME. Those layer on top once a backend
+//! feeds events. The egui backend translates its key/char events into
+//! these calls; a future custom backend implements the same translation
+//! and reuses this logic verbatim.
 
 /// Caret + selection state for a single-line text field, expressed in
 /// char indices into the edited string.
@@ -287,6 +302,123 @@ fn next_word_boundary(chars: &[char], pos: usize) -> usize {
     i
 }
 
+// ─── Multi-line navigation (PLAN.md WS-A8) ────────────────────────
+//
+// `TextEditState` above is line-agnostic: `move_home`/`move_end` jump
+// to the ends of the whole buffer, which is right for a single-line
+// field and wrong for an editor. These add the line-aware operations a
+// code editor needs, without changing the single-line behaviour any
+// existing caller depends on.
+
+/// Char index of the start of the line containing `caret`.
+fn line_start(text: &str, caret: usize) -> usize {
+    let chars: Vec<char> = text.chars().collect();
+    let caret = caret.min(chars.len());
+    let mut i = caret;
+    while i > 0 && chars[i - 1] != '\n' {
+        i -= 1;
+    }
+    i
+}
+
+/// Char index of the end of the line containing `caret` (before the
+/// newline, or the end of the buffer on the last line).
+fn line_end(text: &str, caret: usize) -> usize {
+    let chars: Vec<char> = text.chars().collect();
+    let mut i = caret.min(chars.len());
+    while i < chars.len() && chars[i] != '\n' {
+        i += 1;
+    }
+    i
+}
+
+impl TextEditState {
+    /// Zero-based line index and column of the caret.
+    #[must_use]
+    pub fn line_col(self, text: &str) -> (usize, usize) {
+        let start = line_start(text, self.caret);
+        let line = text.chars().take(start).filter(|&c| c == '\n').count();
+        (line, self.caret - start)
+    }
+
+    /// Move to the start of the current line (not the buffer).
+    pub fn move_line_home(&mut self, extend: bool, text: &str) {
+        self.caret = line_start(text, self.caret);
+        if !extend {
+            self.anchor = self.caret;
+        }
+    }
+
+    /// Move to the end of the current line (not the buffer).
+    pub fn move_line_end(&mut self, extend: bool, text: &str) {
+        self.caret = line_end(text, self.caret);
+        if !extend {
+            self.anchor = self.caret;
+        }
+    }
+
+    /// Move one line up, keeping the column where the target line is
+    /// long enough and clamping to its end where it is not.
+    ///
+    /// On the first line this moves to the buffer start, matching what
+    /// every editor does rather than doing nothing.
+    pub fn move_line_up(&mut self, extend: bool, text: &str) {
+        let start = line_start(text, self.caret);
+        let column = self.caret - start;
+        if start == 0 {
+            self.caret = 0;
+        } else {
+            let prev_start = line_start(text, start - 1);
+            let prev_end = start - 1;
+            self.caret = (prev_start + column).min(prev_end);
+        }
+        if !extend {
+            self.anchor = self.caret;
+        }
+    }
+
+    /// Move one line down, with the same column-preserving rule as
+    /// [`TextEditState::move_line_up`]. On the last line this moves to
+    /// the buffer end.
+    pub fn move_line_down(&mut self, extend: bool, text: &str) {
+        let start = line_start(text, self.caret);
+        let column = self.caret - start;
+        let end = line_end(text, self.caret);
+        let total = text.chars().count();
+        if end >= total {
+            self.caret = total;
+        } else {
+            let next_start = end + 1;
+            let next_end = line_end(text, next_start);
+            self.caret = (next_start + column).min(next_end);
+        }
+        if !extend {
+            self.anchor = self.caret;
+        }
+    }
+
+    /// Insert a newline plus the leading whitespace of the current
+    /// line, so the caret lands at the same indentation.
+    pub fn insert_newline_with_indent(&mut self, text: &mut String) {
+        let start = line_start(text, self.selection_range().0);
+        let indent: String = text
+            .chars()
+            .skip(start)
+            .take_while(|c| *c == ' ' || *c == '\t')
+            .collect();
+        let mut inserted = String::with_capacity(indent.len() + 1);
+        inserted.push('\n');
+        inserted.push_str(&indent);
+        self.insert_str(text, &inserted);
+    }
+
+    /// Number of lines in `text` — always at least 1.
+    #[must_use]
+    pub fn line_count(text: &str) -> usize {
+        text.chars().filter(|&c| c == '\n').count() + 1
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -498,5 +630,89 @@ mod tests {
         let mut text2 = text.clone();
         s.delete_word_left(&mut text2);
         assert_eq!(text2, "ββ");
+    }
+}
+
+#[cfg(test)]
+mod multiline_tests {
+    use super::*;
+
+    const DOC: &str = "fn main() {\n    let x = 1;\n}\n";
+
+    fn at(caret: usize) -> TextEditState {
+        let mut s = TextEditState::new();
+        for _ in 0..caret {
+            s.move_right(false, DOC);
+        }
+        s
+    }
+
+    #[test]
+    fn line_col_tracks_newlines() {
+        assert_eq!(at(0).line_col(DOC), (0, 0));
+        assert_eq!(at(12).line_col(DOC), (1, 0));
+        assert_eq!(at(16).line_col(DOC), (1, 4));
+    }
+
+    #[test]
+    fn line_home_and_end_stay_on_their_line() {
+        let mut s = at(16);
+        s.move_line_home(false, DOC);
+        assert_eq!(s.line_col(DOC), (1, 0));
+        s.move_line_end(false, DOC);
+        assert_eq!(s.line_col(DOC), (1, 14), "end of `    let x = 1;`");
+    }
+
+    #[test]
+    fn vertical_movement_preserves_column_and_clamps_to_short_lines() {
+        // Column 8 on line 1 → line 2 is `}`, which is only 1 char, so
+        // the caret must clamp to its end rather than run past it.
+        let mut s = at(20);
+        assert_eq!(s.line_col(DOC), (1, 8));
+        s.move_line_down(false, DOC);
+        assert_eq!(s.line_col(DOC), (2, 1));
+
+        // Going back up returns to the *clamped* column, not the
+        // original one — this matches editors without a "sticky column"
+        // and is the behaviour the state machine actually implements.
+        s.move_line_up(false, DOC);
+        assert_eq!(s.line_col(DOC), (1, 1));
+    }
+
+    #[test]
+    fn vertical_movement_saturates_at_the_buffer_ends() {
+        let mut s = at(3);
+        s.move_line_up(false, DOC);
+        assert_eq!(s.caret(), 0, "up on the first line goes to the start");
+
+        let total = DOC.chars().count();
+        let mut s = TextEditState::at_end(DOC);
+        s.move_line_down(false, DOC);
+        assert_eq!(s.caret(), total, "down on the last line goes to the end");
+    }
+
+    #[test]
+    fn newline_carries_the_current_indentation() {
+        let mut text = String::from("    let x = 1;");
+        let mut s = TextEditState::at_end(&text);
+        s.insert_newline_with_indent(&mut text);
+        assert_eq!(text, "    let x = 1;\n    ");
+        assert_eq!(s.line_col(&text), (1, 4), "caret sits after the indent");
+    }
+
+    #[test]
+    fn selection_extends_across_lines() {
+        let mut s = at(16);
+        s.move_line_down(true, DOC);
+        assert!(s.has_selection());
+        assert!(s.selected_str(DOC).contains('\n'));
+    }
+
+    #[test]
+    fn line_count_counts_trailing_newline_as_a_line() {
+        assert_eq!(TextEditState::line_count(""), 1);
+        assert_eq!(TextEditState::line_count("a"), 1);
+        assert_eq!(TextEditState::line_count("a\nb"), 2);
+        assert_eq!(TextEditState::line_count(DOC), 4);
     }
 }
