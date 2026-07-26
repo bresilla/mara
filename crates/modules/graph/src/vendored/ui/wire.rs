@@ -1,6 +1,11 @@
 use core::f32;
 
-use egui::{Context, Id, Pos2, Rect, Shape, Stroke, Ui, ahash::HashMap, cache::CacheTrait, pos2};
+use std::collections::HashMap;
+
+use mara_core::cache::SweptCache;
+use mara_core::memory::MaraMemoryCtx;
+use mara_core::paint::PaintCmd;
+use mara_core::vocab::{Id, Pos2, Rect, Stroke, pos2};
 
 use crate::vendored::{InPinId, OutPinId};
 
@@ -249,9 +254,10 @@ fn wire_bezier_3(frame_size: f32, from: Pos2, to: Pos2) -> [Pos2; 4] {
 
 #[allow(clippy::too_many_arguments)]
 pub fn draw_wire(
-    ui: &Ui,
+    memory: &mut MaraMemoryCtx<'_>,
+    clip_rect: Rect,
     wire: WireId,
-    shapes: &mut Vec<Shape>,
+    shapes: &mut Vec<PaintCmd>,
     frame_size: f32,
     upscale: bool,
     downscale: bool,
@@ -261,12 +267,18 @@ pub fn draw_wire(
     threshold: f32,
     style: WireStyle,
 ) {
-    if !ui.is_visible() {
-        return;
-    }
-
     if stroke.width < 1.0 {
-        stroke.color = stroke.color.gamma_multiply(stroke.width);
+        // Sub-pixel strokes render as a full-width line at reduced
+        // alpha, which is what the backend's `gamma_multiply` did.
+        let a = (f32::from(stroke.color.a()) * stroke.width)
+            .round()
+            .clamp(0.0, 255.0) as u8;
+        stroke.color = mara_core::vocab::Color32::from_rgba_unmultiplied(
+            stroke.color.r(),
+            stroke.color.g(),
+            stroke.color.b(),
+            a,
+        );
         stroke.width = 1.0;
     }
 
@@ -281,17 +293,24 @@ pub fn draw_wire(
 
     match style {
         WireStyle::Line => {
-            let bb = Rect::from_two_pos(from, to);
-            if ui.is_rect_visible(bb) {
-                shapes.push(Shape::line_segment([from, to], stroke));
+            let bb = Rect::from_min_max(
+                pos2(from.x.min(to.x), from.y.min(to.y)),
+                pos2(from.x.max(to.x), from.y.max(to.y)),
+            );
+            if bb.intersects(clip_rect) {
+                shapes.push(PaintCmd::Line {
+                    a: from,
+                    b: to,
+                    stroke,
+                });
             }
         }
         WireStyle::Bezier3 => {
-            draw_bezier_3(ui, wire, args, stroke, threshold, shapes);
+            draw_bezier_3(memory, clip_rect, wire, args, stroke, threshold, shapes);
         }
 
         WireStyle::Bezier5 => {
-            draw_bezier_5(ui, wire, args, stroke, threshold, shapes);
+            draw_bezier_5(memory, clip_rect, wire, args, stroke, threshold, shapes);
         }
 
         WireStyle::AxisAligned { corner_radius } => {
@@ -299,14 +318,14 @@ pub fn draw_wire(
                 radius: corner_radius,
                 ..args
             };
-            draw_axis_aligned(ui, wire, args, stroke, threshold, shapes);
+            draw_axis_aligned(memory, clip_rect, wire, args, stroke, threshold, shapes);
         }
     }
 }
 
 #[allow(clippy::too_many_arguments)]
 pub fn hit_wire(
-    ctx: &Context,
+    memory: &mut MaraMemoryCtx<'_>,
     wire: WireId,
     frame_size: f32,
     upscale: bool,
@@ -342,14 +361,14 @@ pub fn hit_wire(
 
             dist2 < hit_threshold * hit_threshold
         }
-        WireStyle::Bezier3 => hit_wire_bezier_3(ctx, wire, args, pos, hit_threshold),
-        WireStyle::Bezier5 => hit_wire_bezier_5(ctx, wire, args, pos, hit_threshold),
+        WireStyle::Bezier3 => hit_wire_bezier_3(memory, wire, args, pos, hit_threshold),
+        WireStyle::Bezier5 => hit_wire_bezier_5(memory, wire, args, pos, hit_threshold),
         WireStyle::AxisAligned { corner_radius } => {
             let args = WireArgs {
                 radius: corner_radius,
                 ..args
             };
-            hit_wire_axis_aligned(ctx, wire, args, pos, hit_threshold)
+            hit_wire_axis_aligned(memory, wire, args, pos, hit_threshold)
         }
     }
 }
@@ -674,6 +693,14 @@ impl WireCacheAA {
     }
 }
 
+/// Id of the shared wire-geometry cache.
+///
+/// One cache per context: entries are keyed by [`WireId`], which already
+/// carries the owning graph, so separate graphs cannot collide.
+fn wire_cache_id() -> Id {
+    Id::new("mara_graph_wire_geometry")
+}
+
 #[derive(Default)]
 struct WiresCache {
     generation: u32,
@@ -682,8 +709,8 @@ struct WiresCache {
     axis_aligned: HashMap<WireId, WireCacheAA>,
 }
 
-impl CacheTrait for WiresCache {
-    fn update(&mut self) {
+impl SweptCache for WiresCache {
+    fn sweep(&mut self) {
         self.bezier_3
             .retain(|_, cache| cache.generation == self.generation);
         self.bezier_5
@@ -692,10 +719,6 @@ impl CacheTrait for WiresCache {
             .retain(|_, cache| cache.generation == self.generation);
 
         self.generation = self.generation.wrapping_add(1);
-    }
-
-    fn len(&self) -> usize {
-        self.bezier_3.len() + self.bezier_5.len() + self.axis_aligned.len()
     }
 }
 
@@ -762,22 +785,22 @@ impl WiresCache {
 
 #[inline(never)]
 fn draw_bezier_3(
-    ui: &Ui,
+    memory: &mut MaraMemoryCtx<'_>,
+    clip_rect: Rect,
     wire: WireId,
     args: WireArgs,
     stroke: Stroke,
     threshold: f32,
-    shapes: &mut Vec<Shape>,
+    shapes: &mut Vec<PaintCmd>,
 ) {
-    debug_assert!(ui.is_visible(), "Must be checked earlier");
-
-    let clip_rect = ui.clip_rect();
-
-    ui.memory_mut(|m| {
-        let cached = m.caches.cache::<WiresCache>().get_3(wire, args);
-
+    let cache = memory.cache::<WiresCache>(wire_cache_id());
+    cache.with(|c| {
+        let cached = c.get_3(wire, args);
         if cached.aabb.intersects(clip_rect) {
-            shapes.push(Shape::line(cached.line(threshold), stroke));
+            shapes.push(PaintCmd::Polyline {
+                points: cached.line(threshold),
+                stroke,
+            });
         }
     });
 
@@ -803,22 +826,22 @@ fn draw_bezier_3(
 }
 
 fn draw_bezier_5(
-    ui: &Ui,
+    memory: &mut MaraMemoryCtx<'_>,
+    clip_rect: Rect,
     wire: WireId,
     args: WireArgs,
     stroke: Stroke,
     threshold: f32,
-    shapes: &mut Vec<Shape>,
+    shapes: &mut Vec<PaintCmd>,
 ) {
-    debug_assert!(ui.is_visible(), "Must be checked earlier");
-
-    let clip_rect = ui.clip_rect();
-
-    ui.memory_mut(|m| {
-        let cached = m.caches.cache::<WiresCache>().get_5(wire, args);
-
+    let cache = memory.cache::<WiresCache>(wire_cache_id());
+    cache.with(|c| {
+        let cached = c.get_5(wire, args);
         if cached.aabb.intersects(clip_rect) {
-            shapes.push(Shape::line(cached.line(threshold), stroke));
+            shapes.push(PaintCmd::Polyline {
+                points: cached.line(threshold),
+                stroke,
+            });
         }
     });
 
@@ -926,17 +949,19 @@ fn split_bezier_3(points: &[Pos2; 4], t: f32) -> [[Pos2; 4]; 2] {
 }
 
 fn hit_wire_bezier_3(
-    ctx: &Context,
+    memory: &mut MaraMemoryCtx<'_>,
     wire: WireId,
     args: WireArgs,
     pos: Pos2,
     hit_threshold: f32,
 ) -> bool {
-    let (aabb, points) = ctx.memory_mut(|m| {
-        let cache = m.caches.cache::<WiresCache>().get_3(wire, args);
-
-        (cache.aabb, cache.points)
-    });
+    let cache = memory.cache::<WiresCache>(wire_cache_id());
+    let Some((aabb, points)) = cache.with(|c| {
+        let cached = c.get_3(wire, args);
+        (cached.aabb, cached.points)
+    }) else {
+        return false;
+    };
 
     let aabb_e = aabb.expand(hit_threshold);
     if !aabb_e.contains(pos) {
@@ -1013,17 +1038,19 @@ fn split_bezier_5(points: &[Pos2; 6], t: f32) -> [[Pos2; 6]; 2] {
 }
 
 fn hit_wire_bezier_5(
-    ctx: &Context,
+    memory: &mut MaraMemoryCtx<'_>,
     wire: WireId,
     args: WireArgs,
     pos: Pos2,
     hit_threshold: f32,
 ) -> bool {
-    let (aabb, points) = ctx.memory_mut(|m| {
-        let cache = m.caches.cache::<WiresCache>().get_5(wire, args);
-
-        (cache.aabb, cache.points)
-    });
+    let cache = memory.cache::<WiresCache>(wire_cache_id());
+    let Some((aabb, points)) = cache.with(|c| {
+        let cached = c.get_5(wire, args);
+        (cached.aabb, cached.points)
+    }) else {
+        return false;
+    };
 
     let aabb_e = aabb.expand(hit_threshold);
     if !aabb_e.contains(pos) {
@@ -1222,17 +1249,16 @@ fn wire_axis_aligned(corner_radius: f32, frame_size: f32, from: Pos2, to: Pos2) 
 }
 
 fn hit_wire_axis_aligned(
-    ctx: &Context,
+    memory: &mut MaraMemoryCtx<'_>,
     wire: WireId,
     args: WireArgs,
     pos: Pos2,
     hit_threshold: f32,
 ) -> bool {
-    let aawire = ctx.memory_mut(|m| {
-        let cache = m.caches.cache::<WiresCache>().get_aa(wire, args);
-
-        cache.aawire
-    });
+    let cache = memory.cache::<WiresCache>(wire_cache_id());
+    let Some(aawire) = cache.with(|c| c.get_aa(wire, args).aawire) else {
+        return false;
+    };
 
     // Check AABB first
     if !aawire.aabb.expand(hit_threshold).contains(pos) {
@@ -1296,21 +1322,22 @@ fn turn_samples_number(radius: f32, threshold: f32) -> usize {
 
 #[allow(clippy::too_many_arguments)]
 fn draw_axis_aligned(
-    ui: &Ui,
+    memory: &mut MaraMemoryCtx<'_>,
+    clip_rect: Rect,
     wire: WireId,
     args: WireArgs,
     stroke: Stroke,
     threshold: f32,
-    shapes: &mut Vec<Shape>,
+    shapes: &mut Vec<PaintCmd>,
 ) {
-    debug_assert!(ui.is_visible(), "Must be checked earlier");
-
-    let clip_rect = ui.clip_rect();
-    ui.memory_mut(|m| {
-        let cached = m.caches.cache::<WiresCache>().get_aa(wire, args);
-
+    let cache = memory.cache::<WiresCache>(wire_cache_id());
+    cache.with(|c| {
+        let cached = c.get_aa(wire, args);
         if cached.aawire.aabb.intersects(clip_rect) {
-            shapes.push(Shape::line(cached.line(threshold), stroke));
+            shapes.push(PaintCmd::Polyline {
+                points: cached.line(threshold),
+                stroke,
+            });
         }
     });
 }

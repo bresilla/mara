@@ -1210,7 +1210,11 @@ where
 
     let mut hovered_wire = None;
     let mut hovered_wire_disconnect = false;
-    let mut wire_shapes = Vec::new();
+    let mut wire_shapes: Vec<mara_core::paint::PaintCmd> = Vec::new();
+    // The seam while `ui.rs` is still egui-typed (PLAN.md WS-D1.3):
+    // `wire.rs` speaks Mara memory + a clip rect, so build them once.
+    let mut wire_memory = mara_core::memory::MaraMemoryCtx::__internal_from_backend_ctx(ui.ctx());
+    let wire_clip: mara_core::vocab::Rect = ui.clip_rect().into();
 
     // Draw and interact with wires
     for wire in graph.wires.iter() {
@@ -1228,18 +1232,18 @@ where
 
             if let Some(latest_pos) = latest_pos {
                 let wire_hit = hit_wire(
-                    ui.ctx(),
+                    &mut wire_memory,
                     WireId::Connected {
-                        graph_id,
+                        graph_id: graph_id.into(),
                         out_pin: wire.out_pin,
                         in_pin: wire.in_pin,
                     },
                     wire_frame_size,
                     style.get_upscale_wire_frame(),
                     style.get_downscale_wire_frame(),
-                    from_r.pos,
-                    to_r.pos,
-                    latest_pos,
+                    from_r.pos.into(),
+                    to_r.pos.into(),
+                    latest_pos.into(),
                     wire_width.max(2.0),
                     pick_wire_style(from_r.wire_style, to_r.wire_style),
                 );
@@ -1282,9 +1286,10 @@ where
             for (w_mul, a_mul) in GLOW_LAYERS {
                 let layer_color = with_alpha_factor(color, a_mul * glow);
                 draw_wire(
-                    &ui,
+                    &mut wire_memory,
+                    wire_clip,
                     WireId::Connected {
-                        graph_id,
+                        graph_id: graph_id.into(),
                         out_pin: wire.out_pin,
                         in_pin: wire.in_pin,
                     },
@@ -1292,9 +1297,12 @@ where
                     wire_frame_size,
                     style.get_upscale_wire_frame(),
                     style.get_downscale_wire_frame(),
-                    from_r.pos,
-                    to_r.pos,
-                    Stroke::new(draw_width * w_mul, layer_color),
+                    from_r.pos.into(),
+                    to_r.pos.into(),
+                    mara_core::vocab::Stroke::new(
+                        draw_width * w_mul,
+                        mara_core::vocab::Color32::from(layer_color),
+                    ),
                     wire_threshold,
                     pick_wire_style(from_r.wire_style, to_r.wire_style),
                 );
@@ -1303,9 +1311,10 @@ where
 
         // Crisp wire on top.
         draw_wire(
-            &ui,
+            &mut wire_memory,
+            wire_clip,
             WireId::Connected {
-                graph_id,
+                graph_id: graph_id.into(),
                 out_pin: wire.out_pin,
                 in_pin: wire.in_pin,
             },
@@ -1313,9 +1322,9 @@ where
             wire_frame_size,
             style.get_upscale_wire_frame(),
             style.get_downscale_wire_frame(),
-            from_r.pos,
-            to_r.pos,
-            Stroke::new(draw_width, color),
+            from_r.pos.into(),
+            to_r.pos.into(),
+            mara_core::vocab::Stroke::new(draw_width, mara_core::vocab::Color32::from(color)),
             wire_threshold,
             pick_wire_style(from_r.wire_style, to_r.wire_style),
         );
@@ -1469,15 +1478,22 @@ where
                 let to_r = &input_info[&in_pin];
 
                 draw_wire(
-                    &ui,
-                    WireId::NewInput { graph_id, in_pin },
+                    &mut wire_memory,
+                    wire_clip,
+                    WireId::NewInput {
+                        graph_id: graph_id.into(),
+                        in_pin,
+                    },
                     &mut wire_shapes,
                     wire_frame_size,
                     style.get_upscale_wire_frame(),
                     style.get_downscale_wire_frame(),
-                    from_pos,
-                    to_r.pos,
-                    Stroke::new(wire_width, to_r.wire_color),
+                    from_pos.into(),
+                    to_r.pos.into(),
+                    mara_core::vocab::Stroke::new(
+                        wire_width,
+                        mara_core::vocab::Color32::from(to_r.wire_color),
+                    ),
                     wire_threshold,
                     to_r.wire_style,
                 );
@@ -1489,15 +1505,22 @@ where
                 let to_pos = wire_end_pos;
 
                 draw_wire(
-                    &ui,
-                    WireId::NewOutput { graph_id, out_pin },
+                    &mut wire_memory,
+                    wire_clip,
+                    WireId::NewOutput {
+                        graph_id: graph_id.into(),
+                        out_pin,
+                    },
                     &mut wire_shapes,
                     wire_frame_size,
                     style.get_upscale_wire_frame(),
                     style.get_downscale_wire_frame(),
-                    from_r.pos,
-                    to_pos,
-                    Stroke::new(wire_width, from_r.wire_color),
+                    from_r.pos.into(),
+                    to_pos.into(),
+                    mara_core::vocab::Stroke::new(
+                        wire_width,
+                        mara_core::vocab::Color32::from(from_r.wire_color),
+                    ),
                     wire_threshold,
                     from_r.wire_style,
                 );
@@ -1507,10 +1530,12 @@ where
 
     match wire_shape_idx {
         None => {
-            ui.painter().add(Shape::Vec(wire_shapes));
+            ui.painter()
+                .add(Shape::Vec(wire_shapes_to_shapes(wire_shapes)));
         }
         Some(idx) => {
-            ui.painter().set(idx, Shape::Vec(wire_shapes));
+            ui.painter()
+                .set(idx, Shape::Vec(wire_shapes_to_shapes(wire_shapes)));
         }
     }
 
@@ -2801,4 +2826,27 @@ fn scale_transform_around(transform: &TSTransform, scaling: f32, point: Pos2) ->
 const fn graph_style_is_send_sync() {
     const fn is_send_sync<T: Send + Sync>() {}
     is_send_sync::<GraphStyle>();
+}
+
+/// Lower ported wire `PaintCmd`s back into backend shapes.
+///
+/// The seam that exists only while `ui.rs` is unported: `wire.rs` emits
+/// Mara paint commands, and this turns them into the shape vector the
+/// still-egui node renderer batches. It disappears with WS-D1.3's last
+/// step.
+fn wire_shapes_to_shapes(cmds: Vec<mara_core::paint::PaintCmd>) -> Vec<Shape> {
+    use mara_core::paint::PaintCmd;
+    cmds.into_iter()
+        .map(|cmd| match cmd {
+            PaintCmd::Line { a, b, stroke } => Shape::line_segment(
+                [a.into(), b.into()],
+                egui::Stroke::new(stroke.width, egui::Color32::from(stroke.color)),
+            ),
+            PaintCmd::Polyline { points, stroke } => Shape::line(
+                points.into_iter().map(Into::into).collect(),
+                egui::Stroke::new(stroke.width, egui::Color32::from(stroke.color)),
+            ),
+            _ => Shape::Noop,
+        })
+        .collect()
 }

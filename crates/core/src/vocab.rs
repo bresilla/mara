@@ -45,6 +45,15 @@ impl Vec2 {
         Pos2::new(self.x, self.y)
     }
 
+    /// Linear interpolation towards `other`, unclamped.
+    #[must_use]
+    pub fn lerp(self, other: Self, t: f32) -> Self {
+        Self::new(
+            self.x + (other.x - self.x) * t,
+            self.y + (other.y - self.y) * t,
+        )
+    }
+
     /// Unit vector in the same direction, or [`Vec2::ZERO`] when this
     /// vector has no length (rather than producing NaNs).
     #[must_use]
@@ -159,6 +168,16 @@ impl Pos2 {
     pub const fn to_vec2(self) -> Vec2 {
         Vec2::new(self.x, self.y)
     }
+
+    /// Linear interpolation towards `other`. `t` is not clamped, so
+    /// values outside `0..=1` extrapolate — which curve maths relies on.
+    #[must_use]
+    pub fn lerp(self, other: Self, t: f32) -> Self {
+        Self::new(
+            self.x + (other.x - self.x) * t,
+            self.y + (other.y - self.y) * t,
+        )
+    }
 }
 
 impl std::ops::Sub for Pos2 {
@@ -249,6 +268,25 @@ impl Rect {
             min: Pos2::new(center.x - half.x, center.y - half.y),
             max: Pos2::new(center.x + half.x, center.y + half.y),
         }
+    }
+
+    /// Smallest rect containing both positions, in either order.
+    #[must_use]
+    pub fn from_two_pos(a: Pos2, b: Pos2) -> Self {
+        Self {
+            min: Pos2::new(a.x.min(b.x), a.y.min(b.y)),
+            max: Pos2::new(a.x.max(b.x), a.y.max(b.y)),
+        }
+    }
+
+    /// Smallest rect containing every point. Empty input gives
+    /// [`Rect::NOTHING`], which intersects nothing.
+    #[must_use]
+    pub fn from_points(points: &[Pos2]) -> Self {
+        points.iter().fold(Self::NOTHING, |rect, p| Self {
+            min: Pos2::new(rect.min.x.min(p.x), rect.min.y.min(p.y)),
+            max: Pos2::new(rect.max.x.max(p.x), rect.max.y.max(p.y)),
+        })
     }
 
     #[must_use]
