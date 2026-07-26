@@ -808,6 +808,36 @@ fn d13_a_group_fills_a_single_slot() {
     }
 }
 
+/// The graph's node and background frames used to come from the
+/// backend's `window`/`canvas` presets, derived from a live backend
+/// style. These are the sealed replacements — a surface that wants a
+/// panel or a drawing field asks by role, not by backend preset.
+#[test]
+fn d13_window_and_canvas_frame_roles_are_distinct_and_themed() {
+    use mara_core::style::{FrameRole, frame_for};
+
+    let accent = Color32::WHITE;
+    let window = frame_for(FrameRole::Window, accent);
+    let canvas = frame_for(FrameRole::Canvas, accent);
+
+    assert!(
+        window.shadow.is_some(),
+        "a floating panel casts a shadow; that is what makes it read as floating"
+    );
+    assert!(
+        canvas.shadow.is_none(),
+        "a recessed drawing field must not cast one"
+    );
+    assert_ne!(
+        window.fill, canvas.fill,
+        "a panel and the field behind it cannot share a fill or the panel vanishes"
+    );
+    assert!(
+        window.inner_margin.left > canvas.inner_margin.left,
+        "a panel pads its content; a canvas gives the drawing its room"
+    );
+}
+
 /// Inner and outer margin do different jobs: the outer holds the
 /// border away from the parent's cursor, the inner holds content away
 /// from the border. A frame that folded them together would place the

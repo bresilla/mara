@@ -2970,6 +2970,14 @@ pub enum FrameRole {
     Section,
     Popup,
     KeyChip,
+    /// A floating panel that reads as its own surface — a node body in
+    /// a graph, a detached inspector. The sealed replacement for a
+    /// backend's "window" frame preset.
+    Window,
+    /// A recessed drawing area other content sits on top of — a graph
+    /// background, a plot field. The sealed replacement for a backend's
+    /// "canvas" frame preset.
+    Canvas,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -3251,6 +3259,24 @@ pub fn frame_for(role: FrameRole, accent: impl Into<MaraColor32>) -> FrameSpec {
             MaraStroke::NONE,
             radius_for(RadiusRole::Widget),
             MarginSpec::symmetric(5, 1),
+        ),
+        FrameRole::Window => FrameSpec::new(
+            fill_for(FillRole::Pane, accent),
+            stroke_for(StrokeRole::SectionBorder, accent),
+            radius_for(RadiusRole::Pane),
+            MarginSpec::symmetric(6, 6),
+        )
+        .with_shadow(FrameShadowSpec::new(
+            [0, 2],
+            10,
+            0,
+            MaraColor32::from_black_alpha(96),
+        )),
+        FrameRole::Canvas => FrameSpec::new(
+            fill_for(FillRole::Track, accent),
+            stroke_for(StrokeRole::WidgetBorder, accent),
+            radius_for(RadiusRole::Section),
+            MarginSpec::symmetric(2, 2),
         ),
     }
 }
