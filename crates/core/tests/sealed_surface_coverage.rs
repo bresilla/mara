@@ -200,3 +200,61 @@ fn a2_synthetic_response_reports_no_button_interaction() {
         assert!(!response.dragged_by(button));
     }
 }
+
+// ─── F3 · SVG rasterisation ───────────────────────────────────────
+
+/// `PaintCmd::Svg` is public API, but until the `svg` feature landed no
+/// rasteriser existed anywhere in the workspace, so every SVG paint
+/// command silently drew nothing. This drives one through a real egui
+/// context and asserts the loader chain resolves it to a texture.
+#[cfg(feature = "svg")]
+#[test]
+fn f3_svg_paint_command_reaches_a_rasteriser() {
+    use mara_core::paint::PaintCmd;
+
+    const MARKER: &str = r##"<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12 2 22 12 12 22 2 12Z" fill="#ffffff"/></svg>"##;
+
+    let ctx = egui::Context::default();
+    mara_core::enforce::__internal_enforce_defaults(&ctx);
+
+    // The loader rasterises off-frame, so poll a few frames before
+    // concluding anything — one pass is expected to report Pending.
+    let mut resolved = false;
+    for _ in 0..64 {
+        let _ = ctx.run_ui(Default::default(), |ui| {
+            mara_core::paint::__internal_render_paint_cmd_egui(
+                ui.painter(),
+                PaintCmd::Svg {
+                    svg: MARKER.to_owned(),
+                    rect: Rect::from_min_size(Pos2::ZERO, Vec2::new(24.0, 24.0)),
+                    tint: Color32::WHITE,
+                },
+            );
+        });
+        let uri = format!(
+            "bytes://mara_svg_paint_{:016x}.svg",
+            MARKER.bytes().fold(5381u64, |h, b| h
+                .wrapping_mul(33)
+                .wrapping_add(u64::from(b)))
+        );
+        if matches!(
+            ctx.try_load_texture(
+                &uri,
+                egui::TextureOptions::LINEAR,
+                egui::load::SizeHint::Size {
+                    width: 24,
+                    height: 24,
+                    maintain_aspect_ratio: true,
+                },
+            ),
+            Ok(egui::load::TexturePoll::Ready { .. })
+        ) {
+            resolved = true;
+            break;
+        }
+    }
+    assert!(
+        resolved,
+        "SVG never rasterised — the `svg` feature's loader is not reaching PaintCmd::Svg"
+    );
+}

@@ -178,6 +178,15 @@ pub fn __internal_enforce_defaults(ctx: &egui::Context) {
         return;
     }
 
+    // Image loaders: `PaintCmd::Svg` needs a rasteriser registered on
+    // the context. Enforced here rather than left to the app so a
+    // sealed module can emit `Svg` and have it render, on any host,
+    // without the app knowing an image-loader chain exists.
+    // `install_image_loaders` guards each loader on
+    // `Context::is_loader_installed`, so calling it per pass is cheap.
+    #[cfg(feature = "svg")]
+    egui_extras::install_image_loaders(ctx);
+
     // Theme: apply the active Mara theme unless the app applied one.
     // `__internal_apply_theme` de-dupes internally, so re-applying every
     // pass for theme-less apps is cheap and tracks resizes.
