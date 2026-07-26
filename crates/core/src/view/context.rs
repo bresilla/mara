@@ -332,19 +332,47 @@ impl<'a> ViewCtx<'a> {
         &mut self,
         salt: impl std::hash::Hash,
         gpu: mara_gpu::MaraRenderState<'_>,
-        size: impl Into<crate::vocab::Vec2>,
+        origin: impl Into<MaraRect>,
         scale: f32,
         mut body: impl FnMut(&mut MaraUi<'_>),
     ) -> Option<crate::vocab::TextureId> {
+        let origin = origin.into();
         crate::backend::egui::render_offscreen(
             self.egui_ctx,
             gpu,
             self.workspace.current().id.with(salt),
-            size.into(),
+            origin.size(),
             scale,
             self.accent,
+            self.offscreen_input(origin),
             &mut body,
         )
+    }
+
+    /// Map this node's input into a surface drawn at `origin`.
+    ///
+    /// An offscreen surface has no window, so it sees no events unless
+    /// they are forwarded — and only the caller knows where the
+    /// composited texture ended up. Pointer positions become
+    /// surface-local; a pointer outside `origin` reads as absent, so the
+    /// surface does not react to clicks that landed elsewhere.
+    #[cfg(feature = "gpu")]
+    fn offscreen_input(&self, origin: MaraRect) -> crate::backend::egui::OffscreenInput {
+        let snapshot = self.input();
+        let pointer = snapshot
+            .pointer
+            .filter(|p| origin.contains(*p))
+            .map(|p| crate::vocab::Pos2::new(p.x - origin.min.x, p.y - origin.min.y));
+        crate::backend::egui::OffscreenInput {
+            pointer,
+            primary_down: snapshot.primary_down,
+            secondary_down: snapshot.secondary_down,
+            middle_down: snapshot.middle_down,
+            scroll_delta: snapshot.scroll_delta,
+            modifiers_shift: snapshot.modifiers_shift,
+            modifiers_ctrl: snapshot.modifiers_ctrl,
+            modifiers_alt: snapshot.modifiers_alt,
+        }
     }
 
     /// Device pixels per logical point — the scale factor a view

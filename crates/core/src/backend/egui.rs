@@ -2012,6 +2012,7 @@ mod offscreen {
         size_points: vocab::Vec2,
         scale: f32,
         accent: vocab::Color32,
+        input: OffscreenInput,
         body: &mut dyn FnMut(&mut MaraUi<'_>),
     ) -> Option<vocab::TextureId> {
         let scale = scale.clamp(0.05, 8.0);
@@ -2061,6 +2062,14 @@ mod offscreen {
                 egui::pos2(0.0, 0.0),
                 egui::vec2(size_points.x, size_points.y),
             )),
+            events: offscreen_events(&input),
+            modifiers: egui::Modifiers {
+                shift: input.modifiers_shift,
+                ctrl: input.modifiers_ctrl,
+                alt: input.modifiers_alt,
+                command: input.modifiers_ctrl,
+                mac_cmd: false,
+            },
             ..Default::default()
         };
         let output = surface.ctx.run_ui(raw_input, |ui| {
@@ -2113,6 +2122,72 @@ mod offscreen {
         }
 
         Some(parent_texture.into())
+    }
+
+    /// Pointer and keyboard state to feed into an offscreen surface,
+    /// in the surface's OWN coordinate space.
+    ///
+    /// Without this an offscreen surface is inert: it has no window, so
+    /// it receives no events unless the host forwards them. The caller
+    /// maps window coordinates into surface-local ones — it is the only
+    /// party that knows where the composited texture was drawn.
+    #[derive(Clone, Copy, Debug, Default)]
+    pub(crate) struct OffscreenInput {
+        /// Pointer position in surface-local points, or `None` when the
+        /// pointer is elsewhere.
+        pub pointer: Option<vocab::Pos2>,
+        pub primary_down: bool,
+        pub secondary_down: bool,
+        pub middle_down: bool,
+        pub scroll_delta: vocab::Vec2,
+        pub modifiers_shift: bool,
+        pub modifiers_ctrl: bool,
+        pub modifiers_alt: bool,
+    }
+
+    /// Translate [`OffscreenInput`] into the event stream the sub-context
+    /// expects. Buttons become press/release pairs around the pointer
+    /// position, which is what an immediate-mode context needs to see.
+    fn offscreen_events(input: &OffscreenInput) -> Vec<egui::Event> {
+        let mut events = Vec::new();
+        let Some(pointer) = input.pointer else {
+            events.push(egui::Event::PointerGone);
+            return events;
+        };
+        let pos = egui::pos2(pointer.x, pointer.y);
+        let modifiers = egui::Modifiers {
+            shift: input.modifiers_shift,
+            ctrl: input.modifiers_ctrl,
+            alt: input.modifiers_alt,
+            command: input.modifiers_ctrl,
+            mac_cmd: false,
+        };
+        events.push(egui::Event::PointerMoved(pos));
+        for (down, button) in [
+            (input.primary_down, egui::PointerButton::Primary),
+            (input.secondary_down, egui::PointerButton::Secondary),
+            (input.middle_down, egui::PointerButton::Middle),
+        ] {
+            if down {
+                events.push(egui::Event::PointerButton {
+                    pos,
+                    button,
+                    pressed: true,
+                    modifiers,
+                });
+            }
+        }
+        if input.scroll_delta != vocab::Vec2::ZERO {
+            events.push(egui::Event::MouseWheel {
+                unit: egui::MouseWheelUnit::Point,
+                delta: egui::vec2(input.scroll_delta.x, input.scroll_delta.y),
+                // The host has already smoothed the delta; the sub-context
+                // only needs a phase it can treat as an ordinary scroll.
+                phase: egui::TouchPhase::Move,
+                modifiers,
+            });
+        }
+        events
     }
 
     /// (Re)allocate the render target when the pixel size changes, and
@@ -2171,4 +2246,4 @@ mod offscreen {
 }
 
 #[cfg(feature = "gpu")]
-pub(crate) use offscreen::render_offscreen;
+pub(crate) use offscreen::{OffscreenInput, render_offscreen};

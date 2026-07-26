@@ -277,9 +277,15 @@ fn a7_offscreen_entry_point_speaks_only_vocab() {
         ctx: &mut mara_core::ViewCtx<'_>,
         gpu: mara_gpu::MaraRenderState<'_>,
     ) -> Option<mara_core::vocab::TextureId> {
-        ctx.offscreen("editor", gpu, Vec2::new(320.0, 200.0), 2.0, |ui| {
-            let _ = ui.button("inside the offscreen surface");
-        })
+        ctx.offscreen(
+            "editor",
+            gpu,
+            Rect::from_min_size(Pos2::new(40.0, 20.0), Vec2::new(320.0, 200.0)),
+            2.0,
+            |ui| {
+                let _ = ui.button("inside the offscreen surface");
+            },
+        )
     }
 }
 
