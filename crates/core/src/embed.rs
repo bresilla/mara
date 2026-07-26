@@ -255,9 +255,8 @@ pub fn __internal_maximizable_with_opts_egui(
     // currently full-window?".
     let max_id = maximize_state_key(id_salt);
     let max_key: crate::vocab::Id = max_id.into();
-    let mut maximized: bool = ui
-        .ctx()
-        .data(|d| d.get_temp::<bool>(egui::Id::from(max_key)))
+    let mut maximized: bool = crate::memory::MaraMemoryCtx::new(ui.ctx())
+        .get_temp::<bool>(max_key)
         .unwrap_or(false);
     let pending_restore = crate::memory::MaraMemoryCtx::new(ui.ctx())
         .get_temp::<MaraId>(pending_restore_fullscreen_key())
@@ -288,8 +287,7 @@ pub fn __internal_maximizable_with_opts_egui(
         None => false,
     };
     if maximized {
-        ui.ctx()
-            .data_mut(|d| d.insert_temp(egui::Id::from(global_key), (pass_nr, max_id)));
+        crate::memory::MaraMemoryCtx::new(ui.ctx()).set_temp(global_key, (pass_nr, max_id));
     }
 
     let overlay = crate::style::theme().overlay;
@@ -359,8 +357,8 @@ pub fn __internal_maximizable_with_opts_egui(
         // points, and that choice persists in ctx data across
         // frames. Painted in its OWN `Order::Tooltip` Area so it
         // sits on top of the `Foreground` overlay above.
-        let suppress_minimize_chip: bool = ctx
-            .data(|d| d.get_temp(egui::Id::from(suppress_fullscreen_minimize_chip_key())))
+        let suppress_minimize_chip: bool = crate::memory::MaraMemoryCtx::new(&ctx)
+            .get_temp(suppress_fullscreen_minimize_chip_key())
             .unwrap_or(false);
         if !suppress_minimize_chip
             && fullscreen_minimize_button(
@@ -405,8 +403,7 @@ pub fn __internal_maximizable_with_opts_egui(
     }
 
     if toggle {
-        ui.ctx()
-            .data_mut(|d| d.insert_temp::<bool>(egui::Id::from(max_key), !maximized));
+        crate::memory::MaraMemoryCtx::new(ui.ctx()).set_temp::<bool>(max_key, !maximized);
     }
 }
 
@@ -635,7 +632,7 @@ fn fullscreen_minimize_button(
             if resp.dragged()
                 && let Some(p) = crate::backend::egui::pointer_interact_pos(ui.ctx())
             {
-                ui.ctx().data_mut(|d| d.insert_temp(egui::Id::from(drag_pos_key), p));
+                crate::memory::MaraMemoryCtx::new(ui.ctx()).set_temp(drag_pos_key, p);
                 // Compute the live snap target so we can paint
                 // a ghost outline showing where the chip WILL
                 // land on release.
@@ -650,10 +647,11 @@ fn fullscreen_minimize_button(
                 let cursor = crate::backend::egui::pointer_interact_pos(ui.ctx())
                     .unwrap_or_else(|| rect.center());
                 let snapped = nearest_anchor(screen, cursor, btn_size, edge_gap);
-                ui.ctx().data_mut(|d| {
-                    d.insert_temp(egui::Id::from(anchor_key), snapped);
-                    d.remove::<MaraPos2>(egui::Id::from(drag_pos_key));
-                });
+                {
+                    let mut memory = crate::memory::MaraMemoryCtx::new(ui.ctx());
+                    memory.set_temp(anchor_key, snapped);
+                    memory.remove_temp::<MaraPos2>(drag_pos_key);
+                }
             }
             if ui.is_rect_visible(rect.into()) {
                 paint_ribbon_style_chip(
