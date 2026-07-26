@@ -1388,6 +1388,18 @@ impl<'a> MaraUi<'a> {
         )
     }
 
+    /// Label with an explicit size, colour and family (PLAN.md WS-A6).
+    ///
+    /// Use it for titles, captions and any text that needs to differ
+    /// from the body font while still taking part in layout.
+    pub fn label_spec(
+        &mut self,
+        text: &str,
+        spec: &crate::widget::label::LabelSpec,
+    ) -> MaraResponse {
+        crate::widget::label::label_spec_backend(&mut *self.backend, text, spec)
+    }
+
     pub fn label_colored(&mut self, text: &str, color: impl Into<vocab::Color32>) -> MaraResponse {
         let backend = &mut self.backend;
         label_backend(backend, text, color.into())
