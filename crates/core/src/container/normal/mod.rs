@@ -387,10 +387,8 @@ impl Normal {
         let strip_outer_inset = tabbed_strip_outer_inset(tab_theme, &theme_now);
         let container_max_rect =
             tabbed_container_max_rect(avail, strip_side, strip_thickness, strip_outer_inset);
-        ui.ctx().data_mut(|d| {
-            let key = pane::active_container_frame_rect_key();
-            d.remove::<egui::Rect>(egui::Id::from(key));
-        });
+        crate::memory::MaraMemoryCtx::new(ui.ctx())
+            .remove_temp::<egui::Rect>(pane::active_container_frame_rect_key());
         let mut child =
             crate::backend::egui::child_ui_with_current_layout_for_rect(ui, container_max_rect);
         let out = me.show(&mut child, active_pods);
@@ -401,15 +399,16 @@ impl Normal {
         {
             return out;
         }
-        let used = ui
-            .ctx()
-            .data_mut(|d| {
-                let key = pane::active_container_frame_rect_key();
-                let rect = d.get_temp::<egui::Rect>(egui::Id::from(key));
-                d.remove::<egui::Rect>(egui::Id::from(key));
-                rect
-            })
-            .unwrap_or_else(|| child.min_rect());
+        // Take the frame rect the body published, so a later container
+        // cannot read a stale one.
+        let used = {
+            let key = pane::active_container_frame_rect_key();
+            let mut memory = crate::memory::MaraMemoryCtx::new(ui.ctx());
+            let rect = memory.get_temp::<egui::Rect>(key);
+            memory.remove_temp::<egui::Rect>(key);
+            rect
+        }
+        .unwrap_or_else(|| child.min_rect());
 
         // Place the strip ALIGNED to where the container actually
         // rendered. `used` already accounts for parent layout
@@ -626,15 +625,17 @@ impl Normal {
             .with("mara_container_intrinsic_natural_override");
         let intrinsic_floor_key = self.pane_id.with("mara_container_intrinsic_natural_floor");
         if fill_pod_idx.is_some() {
-            ui.ctx().data_mut(|d| {
-                d.insert_temp::<f32>(egui::Id::from(intrinsic_override_key), body_flow_floor);
-                d.remove::<f32>(egui::Id::from(intrinsic_floor_key));
-            });
+            {
+                let mut memory = crate::memory::MaraMemoryCtx::new(ui.ctx());
+                memory.set_temp::<f32>(intrinsic_override_key, body_flow_floor);
+                memory.remove_temp::<f32>(intrinsic_floor_key);
+            }
         } else {
-            ui.ctx().data_mut(|d| {
-                d.remove::<f32>(egui::Id::from(intrinsic_override_key));
-                d.insert_temp::<f32>(egui::Id::from(intrinsic_floor_key), body_flow_floor);
-            });
+            {
+                let mut memory = crate::memory::MaraMemoryCtx::new(ui.ctx());
+                memory.remove_temp::<f32>(intrinsic_override_key);
+                memory.set_temp::<f32>(intrinsic_floor_key, body_flow_floor);
+            }
         }
         self.show_with_body(ui, |body_ui| {
             // Compute the fill pod's height NOW that we're inside
@@ -664,10 +665,8 @@ impl Normal {
                 let body_avail = body_ui.available_height();
                 let fill_h =
                     (body_avail - others_h - pod_chrome_each).max(style::theme().pod.min_widget_h);
-                body_ui.ctx().data_mut(|d| {
-                    let key: egui::Id = crate::pod::Pod::forced_height_key(fill_id).into();
-                    d.insert_temp(egui::Id::from(key), fill_h);
-                });
+                crate::memory::MaraMemoryCtx::new(body_ui.ctx())
+                    .set_temp(crate::pod::Pod::forced_height_key(fill_id), fill_h);
             }
             for (i, pod) in pods.into_iter().enumerate() {
                 // Capture metadata BEFORE the pod is consumed by `show`.
