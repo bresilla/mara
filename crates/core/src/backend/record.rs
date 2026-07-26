@@ -131,6 +131,9 @@ pub struct RecordingBackend {
     /// Nested id-scope salts pushed by [`UiBackend::in_id_scope`], so
     /// `id()` yields unique ids per scope (egui's id stack, headless).
     pub id_stack: Vec<Id>,
+    /// Every overlay opened this pass, so a headless test can assert a
+    /// menu appeared and where it was anchored.
+    pub overlays: Vec<(Id, Pos2)>,
     /// Last transform applied via [`UiBackend::set_layer_transform`],
     /// so a headless test can assert a surface panned/zoomed.
     pub layer_transform: Option<crate::transform::Transform>,
@@ -267,6 +270,12 @@ impl UiBackend for RecordingBackend {
 
     fn memory(&self) -> crate::memory::BackendMemory<'_> {
         crate::memory::BackendMemory::Recording(&self.memory)
+    }
+
+    fn overlay_at(&mut self, id: Id, pos: Pos2, body: &mut dyn FnMut(&mut dyn UiBackend)) {
+        self.overlays.push((id, pos));
+        // Run inline so a headless assertion still sees the contents.
+        body(self);
     }
 
     fn set_layer_transform(&mut self, transform: crate::transform::Transform) {

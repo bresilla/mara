@@ -558,3 +558,79 @@ fn e14_transform_inverse_maps_screen_back_to_content() {
     assert!((back.x - content.x).abs() < 1e-3, "{back:?}");
     assert!((back.y - content.y).abs() < 1e-3, "{back:?}");
 }
+
+// ─── E1.1 · overlay / menu model ──────────────────────────────────
+
+/// `mara_graph`'s viewer opens menus 7 times; `MaraUi` had `context_menu`
+/// but nothing that anchors a menu under a button. This is the last
+/// capability that blocked porting `DemoViewer` (PLAN.md WS-D1.4).
+///
+/// The click itself is not simulated: `RecordingBackend::allocate`
+/// always returns a synthetic non-clicked response (only `interact`
+/// honours the injected one), so the open case is driven by seeding
+/// the popup state — which is what a click would have written anyway.
+#[test]
+fn e11_menu_button_renders_its_body_only_while_open() {
+    use mara_core::MaraUi;
+    use mara_core::backend::record::RecordingBackend;
+    use mara_core::layout::UiBackend;
+    use mara_core::popup::PopupState;
+    use mara_core::vocab::Id;
+
+    let region = Rect::from_min_size(Pos2::ZERO, Vec2::new(200.0, 120.0));
+    let menu_id = Id::new("graph_menu");
+
+    let mut closed = RecordingBackend::at(region);
+    MaraUi::__internal_over_backend(&mut closed, Color32::WHITE, &mut |ui| {
+        ui.menu_button(menu_id, "Add node", |menu| {
+            let _ = menu.button("Number");
+        });
+    });
+    assert!(
+        closed.overlays.is_empty(),
+        "a shut menu must not place an overlay"
+    );
+
+    let mut opened = RecordingBackend::at(region);
+    {
+        let mut memory = opened.memory();
+        let mut state = PopupState::load(&memory, menu_id);
+        state.open();
+        state.store(&mut memory, menu_id);
+    }
+    MaraUi::__internal_over_backend(&mut opened, Color32::WHITE, &mut |ui| {
+        ui.menu_button(menu_id, "Add node", |menu| {
+            let _ = menu.button("Number");
+        });
+    });
+
+    assert_eq!(opened.overlays.len(), 1, "an open menu places one overlay");
+    let (id, anchor) = opened.overlays[0];
+    assert_eq!(id, menu_id, "the overlay is keyed by the menu's id");
+    assert!(
+        anchor.y > 0.0,
+        "the menu anchors below the button, not on top of it"
+    );
+}
+
+/// Two menus must not share open state — a single key would make one
+/// button toggle the other's menu.
+#[test]
+fn e11_menu_state_is_keyed_per_menu() {
+    use mara_core::popup::PopupState;
+    use mara_core::vocab::Id;
+
+    let mut memory = mara_core::backend::record::RecordingMemory::default();
+    let a = Id::new("menu_a");
+    let b = Id::new("menu_b");
+
+    let mut open_a = PopupState::load(&memory, a);
+    open_a.open();
+    open_a.store(&mut memory, a);
+
+    assert!(PopupState::load(&memory, a).is_open());
+    assert!(
+        !PopupState::load(&memory, b).is_open(),
+        "opening one menu must not open another"
+    );
+}

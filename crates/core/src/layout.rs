@@ -813,6 +813,20 @@ pub trait UiBackend {
     /// a pannable canvas neither re-lays-out nor re-rasterises on every
     /// gesture frame. Backends without a layer transform ignore it, and
     /// the surface simply does not pan.
+    /// Run `body` in a floating surface anchored at `pos`, on the
+    /// overlay layer — above all docked chrome.
+    ///
+    /// The sealed replacement for the backend's popup/menu machinery
+    /// (PLAN.md WS-E1.1). Open/close state is the caller's, held in
+    /// [`crate::popup::PopupState`]; this only places the surface.
+    /// The default draws **nothing** — it cannot run `body` against
+    /// itself and stay object-safe. Every real backend overrides it;
+    /// the recording backend runs `body` inline so headless assertions
+    /// still see overlay content.
+    fn overlay_at(&mut self, id: Id, pos: Pos2, body: &mut dyn FnMut(&mut dyn UiBackend)) {
+        let _ = (id, pos, body);
+    }
+
     fn set_layer_transform(&mut self, transform: crate::transform::Transform) {
         let _ = transform;
     }
@@ -981,6 +995,9 @@ impl<T: UiBackend + ?Sized> UiBackend for &mut T {
     }
     fn __internal_egui_ui_ref(&self) -> Option<&egui::Ui> {
         (**self).__internal_egui_ui_ref()
+    }
+    fn overlay_at(&mut self, id: Id, pos: Pos2, body: &mut dyn FnMut(&mut dyn UiBackend)) {
+        (**self).overlay_at(id, pos, body)
     }
     fn set_layer_transform(&mut self, transform: crate::transform::Transform) {
         (**self).set_layer_transform(transform)

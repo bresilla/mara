@@ -1032,6 +1032,17 @@ impl crate::layout::UiBackend for MaraBackend<'_> {
             Self::Recording(b) => b.__internal_egui_ui_ref(),
         }
     }
+    fn overlay_at(
+        &mut self,
+        id: vocab::Id,
+        pos: vocab::Pos2,
+        body: &mut dyn FnMut(&mut dyn UiBackend),
+    ) {
+        match self {
+            Self::Egui(b) => b.overlay_at(id, pos, body),
+            Self::Recording(b) => b.overlay_at(id, pos, body),
+        }
+    }
     fn set_layer_transform(&mut self, transform: crate::transform::Transform) {
         match self {
             Self::Egui(b) => b.set_layer_transform(transform),
@@ -1250,6 +1261,20 @@ impl<'a> MaraUi<'a> {
     #[must_use]
     pub fn __internal_backend_from_raw(ui: &'a mut egui::Ui) -> MaraRawBackend<'a> {
         MaraRawBackend(MaraBackend::Egui(backend::egui::EguiUiBackend::new(ui)))
+    }
+
+    /// Headless-test harness: drive the sealed surface over any
+    /// backend — in practice the recording one — so a widget's
+    /// behaviour can be asserted without a live context.
+    /// Doc-hidden; not a stable API.
+    #[doc(hidden)]
+    pub fn __internal_over_backend(
+        backend: &mut dyn UiBackend,
+        accent: impl Into<vocab::Color32>,
+        body: &mut dyn FnMut(&mut MaraUi<'_>),
+    ) {
+        let mut ui = MaraUi::over(backend, accent);
+        body(&mut ui);
     }
 
     /// Internal first-party constructor — NOT part of the public API
@@ -1553,6 +1578,50 @@ impl<'a> MaraUi<'a> {
             accent,
             height,
         )
+    }
+
+    /// A button that toggles a floating menu below itself
+    /// (PLAN.md WS-E1.1).
+    ///
+    /// Open state lives in [`crate::popup::PopupState`] under `id`, so
+    /// it survives between frames and two menus cannot fight over one
+    /// key. `body` renders into an overlay-layer surface anchored under
+    /// the button; it runs only while open.
+    ///
+    /// The sealed replacement for the backend's menu widget — the last
+    /// thing `mara_graph`'s viewer needed that `MaraUi` could not
+    /// express.
+    pub fn menu_button(
+        &mut self,
+        id: impl Into<vocab::Id>,
+        label: &str,
+        body: impl FnOnce(&mut MaraUi<'_>),
+    ) {
+        let id = id.into();
+        let response = self.button(label);
+
+        let mut state = {
+            let memory = self.backend.memory();
+            crate::popup::PopupState::load(&memory, id)
+        };
+        if response.clicked {
+            state.toggle();
+            let mut memory = self.backend.memory();
+            state.store(&mut memory, id);
+        }
+        if !state.is_open() {
+            return;
+        }
+
+        let anchor = vocab::Pos2::new(response.rect.min.x, response.rect.max.y);
+        let accent = self.accent;
+        let mut body = Some(body);
+        self.backend.overlay_at(id, anchor, &mut |backend| {
+            if let Some(body) = body.take() {
+                let mut mara = MaraUi::over(backend, accent);
+                body(&mut mara);
+            }
+        });
     }
 
     /// Multi-line text editing surface — the sealed counterpart to a

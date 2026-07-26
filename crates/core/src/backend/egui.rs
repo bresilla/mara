@@ -230,6 +230,19 @@ impl UiBackend for EguiUiBackend<'_> {
         Some(self.ui)
     }
 
+    fn overlay_at(
+        &mut self,
+        id: vocab::Id,
+        pos: vocab::Pos2,
+        body: &mut dyn FnMut(&mut dyn UiBackend),
+    ) {
+        let ctx = self.ui.ctx().clone();
+        show_area_for_host(&ctx, AreaHost::new(id, pos, Layer::Overlay), |ui| {
+            let mut backend = EguiUiBackend::new(ui);
+            body(&mut backend);
+        });
+    }
+
     fn set_layer_transform(&mut self, transform: crate::transform::Transform) {
         self.ui.ctx().set_transform_layer(
             self.ui.layer_id(),
