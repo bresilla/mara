@@ -1629,6 +1629,59 @@ impl<'a> MaraUi<'a> {
     /// Fill, stroke, corner radius, inner margin and shadow come from
     /// the [`crate::style::FrameSpec`], and the frame paints behind the
     /// content rather than over it.
+    /// The rect drawing on this surface is clipped to.
+    #[must_use]
+    pub fn clip_rect(&self) -> vocab::Rect {
+        self.painter().clip_rect()
+    }
+
+    /// The rect this surface has actually filled so far.
+    ///
+    /// Grows as content is placed. A parent reads it to size itself to
+    /// its children — the "how big did that turn out to be?" a layout
+    /// needs after the fact rather than in advance.
+    #[must_use]
+    pub fn occupied_rect(&self) -> vocab::Rect {
+        self.backend.occupied_rect()
+    }
+
+    /// Where the next item will be placed.
+    #[must_use]
+    pub fn cursor(&self) -> vocab::Pos2 {
+        self.backend.cursor()
+    }
+
+    /// Grow [`occupied_rect`](MaraUi::occupied_rect) to cover `rect`.
+    ///
+    /// Content placed outside the normal flow — an overlay, a pin
+    /// straddling a node's edge — is invisible to the parent's sizing
+    /// unless it says so here.
+    pub fn expand_to_include(&mut self, rect: impl Into<vocab::Rect>) {
+        self.backend.expand_to_include(rect.into());
+    }
+
+    /// Move the flow cursor past `rect`, so later items land after it.
+    pub fn advance_cursor_past(&mut self, rect: impl Into<vocab::Rect>) {
+        self.backend.advance_cursor_past(rect.into());
+    }
+
+    /// Run `body` with drawing clipped to `rect`.
+    ///
+    /// Scoped rather than a push/pop pair: an unbalanced clip silently
+    /// corrupts every later draw on the surface, and a scope cannot be
+    /// left unbalanced. Clips only ever shrink — `rect` is intersected
+    /// with the current one.
+    pub fn clipped<R>(&mut self, rect: impl Into<vocab::Rect>, body: impl FnOnce(&mut MaraUi<'_>) -> R) -> R {
+        let accent = self.accent;
+        self.backend.push_clip(rect.into());
+        let out = {
+            let mut inner = MaraUi::over(&mut *self.backend, accent);
+            body(&mut inner)
+        };
+        self.backend.pop_clip();
+        out
+    }
+
     /// Pan and zoom everything drawn on this surface's layer.
     ///
     /// The transform applies to the layer as a whole, so content is

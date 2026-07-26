@@ -112,9 +112,13 @@ pub struct RecordingBackend {
     /// region's top-left by `begin_area`.
     pub cursor: Pos2,
     /// Append-only log of every clip rect pushed. `pop_clip` does NOT
-    /// remove entries — assertions want the full push history, and no
-    /// trait consumer reads the live clip state back.
+    /// remove entries — assertions want the full push history.
     pub clips: Vec<Rect>,
+    /// Live clip stack, kept alongside the history because a scoped
+    /// clip has to be readable back: a surface asks what it is clipped
+    /// to, and a headless backend that always answered "everything"
+    /// would let a clipping bug pass its own tests.
+    pub(crate) clip_stack: Vec<Rect>,
     /// Every paint command emitted, in order.
     pub paints: Vec<PaintCmd>,
     /// When set, `interact` returns a clone of this response instead of
@@ -218,9 +222,17 @@ impl UiBackend for RecordingBackend {
 
     fn push_clip(&mut self, rect: Rect) {
         self.clips.push(rect);
+        // Clips only ever shrink.
+        let effective = match self.clip_stack.last() {
+            Some(current) => current.intersect(rect),
+            None => rect,
+        };
+        self.clip_stack.push(effective);
     }
 
-    fn pop_clip(&mut self) {}
+    fn pop_clip(&mut self) {
+        self.clip_stack.pop();
+    }
 
     fn measure_text(&self, text: &str, size: f32, _mono: bool) -> Vec2 {
         Vec2::new(text.chars().count() as f32 * size * 0.5, size)
@@ -236,7 +248,11 @@ impl UiBackend for RecordingBackend {
         // caller drew (the default impl drops the only handle).
         let clip = match spec.region {
             crate::layout::PaintSurfaceRegion::ClipRect(rect) => rect,
-            crate::layout::PaintSurfaceRegion::RemainingAvailable => self.available_rect(),
+            crate::layout::PaintSurfaceRegion::RemainingAvailable => self
+                .clip_stack
+                .last()
+                .copied()
+                .unwrap_or_else(|| self.available_rect()),
         };
         let painter = crate::mui::MaraPainter::recording(clip);
         self.canvas_painters.borrow_mut().push(painter.clone());

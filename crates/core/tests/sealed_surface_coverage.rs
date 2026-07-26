@@ -808,6 +808,57 @@ fn d13_a_group_fills_a_single_slot() {
     }
 }
 
+/// The layout-flow group a node renderer needs: where the next item
+/// goes, how big the surface has become, and how to place something
+/// outside the flow without the parent losing track of it.
+#[test]
+fn d13_layout_flow_group_is_reachable_from_maraui() {
+    use mara_core::MaraUi;
+    use mara_core::backend::record::RecordingBackend;
+
+    let mut backend =
+        RecordingBackend::at(Rect::from_min_size(Pos2::ZERO, Vec2::new(200.0, 120.0)));
+    MaraUi::__internal_over_backend(&mut backend, Color32::WHITE, &mut |ui| {
+        let start = ui.cursor();
+
+        let outside = Rect::from_min_size(Pos2::new(150.0, 90.0), Vec2::new(20.0, 20.0));
+        ui.expand_to_include(outside);
+        assert!(
+            ui.occupied_rect().contains(Pos2::new(160.0, 100.0)),
+            "content placed outside the flow must still count toward the surface's size"
+        );
+
+        ui.advance_cursor_past(Rect::from_min_size(start, Vec2::new(10.0, 30.0)));
+        assert!(
+            ui.cursor().y > start.y,
+            "the flow cursor moves past what was placed"
+        );
+    });
+}
+
+/// A clip scope cannot be left unbalanced — that is the whole reason it
+/// is a scope and not a push/pop pair.
+#[test]
+fn d13_clip_scope_restores_the_previous_clip() {
+    use mara_core::MaraUi;
+    use mara_core::backend::record::RecordingBackend;
+
+    let full = Rect::from_min_size(Pos2::ZERO, Vec2::new(200.0, 120.0));
+    let mut backend = RecordingBackend::at(full);
+    MaraUi::__internal_over_backend(&mut backend, Color32::WHITE, &mut |ui| {
+        let before = ui.clip_rect();
+        let narrow = Rect::from_min_size(Pos2::new(10.0, 10.0), Vec2::new(20.0, 20.0));
+
+        let inner = ui.clipped(narrow, |inner| inner.clip_rect());
+        assert_eq!(inner, narrow, "drawing inside the scope is clipped");
+        assert_eq!(
+            ui.clip_rect(),
+            before,
+            "and the previous clip is restored on the way out"
+        );
+    });
+}
+
 /// A margin is per-edge. Collapsing it to one number would misplace
 /// anything anchored to an edge — which is exactly what a node graph
 /// does when it sizes a body from its frame.
