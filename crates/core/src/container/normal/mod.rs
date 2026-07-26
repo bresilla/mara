@@ -2040,7 +2040,7 @@ fn paint_folder_tabs(
             paint_icon_or_svg(
                 ui,
                 cell.base.center().into(),
-                egui::Align2::CENTER_CENTER,
+                crate::vocab::Align2::CENTER_CENTER,
                 *icn,
                 icon_size,
                 style::contrast_text_for(active_fill).into(),
@@ -2051,7 +2051,7 @@ fn paint_folder_tabs(
             paint_icon_or_svg(
                 ui,
                 cell.base.center().into(),
-                egui::Align2::CENTER_CENTER,
+                crate::vocab::Align2::CENTER_CENTER,
                 *icn,
                 icon_size,
                 inactive_glyph_col,
@@ -2160,7 +2160,7 @@ fn paint_top_tabs(
     let active_unfolded = active_folded * 1.785;
     let openness = pane::body_openness(ui.ctx(), pane_id);
     let openness_t = smoothstep(openness);
-    let active_icon_size = egui::lerp(active_folded..=active_unfolded, openness_t);
+    let active_icon_size = crate::vocab::lerp(active_folded, active_unfolded, openness_t);
     let label_font_size: f32 = 11.0;
     let title_rect: MaraRect = title_rect.into();
     for (cell_idx, slot) in visible.iter().enumerate() {
@@ -2252,11 +2252,11 @@ fn paint_top_tabs(
             active_target,
             0.2,
         );
-        let icon_size = egui::lerp(inactive_icon_size..=active_icon_size, active_t);
+        let icon_size = crate::vocab::lerp(inactive_icon_size, active_icon_size, active_t);
         paint_icon_or_svg(
             ui,
             cell.icon_center.into(),
-            egui::Align2::CENTER_CENTER,
+            crate::vocab::Align2::CENTER_CENTER,
             *icn,
             icon_size,
             glyph_col.into(),
@@ -2390,7 +2390,7 @@ fn top_tab_label_paint_cmd(pos: MaraPos2, title: &str, size: f32, color: MaraCol
 fn paint_icon_or_svg(
     ui: &mut Ui,
     pos: egui::Pos2,
-    align: egui::Align2,
+    align: crate::vocab::Align2,
     icon: Icon<'_>,
     size: f32,
     color: Color32,
@@ -2843,8 +2843,8 @@ fn paint_floating_icon(
     const UNFOLDED_OFFSET: f32 = 29.294;
     let folded_offset = folded_size * 0.5;
     let t = smoothstep(openness);
-    let size = egui::lerp(folded_size..=unfolded_size, t);
-    let offset = egui::lerp(folded_offset..=UNFOLDED_OFFSET, t);
+    let size = crate::vocab::lerp(folded_size, unfolded_size, t);
+    let offset = crate::vocab::lerp(folded_offset, UNFOLDED_OFFSET, t);
 
     let icon = floating_icon_geometry(strip_rect.into(), anchor, size, offset, t);
     // Floating icon paints at the `CONTAINER_FLOATING_ICON` tier —
@@ -3130,7 +3130,7 @@ fn paint_corner_ticks(
     // relative to the (animated) outer_rect.
     let snap_t = appear;
     let snap = ease_out_elastic(snap_t);
-    let extra = egui::lerp(-START_OFFSET..=0.0, snap);
+    let extra = crate::vocab::lerp(-START_OFFSET, 0.0, snap);
     // Resting inset lerps with `openness`: when fully open, brackets
     // sit `rest_inset` px INSIDE the painted outer_rect (theme
     // value, gives breathing room from the frame stroke). When
@@ -3141,7 +3141,7 @@ fn paint_corner_ticks(
     // offset) is added on top, so the elastic bounce still plays
     // around whatever resting inset the current fold state picks.
     const FOLDED_INSET: f32 = -1.0;
-    let resting = egui::lerp(FOLDED_INSET..=rest_inset, openness);
+    let resting = crate::vocab::lerp(FOLDED_INSET, rest_inset, openness);
     let inset = resting + extra;
     let r = outer_rect.shrink(inset);
 

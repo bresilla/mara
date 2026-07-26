@@ -608,6 +608,17 @@ impl std::fmt::Debug for Color32 {
     }
 }
 
+/// Linear interpolation from `a` to `b`.
+///
+/// Deliberately **not** clamped: `t` outside `0..=1` extrapolates, which
+/// animation curves rely on for overshoot. Matches the backend's `lerp`
+/// exactly — `(1 - t) * a + t * b`, in that order, so floating-point
+/// rounding agrees term for term.
+#[must_use]
+pub fn lerp(a: f32, b: f32, t: f32) -> f32 {
+    (1.0 - t) * a + t * b
+}
+
 /// `(x + 0.5) as u8`, saturating — the backend's rounding rule.
 const fn round_u8(x: f32) -> u8 {
     (x + 0.5) as u8

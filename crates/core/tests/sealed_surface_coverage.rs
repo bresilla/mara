@@ -808,6 +808,24 @@ fn d13_a_group_fills_a_single_slot() {
     }
 }
 
+/// `lerp` must not clamp — animation curves rely on overshoot outside
+/// `0..=1` — and must agree with the backend term for term, since the
+/// two are used interchangeably during the port.
+#[cfg(feature = "backend-egui-conv")]
+#[test]
+fn e4_lerp_matches_the_backend_including_overshoot() {
+    for &(a, b) in &[(0.0_f32, 1.0_f32), (-3.5, 7.25), (12.0, 12.0), (100.0, -50.0)] {
+        for step in -4..=14 {
+            let t = step as f32 / 10.0;
+            assert_eq!(
+                mara_core::vocab::lerp(a, b, t),
+                egui::lerp(a..=b, t),
+                "lerp({a}, {b}, {t}) disagrees with the backend"
+            );
+        }
+    }
+}
+
 /// WS-E4/G1 constraint, pinned as a test because it decides whether
 /// `Id` can go native.
 ///
