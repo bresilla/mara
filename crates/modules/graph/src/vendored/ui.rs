@@ -2796,6 +2796,13 @@ impl<T> Graph<T> {
     }
 }
 
+/// Clamp the view scale, rescaling about the viewport centre so the
+/// content under the middle of the screen stays put.
+///
+/// The maths lives in [`mara_core::transform::Transform`] now (WS-E1.4) rather than
+/// in three local helpers over the backend's transform type; this only
+/// converts at the boundary, and that conversion disappears when the
+/// rest of this file ports.
 #[inline]
 fn clamp_scale(to_global: &mut TSTransform, min_scale: f32, max_scale: f32, ui_rect: Rect) {
     if to_global.scaling >= min_scale && to_global.scaling <= max_scale {
@@ -2803,23 +2810,13 @@ fn clamp_scale(to_global: &mut TSTransform, min_scale: f32, max_scale: f32, ui_r
     }
 
     let new_scaling = to_global.scaling.clamp(min_scale, max_scale);
-    *to_global = scale_transform_around(to_global, new_scaling, ui_rect.center());
-}
-
-#[inline]
-#[must_use]
-fn transform_matching_points(from: Pos2, to: Pos2, scaling: f32) -> TSTransform {
-    TSTransform {
-        scaling,
-        translation: to.to_vec2() - from.to_vec2() * scaling,
-    }
-}
-
-#[inline]
-#[must_use]
-fn scale_transform_around(transform: &TSTransform, scaling: f32, point: Pos2) -> TSTransform {
-    let from = (point - transform.translation) / transform.scaling;
-    transform_matching_points(from, point, scaling)
+    let mara =
+        mara_core::transform::Transform::new(to_global.translation.into(), to_global.scaling)
+            .scaled_around(new_scaling, ui_rect.center().into());
+    *to_global = TSTransform {
+        scaling: mara.scaling,
+        translation: mara.translation.into(),
+    };
 }
 
 #[test]

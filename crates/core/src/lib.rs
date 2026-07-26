@@ -68,7 +68,12 @@ pub use layout::{Layer, Sense as MaraSense, UiBackend};
 pub use memory::{MaraMemory, MaraMemoryCtx};
 pub use mui::{MaraInput, MaraKey, MaraKeySet, MaraPainter, MaraResponse, MaraUi};
 pub use paint::{PaintCmd, PaintList};
-pub use transform::{PanZoom, Transform};
+
+// `transform::Transform` is deliberately NOT re-exported at the root
+// for the same reason as `vocab` below: `bevy_mara` glob-imports both
+// `bevy::prelude::*` and `mara_core::*`, and Bevy has its own
+// `Transform`. Reach it as `mara_core::transform::{Transform, PanZoom}`.
+//
 // `vocab` is deliberately NOT glob-re-exported at the root: hosts
 // like Bevy glob-import both their own prelude and `mara_core::*`,
 // and egui's `Vec2`/`Rect` would silently shadow the host's math

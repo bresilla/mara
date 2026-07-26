@@ -516,9 +516,10 @@ fn e14_advance_cursor_past_moves_flow_below_a_rect() {
 /// only applying the result to a layer needs a backend.
 #[test]
 fn e14_pan_zoom_drives_a_layer_transform_headlessly() {
+    use mara_core::MaraInput;
     use mara_core::backend::record::RecordingBackend;
     use mara_core::layout::UiBackend;
-    use mara_core::{MaraInput, PanZoom};
+    use mara_core::transform::PanZoom;
 
     let mut backend =
         RecordingBackend::at(Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 300.0)));
@@ -547,7 +548,7 @@ fn e14_pan_zoom_drives_a_layer_transform_headlessly() {
 /// has to be exact — a wrong inverse means clicks land on the wrong node.
 #[test]
 fn e14_transform_inverse_maps_screen_back_to_content() {
-    use mara_core::Transform;
+    use mara_core::transform::Transform;
 
     let t = Transform::new(Vec2::new(-40.0, 15.0), 2.0);
     let content = Pos2::new(33.0, -21.0);

@@ -8,7 +8,7 @@ use smallvec::{SmallVec, ToSmallVec, smallvec};
 
 use crate::vendored::{Graph, InPinId, NodeId, OutPinId};
 
-use super::{GraphWidget, transform_matching_points};
+use super::GraphWidget;
 
 pub type RowHeights = SmallVec<[f32; 8]>;
 
@@ -294,7 +294,7 @@ impl GraphState {
         let scaling2 = ui_rect.size() / bb.size();
         let scaling = scaling2.min_elem().clamp(min_scale, max_scale);
 
-        let to_global = transform_matching_points(bb.center(), ui_rect.center(), scaling);
+        let to_global = fit_points(bb.center(), ui_rect.center(), scaling);
 
         GraphState {
             to_global,
@@ -362,7 +362,7 @@ impl GraphState {
         let scaling2 = ui_rect.size() / view.size();
         let scaling = scaling2.min_elem().clamp(min_scale, max_scale);
 
-        let to_global = transform_matching_points(view.center(), ui_rect.center(), scaling);
+        let to_global = fit_points(view.center(), ui_rect.center(), scaling);
 
         if self.to_global != to_global {
             self.to_global = to_global;
@@ -628,5 +628,19 @@ impl GraphWidget {
 
         ctx.data(|d| d.get_temp::<SelectedNodes>(graph_id).unwrap_or_default().0)
             .into_vec()
+    }
+}
+
+/// Transform placing `from` at `to` under uniform `scaling`.
+///
+/// Replaces two of the three local `TSTransform` helpers this file used
+/// to share with `ui.rs`. Kept as plain arithmetic rather than routed
+/// through [`mara_core::transform::Transform`]: the anchored-rescale case genuinely
+/// needs `Transform::scaled_around` (and `clamp_scale` now uses it), but
+/// `translation = to - scaling * from` gains nothing from the round trip.
+fn fit_points(from: Pos2, to: Pos2, scaling: f32) -> TSTransform {
+    TSTransform {
+        scaling,
+        translation: egui::vec2(to.x - scaling * from.x, to.y - scaling * from.y),
     }
 }
