@@ -1043,6 +1043,16 @@ impl crate::layout::UiBackend for MaraBackend<'_> {
             Self::Recording(b) => b.load_texture(name, image, options),
         }
     }
+    fn framed(
+        &mut self,
+        spec: crate::style::FrameSpec,
+        body: &mut dyn FnMut(&mut dyn UiBackend),
+    ) -> vocab::Rect {
+        match self {
+            Self::Egui(b) => b.framed(spec, body),
+            Self::Recording(b) => b.framed(spec, body),
+        }
+    }
     fn in_row(
         &mut self,
         size: vocab::Vec2,
@@ -1289,6 +1299,18 @@ impl<'a> MaraUi<'a> {
     /// backend — in practice the recording one — so a widget's
     /// behaviour can be asserted without a live context.
     /// Doc-hidden; not a stable API.
+    /// Headless-test harness returning the body's value.
+    /// Doc-hidden; not a stable API.
+    #[doc(hidden)]
+    pub fn __internal_over_backend_ret<R>(
+        backend: &mut dyn UiBackend,
+        accent: impl Into<vocab::Color32>,
+        body: impl FnOnce(&mut MaraUi<'_>) -> R,
+    ) -> R {
+        let mut ui = MaraUi::over(backend, accent);
+        body(&mut ui)
+    }
+
     #[doc(hidden)]
     pub fn __internal_over_backend(
         backend: &mut dyn UiBackend,
@@ -1600,6 +1622,26 @@ impl<'a> MaraUi<'a> {
             accent,
             height,
         )
+    }
+
+    /// Run `body` inside a themed frame and return the rect it took.
+    ///
+    /// Fill, stroke, corner radius, inner margin and shadow come from
+    /// the [`crate::style::FrameSpec`], and the frame paints behind the
+    /// content rather than over it.
+    pub fn framed(
+        &mut self,
+        spec: crate::style::FrameSpec,
+        body: impl FnOnce(&mut MaraUi<'_>),
+    ) -> vocab::Rect {
+        let accent = self.accent;
+        let mut body = Some(body);
+        self.backend.framed(spec, &mut |backend| {
+            if let Some(body) = body.take() {
+                let mut mara = MaraUi::over(backend, accent);
+                body(&mut mara);
+            }
+        })
     }
 
     /// Fixed-size row laid out left-to-right, contents aligned on the

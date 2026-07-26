@@ -860,6 +860,26 @@ pub trait UiBackend {
         None
     }
 
+    /// Run `body` inside a themed frame — fill, stroke, corner radius,
+    /// inner margin and optional shadow — and report the rect it took.
+    ///
+    /// The sealed equivalent of the backend's frame widget, which is
+    /// how a node renderer draws node bodies and headers. The frame
+    /// paints *behind* `body`, so content is never occluded by its own
+    /// background.
+    ///
+    /// The default draws no frame and runs nothing — it cannot pass
+    /// itself to `body` and stay object-safe. Both real backends
+    /// override it.
+    fn framed(
+        &mut self,
+        spec: crate::style::FrameSpec,
+        body: &mut dyn FnMut(&mut dyn UiBackend),
+    ) -> Rect {
+        let _ = (spec, body);
+        Rect::NOTHING
+    }
+
     fn in_row(&mut self, size: Vec2, align: CrossAlign, body: &mut dyn FnMut(&mut dyn UiBackend)) {
         let _ = (size, align, body);
     }
@@ -1044,6 +1064,13 @@ impl<T: UiBackend + ?Sized> UiBackend for &mut T {
         options: crate::vocab::TextureOptions,
     ) -> Option<crate::vocab::TextureHandle> {
         (**self).load_texture(name, image, options)
+    }
+    fn framed(
+        &mut self,
+        spec: crate::style::FrameSpec,
+        body: &mut dyn FnMut(&mut dyn UiBackend),
+    ) -> Rect {
+        (**self).framed(spec, body)
     }
     fn in_row(&mut self, size: Vec2, align: CrossAlign, body: &mut dyn FnMut(&mut dyn UiBackend)) {
         (**self).in_row(size, align, body)

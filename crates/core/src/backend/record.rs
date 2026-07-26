@@ -272,6 +272,34 @@ impl UiBackend for RecordingBackend {
         crate::memory::BackendMemory::Recording(&self.memory)
     }
 
+    fn framed(
+        &mut self,
+        spec: crate::style::FrameSpec,
+        body: &mut dyn FnMut(&mut dyn UiBackend),
+    ) -> Rect {
+        // Reserve a paint slot so the frame lands *behind* the body —
+        // painting it first would work here but not on a backend that
+        // batches, and the ordering is the contract.
+        let slot = self.reserve_paint_slot();
+        let margin = spec.inner_margin;
+        let start = self.cursor;
+        self.cursor = Pos2::new(start.x + margin.left as f32, start.y + margin.top as f32);
+        body(self);
+        let content_bottom = self.cursor.y + margin.bottom as f32;
+        let rect = Rect::from_min_max(start, Pos2::new(self.available.max.x, content_bottom));
+        self.fill_paint_slot(
+            slot,
+            Some(PaintCmd::RectFilled {
+                rect,
+                corner: spec.corner,
+                fill: spec.fill,
+            }),
+        );
+        self.cursor = Pos2::new(start.x, content_bottom);
+        self.expand_to_include(rect);
+        rect
+    }
+
     fn in_row(
         &mut self,
         size: Vec2,

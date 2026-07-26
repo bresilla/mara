@@ -684,3 +684,78 @@ fn a6_row_flows_its_contents_rightward() {
     });
     assert_eq!(xs, vec![0.0, 25.0, 50.0], "items advance rightward");
 }
+
+// ─── D1.3 · framed surfaces ───────────────────────────────────────
+
+/// `ui.rs` draws node bodies and headers with the backend's frame
+/// widget — the last primitive its render path needs. The contract that
+/// matters is paint order: the frame must land *behind* its content, or
+/// every node would occlude its own pins.
+#[test]
+fn d13_frame_paints_behind_its_content() {
+    use mara_core::MaraUi;
+    use mara_core::backend::record::RecordingBackend;
+    use mara_core::style::{FrameSpec, MarginSpec};
+
+    let mut backend =
+        RecordingBackend::at(Rect::from_min_size(Pos2::ZERO, Vec2::new(200.0, 120.0)));
+    let spec = FrameSpec::new(
+        Color32::from_rgb(10, 20, 30),
+        mara_core::vocab::Stroke::new(1.0, Color32::WHITE),
+        CornerRadius::same(4),
+        MarginSpec::symmetric(6, 6),
+    );
+
+    let rect = MaraUi::__internal_over_backend_ret(&mut backend, Color32::WHITE, |ui| {
+        ui.framed(spec, |ui| {
+            ui.label("inside");
+        })
+    });
+
+    assert!(rect.height() > 0.0, "the frame reports the rect it took");
+
+    let kinds: Vec<&str> = backend
+        .paints
+        .iter()
+        .map(|cmd| match cmd {
+            PaintCmd::RectFilled { .. } => "frame",
+            PaintCmd::Text { .. } => "text",
+            _ => "other",
+        })
+        .collect();
+    let frame_at = kinds.iter().position(|k| *k == "frame");
+    let text_at = kinds.iter().position(|k| *k == "text");
+    assert!(
+        matches!((frame_at, text_at), (Some(f), Some(t)) if f < t),
+        "frame must precede its content in the paint stream, got {kinds:?}"
+    );
+}
+
+/// Content is inset by the frame's margin, so a body cannot draw over
+/// its own border.
+#[test]
+fn d13_frame_insets_content_by_its_margin() {
+    use mara_core::MaraUi;
+    use mara_core::backend::record::RecordingBackend;
+    use mara_core::layout::{Sense, UiBackend};
+    use mara_core::style::{FrameSpec, MarginSpec};
+
+    let mut backend =
+        RecordingBackend::at(Rect::from_min_size(Pos2::ZERO, Vec2::new(200.0, 120.0)));
+    let spec = FrameSpec::new(
+        Color32::BLACK,
+        mara_core::vocab::Stroke::new(1.0, Color32::WHITE),
+        CornerRadius::same(2),
+        MarginSpec::symmetric(8, 8),
+    );
+
+    let mut inner_min = Pos2::ZERO;
+    backend.framed(spec, &mut |inner| {
+        inner_min = inner.allocate(Vec2::new(10.0, 10.0), Sense::Hover).rect.min;
+    });
+    assert_eq!(
+        inner_min,
+        Pos2::new(8.0, 8.0),
+        "content starts inside the margin"
+    );
+}

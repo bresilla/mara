@@ -245,6 +245,22 @@ impl UiBackend for EguiUiBackend<'_> {
         )
     }
 
+    fn framed(
+        &mut self,
+        spec: crate::style::FrameSpec,
+        body: &mut dyn FnMut(&mut dyn UiBackend),
+    ) -> vocab::Rect {
+        let frame = egui_frame_for_style_spec(spec);
+        frame
+            .show(self.ui, |inner| {
+                let mut child = EguiUiBackend::new(inner);
+                body(&mut child);
+            })
+            .response
+            .rect
+            .into()
+    }
+
     fn in_row(
         &mut self,
         size: vocab::Vec2,
