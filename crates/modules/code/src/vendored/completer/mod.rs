@@ -194,7 +194,7 @@ impl Completer {
                     cursor_rect,
                     editor_output.response.layer_id,
                 )
-                .frame(Frame::popup(&ctx.global_style()).fill(theme.bg()))
+                .frame(Frame::popup(&ctx.global_style()).fill(egui::Color32::from(theme.bg())))
                 .sense(Sense::empty())
                 .show(|ui| {
                     ui.response().sense = Sense::empty();
@@ -227,11 +227,13 @@ impl Completer {
                                     egui::Button::new(colored_text)
                                         .sense(Sense::empty())
                                         .frame(true)
-                                        .fill(theme.bg())
+                                        .fill(egui::Color32::from(theme.bg()))
                                         .stroke(if selected {
                                             Stroke::new(
                                                 ui.style().visuals.widgets.hovered.bg_stroke.width,
-                                                theme.type_color(TokenType::Literal),
+                                                egui::Color32::from(
+                                                    theme.type_color(TokenType::Literal),
+                                                ),
                                             )
                                         } else {
                                             Stroke::NONE

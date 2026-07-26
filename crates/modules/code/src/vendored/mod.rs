@@ -288,7 +288,7 @@ impl CodeEditor {
                 text_buffer.as_str().to_string(),
                 egui::TextFormat::simple(
                     egui::FontId::monospace(self.fontsize),
-                    self.theme.type_color(TokenType::Comment(true)),
+                    self.theme.type_color(TokenType::Comment(true)).into(),
                 ),
             );
             ui.fonts_mut(|f| f.layout_job(layout_job))
@@ -326,7 +326,7 @@ impl CodeEditor {
         let mut text_edit_output: Option<TextEditOutput> = None;
         let mut code_editor = |ui: &mut egui::Ui| {
             ui.horizontal_top(|h| {
-                self.theme.modify_style(h, self.fontsize);
+                apply_theme_style(h, &self.theme, self.fontsize);
                 if self.numlines {
                     self.numlines_show(h, text.as_str());
                 }
@@ -378,5 +378,22 @@ impl Editor for CodeEditor {
 pub fn format_token(theme: &ColorTheme, fontsize: f32, ty: TokenType) -> egui::text::TextFormat {
     let font_id = egui::FontId::monospace(fontsize);
     let color = theme.type_color(ty);
-    egui::text::TextFormat::simple(font_id, color)
+    egui::text::TextFormat::simple(font_id, color.into())
+}
+
+/// Apply a [`ColorTheme`] to an egui `Style`.
+///
+/// This used to be `ColorTheme::modify_style`, but a palette should not
+/// know about a backend's style struct — that coupling is what kept the
+/// theme layer unsealed. It lives here, at the widget boundary that
+/// still owns a `Ui`, and moves out with the widget in WS-D2.
+fn apply_theme_style(ui: &mut egui::Ui, theme: &ColorTheme, fontsize: f32) {
+    let style = ui.style_mut();
+    style.visuals.widgets.noninteractive.bg_fill = theme.bg().into();
+    style.visuals.window_fill = theme.bg().into();
+    style.visuals.selection.stroke.color = theme.cursor().into();
+    style.visuals.selection.bg_fill = theme.selection().into();
+    style.visuals.extreme_bg_color = theme.bg().into();
+    style.override_font_id = Some(egui::FontId::monospace(fontsize));
+    style.visuals.text_cursor.stroke.width = fontsize * 0.1;
 }

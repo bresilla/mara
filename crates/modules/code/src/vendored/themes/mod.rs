@@ -5,7 +5,7 @@
 //!
 //! Upstream stored every field as a 6-digit hex string
 //! (`&'static str`) and re-parsed to a `Color32` on every call.
-//! We vendored and rewrote to store [`egui::Color32`] directly
+//! We vendored and rewrote to store [`crate::CodeColor`] directly
 //! instead — that removes the per-frame parsing cost AND lets
 //! theme authors pass colours with **alpha** (opaque hex strings
 //! lose that information). The background colour in particular
@@ -21,7 +21,7 @@
 pub mod gruvbox;
 
 use super::syntax::TokenType;
-use egui::Color32;
+use crate::CodeColor as Color32;
 
 pub const ERROR_COLOR: Color32 = Color32::from_rgb(255, 0, 255);
 
@@ -71,17 +71,6 @@ impl ColorTheme {
 
     pub fn selection(&self) -> Color32 {
         self.selection
-    }
-
-    pub fn modify_style(&self, ui: &mut egui::Ui, fontsize: f32) {
-        let style = ui.style_mut();
-        style.visuals.widgets.noninteractive.bg_fill = self.bg;
-        style.visuals.window_fill = self.bg;
-        style.visuals.selection.stroke.color = self.cursor;
-        style.visuals.selection.bg_fill = self.selection;
-        style.visuals.extreme_bg_color = self.bg;
-        style.override_font_id = Some(egui::FontId::monospace(fontsize));
-        style.visuals.text_cursor.stroke.width = fontsize * 0.1;
     }
 
     pub fn type_color(&self, ty: TokenType) -> Color32 {

@@ -135,6 +135,17 @@ pub fn mara_code_editor_with_opts(
 /// `accent` drives keyword highlighting + the cursor; status
 /// colours (`SUCCESS`, `AXIS_X/Y/Z`) tint literals / types /
 /// punctuation for a readable hierarchy.
+/// Convert a Mara colour into `mara_code`'s palette type.
+///
+/// A `From` impl is impossible here: both types are foreign to the
+/// other crate, and `mara_code` cannot depend on `mara_core` (the
+/// dependency already runs the other way). So the adapter owns the
+/// conversion — which is where a boundary conversion belongs anyway.
+fn code_color(c: impl Into<crate::vocab::Color32>) -> mara_code::CodeColor {
+    let c = c.into();
+    mara_code::CodeColor::from_rgba_unmultiplied(c.r(), c.g(), c.b(), c.a())
+}
+
 fn mara_code_theme(accent: egui::Color32) -> ColorTheme {
     use crate::style::{accent_pressed, glass_alpha_window, glass_fill, on_panel_dim, pane_fill};
     let code = crate::style::theme().code;
@@ -144,23 +155,23 @@ fn mara_code_theme(accent: egui::Color32) -> ColorTheme {
         // `glass_fill(pane_fill(...), …)` flows through the active
         // theme so GAME's accent panel becomes the editor bg too,
         // not a hardcoded dark.
-        bg: glass_fill(pane_fill(accent), accent, glass_alpha_window()).into(),
-        cursor: accent,
+        bg: code_color(glass_fill(pane_fill(accent), accent, glass_alpha_window())),
+        cursor: code_color(accent),
         // Selection = darker accent shade derived at runtime so it
         // tracks whatever colour the user picked.
-        selection: accent_pressed().into(),
+        selection: code_color(accent_pressed()),
         // `comments` / `punctuation` flip to whatever contrasts the
         // pane fill, so they stay readable on PRO's dark and GAME's
         // accent-coloured panels alike.
-        comments: on_panel_dim().into(),
-        functions: code.functions.into(),
-        keywords: accent,
-        literals: code.literals.into(),
-        numerics: code.numerics.into(),
-        punctuation: on_panel_dim().into(),
-        strs: code.strings.into(),
-        types: code.types.into(),
-        special: accent,
+        comments: code_color(on_panel_dim()),
+        functions: code_color(code.functions),
+        keywords: code_color(accent),
+        literals: code_color(code.literals),
+        numerics: code_color(code.numerics),
+        punctuation: code_color(on_panel_dim()),
+        strs: code_color(code.strings),
+        types: code_color(code.types),
+        special: code_color(accent),
     }
 }
 

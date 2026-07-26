@@ -5,7 +5,7 @@
 //! Original palette by Jakub Bartodziej
 //! <kubabartodziej@gmail.com>, Pavel Pertsev (Gruvbox).
 
-use egui::Color32;
+use crate::CodeColor as Color32;
 
 use super::ColorTheme;
 
