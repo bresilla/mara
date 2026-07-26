@@ -1629,6 +1629,15 @@ impl<'a> MaraUi<'a> {
     /// Fill, stroke, corner radius, inner margin and shadow come from
     /// the [`crate::style::FrameSpec`], and the frame paints behind the
     /// content rather than over it.
+    /// Multiply this surface's style metrics by `factor`.
+    ///
+    /// Used by zoomable surfaces that render at a magnified style and
+    /// scale down, so text stays crisp instead of being blown up after
+    /// rasterisation.
+    pub fn scale_style(&mut self, factor: f32) {
+        self.backend.scale_style(factor);
+    }
+
     pub fn framed(
         &mut self,
         spec: crate::style::FrameSpec,

@@ -880,6 +880,22 @@ pub trait UiBackend {
         Rect::NOTHING
     }
 
+    /// Multiply this surface's style metrics — text sizes, spacing,
+    /// stroke widths — by `factor`.
+    ///
+    /// A zoomable surface that wants text to stay crisp when magnified
+    /// renders at a larger style and scales the result down, rather
+    /// than magnifying already-rasterised glyphs. Scaling a backend
+    /// style is backend-specific, so it lives here rather than in the
+    /// surface that asks for it.
+    ///
+    /// The default does nothing: a backend with no notion of a scalable
+    /// style renders at its natural size, which is correct, just not
+    /// crisper.
+    fn scale_style(&mut self, factor: f32) {
+        let _ = factor;
+    }
+
     fn in_row(&mut self, size: Vec2, align: CrossAlign, body: &mut dyn FnMut(&mut dyn UiBackend)) {
         let _ = (size, align, body);
     }
@@ -1071,6 +1087,9 @@ impl<T: UiBackend + ?Sized> UiBackend for &mut T {
         body: &mut dyn FnMut(&mut dyn UiBackend),
     ) -> Rect {
         (**self).framed(spec, body)
+    }
+    fn scale_style(&mut self, factor: f32) {
+        (**self).scale_style(factor)
     }
     fn in_row(&mut self, size: Vec2, align: CrossAlign, body: &mut dyn FnMut(&mut dyn UiBackend)) {
         (**self).in_row(size, align, body)

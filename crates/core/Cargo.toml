@@ -14,6 +14,7 @@ repository.workspace = true
 
 [dependencies]
 egui = { workspace = true, default-features = false, features = ["default_fonts"] }
+egui-scale = "0.4"
 # SVG rasterisation for `PaintCmd::Svg`. This is the ONLY thing Mara
 # needs from `egui_extras`, hence `default-features = false` plus the
 # single `svg` feature (which pulls `resvg`). Before this, `PaintCmd::Svg`

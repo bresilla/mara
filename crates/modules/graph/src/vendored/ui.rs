@@ -13,7 +13,6 @@ use egui::{
     response::Flags,
     vec2,
 };
-use egui_scale::EguiScale;
 use smallvec::SmallVec;
 
 use crate::vendored::{Graph, InPin, InPinId, Node, NodeId, OutPin, OutPinId, ui::wire::WireId};
@@ -25,6 +24,7 @@ mod state;
 mod viewer;
 mod wire;
 
+use self::scale::Scale;
 use self::{
     pin::AnyPin,
     state::{NewWires, NodeState, RowHeights},
@@ -1077,7 +1077,9 @@ where
 
     if style.get_crisp_magnified_text() {
         style.scale(max_scale);
-        ui.style_mut().scale(max_scale);
+        let mut raw = mara_core::MaraUi::__internal_backend_from_raw(&mut ui);
+        mara_core::MaraUi::__internal_over(&mut raw, mara_core::vocab::Color32::WHITE)
+            .scale_style(max_scale);
 
         min_scale /= max_scale;
         max_scale = 1.0;

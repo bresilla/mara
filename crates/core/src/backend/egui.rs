@@ -245,6 +245,11 @@ impl UiBackend for EguiUiBackend<'_> {
         )
     }
 
+    fn scale_style(&mut self, factor: f32) {
+        use egui_scale::EguiScale;
+        self.ui.style_mut().scale(factor);
+    }
+
     fn framed(
         &mut self,
         spec: crate::style::FrameSpec,

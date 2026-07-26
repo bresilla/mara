@@ -3657,6 +3657,7 @@ version = "0.4.1"
 dependencies = [
  "bevy",
  "egui",
+ "egui-scale",
  "egui-wgpu",
  "egui_extras",
  "iconflow",
@@ -3697,7 +3698,6 @@ name = "mara_graph"
 version = "0.4.1"
 dependencies = [
  "egui",
- "egui-scale",
  "egui-wgpu",
  "mara_core",
  "serde",

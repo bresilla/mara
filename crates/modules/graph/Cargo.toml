@@ -17,7 +17,6 @@ egui = { workspace = true, default-features = false }
 # any zoom level.
 egui-wgpu = { workspace = true }
 wgpu = { workspace = true }
-egui-scale = "0.4"
 slab = { version = "0.4", features = ["serde"] }
 smallvec = { version = "1.15", features = ["const_new"] }
 serde = { version = "1", features = ["derive"], optional = true }
