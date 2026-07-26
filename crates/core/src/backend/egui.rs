@@ -230,6 +230,21 @@ impl UiBackend for EguiUiBackend<'_> {
         Some(self.ui)
     }
 
+    fn load_texture(
+        &mut self,
+        name: &str,
+        image: vocab::ColorImage,
+        options: vocab::TextureOptions,
+    ) -> Option<vocab::TextureHandle> {
+        let image: egui::ColorImage = image.into();
+        Some(
+            self.ui
+                .ctx()
+                .load_texture(name, image, options.into())
+                .into(),
+        )
+    }
+
     fn in_row(
         &mut self,
         size: vocab::Vec2,

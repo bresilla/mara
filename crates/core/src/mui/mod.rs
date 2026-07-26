@@ -1032,6 +1032,17 @@ impl crate::layout::UiBackend for MaraBackend<'_> {
             Self::Recording(b) => b.__internal_egui_ui_ref(),
         }
     }
+    fn load_texture(
+        &mut self,
+        name: &str,
+        image: vocab::ColorImage,
+        options: vocab::TextureOptions,
+    ) -> Option<vocab::TextureHandle> {
+        match self {
+            Self::Egui(b) => b.load_texture(name, image, options),
+            Self::Recording(b) => b.load_texture(name, image, options),
+        }
+    }
     fn in_row(
         &mut self,
         size: vocab::Vec2,
@@ -1611,6 +1622,30 @@ impl<'a> MaraUi<'a> {
                 body(&mut mara);
             }
         });
+    }
+
+    /// Upload CPU pixels as a texture and return a handle to paint it
+    /// with [`MaraPainter::image`]. `None` on backends with no texture
+    /// store (the recording one), so callers must handle a miss.
+    pub fn load_texture(
+        &mut self,
+        name: &str,
+        image: vocab::ColorImage,
+        options: vocab::TextureOptions,
+    ) -> Option<vocab::TextureHandle> {
+        self.backend.load_texture(name, image, options)
+    }
+
+    /// Shut the menu opened by [`MaraUi::menu_button`] with this id.
+    ///
+    /// Menu items call this after acting, so the menu dismisses the way
+    /// a user expects rather than staying open behind the change.
+    pub fn close_menu(&mut self, id: impl Into<vocab::Id>) {
+        let id = id.into();
+        let mut memory = self.backend.memory();
+        let mut state = crate::popup::PopupState::load(&memory, id);
+        state.close();
+        state.store(&mut memory, id);
     }
 
     /// A button that toggles a floating menu below itself

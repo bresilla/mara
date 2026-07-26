@@ -597,6 +597,21 @@ impl From<TextureId> for egui::TextureId {
 #[derive(Clone)]
 pub struct TextureHandle(egui::TextureHandle);
 
+impl TextureHandle {
+    /// Id for painting this texture with
+    /// [`crate::MaraPainter::image`].
+    #[must_use]
+    pub fn id(&self) -> TextureId {
+        self.0.id().into()
+    }
+
+    /// Size in pixels.
+    #[must_use]
+    pub fn size(&self) -> [usize; 2] {
+        self.0.size()
+    }
+}
+
 impl From<egui::TextureHandle> for TextureHandle {
     fn from(handle: egui::TextureHandle) -> Self {
         Self(handle)
@@ -611,6 +626,28 @@ impl From<TextureHandle> for egui::TextureHandle {
 
 #[derive(Clone, Debug)]
 pub struct ColorImage(pub(crate) egui::ColorImage);
+
+impl ColorImage {
+    /// Build an image from sRGB pixels in row-major order.
+    ///
+    /// Surfaces that generate imagery — noise previews, plots
+    /// rasterised to a buffer — need this without naming a backend
+    /// image type. `pixels.len()` must be `size[0] * size[1]`; a
+    /// mismatch yields a 1×1 transparent image rather than panicking,
+    /// because a malformed preview should not take the app down.
+    #[must_use]
+    pub fn from_rgba_pixels(size: [usize; 2], pixels: &[Color32]) -> Self {
+        if pixels.len() != size[0] * size[1] || size[0] == 0 || size[1] == 0 {
+            return Self(egui::ColorImage::filled([1, 1], egui::Color32::TRANSPARENT));
+        }
+        let pixels: Vec<egui::Color32> = pixels.iter().map(|c| (*c).into()).collect();
+        Self(egui::ColorImage {
+            size,
+            pixels,
+            source_size: egui::vec2(size[0] as f32, size[1] as f32),
+        })
+    }
+}
 
 impl From<egui::ColorImage> for ColorImage {
     fn from(image: egui::ColorImage) -> Self {

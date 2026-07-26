@@ -841,6 +841,25 @@ pub trait UiBackend {
     ///
     /// The default draws **nothing** — it cannot run `body` against
     /// itself and stay object-safe. Both real backends override it.
+    /// Upload CPU pixels as a texture and return a handle to paint it.
+    ///
+    /// Surfaces that generate imagery each frame (noise previews,
+    /// thumbnails, plots rendered to a buffer) need this without
+    /// reaching for a backend context. The handle keeps the texture
+    /// alive; drop it to release.
+    ///
+    /// The default returns `None` — a backend with no texture store
+    /// cannot honour it, and callers must already handle that.
+    fn load_texture(
+        &mut self,
+        name: &str,
+        image: crate::vocab::ColorImage,
+        options: crate::vocab::TextureOptions,
+    ) -> Option<crate::vocab::TextureHandle> {
+        let _ = (name, image, options);
+        None
+    }
+
     fn in_row(&mut self, size: Vec2, align: CrossAlign, body: &mut dyn FnMut(&mut dyn UiBackend)) {
         let _ = (size, align, body);
     }
@@ -1017,6 +1036,14 @@ impl<T: UiBackend + ?Sized> UiBackend for &mut T {
     }
     fn __internal_egui_ui_ref(&self) -> Option<&egui::Ui> {
         (**self).__internal_egui_ui_ref()
+    }
+    fn load_texture(
+        &mut self,
+        name: &str,
+        image: crate::vocab::ColorImage,
+        options: crate::vocab::TextureOptions,
+    ) -> Option<crate::vocab::TextureHandle> {
+        (**self).load_texture(name, image, options)
     }
     fn in_row(&mut self, size: Vec2, align: CrossAlign, body: &mut dyn FnMut(&mut dyn UiBackend)) {
         (**self).in_row(size, align, body)
