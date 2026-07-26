@@ -104,8 +104,9 @@ pub fn tag(ui: &Ui, rect: Rect, label: impl Into<String>) {
         return;
     }
     let label = label.into();
-    ui.ctx().data_mut(|d| {
-        let prev: Option<Best> = d.get_temp::<Best>(egui::Id::from(best_id()));
+    {
+        let mut memory = crate::memory::MaraMemoryCtx::new(ui.ctx());
+        let prev: Option<Best> = memory.get_temp::<Best>(best_id());
         let take = match prev {
             None => true,
             // Always take the SMALLER rect (compared by area). Both
@@ -118,9 +119,9 @@ pub fn tag(ui: &Ui, rect: Rect, label: impl Into<String>) {
             Some(p) => rect.area() < p.rect.area(),
         };
         if take {
-            d.insert_temp(egui::Id::from(best_id()), Best { rect, label });
+            memory.set_temp(best_id(), Best { rect, label });
         }
-    });
+    }
 }
 
 /// Backend-neutral [`tag`] — reads the inspector flag + pointer and

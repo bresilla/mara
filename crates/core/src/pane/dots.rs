@@ -74,9 +74,8 @@ pub(crate) fn paint_container_dots(
     // ONLY — the dot-handle strip per container would extend past
     // the pane's painted edge and the visible gaps between
     // containers would compress / clip variably.
-    if let Some(pane_id) = ui
-        .ctx()
-        .data(|d| d.get_temp::<Id>(egui::Id::from(super::active_pane_key())))
+    if let Some(pane_id) =
+        crate::memory::MaraMemoryCtx::new(ui.ctx()).get_temp::<Id>(super::active_pane_key())
     {
         record_container_dot_rect(ui.ctx(), pane_id, rect);
         // The strip consumes `DOTS_STRIP_H` along the pane's flow

@@ -1461,8 +1461,8 @@ impl Pod {
             // so the pod still renders.
             let key: Id = Self::forced_height_key(pod_id).into();
             Some(
-                ui.ctx()
-                    .data(|d| d.get_temp::<f32>(egui::Id::from(key)))
+                crate::memory::MaraMemoryCtx::new(ui.ctx())
+                    .get_temp::<f32>(key)
                     .unwrap_or_else(|| self.natural_h())
                     .max(theme().pod.min_widget_h),
             )
@@ -1470,8 +1470,8 @@ impl Pod {
             let natural_h = self.natural_h();
             let key: Id = Self::widget_height_key(pod_id).into();
             Some(
-                ui.ctx()
-                    .data_mut(|d| d.get_persisted::<f32>(egui::Id::from(key)))
+                crate::memory::MaraMemoryCtx::new(ui.ctx())
+                    .get_persisted::<f32>(key)
                     .unwrap_or(natural_h)
                     .clamp(theme().pod.min_widget_h, theme().pod.max_widget_h),
             )

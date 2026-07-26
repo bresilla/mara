@@ -999,11 +999,12 @@ fn render_shelf_body(input: ShelfBodyInput<'_, '_, '_, '_>) {
     // should flow horizontally — and the drag ghost-gap allocated
     // along the wrong axis as a result.
     let horizontal_stack = !anchor.title_side().is_horizontal_strip();
-    ui.ctx().data_mut(|d| {
-        d.insert_temp(egui::Id::from(active_pane_key()), pane_id);
-        d.insert_temp(egui::Id::from(pane_id.with("mara_pane_open_elapsed")), 99.0_f32);
-        d.insert_temp(egui::Id::from(pane_id.with("mara_pane_section_idx")), 0_u32);
-    });
+    {
+        let mut memory = crate::memory::MaraMemoryCtx::new(ui.ctx());
+        memory.set_temp(active_pane_key(), pane_id);
+        memory.set_temp(pane_id.with("mara_pane_open_elapsed"), 99.0_f32);
+        memory.set_temp(pane_id.with("mara_pane_section_idx"), 0_u32);
+    }
     pane::clear_container_min_widths(ui.ctx(), pane_id);
 
     // Body viewport — same role as the `ui` `Pane::lay_out_flex`
