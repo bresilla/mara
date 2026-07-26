@@ -215,22 +215,47 @@ impl<'a> ViewCtx<'a> {
     /// Lay a sealed widget surface over the view's content rect
     /// (the area not covered by ribbons).
     pub fn body<R>(&mut self, body: impl FnOnce(&mut MaraUi<'_>) -> R) -> R {
-        let rect = self.content_rect();
+        self.body_at(
+            "mara_view_body",
+            self.content_rect(),
+            Layer::Background,
+            body,
+        )
+    }
+
+    /// Lay a sealed surface over an arbitrary rect at an explicit layer.
+    ///
+    /// This is the primitive for content that owns its own pixels —
+    /// maps, 3D viewports, embedded renderers — and previously had to
+    /// build a backend area by hand to get one. The surface is clipped
+    /// and sized to `rect`, and the node's region stays published for
+    /// the duration, so panes, ribbons and fullscreen inside `body`
+    /// scope to this node rather than the window.
+    ///
+    /// `salt` distinguishes multiple surfaces owned by the same node —
+    /// pass a per-instance value (two viewports in one view must not
+    /// share an id). `layer` places the surface relative to chrome:
+    /// [`Layer::Background`] for content that chrome draws over,
+    /// [`Layer::Foreground`] for overlays.
+    pub fn body_at<R>(
+        &mut self,
+        salt: impl std::hash::Hash,
+        rect: impl Into<MaraRect>,
+        layer: Layer,
+        body: impl FnOnce(&mut MaraUi<'_>) -> R,
+    ) -> R {
+        let rect = rect.into();
         let region = self.region;
-        let id = self.workspace.current().id.with("mara_view_body");
+        let id = self.workspace.current().id.with(salt);
         let accent = self.accent;
         let egui_ctx = self.egui_ctx;
         crate::embed::__internal_with_node_region(egui_ctx, region, || {
-            backend::egui::show_area_for_host(
-                egui_ctx,
-                AreaHost::new(id, rect.min, Layer::Background),
-                |ui| {
-                    backend::egui::constrain_ui_to_rect(ui, rect);
-                    let mut backend =
-                        crate::mui::MaraBackend::Egui(backend::egui::EguiUiBackend::new(ui));
-                    body(&mut MaraUi::over(&mut backend, accent))
-                },
-            )
+            backend::egui::show_area_for_host(egui_ctx, AreaHost::new(id, rect.min, layer), |ui| {
+                backend::egui::constrain_ui_to_rect(ui, rect);
+                let mut backend =
+                    crate::mui::MaraBackend::Egui(backend::egui::EguiUiBackend::new(ui));
+                body(&mut MaraUi::over(&mut backend, accent))
+            })
             .inner
         })
     }
