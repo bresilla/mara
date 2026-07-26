@@ -230,6 +230,27 @@ impl UiBackend for EguiUiBackend<'_> {
         Some(self.ui)
     }
 
+    fn in_row(
+        &mut self,
+        size: vocab::Vec2,
+        align: crate::layout::CrossAlign,
+        body: &mut dyn FnMut(&mut dyn UiBackend),
+    ) {
+        let align = match align {
+            crate::layout::CrossAlign::Start => egui::Align::Min,
+            crate::layout::CrossAlign::Center => egui::Align::Center,
+            crate::layout::CrossAlign::End => egui::Align::Max,
+        };
+        self.ui.allocate_ui_with_layout(
+            size.into(),
+            egui::Layout::left_to_right(align),
+            |child_ui| {
+                let mut child = EguiUiBackend::new(child_ui);
+                body(&mut child);
+            },
+        );
+    }
+
     fn overlay_at(
         &mut self,
         id: vocab::Id,

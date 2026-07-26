@@ -64,7 +64,7 @@ pub mod window_chrome;
 pub mod workspace;
 
 pub use cache::{MaraCache, SweptCache};
-pub use layout::{Layer, Sense as MaraSense, UiBackend};
+pub use layout::{CrossAlign, Layer, Sense as MaraSense, UiBackend};
 pub use memory::{MaraMemory, MaraMemoryCtx};
 pub use mui::{MaraInput, MaraKey, MaraKeySet, MaraPainter, MaraResponse, MaraUi};
 pub use paint::{PaintCmd, PaintList};

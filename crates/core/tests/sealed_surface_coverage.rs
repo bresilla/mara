@@ -634,3 +634,53 @@ fn e11_menu_state_is_keyed_per_menu() {
         "opening one menu must not open another"
     );
 }
+
+// ─── A6/E1.4 · aligned rows ───────────────────────────────────────
+
+/// The last capability `DemoViewer` needed: a fixed-size row whose
+/// contents sit centred rather than hanging from the top edge. Pin rows
+/// are built from these, so getting the cross-axis offset wrong would
+/// misplace every pin label in the graph.
+#[test]
+fn a6_row_centres_contents_and_restores_parent_flow() {
+    use mara_core::CrossAlign;
+    use mara_core::backend::record::RecordingBackend;
+    use mara_core::layout::{Sense, UiBackend};
+
+    let mut backend =
+        RecordingBackend::at(Rect::from_min_size(Pos2::ZERO, Vec2::new(300.0, 200.0)));
+
+    let mut centred_y = 0.0;
+    backend.in_row(Vec2::new(120.0, 40.0), CrossAlign::Center, &mut |row| {
+        centred_y = row.allocate(Vec2::new(10.0, 10.0), Sense::Hover).rect.min.y;
+    });
+    assert_eq!(centred_y, 20.0, "Center starts mid-row, not at its top");
+
+    let mut top_y = 0.0;
+    backend.in_row(Vec2::new(120.0, 40.0), CrossAlign::Start, &mut |row| {
+        top_y = row.allocate(Vec2::new(10.0, 10.0), Sense::Hover).rect.min.y;
+    });
+    assert_eq!(top_y, 40.0, "Start hugs the row's own top edge");
+
+    // The parent's flow resumed below both rows, not inside them.
+    let after = backend.allocate(Vec2::new(10.0, 10.0), Sense::Hover).rect;
+    assert_eq!(after.min.y, 80.0, "two 40px rows consumed 80px of flow");
+}
+
+#[test]
+fn a6_row_flows_its_contents_rightward() {
+    use mara_core::CrossAlign;
+    use mara_core::backend::record::RecordingBackend;
+    use mara_core::layout::{Sense, UiBackend};
+
+    let mut backend =
+        RecordingBackend::at(Rect::from_min_size(Pos2::ZERO, Vec2::new(300.0, 100.0)));
+
+    let mut xs = Vec::new();
+    backend.in_row(Vec2::new(200.0, 30.0), CrossAlign::Center, &mut |row| {
+        for _ in 0..3 {
+            xs.push(row.allocate(Vec2::new(25.0, 10.0), Sense::Hover).rect.min.x);
+        }
+    });
+    assert_eq!(xs, vec![0.0, 25.0, 50.0], "items advance rightward");
+}

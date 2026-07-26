@@ -1032,6 +1032,17 @@ impl crate::layout::UiBackend for MaraBackend<'_> {
             Self::Recording(b) => b.__internal_egui_ui_ref(),
         }
     }
+    fn in_row(
+        &mut self,
+        size: vocab::Vec2,
+        align: crate::layout::CrossAlign,
+        body: &mut dyn FnMut(&mut dyn UiBackend),
+    ) {
+        match self {
+            Self::Egui(b) => b.in_row(size, align, body),
+            Self::Recording(b) => b.in_row(size, align, body),
+        }
+    }
     fn overlay_at(
         &mut self,
         id: vocab::Id,
@@ -1578,6 +1589,28 @@ impl<'a> MaraUi<'a> {
             accent,
             height,
         )
+    }
+
+    /// Fixed-size row laid out left-to-right, contents aligned on the
+    /// cross axis.
+    ///
+    /// The sealed equivalent of allocating a sized region with a
+    /// layout — how a node renderer builds pin rows whose contents sit
+    /// centred rather than hanging from the top edge.
+    pub fn row(
+        &mut self,
+        size: impl Into<vocab::Vec2>,
+        align: crate::layout::CrossAlign,
+        body: impl FnOnce(&mut MaraUi<'_>),
+    ) {
+        let accent = self.accent;
+        let mut body = Some(body);
+        self.backend.in_row(size.into(), align, &mut |backend| {
+            if let Some(body) = body.take() {
+                let mut mara = MaraUi::over(backend, accent);
+                body(&mut mara);
+            }
+        });
     }
 
     /// A button that toggles a floating menu below itself

@@ -11,6 +11,14 @@ use crate::{
     vocab::{Color32, CornerRadius, Id, Pos2, Rect, Vec2},
 };
 
+/// Cross-axis alignment for [`UiBackend::in_row`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CrossAlign {
+    Start,
+    Center,
+    End,
+}
+
 /// The z-ordering band an [`AreaHost`] paints and interacts in — the
 /// backend-neutral layer contract (PLAN.md Phase 4).
 ///
@@ -823,6 +831,20 @@ pub trait UiBackend {
     /// itself and stay object-safe. Every real backend overrides it;
     /// the recording backend runs `body` inline so headless assertions
     /// still see overlay content.
+    /// Run `body` in a fixed-size row laid out left-to-right, with
+    /// items aligned on the cross axis (PLAN.md WS-A6/E1.4).
+    ///
+    /// The sealed equivalent of the backend's "allocate a sized region
+    /// with a layout" call, which is how a node renderer builds pin
+    /// rows: a fixed slot whose contents sit centred rather than
+    /// hanging from the top edge.
+    ///
+    /// The default draws **nothing** — it cannot run `body` against
+    /// itself and stay object-safe. Both real backends override it.
+    fn in_row(&mut self, size: Vec2, align: CrossAlign, body: &mut dyn FnMut(&mut dyn UiBackend)) {
+        let _ = (size, align, body);
+    }
+
     fn overlay_at(&mut self, id: Id, pos: Pos2, body: &mut dyn FnMut(&mut dyn UiBackend)) {
         let _ = (id, pos, body);
     }
@@ -995,6 +1017,9 @@ impl<T: UiBackend + ?Sized> UiBackend for &mut T {
     }
     fn __internal_egui_ui_ref(&self) -> Option<&egui::Ui> {
         (**self).__internal_egui_ui_ref()
+    }
+    fn in_row(&mut self, size: Vec2, align: CrossAlign, body: &mut dyn FnMut(&mut dyn UiBackend)) {
+        (**self).in_row(size, align, body)
     }
     fn overlay_at(&mut self, id: Id, pos: Pos2, body: &mut dyn FnMut(&mut dyn UiBackend)) {
         (**self).overlay_at(id, pos, body)

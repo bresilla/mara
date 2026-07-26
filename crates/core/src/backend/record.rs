@@ -272,6 +272,35 @@ impl UiBackend for RecordingBackend {
         crate::memory::BackendMemory::Recording(&self.memory)
     }
 
+    fn in_row(
+        &mut self,
+        size: Vec2,
+        align: crate::layout::CrossAlign,
+        body: &mut dyn FnMut(&mut dyn UiBackend),
+    ) {
+        let rect = self.advance(size);
+        let saved_cursor = self.cursor;
+        let saved_flow = self.flow_horizontal;
+        let saved_row = self.row_bottom;
+        // Items flow rightward from the row's left edge, offset on the
+        // cross axis so `Center` sits mid-row rather than at the top.
+        self.cursor = Pos2::new(
+            rect.min.x,
+            match align {
+                crate::layout::CrossAlign::Start => rect.min.y,
+                crate::layout::CrossAlign::Center => rect.min.y + rect.height() * 0.5,
+                crate::layout::CrossAlign::End => rect.max.y,
+            },
+        );
+        self.flow_horizontal = true;
+        self.row_bottom = rect.max.y;
+        body(self);
+        self.cursor = saved_cursor;
+        self.flow_horizontal = saved_flow;
+        self.row_bottom = saved_row;
+        self.expand_to_include(rect);
+    }
+
     fn overlay_at(&mut self, id: Id, pos: Pos2, body: &mut dyn FnMut(&mut dyn UiBackend)) {
         self.overlays.push((id, pos));
         // Run inline so a headless assertion still sees the contents.
