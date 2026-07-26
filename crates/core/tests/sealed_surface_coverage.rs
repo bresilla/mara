@@ -808,6 +808,46 @@ fn d13_a_group_fills_a_single_slot() {
     }
 }
 
+/// `Color32` stores premultiplied bytes and does the premultiply
+/// arithmetic itself now. A rounding difference would tint every
+/// translucent surface in the UI by a step — invisible in review, and
+/// no other test would catch it. So check against the backend's own
+/// result for **every** alpha across a spread of colours, both
+/// directions.
+#[cfg(feature = "backend-egui-conv")]
+#[test]
+fn e4_color32_premultiply_matches_the_backend_for_every_alpha() {
+    const RGB: [(u8, u8, u8); 6] = [
+        (0, 0, 0),
+        (255, 255, 255),
+        (1, 2, 3),
+        (254, 128, 7),
+        (17, 200, 99),
+        (128, 128, 128),
+    ];
+
+    for (r, g, b) in RGB {
+        for a in 0..=255u8 {
+            let mine = Color32::from_rgba_unmultiplied(r, g, b, a);
+            let theirs = egui::Color32::from_rgba_unmultiplied(r, g, b, a);
+            assert_eq!(
+                [mine.r(), mine.g(), mine.b(), mine.a()],
+                [theirs.r(), theirs.g(), theirs.b(), theirs.a()],
+                "premultiply differs for rgba({r},{g},{b},{a})"
+            );
+
+            assert_eq!(
+                mine.to_srgba_unmultiplied(),
+                theirs.to_srgba_unmultiplied(),
+                "un-premultiply differs for rgba({r},{g},{b},{a})"
+            );
+
+            // And the conversion is lossless in both directions.
+            assert_eq!(Color32::from(egui::Color32::from(mine)), mine);
+        }
+    }
+}
+
 /// `Align2` is native now, so `anchor_rect` is Mara's arithmetic
 /// rather than a delegation. Checked against the backend's own result
 /// for all nine alignments — a sign error in one axis would otherwise

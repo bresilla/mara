@@ -584,76 +584,130 @@ impl From<Id> for egui::Id {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Default, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct Color32(egui::Color32);
+/// Straight-alpha-in, premultiplied-stored sRGB colour — WS-E4 native
+/// (see [`CornerRadius`]).
+///
+/// Stores premultiplied bytes, the same representation the renderer
+/// consumes, so no conversion happens on the way to the GPU. The
+/// premultiply and un-premultiply arithmetic mirrors the backend's
+/// exactly — a test cross-checks every alpha value against it, because
+/// a rounding difference here would tint every translucent surface.
+pub struct Color32([u8; 4]);
+
+/// Hex, the way a colour is actually read. Kept identical to the
+/// backend's formatting so paint-stream goldens stay legible and did
+/// not need regenerating when this type went native.
+impl std::fmt::Debug for Color32 {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let [r, g, b, a] = self.0;
+        f.debug_tuple("Color32")
+            .field(&format_args!("#{r:02X}_{g:02X}_{b:02X}_{a:02X}"))
+            .finish()
+    }
+}
+
+/// `(x + 0.5) as u8`, saturating — the backend's rounding rule.
+const fn round_u8(x: f32) -> u8 {
+    (x + 0.5) as u8
+}
 
 impl Color32 {
-    pub const TRANSPARENT: Self = Self(egui::Color32::TRANSPARENT);
-    pub const BLACK: Self = Self(egui::Color32::BLACK);
-    pub const WHITE: Self = Self(egui::Color32::WHITE);
-    pub const GRAY: Self = Self(egui::Color32::GRAY);
+    pub const TRANSPARENT: Self = Self([0, 0, 0, 0]);
+    pub const BLACK: Self = Self([0, 0, 0, 255]);
+    pub const WHITE: Self = Self([255, 255, 255, 255]);
+    pub const GRAY: Self = Self([160, 160, 160, 255]);
 
     #[must_use]
     pub const fn from_rgb(r: u8, g: u8, b: u8) -> Self {
-        Self(egui::Color32::from_rgb(r, g, b))
+        Self([r, g, b, 255])
     }
 
+    /// Straight (un-premultiplied) alpha in; stored premultiplied.
     #[must_use]
-    pub fn from_rgba_unmultiplied(r: u8, g: u8, b: u8, a: u8) -> Self {
-        Self(egui::Color32::from_rgba_unmultiplied(r, g, b, a))
+    pub const fn from_rgba_unmultiplied(r: u8, g: u8, b: u8, a: u8) -> Self {
+        match a {
+            0 => Self::TRANSPARENT,
+            255 => Self::from_rgb(r, g, b),
+            a => {
+                let factor = a as f32 / 255.0;
+                Self([
+                    round_u8(r as f32 * factor),
+                    round_u8(g as f32 * factor),
+                    round_u8(b as f32 * factor),
+                    a,
+                ])
+            }
+        }
     }
 
     #[must_use]
     pub const fn from_rgba_premultiplied(r: u8, g: u8, b: u8, a: u8) -> Self {
-        Self(egui::Color32::from_rgba_premultiplied(r, g, b, a))
+        Self([r, g, b, a])
     }
 
     #[must_use]
     pub const fn from_gray(gray: u8) -> Self {
-        Self(egui::Color32::from_gray(gray))
+        Self([gray, gray, gray, 255])
     }
 
     #[must_use]
     pub const fn from_black_alpha(alpha: u8) -> Self {
-        Self(egui::Color32::from_black_alpha(alpha))
+        Self([0, 0, 0, alpha])
     }
 
     #[must_use]
     pub const fn r(self) -> u8 {
-        self.0.r()
+        self.0[0]
     }
 
     #[must_use]
     pub const fn g(self) -> u8 {
-        self.0.g()
+        self.0[1]
     }
 
     #[must_use]
     pub const fn b(self) -> u8 {
-        self.0.b()
+        self.0[2]
     }
 
     #[must_use]
     pub const fn a(self) -> u8 {
-        self.0.a()
+        self.0[3]
     }
 
+    /// Back to straight alpha.
     #[must_use]
     pub fn to_srgba_unmultiplied(self) -> [u8; 4] {
-        self.0.to_srgba_unmultiplied()
+        let [r, g, b, a] = self.0;
+        match a {
+            0 | 255 => self.0,
+            a => {
+                let factor = 255.0 / a as f32;
+                [
+                    round_u8(factor * r as f32),
+                    round_u8(factor * g as f32),
+                    round_u8(factor * b as f32),
+                    a,
+                ]
+            }
+        }
     }
 }
 
+#[cfg(feature = "backend-egui-conv")]
 impl From<egui::Color32> for Color32 {
     fn from(c: egui::Color32) -> Self {
-        Self(c)
+        Self(c.to_array())
     }
 }
 
+#[cfg(feature = "backend-egui-conv")]
 impl From<Color32> for egui::Color32 {
     fn from(c: Color32) -> Self {
-        c.0
+        let [r, g, b, a] = c.0;
+        egui::Color32::from_rgba_premultiplied(r, g, b, a)
     }
 }
 
