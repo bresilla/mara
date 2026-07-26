@@ -14,6 +14,7 @@ repository.workspace = true
 
 [dependencies]
 egui = { workspace = true, default-features = false, features = ["default_fonts"] }
+serde = { version = "1", features = ["derive"], optional = true }
 egui-scale = "0.4"
 # SVG rasterisation for `PaintCmd::Svg`. This is the ONLY thing Mara
 # needs from `egui_extras`, hence `default-features = false` plus the
@@ -50,6 +51,11 @@ default = ["svg"]
 # (the pre-0.4.2 behaviour), which is a real saving: `resvg` is a large
 # dependency and most apps never draw an SVG.
 svg = ["dep:egui_extras"]
+# Serialize the plain-data spec types (`FrameSpec`, `MarginSpec`,
+# `FrameShadowSpec`) and the vocab newtypes they contain, so a module
+# can persist a sealed style without naming a backend type. Pulls
+# `egui/serde` because the newtypes wrap egui types today.
+serde = ["dep:serde", "egui/serde"]
 # `ViewCtx::offscreen` — render a sealed UI body into its own texture at
 # an independent scale. Off by default: it pulls wgpu, and only surfaces
 # that need scale-independent rasterisation (node graphs, thumbnails)
@@ -63,3 +69,5 @@ bevy = ["dep:bevy"]
 # `mara_gpu` types appear in the WS-A7 signature test even when the
 # `gpu` feature is off for the library build.
 mara_gpu = { workspace = true }
+# Drives the `serde` round-trip test for the sealed spec types.
+serde_json = "1"

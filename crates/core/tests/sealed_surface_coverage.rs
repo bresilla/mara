@@ -808,6 +808,30 @@ fn d13_a_group_fills_a_single_slot() {
     }
 }
 
+/// A sealed style must survive a round trip through serde, or a module
+/// holding `FrameSpec` cannot offer the persistence it could when it
+/// held the backend's frame type. This is the prerequisite that lets
+/// `mara_graph` drop its hand-written frame serde shim.
+#[cfg(feature = "serde")]
+#[test]
+fn d13_frame_spec_round_trips_through_serde() {
+    use mara_core::style::{FrameShadowSpec, FrameSpec, MarginSpec};
+
+    let spec = FrameSpec::new(
+        Color32::from_rgba_unmultiplied(10, 20, 30, 200),
+        mara_core::vocab::Stroke::new(1.5, Color32::WHITE),
+        CornerRadius::same(7),
+        MarginSpec::symmetric(3, 4),
+    )
+    .with_outer_margin(MarginSpec::symmetric(5, 6))
+    .with_shadow(FrameShadowSpec::new([1, 2], 8, 1, Color32::BLACK));
+
+    let json = serde_json::to_string(&spec).expect("FrameSpec must serialize");
+    let back: FrameSpec = serde_json::from_str(&json).expect("FrameSpec must deserialize");
+
+    assert_eq!(back, spec, "the round trip must preserve every field");
+}
+
 /// The graph's node and background frames used to come from the
 /// backend's `window`/`canvas` presets, derived from a live backend
 /// style. These are the sealed replacements — a surface that wants a

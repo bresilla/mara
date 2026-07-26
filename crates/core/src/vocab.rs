@@ -475,6 +475,7 @@ impl From<Id> for egui::Id {
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Color32(egui::Color32);
 
 impl Color32 {
@@ -547,6 +548,7 @@ impl From<Color32> for egui::Color32 {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Stroke {
     pub width: f32,
     pub color: Color32,
@@ -722,6 +724,7 @@ impl From<Align2> for egui::Align2 {
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct CornerRadius(egui::CornerRadius);
 
 impl CornerRadius {

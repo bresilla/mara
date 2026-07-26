@@ -3043,6 +3043,7 @@ impl TextSpec {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct MarginSpec {
     pub left: i8,
     pub right: i8,
@@ -3087,6 +3088,7 @@ impl From<[i8; 2]> for MarginSpec {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct FrameShadowSpec {
     pub offset: [i8; 2],
     pub blur: u8,
@@ -3107,6 +3109,7 @@ impl FrameShadowSpec {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct FrameSpec {
     pub fill: MaraColor32,
     pub stroke: MaraStroke,
