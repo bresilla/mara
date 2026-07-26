@@ -808,6 +808,40 @@ fn d13_a_group_fills_a_single_slot() {
     }
 }
 
+/// A frame's rect is only known after its body runs, so a caller that
+/// needs both the geometry and something computed inside must get the
+/// body's value back rather than smuggling it through a captured
+/// variable.
+#[test]
+fn d13_framed_with_returns_the_bodys_value() {
+    use mara_core::MaraUi;
+    use mara_core::backend::record::RecordingBackend;
+    use mara_core::style::{FrameSpec, MarginSpec};
+
+    let spec = FrameSpec::new(
+        Color32::BLACK,
+        mara_core::vocab::Stroke::new(1.0, Color32::WHITE),
+        CornerRadius::same(2),
+        MarginSpec::symmetric(4, 4),
+    );
+
+    let mut backend =
+        RecordingBackend::at(Rect::from_min_size(Pos2::ZERO, Vec2::new(200.0, 120.0)));
+    let (rect, inner) =
+        MaraUi::__internal_over_backend_ret(&mut backend, Color32::WHITE, |ui| {
+            ui.framed_with(spec, |inner| {
+                inner.label("inside");
+                "computed inside the frame"
+            })
+        });
+
+    assert_eq!(
+        inner, "computed inside the frame",
+        "the body's value survives the frame"
+    );
+    assert!(rect.height() > 0.0, "and the frame still reports its rect");
+}
+
 /// A sealed style must survive a round trip through serde, or a module
 /// holding `FrameSpec` cannot offer the persistence it could when it
 /// held the backend's frame type. This is the prerequisite that lets

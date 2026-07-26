@@ -1679,14 +1679,37 @@ impl<'a> MaraUi<'a> {
         spec: crate::style::FrameSpec,
         body: impl FnOnce(&mut MaraUi<'_>),
     ) -> vocab::Rect {
+        self.framed_with(spec, body).0
+    }
+
+    /// [`MaraUi::framed`], keeping what the body returned.
+    ///
+    /// The frame's rect is only known after the body runs, so a caller
+    /// that needs both the geometry and a value computed inside — the
+    /// row a node's header ended up on, a hit test against content —
+    /// would otherwise have to smuggle it out through a captured
+    /// variable.
+    ///
+    /// Returns `(rect, inner)`.
+    pub fn framed_with<R>(
+        &mut self,
+        spec: crate::style::FrameSpec,
+        body: impl FnOnce(&mut MaraUi<'_>) -> R,
+    ) -> (vocab::Rect, R) {
         let accent = self.accent;
         let mut body = Some(body);
-        self.backend.framed(spec, &mut |backend| {
+        let mut inner = None;
+        let rect = self.backend.framed(spec, &mut |backend| {
             if let Some(body) = body.take() {
                 let mut mara = MaraUi::over(backend, accent);
-                body(&mut mara);
+                inner = Some(body(&mut mara));
             }
-        })
+        });
+        // The backend contract is that `framed` runs the body exactly
+        // once. A backend that skipped it would be broken in ways no
+        // fallback here could paper over, so say so plainly.
+        let inner = inner.expect("UiBackend::framed must run its body exactly once");
+        (rect, inner)
     }
 
     /// Fixed-size row laid out left-to-right, contents aligned on the
