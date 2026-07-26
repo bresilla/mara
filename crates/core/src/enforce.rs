@@ -38,47 +38,49 @@
 //! a grace pass for the same reason — a late-drawn app bar has not had
 //! a chance to stamp anything yet.
 //!
-//! Enforcement is per [`egui::Context`], keyed in its data store, and
+//! Enforcement is per host context, keyed in its state store, and
 //! triggers only from Mara surface draws — a secondary offscreen
 //! context (e.g. the node-graph renderer) that never draws Mara chrome
 //! is never touched.
 
+use crate::context::MaraCtx;
 use crate::ribbon::{RibbonDrag, RibbonOpen, RibbonPlacement};
 use crate::shell::ShellBar;
+use crate::vocab::Id;
 
-fn key(name: &'static str) -> egui::Id {
-    egui::Id::new(("mara.enforce", name))
+fn key(name: &'static str) -> Id {
+    Id::new(("mara.enforce", name))
 }
 
-fn app_shell_pass_key() -> egui::Id {
+fn app_shell_pass_key() -> Id {
     key("app_shell_pass")
 }
 
-fn app_theme_pass_key() -> egui::Id {
+fn app_theme_pass_key() -> Id {
     key("app_theme_pass")
 }
 
-fn app_shelf_pass_key() -> egui::Id {
+fn app_shelf_pass_key() -> Id {
     key("app_shelf_pass")
 }
 
-fn enforcing_key() -> egui::Id {
+fn enforcing_key() -> Id {
     key("active")
 }
 
-fn grace_pass_key() -> egui::Id {
+fn grace_pass_key() -> Id {
     key("grace_pass")
 }
 
-fn enforced_shell_pass_key() -> egui::Id {
+fn enforced_shell_pass_key() -> Id {
     key("enforced_shell_pass")
 }
 
-fn shell_opt_out_pass_key() -> egui::Id {
+fn shell_opt_out_pass_key() -> Id {
     key("shell_opt_out_pass")
 }
 
-fn fallback_state_key() -> egui::Id {
+fn fallback_state_key() -> Id {
     key("fallback_shell_state")
 }
 
@@ -95,47 +97,45 @@ struct FallbackShell {
 /// `true` while Mara itself is rendering/applying enforced defaults, so
 /// the enforced work never counts as "the app did it" and entry points
 /// reached from inside enforcement don't recurse.
-pub(crate) fn enforcing(ctx: &egui::Context) -> bool {
-    crate::memory::MaraMemoryCtx::new(ctx)
-        .get_temp::<bool>(enforcing_key())
-        .unwrap_or(false)
+pub(crate) fn enforcing(ctx: &dyn MaraCtx) -> bool {
+    ctx.memory().get_temp::<bool>(enforcing_key()).unwrap_or(false)
 }
 
-fn set_enforcing(ctx: &egui::Context, on: bool) {
-    crate::memory::MaraMemoryCtx::new(ctx).set_temp(enforcing_key(), on);
+fn set_enforcing(ctx: &dyn MaraCtx, on: bool) {
+    ctx.memory().set_temp(enforcing_key(), on);
 }
 
-fn stamp(ctx: &egui::Context, key: egui::Id) {
+fn stamp(ctx: &dyn MaraCtx, key: Id) {
     if enforcing(ctx) {
         return;
     }
-    let pass = ctx.cumulative_pass_nr();
-    crate::memory::MaraMemoryCtx::new(ctx).set_temp(key, pass);
+    let pass = ctx.pass_nr();
+    ctx.memory().set_temp(key, pass);
 }
 
 /// Stamp read: `true` when the app performed the action this pass or
 /// the previous one (the hysteresis window described in the module
 /// docs).
-fn fresh(ctx: &egui::Context, key: egui::Id) -> bool {
-    let pass = ctx.cumulative_pass_nr();
-    crate::memory::MaraMemoryCtx::new(ctx)
+fn fresh(ctx: &dyn MaraCtx, key: Id) -> bool {
+    let pass = ctx.pass_nr();
+    ctx.memory()
         .get_temp::<u64>(key)
         .is_some_and(|s| s.saturating_add(1) >= pass)
 }
 
 /// The app rendered a [`ShellBar`](crate::ShellBar) itself. Called by
 /// `ShellBar::show`; no-op while enforcement renders the fallback bar.
-pub(crate) fn mark_app_shell_shown(ctx: &egui::Context) {
+pub(crate) fn mark_app_shell_shown(ctx: &dyn MaraCtx) {
     stamp(ctx, app_shell_pass_key());
 }
 
 /// The app applied a theme (via the host facade or the style hook).
-pub(crate) fn mark_app_theme_applied(ctx: &egui::Context) {
+pub(crate) fn mark_app_theme_applied(ctx: &dyn MaraCtx) {
     stamp(ctx, app_theme_pass_key());
 }
 
 /// The app (or a real shelf render) published a shelf layout.
-pub(crate) fn mark_app_shelf_published(ctx: &egui::Context) {
+pub(crate) fn mark_app_shelf_published(ctx: &dyn MaraCtx) {
     stamp(ctx, app_shelf_pass_key());
 }
 
@@ -144,8 +144,8 @@ pub(crate) fn mark_app_shelf_published(ctx: &egui::Context) {
 /// runner) has been in charge.
 #[doc(hidden)]
 #[must_use]
-pub fn __internal_shell_enforced_pass(ctx: &egui::Context) -> Option<u64> {
-    crate::memory::MaraMemoryCtx::new(ctx).get_temp::<u64>(enforced_shell_pass_key())
+pub fn __internal_shell_enforced_pass(ctx: &dyn MaraCtx) -> Option<u64> {
+    ctx.memory().get_temp::<u64>(enforced_shell_pass_key())
 }
 
 /// Explicit, deliberate opt-out from the enforced top bar **for the
@@ -156,9 +156,9 @@ pub fn __internal_shell_enforced_pass(ctx: &egui::Context) -> Option<u64> {
 /// Host runners also honor this: they skip their own `ShellBar` render
 /// for a frame in which the app opted out.
 #[doc(hidden)]
-pub fn __internal_opt_out_shell(ctx: &egui::Context) {
-    let pass = ctx.cumulative_pass_nr();
-    crate::memory::MaraMemoryCtx::new(ctx).set_temp(shell_opt_out_pass_key(), pass);
+pub fn __internal_opt_out_shell(ctx: &dyn MaraCtx) {
+    let pass = ctx.pass_nr();
+    ctx.memory().set_temp(shell_opt_out_pass_key(), pass);
 }
 
 /// `true` when the app opted out of the enforced bar this pass (or the
@@ -166,7 +166,7 @@ pub fn __internal_opt_out_shell(ctx: &egui::Context) {
 /// the opt-out call may land after a surface already drew this pass).
 #[doc(hidden)]
 #[must_use]
-pub fn __internal_shell_opted_out(ctx: &egui::Context) -> bool {
+pub fn __internal_shell_opted_out(ctx: &dyn MaraCtx) -> bool {
     fresh(ctx, shell_opt_out_pass_key())
 }
 
@@ -214,15 +214,14 @@ pub fn __internal_enforce_defaults(ctx: &egui::Context) {
 
     // The permanent top bar. The only way past the fallback is either
     // rendering the bar or the explicit per-frame opt-out.
-    let pass = ctx.cumulative_pass_nr();
+    let pass = ctx.pass_nr();
     // Record the first pass enforcement ever ran on this context —
     // unconditionally, so early-outs below (app bar fresh, opt-out)
     // never make a later pass masquerade as the first one.
-    let first_seen = match crate::memory::MaraMemoryCtx::new(ctx).get_temp::<u64>(grace_pass_key())
-    {
+    let first_seen = match MaraCtx::memory(ctx).get_temp::<u64>(grace_pass_key()) {
         Some(first) => first,
         None => {
-            crate::memory::MaraMemoryCtx::new(ctx).set_temp(grace_pass_key(), pass);
+            MaraCtx::memory(ctx).set_temp(grace_pass_key(), pass);
             pass
         }
     };
@@ -244,15 +243,15 @@ pub fn __internal_enforce_defaults(ctx: &egui::Context) {
     // the functional bar render `ShellBar` themselves, which
     // suppresses this fallback.
     set_enforcing(ctx, true);
-    let mut state = ctx
-        .data(|d| d.get_temp::<FallbackShell>(fallback_state_key()))
+    let mut state = MaraCtx::memory(ctx)
+        .get_temp::<FallbackShell>(fallback_state_key())
         .unwrap_or_default();
     let _ =
         state
             .bar
             .__internal_show_egui(ctx, &mut state.open, &mut state.placement, &mut state.drag);
     {
-        let mut memory = crate::memory::MaraMemoryCtx::new(ctx);
+        let mut memory = MaraCtx::memory(ctx);
         memory.set_temp(fallback_state_key(), state);
         memory.set_temp(enforced_shell_pass_key(), pass);
     };
