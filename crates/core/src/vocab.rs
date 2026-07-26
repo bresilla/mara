@@ -518,7 +518,7 @@ impl Color32 {
     }
 
     #[must_use]
-    pub fn from_rgba_premultiplied(r: u8, g: u8, b: u8, a: u8) -> Self {
+    pub const fn from_rgba_premultiplied(r: u8, g: u8, b: u8, a: u8) -> Self {
         Self(egui::Color32::from_rgba_premultiplied(r, g, b, a))
     }
 

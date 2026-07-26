@@ -208,7 +208,7 @@ pub fn mara_node_graph_style(accent: impl Into<MaraColor32>) -> GraphStyle {
         // submit, so pins always render on top of the halo
         // line). 3 px gap, 1.5 px stroke.
         node_halo: Some(NodeHalo {
-            color: accent,
+            color: accent.into(),
             gap: graph.node_halo_gap,
             width: graph.node_halo_width,
             // Halo follows the body's rounded corners — body

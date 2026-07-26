@@ -3,7 +3,7 @@
 use std::{collections::HashMap, hash::Hash};
 
 use egui::{
-    Align, Color32, CornerRadius, Id, LayerId, Layout, Margin, Modifiers, PointerButton,
+    Align, CornerRadius, Id, LayerId, Layout, Margin, Modifiers, PointerButton,
     Pos2, Rect, Scene, Sense, Stroke, StrokeKind, Style, Ui, UiBuilder, UiKind, UiStackInfo,
     Vec2,
     collapsing_header::paint_default_icon,
@@ -13,6 +13,7 @@ use egui::{
     vec2,
 };
 use mara_core::MaraResponse;
+use mara_core::vocab::Color32;
 use mara_core::style::{FrameRole, FrameSpec, frame_for};
 use smallvec::SmallVec;
 
@@ -639,7 +640,7 @@ impl GraphStyle {
 
     fn get_pin_fill(&self, style: &Style) -> Color32 {
         self.pin_fill
-            .unwrap_or(style.visuals.widgets.active.bg_fill)
+            .unwrap_or_else(|| style.visuals.widgets.active.bg_fill.into())
     }
 
     fn get_pin_stroke(&self, style: &Style) -> Stroke {
@@ -760,7 +761,7 @@ impl GraphStyle {
 
     fn get_select_fill(&self, style: &Style) -> Color32 {
         self.select_fill
-            .unwrap_or_else(|| style.visuals.selection.bg_fill.gamma_multiply(0.3))
+            .unwrap_or_else(|| style.visuals.selection.bg_fill.gamma_multiply(0.3).into())
     }
 
     fn get_select_rect_contained(&self) -> bool {
