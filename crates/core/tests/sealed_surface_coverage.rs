@@ -808,6 +808,33 @@ fn d13_a_group_fills_a_single_slot() {
     }
 }
 
+/// A margin is per-edge. Collapsing it to one number would misplace
+/// anything anchored to an edge — which is exactly what a node graph
+/// does when it sizes a body from its frame.
+#[test]
+fn d13_rect_grows_and_shrinks_per_edge() {
+    use mara_core::style::MarginSpec;
+
+    let rect = Rect::from_min_size(Pos2::new(10.0, 20.0), Vec2::new(100.0, 50.0));
+    let margin = MarginSpec {
+        left: 1,
+        right: 2,
+        top: 3,
+        bottom: 4,
+    };
+
+    let grown = rect.expand_by(margin);
+    assert_eq!(grown.min, Pos2::new(9.0, 17.0));
+    assert_eq!(grown.max, Pos2::new(112.0, 74.0));
+
+    assert_eq!(
+        grown.shrink_by(margin).min,
+        rect.min,
+        "shrinking by the same margin returns the original rect"
+    );
+    assert_eq!(grown.shrink_by(margin).max, rect.max);
+}
+
 /// A frame's rect is only known after its body runs, so a caller that
 /// needs both the geometry and something computed inside must get the
 /// body's value back rather than smuggling it through a captured

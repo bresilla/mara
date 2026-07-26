@@ -394,6 +394,29 @@ impl Rect {
     pub fn shrink(self, amount: f32) -> Self {
         self.expand(-amount)
     }
+
+    /// Grow by a margin — the rect a framed body occupies once the
+    /// frame's spacing is added around it.
+    ///
+    /// Per-edge rather than uniform, because a margin need not be
+    /// symmetric and collapsing it to one number silently misplaces
+    /// anything anchored to an edge.
+    #[must_use]
+    pub fn expand_by(self, margin: crate::style::MarginSpec) -> Self {
+        Self {
+            min: Pos2::new(self.min.x - margin.leftf(), self.min.y - margin.topf()),
+            max: Pos2::new(self.max.x + margin.rightf(), self.max.y + margin.bottomf()),
+        }
+    }
+
+    /// Shrink by a margin — the content area inside a frame.
+    #[must_use]
+    pub fn shrink_by(self, margin: crate::style::MarginSpec) -> Self {
+        Self {
+            min: Pos2::new(self.min.x + margin.leftf(), self.min.y + margin.topf()),
+            max: Pos2::new(self.max.x - margin.rightf(), self.max.y - margin.bottomf()),
+        }
+    }
 }
 
 impl Default for Rect {

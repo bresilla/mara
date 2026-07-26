@@ -998,7 +998,9 @@ where
 
     ui.painter().add(bg_frame_backend.paint(outer_resp.rect));
 
-    let mut content_rect = outer_resp.rect - egui::Margin::from(bg_frame.total_margin());
+    let mut content_rect = egui::Rect::from(
+        mara_core::vocab::Rect::from(outer_resp.rect).shrink_by(bg_frame.total_margin()),
+    );
 
     // Make sure we don't shrink to the negative:
     content_rect.max.x = content_rect.max.x.max(content_rect.min.x);
@@ -1989,7 +1991,9 @@ where
     );
 
     // Rect for node + frame margin.
-    let node_frame_rect = node_rect + egui::Margin::from(node_frame.total_margin());
+    let node_frame_rect = egui::Rect::from(
+        mara_core::vocab::Rect::from(node_rect).expand_by(node_frame.total_margin()),
+    );
 
     if graph_state.selected_nodes().contains(&node) {
         let select_style = style.get_select_style(ui.style());
@@ -2592,7 +2596,10 @@ where
         // node editor does.
         let header_ui: &mut Ui = &mut ui.new_child(
             UiBuilder::new()
-                .max_rect(node_rect.round_ui() + egui::Margin::from(header_frame.total_margin()))
+                .max_rect(egui::Rect::from(
+                    mara_core::vocab::Rect::from(node_rect.round_ui())
+                        .expand_by(header_frame.total_margin()),
+                ))
                 .layout(Layout::top_down(Align::Min))
                 .id_salt("header"),
         );
@@ -2621,7 +2628,9 @@ where
                 header_rect = ui.min_rect();
             });
 
-            header_frame_rect = header_rect + egui::Margin::from(header_frame.total_margin());
+            header_frame_rect = egui::Rect::from(
+                mara_core::vocab::Rect::from(header_rect).expand_by(header_frame.total_margin()),
+            );
 
             ui.advance_cursor_after_rect(Rect::from_min_max(
                 header_rect.min,
