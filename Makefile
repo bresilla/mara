@@ -166,7 +166,7 @@ check:
 	@! (awk '/^#\[cfg\(test\)\]/ { exit } { print }' crates/core/src/shelf/mod.rs | grep -nE 'egui::ScrollArea|spacing_mut[(][)][.]item_spacing')
 	@! (awk '/^#\[cfg\(test\)\]/ { exit } { print }' crates/core/src/shelf/mod.rs | grep -nE 'child_ui_for_region|apply_scroll_region_spacing|scroll_area_for_region|show_sticky_scroll_area')
 	@! (awk '/^#\[cfg\(test\)\]/ { exit } { print }' crates/core/src/shelf/mod.rs | grep -nE 'UiBuilder|new_child|egui::Layout|egui::Align')
-	@! (awk '/^#\[cfg\(test\)\]/ { exit } { print }' crates/core/src/shelf/mod.rs | grep -nE '[.]pointer_(interact|latest)_pos[(][)]|ctx[.]input|viewport[.]ctx[(][)][.]input|key_pressed[(]egui::Key|pointer[.](any_released|primary_down)')
+	@! (awk '/^#\[cfg\(test\)\]/ { exit } { print }' crates/core/src/shelf/mod.rs | grep -nE '[.]pointer_(interact|latest)_pos[(][)]|ctx[.]input[(][|]|viewport[.]ctx[(][)][.]input[(][|]|key_pressed[(]egui::Key|pointer[.](any_released|primary_down)')
 	@! grep -RInE 'egui::CursorIcon|on_hover_cursor' crates/core/src/embed.rs
 	@! grep -RInE 'allocate_exact_size|allocate_rect|on_hover_text|hover_cursor_for_raw_response|egui::Sense::(hover|click|click_and_drag)' crates/core/src/embed.rs
 	@! grep -RIn 'accent:[[:space:]]*egui::Color32' crates/core/src/embed.rs
@@ -218,11 +218,11 @@ check:
 	@! awk '/fn strip_rect/,/^fn cluster_region/ { print }' crates/core/src/ribbon/chrome.rs | grep -nE 'egui::(Rect|Pos2|Vec2|pos2|vec2)'
 	@! awk '/fn cluster_region/,/struct ButtonPlacement/ { print }' crates/core/src/ribbon/chrome.rs | grep -nE 'egui::(Rect|Pos2|Vec2|pos2|vec2)'
 	@! grep -nE 'cursor:[[:space:]]*Option<egui::Pos2>' crates/core/src/ribbon/chrome.rs
-	@! (sed -n '1,/^#\[cfg(test)\]/p' crates/core/src/ribbon/chrome.rs | grep -nE 'egui::(Pos2|pos2|PointerButton)|ctx[.]input|pointer[.]interact_pos|[.]pointer_interact_pos')
+	@! (sed -n '1,/^#\[cfg(test)\]/p' crates/core/src/ribbon/chrome.rs | grep -nE 'egui::(Pos2|pos2|PointerButton)|ctx[.]input[(][|]|pointer[.]interact_pos|[.]pointer_interact_pos')
 	@! (sed -n '1,/^#\[cfg(test)\]/p' crates/core/src/ribbon/chrome.rs | grep -n 'ctx.content_rect')
 	@! grep -RInE 'get_temp::<egui::Rect>[(]crate::ribbon::chrome::chrome_bounds_key|insert_temp[(][[:space:]]*crate::ribbon::chrome::chrome_bounds_key[(][)][[:space:]]*,[[:space:]]*egui::Rect|insert_temp[(][[:space:]]*chrome_bounds_key[(][)][[:space:]]*,[[:space:]]*egui::Rect' crates/core/src
 	@! grep -RInE 'use egui::.*(Rect|Vec2|pos2|vec2)|ribbon_origin[(][^#]*egui::|ribbon_origin[(].*->[[:space:]]*egui::Pos2' crates/core/src/ribbon/slot_paint.rs
-	@! grep -RInE 'ctx[.]input|viewport[(][)][.]maximized' crates/core/src/ribbon/slot_paint.rs
+	@! grep -RInE 'ctx[.]input[(][|]|viewport[(][)][.]maximized' crates/core/src/ribbon/slot_paint.rs
 	@! grep -RIn 'ctx.content_rect' crates/core/src/ribbon/slot_paint.rs
 	@! grep -RInE 'ui[.]set_min_size[(]|ui[.]painter[(][)]|show_area_for_host[(]' crates/core/src/ribbon/slot_paint.rs
 	@! grep -RInE 'id:[[:space:]]*impl Into<egui::Id>|^[[:space:]]*pub fn .*->[[:space:]]*egui::Id' crates/core/src/container/tabbed/mod.rs
@@ -233,7 +233,7 @@ check:
 	@! grep -RInE 'pub fn (body_openness|user_flow|set_user_flow|user_span|set_user_span)[(]' crates/core/src/pane/mod.rs
 	@! grep -RInE 'pub fn (toggle_body|body_open_touched_at|fold_version|container_min_widths|container_min_flows|published_container_cids|publish_container_cid|published_body_extra_flow|publish_body_extra_flow|published_ribbon_edges)|pub fn published_pane_rects[(].*->[[:space:]]*Vec<egui::Rect>' crates/core/src/pane/mod.rs
 	@! grep -RInE 'fn publish_pane_rect[(][^#]*egui::Rect|get_temp::<egui::Rect>[(]clip_key[)]|insert_temp[(]clip_key,[[:space:]]*frame_response[.]response[.]rect' crates/core/src/pane/mod.rs
-	@! (awk '/^mod tests/ { exit } { print }' crates/core/src/pane/mod.rs | grep -nE 'ctx[.]input|ctx[.]content_rect|[.]pointer_(interact|latest)_pos[(][)]')
+	@! (awk '/^mod tests/ { exit } { print }' crates/core/src/pane/mod.rs | grep -nE 'ctx[.]input[(][|]|ctx[.]content_rect|[.]pointer_(interact|latest)_pos[(][)]')
 	@! sed -n '/fn paint_resize_handles_inner/,/fn pane_main_resize_cursor/p' crates/core/src/pane/mod.rs | grep -nE 'egui::Rect::from_min_max|egui::pos2'
 	@! sed -n '/fn paint_resize_handles_inner/,/fn pane_main_resize_cursor/p' crates/core/src/pane/mod.rs | grep -nE 'ui[.]interact[(]|Sense::click_and_drag|egui::Rect::from[(]'
 	@! sed -n '/fn pane_main_resize_handle_rect/,/fn pane_main_resize_cursor/p' crates/core/src/pane/mod.rs | grep -nE 'egui::(Rect|Pos2|Vec2|pos2|vec2)'

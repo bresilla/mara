@@ -7,6 +7,7 @@
 
 use std::collections::{HashMap, HashSet};
 
+use crate::context::MaraCtx;
 use egui::{Color32, Id, Pos2, Rect, Vec2, pos2, vec2};
 
 use crate::container::Tab;
@@ -1373,7 +1374,7 @@ fn shelf_body_scroll_region(
 }
 
 fn resolve_visible_active_container(
-    ctx: &egui::Context,
+    ctx: &dyn crate::context::MaraCtx,
     pane_id: Id,
     active: Option<Id>,
     declared_order: &[Id],
@@ -1392,12 +1393,12 @@ fn resolve_visible_active_container(
 /// layout through the Mara host facade; the hidden egui shelf renderer still
 /// does this automatically for real shelf chrome.
 #[doc(hidden)]
-pub fn __internal_publish_shelf_layout(ctx: &egui::Context, layout: ShelfLayout) {
+pub fn __internal_publish_shelf_layout(ctx: &dyn crate::context::MaraCtx, layout: ShelfLayout) {
     // Record the app/host publish (no-op while the enforcement baseline
     // itself publishes) so `crate::enforce` doesn't stomp a real layout.
     crate::enforce::mark_app_shelf_published(ctx);
-    let pass = ctx.cumulative_pass_nr();
-    let mut memory = crate::memory::MaraMemoryCtx::new(ctx);
+    let pass = ctx.pass_nr();
+    let mut memory = ctx.memory();
     memory.set_temp(shelf_layout_key(), layout);
     memory.set_temp(shelf_layout_pass_key(), pass);
     memory.set_temp(shelf_presence_key(), ShelfPresence::from_layout(layout));
@@ -1406,8 +1407,8 @@ pub fn __internal_publish_shelf_layout(ctx: &egui::Context, layout: ShelfLayout)
 
 #[must_use]
 #[doc(hidden)]
-pub fn __internal_shelf_layout(ctx: &egui::Context) -> Option<ShelfLayout> {
-    crate::memory::MaraMemoryCtx::new(ctx).get_temp::<ShelfLayout>(shelf_layout_key())
+pub fn __internal_shelf_layout(ctx: &dyn crate::context::MaraCtx) -> Option<ShelfLayout> {
+    ctx.memory().get_temp::<ShelfLayout>(shelf_layout_key())
 }
 
 /// Whether a shelf layout was already published during the current
@@ -1417,9 +1418,9 @@ pub fn __internal_shelf_layout(ctx: &egui::Context) -> Option<ShelfLayout> {
 /// publishes "for real" wins, order-independent.
 #[must_use]
 #[doc(hidden)]
-pub fn __internal_shelf_layout_published_this_pass(ctx: &egui::Context) -> bool {
-    let pass = ctx.cumulative_pass_nr();
-    crate::memory::MaraMemoryCtx::new(ctx).get_temp::<u64>(shelf_layout_pass_key()) == Some(pass)
+pub fn __internal_shelf_layout_published_this_pass(ctx: &dyn crate::context::MaraCtx) -> bool {
+    let pass = ctx.pass_nr();
+    ctx.memory().get_temp::<u64>(shelf_layout_pass_key()) == Some(pass)
 }
 
 fn shelf_layout_key() -> egui::Id {
@@ -1430,14 +1431,14 @@ fn shelf_layout_pass_key() -> egui::Id {
     egui::Id::new("mara.shelf.layout.pass")
 }
 
-pub(crate) fn published_shelf_presence(ctx: &egui::Context) -> ShelfPresence {
-    crate::memory::MaraMemoryCtx::new(ctx)
+pub(crate) fn published_shelf_presence(ctx: &dyn crate::context::MaraCtx) -> ShelfPresence {
+    ctx.memory()
         .get_temp::<ShelfPresence>(shelf_presence_key())
         .unwrap_or_default()
 }
 
-fn publish_shelf_presence(ctx: &egui::Context, presence: ShelfPresence) {
-    crate::memory::MaraMemoryCtx::new(ctx).set_temp(shelf_presence_key(), presence);
+fn publish_shelf_presence(ctx: &dyn crate::context::MaraCtx, presence: ShelfPresence) {
+    ctx.memory().set_temp(shelf_presence_key(), presence);
 }
 
 fn shelf_presence_key() -> egui::Id {
@@ -1445,7 +1446,7 @@ fn shelf_presence_key() -> egui::Id {
 }
 
 fn publish_container_move_preview_layout(
-    ctx: &egui::Context,
+    ctx: &dyn crate::context::MaraCtx,
     layout: ShelfLayout,
     state: &ShelfState,
     theme: &ShelfTheme,
@@ -1460,7 +1461,7 @@ fn publish_container_move_preview_layout(
 }
 
 fn publish_shelf_move_preview_layout(
-    ctx: &egui::Context,
+    ctx: &dyn crate::context::MaraCtx,
     layout: ShelfLayout,
     state: &ShelfState,
     theme: &ShelfTheme,
@@ -1475,7 +1476,7 @@ fn publish_shelf_move_preview_layout(
 }
 
 fn shelf_display_order<'a>(
-    ctx: &egui::Context,
+    ctx: &dyn crate::context::MaraCtx,
     pane_id: Id,
     containers: impl Iterator<Item = &'a Id>,
 ) -> impl Iterator<Item = Id> {
@@ -1484,7 +1485,7 @@ fn shelf_display_order<'a>(
 }
 
 fn commit_shelf_container_reorder(
-    ctx: &egui::Context,
+    ctx: &dyn crate::context::MaraCtx,
     pane_id: Id,
     dragged_id: Id,
     cursor_axis: f32,
@@ -1647,16 +1648,16 @@ fn shelf_pane_info_key(edge: ShelfEdge) -> Id {
     Id::new("mara_shelf_pane_info").with(edge)
 }
 
-fn publish_shelf_pane_info(ctx: &egui::Context, info: ShelfPaneInfo) {
-    crate::memory::MaraMemoryCtx::new(ctx).set_temp(shelf_pane_info_key(info.edge), info);
+fn publish_shelf_pane_info(ctx: &dyn crate::context::MaraCtx, info: ShelfPaneInfo) {
+    ctx.memory().set_temp(shelf_pane_info_key(info.edge), info);
 }
 
-fn shelf_pane_info(ctx: &egui::Context, edge: ShelfEdge) -> Option<ShelfPaneInfo> {
-    crate::memory::MaraMemoryCtx::new(ctx).get_temp(shelf_pane_info_key(edge))
+fn shelf_pane_info(ctx: &dyn crate::context::MaraCtx, edge: ShelfEdge) -> Option<ShelfPaneInfo> {
+    ctx.memory().get_temp(shelf_pane_info_key(edge))
 }
 
-fn clear_published_shelf_pane_infos(ctx: &egui::Context) {
-    let mut memory = crate::memory::MaraMemoryCtx::new(ctx);
+fn clear_published_shelf_pane_infos(ctx: &dyn crate::context::MaraCtx) {
+    let mut memory = ctx.memory();
     for edge in [ShelfEdge::Left, ShelfEdge::Right, ShelfEdge::Bottom] {
         memory.remove_temp::<ShelfPaneInfo>(shelf_pane_info_key(edge));
     }
@@ -1666,21 +1667,21 @@ fn external_container_gap_key(pane_id: Id) -> Id {
     pane_id.with("mara_shelf_external_container_gap")
 }
 
-fn mark_external_container_gap(ctx: &egui::Context, pane_id: Id) {
-    crate::memory::MaraMemoryCtx::new(ctx).set_temp(external_container_gap_key(pane_id), true);
+fn mark_external_container_gap(ctx: &dyn crate::context::MaraCtx, pane_id: Id) {
+    ctx.memory().set_temp(external_container_gap_key(pane_id), true);
 }
 
-fn clear_external_container_gap(ctx: &egui::Context, pane_id: Id) {
-    crate::memory::MaraMemoryCtx::new(ctx).remove_temp::<bool>(external_container_gap_key(pane_id));
+fn clear_external_container_gap(ctx: &dyn crate::context::MaraCtx, pane_id: Id) {
+    ctx.memory().remove_temp::<bool>(external_container_gap_key(pane_id));
 }
 
-fn external_container_gap_was_painted(ctx: &egui::Context, pane_id: Id) -> bool {
-    crate::memory::MaraMemoryCtx::new(ctx)
+fn external_container_gap_was_painted(ctx: &dyn crate::context::MaraCtx, pane_id: Id) -> bool {
+    ctx.memory()
         .get_temp::<bool>(external_container_gap_key(pane_id))
         .unwrap_or(false)
 }
 
-fn update_container_move_target_from_published(ctx: &egui::Context, state: &mut ShelfState) {
+fn update_container_move_target_from_published(ctx: &dyn crate::context::MaraCtx, state: &mut ShelfState) {
     let Some(drag) = state.container_move else {
         return;
     };
@@ -1691,7 +1692,7 @@ fn update_container_move_target_from_published(ctx: &egui::Context, state: &mut 
         state.clear_container_move_target_slot();
         return;
     };
-    let input = crate::backend::egui::input_snapshot(ctx);
+    let input = ctx.input();
     let cursor = input
         .interact_pointer
         .or(input.pointer)
@@ -1780,7 +1781,7 @@ fn should_render_external_container_gap(
 }
 
 fn source_shelf_gap_entry(
-    ctx: &egui::Context,
+    ctx: &dyn crate::context::MaraCtx,
     dragged_id: Id,
     shelf_edge: ShelfEdge,
     content_rect: Rect,
@@ -1799,7 +1800,7 @@ fn source_shelf_gap_entry(
 }
 
 fn reanchor_source_shelf_snapshot(
-    ctx: &egui::Context,
+    ctx: &dyn crate::context::MaraCtx,
     pane_id: Id,
     dragged_id: Id,
     shelf_edge: ShelfEdge,
@@ -1813,8 +1814,8 @@ fn reanchor_source_shelf_snapshot(
     pane::set_snapshot(ctx, pane_id, snapshot);
 }
 
-fn finish_container_move_if_released(ctx: &egui::Context, state: &mut ShelfState) {
-    if !crate::backend::egui::input_snapshot(ctx).any_released {
+fn finish_container_move_if_released(ctx: &dyn crate::context::MaraCtx, state: &mut ShelfState) {
+    if !ctx.input().any_released {
         return;
     }
     let Some(drag) = state.container_move else {
@@ -1824,7 +1825,7 @@ fn finish_container_move_if_released(ctx: &egui::Context, state: &mut ShelfState
 }
 
 fn commit_container_move(
-    ctx: &egui::Context,
+    ctx: &dyn crate::context::MaraCtx,
     state: &mut ShelfState,
     drag: ShelfContainerMoveState,
 ) {
@@ -2000,7 +2001,7 @@ fn handle_shelf_move_drag(input: ShelfMoveDragInput<'_, '_>) {
 
     let dragging_this = state.drag.is_some_and(|drag| drag.shelf_id == shelf_id);
     if dragging_this {
-        let input = crate::backend::egui::input_snapshot(ctx);
+        let input = MaraCtx::input(ctx);
         if let Some(cursor) = input
             .interact_pointer
             .map(Into::into)
@@ -2021,7 +2022,7 @@ fn handle_shelf_move_drag(input: ShelfMoveDragInput<'_, '_>) {
     }
 }
 
-fn pointer_over_shelf_container(ctx: &egui::Context, pane_id: Id, pos: Pos2) -> bool {
+fn pointer_over_shelf_container(ctx: &dyn crate::context::MaraCtx, pane_id: Id, pos: Pos2) -> bool {
     pane::snapshot(ctx, pane_id)
         .iter()
         .any(|entry| entry.frame.unwrap_or(entry.rect).contains(pos))
@@ -2327,7 +2328,7 @@ fn shelf_reservation_ghost_paint_cmds(
 }
 
 fn existing_shelf_container_slot_ghost(
-    ctx: &egui::Context,
+    ctx: &dyn crate::context::MaraCtx,
     target: ShelfEdge,
     drag: ShelfContainerMoveState,
 ) -> Option<(Rect, Color32)> {
@@ -2351,12 +2352,12 @@ fn existing_shelf_container_slot_ghost(
     .map(|rect| (rect.translate(info.screen_offset), info.accent))
 }
 
-fn shelf_target_cache(ctx: &egui::Context, pane_id: Id) -> Vec<pane::RectEntry> {
+fn shelf_target_cache(ctx: &dyn crate::context::MaraCtx, pane_id: Id) -> Vec<pane::RectEntry> {
     pane::target_cache(ctx, pane_id)
 }
 
 fn new_shelf_container_ghost_rect(
-    ctx: &egui::Context,
+    ctx: &dyn crate::context::MaraCtx,
     container_id: Id,
     target: ShelfEdge,
     shelf_rect: Rect,
@@ -2369,7 +2370,7 @@ fn new_shelf_container_ghost_rect(
 }
 
 fn container_move_ghost_size_for_edge(
-    ctx: &egui::Context,
+    ctx: &dyn crate::context::MaraCtx,
     container_id: Id,
     edge: ShelfEdge,
     content_rect: Rect,
@@ -2497,7 +2498,7 @@ fn container_drop_rect(
 }
 
 fn container_drop_rect_for_drag(
-    ctx: &egui::Context,
+    ctx: &dyn crate::context::MaraCtx,
     layout: ShelfLayout,
     drag: ShelfContainerMoveState,
     target: ShelfEdge,
@@ -2520,7 +2521,7 @@ fn container_drop_rect_for_drag(
 }
 
 fn container_move_preview_layout(
-    ctx: &egui::Context,
+    ctx: &dyn crate::context::MaraCtx,
     layout: ShelfLayout,
     drag: ShelfContainerMoveState,
     theme: &ShelfTheme,
@@ -2613,7 +2614,7 @@ fn layout_from_reserved_shelves(
 }
 
 fn source_shelf_has_other_containers(
-    ctx: &egui::Context,
+    ctx: &dyn crate::context::MaraCtx,
     drag: ShelfContainerMoveState,
     target: ShelfEdge,
 ) -> bool {
