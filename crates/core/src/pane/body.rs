@@ -393,7 +393,16 @@ pub(crate) fn render_containers_with_tab_scope<'a>(
             .all(|container| seen_container_ids.insert(container.id)),
         "pane containers require unique container ids"
     );
+    // The reorder store is still keyed by backend ids (WS-E4 step 5a),
+    // and `MaraId -> backend Id` is a re-hash, so the trip back is not
+    // identity. Keep the mapping rather than converting twice — a
+    // container that renders but cannot be found by its own id is the
+    // failure this avoids.
+    // Declaration order is the fallback ordering, so `defaults` must
+    // keep it — a map's iteration order would shuffle the containers.
     let defaults: Vec<Id> = containers.iter().map(|c| c.id.into()).collect();
+    let backend_to_mara: HashMap<Id, MaraId> =
+        containers.iter().map(|c| (c.id.into(), c.id)).collect();
     let order = section_order_for(body_ui.ctx(), pane_id, &defaults);
     let mut by_id: HashMap<MaraId, ContainerSpec<'a>> =
         containers.into_iter().map(|c| (c.id, c)).collect();
@@ -409,9 +418,9 @@ pub(crate) fn render_containers_with_tab_scope<'a>(
 
     let mut responses: HashMap<Id, Vec<PodResponse>> = HashMap::new();
     for cid in order.into_iter() {
-        // `order` comes back from the backend-keyed reorder store; the tab
-        // bookkeeping is keyed by Mara identity.
-        let cid_mara: MaraId = cid.into();
+        let Some(&cid_mara) = backend_to_mara.get(&cid) else {
+            continue;
+        };
         // Tabbed containers — pull routed tabs from the pool.
         if tab_scope.is_tabbed_container(cid_mara) {
             let Some((title, icon)) = tab_scope.tabbed_specs.get(&cid_mara).cloned() else {
