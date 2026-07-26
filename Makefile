@@ -69,8 +69,19 @@ check:
 	@$(CARGO) check --workspace --all-targets
 	@$(CARGO) check --manifest-path example/sealed/Cargo.toml
 	@./scripts/ratchet.sh
-	@! grep -n '^egui' crates/modules/board/Cargo.toml crates/modules/canvas/Cargo.toml crates/modules/image/Cargo.toml crates/modules/map/Cargo.toml
-	@! grep -RInE 'egui[_-]?[a-z]*::' crates/modules/map/src
+# ── Sealed tier (PLAN.md decision F1) ────────────────────────────────
+# `crates/modules/*` is the sealed tier: a crate there names NO backend
+# type. This is a blanket ban over the whole directory, not a per-crate
+# allowlist, so a new module is sealed by default and a regression is a
+# build failure rather than a review miss. `graph` and `code` are the
+# two known exceptions, pending their WS-D rewrite.
+#
+# Renderer-owning crates live in `hosts/` instead — see the Cargo.toml
+# layout comment for why that is honest rather than a loophole.
+	@! grep -RlnE '^(egui|egui[_-][a-z]+|wgpu)[[:space:]]*=' \
+		$$(ls -d crates/modules/*/Cargo.toml | grep -vE 'modules/(graph|code)/')
+	@! grep -RInE '\begui[_-]?[a-z]*::|\bwgpu::' \
+		$$(ls -d crates/modules/*/src | grep -vE 'modules/(graph|code)/')
 	@! grep -n 'raw-egui' example/Cargo.toml
 	@! grep -n 'raw-egui' crates/core/Cargo.toml mara/Cargo.toml
 	@! grep -RInE 'cfg[(]feature[[:space:]]*=[[:space:]]*"raw-egui"|^[[:space:]]*pub[[:space:]]+use[[:space:]]+egui([:;]|$$)|^[[:space:]]*pub[[:space:]]+fn[[:space:]]+(from_raw|raw_ui_mut|raw|egui|egui_ctx|ctx)[(]' crates/core/src mara/src
@@ -178,11 +189,11 @@ check:
 	@! awk '/fn paint_feature_lines/,/^}/ { print }' crates/modules/map/src/mvt.rs | grep -nE 'painter[.](add|line_segment|rect_filled)|egui::Shape::line|paint_polygon'
 	@! awk '/fn paint_label/,/^}/ { print }' crates/modules/map/src/mvt.rs | grep -nE 'painter[.]text'
 	@! grep -RInE 'layout_no_wrap|egui::FontId|Vec<egui::Rect>' crates/modules/map/src/mvt.rs
-	@! grep -RInE 'pub pointer_pos:[[:space:]]*Option<egui::Pos2>|pub scroll_delta:[[:space:]]*egui::Vec2|_position:[[:space:]]*egui::Pos2|__internal_raw_ui' crates/modules/three_d/src/lib.rs
-	@! grep -RInE 'pub fn (from_response|allocate_viewport)[(][^#]*(egui::Response|egui::Ui)|pub type Color[[:space:]]*=[[:space:]]*egui::Color32' crates/modules/three_d/src/lib.rs
-	@! grep -RInE 'BevyViewportPickedColor[(]pub Option<egui::Color32>|picked_color[(]&self[)] -> Option<egui::Color32>|accent:[[:space:]]*egui::Color32|[)] -> Option<egui::Color32>|pub fn show[(][^#]*egui::Context' crates/modules/bevy/src
+	@! grep -RInE 'pub pointer_pos:[[:space:]]*Option<egui::Pos2>|pub scroll_delta:[[:space:]]*egui::Vec2|_position:[[:space:]]*egui::Pos2|__internal_raw_ui' hosts/three_d/src/lib.rs
+	@! grep -RInE 'pub fn (from_response|allocate_viewport)[(][^#]*(egui::Response|egui::Ui)|pub type Color[[:space:]]*=[[:space:]]*egui::Color32' hosts/three_d/src/lib.rs
+	@! grep -RInE 'BevyViewportPickedColor[(]pub Option<egui::Color32>|picked_color[(]&self[)] -> Option<egui::Color32>|accent:[[:space:]]*egui::Color32|[)] -> Option<egui::Color32>|pub fn show[(][^#]*egui::Context' hosts/bevy/src
 	@! grep -RInE 'bevy_view[.]show[(]host[.]__internal_egui' example/src
-	@! grep -RIn 'EmbeddedBevyViewport' crates/modules/bevy/src mara/plugin/bevy/src
+	@! grep -RIn 'EmbeddedBevyViewport' hosts/bevy/src mara/plugin/bevy/src
 	@! grep -nE '^pub type App[[:space:]]*=[[:space:]]*AppRunner' mara/src/window.rs
 	@! grep -RIn 'Backwards-friendly' crates mara example
 	@! grep -RInE 'pub fn show_app_shell.*accent:[[:space:]]*Color32|pub fn show_app_shell_.*accent:[[:space:]]*Color32|use egui::[{]Color32|use egui::Color32' crates/core/src/app_shell.rs

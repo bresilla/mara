@@ -1,6 +1,10 @@
 [package]
 name = "mara_3d"
-description = "Host-agnostic Mara 3D scene/view module backed by three-d."
+# HOST TIER (PLAN.md decision F1): this crate drives the `three-d`
+# renderer and an optional wgpu preview path, so it names backend
+# types by necessity and is NOT part of the sealed `crates/modules/*`
+# tier. Depending on it couples you to three-d and wgpu.
+description = "Mara 3D scene/view backed by three-d. HOST TIER: names wgpu; not a sealed module."
 version.workspace = true
 edition.workspace = true
 license.workspace = true

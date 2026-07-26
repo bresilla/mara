@@ -11,8 +11,8 @@ members = [
     "crates/modules/canvas",
     "crates/modules/board",
     "crates/modules/map",
-    "crates/modules/three_d",
-    "crates/modules/bevy",
+    "hosts/three_d",
+    "hosts/bevy",
     "example",
     "example/sealed",
 ]
@@ -42,13 +42,25 @@ bevy = { version = "0.19", default-features = false }
 
 # Internal crates.
 #
-# Layout:
-#   crates/  ← standalone library crates (UI, node graph, code editor)
-#   mara/        ← public facade with two modes:
-#                    `mara::ui` for UI-only consumers, and
-#                    `mara::window` for Mara-owned native windows
-#   crates/modules/bevy ← embedded Bevy viewport/content helpers
-#   mara/plugin/        ← optional compatibility/helper crates; no Bevy-owned egui
+# Layout — the directory a crate lives in IS its seal tier:
+#
+#   crates/core          the UI core; the only crate that may name egui
+#                        (until it is split into mara_backend_egui)
+#   crates/gpu           opaque GPU handles shared between hosts and modules
+#   crates/modules/      SEALED tier. A crate here names no backend type —
+#                        no egui, no egui-wgpu, no wgpu. Enforced by
+#                        `make check`, and by `cargo tree` once the backend
+#                        crate is split out.
+#   hosts/               HOST tier. These own a renderer and therefore
+#                        legitimately name wgpu: `mara_bevy` drives an
+#                        embedded Bevy app, `mara_3d` drives `three-d`.
+#                        Bevy and three-d hand back wgpu resources, so no
+#                        amount of wrapping hides them — the honest answer
+#                        is a declared tier, not a pretend-sealed module.
+#                        See PLAN.md decision F1.
+#   mara/                public facade: `mara::ui` for UI-only consumers,
+#                        `mara::window` for Mara-owned native windows
+#   mara/plugin/         optional compatibility/helper crates
 #
 # `mara_core` — UI core (panes, ribbons, containers, pods, widgets,
 # theme, embed mechanism). Package id is `mara_core`, which avoids
@@ -74,9 +86,9 @@ mara_board = { path = "crates/modules/board" }
 # `mara_map` — retained f64 map annotations and a Mara map component.
 mara_map = { path = "crates/modules/map" }
 # `mara_3d` — retained scene/camera/object 3D module surface backed by three-d.
-mara_3d = { path = "crates/modules/three_d" }
+mara_3d = { path = "hosts/three_d" }
 # `mara_bevy` — embedded Bevy viewport module for egui/Mara hosts.
-mara_bevy = { path = "crates/modules/bevy" }
+mara_bevy = { path = "hosts/bevy" }
 
 # ── Build profile tuning ────────────────────────────────────────────
 #

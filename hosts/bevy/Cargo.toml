@@ -1,6 +1,10 @@
 [package]
 name = "mara_bevy"
-description = "Embedded Bevy viewport module for Mara UI hosts."
+# HOST TIER (PLAN.md decision F1): this crate drives an embedded Bevy
+# app, and Bevy hands its render target back as a wgpu texture view.
+# It therefore names wgpu by necessity and is NOT part of the sealed
+# `crates/modules/*` tier. Depending on it couples you to wgpu.
+description = "Embedded Bevy viewport for Mara hosts. HOST TIER: names wgpu; not a sealed module."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
