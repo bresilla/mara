@@ -10,14 +10,12 @@
                 y: 24.0,
             },
         },
-        corner: CornerRadius(
-            CornerRadius {
-                nw: 2,
-                ne: 2,
-                sw: 2,
-                se: 2,
-            },
-        ),
+        corner: CornerRadius {
+            nw: 2,
+            ne: 2,
+            sw: 2,
+            se: 2,
+        },
         fill: Color32(
             #2E_36_47_EB,
         ),
@@ -33,14 +31,12 @@
                 y: 24.0,
             },
         },
-        corner: CornerRadius(
-            CornerRadius {
-                nw: 2,
-                ne: 2,
-                sw: 2,
-                se: 2,
-            },
-        ),
+        corner: CornerRadius {
+            nw: 2,
+            ne: 2,
+            sw: 2,
+            se: 2,
+        },
         stroke: Stroke {
             width: 1.0,
             color: Color32(

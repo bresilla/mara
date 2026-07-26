@@ -808,6 +808,27 @@ fn d13_a_group_fills_a_single_slot() {
     }
 }
 
+/// WS-E4/G1: a vocab type must be usable without any backend
+/// conversion in scope. `CornerRadius` is the first native one — it
+/// owns its data instead of wrapping the backend's type, which is the
+/// shape every other vocab newtype has to take before `mara_core` can
+/// be split from its backend.
+#[test]
+fn e4_corner_radius_is_backend_free() {
+    let r = CornerRadius::from_corners(1, 2, 3, 4);
+    assert_eq!(r.nw, 1);
+    assert_eq!(r.ne, 2);
+    assert_eq!(r.sw, 3);
+    assert_eq!(r.se, 4);
+
+    // Clockwise from north-west, so `sw` is last, not third.
+    assert_eq!(r.corners(), [1, 2, 4, 3]);
+
+    let same = CornerRadius::same(7);
+    assert_eq!(same.corners(), [7, 7, 7, 7]);
+    assert_eq!(CornerRadius::ZERO.corners(), [0, 0, 0, 0]);
+}
+
 /// The layout-flow group a node renderer needs: where the next item
 /// goes, how big the surface has become, and how to place something
 /// outside the flow without the parent losing track of it.

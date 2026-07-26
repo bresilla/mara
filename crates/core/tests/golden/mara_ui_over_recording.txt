@@ -25,14 +25,12 @@
                 y: 42.0,
             },
         },
-        corner: CornerRadius(
-            CornerRadius {
-                nw: 2,
-                ne: 2,
-                sw: 2,
-                se: 2,
-            },
-        ),
+        corner: CornerRadius {
+            nw: 2,
+            ne: 2,
+            sw: 2,
+            se: 2,
+        },
         fill: Color32(
             #2E_36_47_EB,
         ),
@@ -48,14 +46,12 @@
                 y: 42.0,
             },
         },
-        corner: CornerRadius(
-            CornerRadius {
-                nw: 2,
-                ne: 2,
-                sw: 2,
-                se: 2,
-            },
-        ),
+        corner: CornerRadius {
+            nw: 2,
+            ne: 2,
+            sw: 2,
+            se: 2,
+        },
         stroke: Stroke {
             width: 1.0,
             color: Color32(
@@ -118,14 +114,12 @@
                 y: 60.0,
             },
         },
-        corner: CornerRadius(
-            CornerRadius {
-                nw: 3,
-                ne: 3,
-                sw: 3,
-                se: 3,
-            },
-        ),
+        corner: CornerRadius {
+            nw: 3,
+            ne: 3,
+            sw: 3,
+            se: 3,
+        },
         fill: Color32(
             #1F_2E_41_FF,
         ),
@@ -141,14 +135,12 @@
                 y: 60.0,
             },
         },
-        corner: CornerRadius(
-            CornerRadius {
-                nw: 3,
-                ne: 3,
-                sw: 3,
-                se: 3,
-            },
-        ),
+        corner: CornerRadius {
+            nw: 3,
+            ne: 3,
+            sw: 3,
+            se: 3,
+        },
         stroke: Stroke {
             width: 1.0,
             color: Color32(
@@ -167,14 +159,12 @@
                 y: 58.0,
             },
         },
-        corner: CornerRadius(
-            CornerRadius {
-                nw: 3,
-                ne: 3,
-                sw: 3,
-                se: 3,
-            },
-        ),
+        corner: CornerRadius {
+            nw: 3,
+            ne: 3,
+            sw: 3,
+            se: 3,
+        },
         fill: Color32(
             #78_B4_FF_FF,
         ),
@@ -190,14 +180,12 @@
                 y: 58.0,
             },
         },
-        corner: CornerRadius(
-            CornerRadius {
-                nw: 3,
-                ne: 3,
-                sw: 3,
-                se: 3,
-            },
-        ),
+        corner: CornerRadius {
+            nw: 3,
+            ne: 3,
+            sw: 3,
+            se: 3,
+        },
         stroke: Stroke {
             width: 1.0,
             color: Color32(
@@ -231,14 +219,12 @@
                 y: 96.0,
             },
         },
-        corner: CornerRadius(
-            CornerRadius {
-                nw: 2,
-                ne: 2,
-                sw: 2,
-                se: 2,
-            },
-        ),
+        corner: CornerRadius {
+            nw: 2,
+            ne: 2,
+            sw: 2,
+            se: 2,
+        },
         fill: Color32(
             #06_08_0C_FF,
         ),
@@ -254,14 +240,12 @@
                 y: 96.0,
             },
         },
-        corner: CornerRadius(
-            CornerRadius {
-                nw: 2,
-                ne: 2,
-                sw: 2,
-                se: 2,
-            },
-        ),
+        corner: CornerRadius {
+            nw: 2,
+            ne: 2,
+            sw: 2,
+            se: 2,
+        },
         stroke: Stroke {
             width: 1.0,
             color: Color32(
@@ -280,14 +264,12 @@
                 y: 96.0,
             },
         },
-        corner: CornerRadius(
-            CornerRadius {
-                nw: 2,
-                ne: 2,
-                sw: 2,
-                se: 2,
-            },
-        ),
+        corner: CornerRadius {
+            nw: 2,
+            ne: 2,
+            sw: 2,
+            se: 2,
+        },
         fill: Color32(
             #78_B4_FF_FF,
         ),

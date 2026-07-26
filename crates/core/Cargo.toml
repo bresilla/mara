@@ -46,7 +46,7 @@ bevy = { workspace = true, optional = true }
 # about the embedded host widgets still get the same surface as
 # before. Apps that want a slim UI-only build drop them via
 # `default-features = false`.
-default = ["svg"]
+default = ["svg", "backend-egui-conv"]
 # Rasterise `PaintCmd::Svg`. Off means SVG paint commands draw nothing
 # (the pre-0.4.2 behaviour), which is a real saving: `resvg` is a large
 # dependency and most apps never draw an SVG.
@@ -56,6 +56,13 @@ svg = ["dep:egui_extras"]
 # can persist a sealed style without naming a backend type. Pulls
 # `egui/serde` because the newtypes wrap egui types today.
 serde = ["dep:serde", "egui/serde"]
+# `From`/`Into` between vocab types and the egui types they mirror.
+# On today (the workspace has one backend); the point of the flag is
+# that a vocab type compiles WITHOUT it, which is the WS-G1 split
+# criterion. Conversions must live here rather than in the backend
+# crate: there both types would be foreign and the orphan rule forbids
+# the impl.
+backend-egui-conv = []
 # `ViewCtx::offscreen` — render a sealed UI body into its own texture at
 # an independent scale. Off by default: it pulls wgpu, and only surfaces
 # that need scale-independent rasterisation (node graphs, thumbnails)

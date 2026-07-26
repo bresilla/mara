@@ -10,14 +10,12 @@
                 y: 20.0,
             },
         },
-        corner: CornerRadius(
-            CornerRadius {
-                nw: 3,
-                ne: 3,
-                sw: 3,
-                se: 3,
-            },
-        ),
+        corner: CornerRadius {
+            nw: 3,
+            ne: 3,
+            sw: 3,
+            se: 3,
+        },
         fill: Color32(
             #4E_6B_94_FF,
         ),

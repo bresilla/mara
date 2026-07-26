@@ -845,19 +845,36 @@ impl From<Align2> for egui::Align2 {
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct CornerRadius(egui::CornerRadius);
+/// Per-corner radii — WS-E4's first native type.
+///
+/// Owns its data rather than wrapping the backend's type. Every other
+/// vocab newtype follows this shape for the WS-G1 split: the struct is
+/// backend-free, and the backend conversions sit behind the
+/// `backend-egui-conv` feature so a backend-free build of this crate
+/// never names egui at all.
+pub struct CornerRadius {
+    pub nw: u8,
+    pub ne: u8,
+    pub sw: u8,
+    pub se: u8,
+}
 
 impl CornerRadius {
-    pub const ZERO: Self = Self(egui::CornerRadius::ZERO);
+    pub const ZERO: Self = Self::same(0);
 
     #[must_use]
     pub const fn same(radius: u8) -> Self {
-        Self(egui::CornerRadius::same(radius))
+        Self {
+            nw: radius,
+            ne: radius,
+            sw: radius,
+            se: radius,
+        }
     }
 
     #[must_use]
     pub const fn from_corners(nw: u8, ne: u8, sw: u8, se: u8) -> Self {
-        Self(egui::CornerRadius { nw, ne, sw, se })
+        Self { nw, ne, sw, se }
     }
 
     /// The four radii, clockwise from north-west: `[nw, ne, se, sw]`.
@@ -867,19 +884,26 @@ impl CornerRadius {
     /// vocabulary exists to remove.
     #[must_use]
     pub const fn corners(self) -> [u8; 4] {
-        [self.0.nw, self.0.ne, self.0.se, self.0.sw]
+        [self.nw, self.ne, self.se, self.sw]
     }
 }
 
+#[cfg(feature = "backend-egui-conv")]
 impl From<egui::CornerRadius> for CornerRadius {
     fn from(radius: egui::CornerRadius) -> Self {
-        Self(radius)
+        Self::from_corners(radius.nw, radius.ne, radius.sw, radius.se)
     }
 }
 
+#[cfg(feature = "backend-egui-conv")]
 impl From<CornerRadius> for egui::CornerRadius {
     fn from(radius: CornerRadius) -> Self {
-        radius.0
+        egui::CornerRadius {
+            nw: radius.nw,
+            ne: radius.ne,
+            sw: radius.sw,
+            se: radius.se,
+        }
     }
 }
 
