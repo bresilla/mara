@@ -847,8 +847,8 @@ impl Pane {
             let mut opens: Vec<(Id, f64, f32)> = prev_cids_snapshot
                 .iter()
                 .filter_map(|cid| {
-                    let open: bool = ctx
-                        .data_mut(|d| d.get_persisted::<bool>(egui::Id::from(cid.with("body_open"))))
+                    let open: bool = MaraCtx::memory(ctx)
+                        .get_persisted::<bool>(cid.with("body_open"))
                         .unwrap_or(true);
                     if !open {
                         return None;
@@ -885,8 +885,8 @@ impl Pane {
             let sum_body: f32 = prev_cids_snapshot
                 .iter()
                 .map(|cid| {
-                    let open: bool = ctx
-                        .data_mut(|d| d.get_persisted::<bool>(egui::Id::from(cid.with("body_open"))))
+                    let open: bool = MaraCtx::memory(ctx)
+                        .get_persisted::<bool>(cid.with("body_open"))
                         .unwrap_or(true);
                     if open {
                         crate::container::container_flow(ctx, *cid, horizontal_strip)
@@ -1018,8 +1018,8 @@ impl Pane {
         // — only growth that exceeds last frame's paint by more than
         // one frame would clip, which is the rare transient.
         let clip_key = pane_id.with("mara_pane_painted_rect_for_clip");
-        let last_painted_rect: MaraRect = ctx
-            .data(|d| d.get_temp::<MaraRect>(egui::Id::from(clip_key)))
+        let last_painted_rect: MaraRect = MaraCtx::memory(ctx)
+            .get_temp::<MaraRect>(clip_key)
             .unwrap_or(pane_rect_mara);
         let pane_clip_rect = pane_rect_mara.union(last_painted_rect);
 
@@ -1138,9 +1138,8 @@ impl Pane {
                     // critical for the first frame after content grows,
                     // where `pane_rect` lags by one frame and would
                     // otherwise slice the body's far edge.
-                    outer_ui.ctx().data_mut(|d| {
-                        d.insert_temp(egui::Id::from(clip_key), MaraRect::from(frame_response.response.rect));
-                    });
+                    crate::memory::MaraMemoryCtx::new(outer_ui.ctx())
+                        .set_temp(clip_key, MaraRect::from(frame_response.response.rect));
                 }
                 // Publish this pane's painted rect to the global
                 // ctx-data list so host integrations (e.g.
@@ -1219,9 +1218,8 @@ impl Pane {
         // with the Area's clipped rect. Falling back to the raw
         // `user_span` (or `PANE_OUTER_SPAN`) only matters on the
         // first frame before `show` has published.
-        let span_outer = ui
-            .ctx()
-            .data(|d| d.get_temp::<f32>(egui::Id::from(id.with("mara_pane_effective_span"))))
+        let span_outer = crate::memory::MaraMemoryCtx::new(ui.ctx())
+            .get_temp::<f32>(id.with("mara_pane_effective_span"))
             .unwrap_or_else(|| {
                 if resize.span {
                     user_span(ui.ctx(), id)
@@ -1432,9 +1430,8 @@ impl Pane {
             }
         };
 
-        let body_scroll_enabled = ui
-            .ctx()
-            .data(|d| d.get_temp::<bool>(egui::Id::from(id.with("mara_pane_body_scroll_enabled"))))
+        let body_scroll_enabled = crate::memory::MaraMemoryCtx::new(ui.ctx())
+            .get_temp::<bool>(id.with("mara_pane_body_scroll_enabled"))
             .unwrap_or(false);
         if body_scroll_enabled {
             crate::backend::egui::show_pane_body_scroll_slot(
