@@ -1598,14 +1598,12 @@ fn paint_widgets(
                 WidgetSpec::Search(cfg) => {
                     if let Some(ui) = backend.__internal_egui_ui_mut() {
                         let buf_key = pod_id.with(("mara_pod_search_buf", search_idx));
-                        let mut buf: String = ui
-                            .ctx()
-                            .data(|d| d.get_temp::<String>(egui::Id::from(buf_key)))
+                        let mut buf: String = crate::memory::MaraMemoryCtx::new(ui.ctx()).get_temp::<String>(buf_key)
                             .unwrap_or_default();
                         let resp = text_input(ui, &mut buf, &cfg.placeholder, cfg.accent);
                         let changed = resp.changed();
                         if changed {
-                            ui.ctx().data_mut(|d| d.insert_temp(egui::Id::from(buf_key), buf.clone()));
+                            crate::memory::MaraMemoryCtx::new(ui.ctx()).set_temp(buf_key, buf.clone());
                         }
                         crate::debug::tag(
                             ui,
@@ -1815,9 +1813,7 @@ fn paint_widgets(
                 WidgetSpec::Dropdown(cfg) => {
                     if let Some(ui) = backend.__internal_egui_ui_mut() {
                         let val_key = pod_id.with(("mara_pod_dropdown_idx", dropdown_idx));
-                        let mut sel: usize = ui
-                            .ctx()
-                            .data_mut(|d| d.get_persisted::<usize>(egui::Id::from(val_key)))
+                        let mut sel: usize = crate::memory::MaraMemoryCtx::new(ui.ctx()).get_persisted::<usize>(val_key)
                             .unwrap_or(cfg.initial)
                             .min(cfg.options.len().saturating_sub(1));
                         let opts: Vec<&str> = cfg.options.iter().map(String::as_str).collect();
@@ -1830,7 +1826,7 @@ fn paint_widgets(
                         );
                         let changed = resp.changed();
                         if changed {
-                            ui.ctx().data_mut(|d| d.insert_persisted(egui::Id::from(val_key), sel));
+                            crate::memory::MaraMemoryCtx::new(ui.ctx()).set_persisted(val_key, sel);
                         }
                         crate::debug::tag(
                             ui,
@@ -1930,9 +1926,7 @@ fn paint_widgets(
                 WidgetSpec::Color(cfg) => {
                     if let Some(ui) = backend.__internal_egui_ui_mut() {
                         let val_key = pod_id.with(("mara_pod_color_val", color_idx));
-                        let mut rgba: [f32; 4] = ui
-                            .ctx()
-                            .data_mut(|d| d.get_persisted::<[f32; 4]>(egui::Id::from(val_key)))
+                        let mut rgba: [f32; 4] = crate::memory::MaraMemoryCtx::new(ui.ctx()).get_persisted::<[f32; 4]>(val_key)
                             .unwrap_or(cfg.initial);
                         let changed = if cfg.alpha {
                             let resp = color_rgba(ui, &cfg.label, &mut rgba, cfg.accent);
@@ -1957,7 +1951,7 @@ fn paint_widgets(
                             resp.changed()
                         };
                         if changed {
-                            ui.ctx().data_mut(|d| d.insert_persisted(egui::Id::from(val_key), rgba));
+                            crate::memory::MaraMemoryCtx::new(ui.ctx()).set_persisted(val_key, rgba);
                         }
                         response.colors.push(ColorResponse { rgba, changed });
                     } else {
