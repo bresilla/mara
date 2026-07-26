@@ -577,6 +577,16 @@ pub struct Stroke {
     pub color: Color32,
 }
 
+/// No stroke — width zero, fully transparent.
+///
+/// Matches the backend's own default, so a struct deriving `Default`
+/// with a `Stroke` field keeps meaning "draws no outline".
+impl Default for Stroke {
+    fn default() -> Self {
+        Self::NONE
+    }
+}
+
 impl Stroke {
     pub const NONE: Self = Self {
         width: 0.0,

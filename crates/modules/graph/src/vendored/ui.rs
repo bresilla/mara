@@ -4,7 +4,7 @@ use std::{collections::HashMap, hash::Hash};
 
 use egui::{
     Align, CornerRadius, Id, LayerId, Layout, Margin, Modifiers, PointerButton,
-    Pos2, Rect, Scene, Sense, Stroke, StrokeKind, Style, Ui, UiBuilder, UiKind, UiStackInfo,
+    Pos2, Rect, Scene, Sense, StrokeKind, Style, Ui, UiBuilder, UiKind, UiStackInfo,
     Vec2,
     collapsing_header::paint_default_icon,
     emath::{GuiRounding, TSTransform},
@@ -13,7 +13,7 @@ use egui::{
     vec2,
 };
 use mara_core::MaraResponse;
-use mara_core::vocab::Color32;
+use mara_core::vocab::{Color32, Stroke};
 use mara_core::style::{FrameRole, FrameSpec, frame_for};
 use smallvec::SmallVec;
 
@@ -647,7 +647,7 @@ impl GraphStyle {
         self.pin_stroke.unwrap_or_else(|| {
             Stroke::new(
                 style.visuals.widgets.active.bg_stroke.width,
-                style.visuals.widgets.active.bg_stroke.color,
+                style.visuals.widgets.active.bg_stroke.color.into(),
             )
         })
     }
@@ -720,7 +720,7 @@ impl GraphStyle {
 
     fn get_bg_pattern_stroke(&self, style: &Style) -> Stroke {
         self.bg_pattern_stroke
-            .unwrap_or(style.visuals.widgets.noninteractive.bg_stroke)
+            .unwrap_or_else(|| style.visuals.widgets.noninteractive.bg_stroke.into())
     }
 
     fn get_min_scale(&self) -> f32 {
@@ -754,7 +754,7 @@ impl GraphStyle {
         self.select_stoke.unwrap_or_else(|| {
             Stroke::new(
                 style.visuals.selection.stroke.width,
-                style.visuals.selection.stroke.color.gamma_multiply(0.5),
+                style.visuals.selection.stroke.color.gamma_multiply(0.5).into(),
             )
         })
     }

@@ -132,9 +132,9 @@ pub fn mara_node_graph_style(accent: impl Into<MaraColor32>) -> GraphStyle {
     // the "there but quiet" tier: visible enough to read as a grid,
     // not loud enough to compete with the nodes.
     let grid_base = mara_core::style::contrast_text_for(canvas_base);
-    let grid_stroke = egui::Stroke::new(
+    let grid_stroke = mara_core::vocab::Stroke::new(
         1.0,
-        egui::Color32::from_rgba_unmultiplied(
+        mara_core::vocab::Color32::from_rgba_unmultiplied(
             grid_base.r(),
             grid_base.g(),
             grid_base.b(),
@@ -170,9 +170,9 @@ pub fn mara_node_graph_style(accent: impl Into<MaraColor32>) -> GraphStyle {
         // `PinType::pin()` builder. Blender uses a 1-px black
         // outline on every socket; mirrored here.
         pin_fill: Some(mara_core::style::on_section().into()),
-        pin_stroke: Some(egui::Stroke::new(
+        pin_stroke: Some(mara_core::vocab::Stroke::new(
             graph.pin_stroke_width,
-            egui::Color32::from_black_alpha(graph.pin_stroke_alpha),
+            mara_core::vocab::Color32::from_black_alpha(graph.pin_stroke_alpha),
         )),
         // Wires — Blender uses 2.5 px width with a 1-px dark
         // outline pass underneath; egui-graph draws a single
