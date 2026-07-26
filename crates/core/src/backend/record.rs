@@ -282,11 +282,18 @@ impl UiBackend for RecordingBackend {
         // batches, and the ordering is the contract.
         let slot = self.reserve_paint_slot();
         let margin = spec.inner_margin;
-        let start = self.cursor;
+        let outer = spec.outer_margin;
+        // The outer margin sits between the parent's cursor and the
+        // frame's border, so the border starts inside it.
+        let start = Pos2::new(
+            self.cursor.x + outer.left as f32,
+            self.cursor.y + outer.top as f32,
+        );
         self.cursor = Pos2::new(start.x + margin.left as f32, start.y + margin.top as f32);
         body(self);
         let content_bottom = self.cursor.y + margin.bottom as f32;
         let rect = Rect::from_min_max(start, Pos2::new(self.available.max.x, content_bottom));
+        self.cursor = Pos2::new(self.cursor.x, content_bottom + outer.bottom as f32);
         self.fill_paint_slot(
             slot,
             Some(PaintCmd::RectFilled {

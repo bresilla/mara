@@ -33,6 +33,7 @@ pub fn egui_frame_for_style_spec(spec: crate::style::FrameSpec) -> egui::Frame {
         .stroke(spec.stroke)
         .corner_radius(spec.corner)
         .inner_margin(egui::Margin::from(spec.inner_margin))
+        .outer_margin(egui::Margin::from(spec.outer_margin))
         .shadow(shadow)
 }
 

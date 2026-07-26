@@ -3104,6 +3104,14 @@ pub struct FrameSpec {
     pub stroke: MaraStroke,
     pub corner: MaraCornerRadius,
     pub inner_margin: MarginSpec,
+    /// Space held *outside* the frame's border.
+    ///
+    /// Distinct from `inner_margin`, which insets content within the
+    /// border. A surface that needs to know how much room a frame
+    /// occupies in its parent's layout — to place a selection outline
+    /// around a node, say — needs both; see
+    /// [`FrameSpec::total_margin`].
+    pub outer_margin: MarginSpec,
     pub shadow: Option<FrameShadowSpec>,
 }
 
@@ -3120,6 +3128,7 @@ impl FrameSpec {
             stroke,
             corner,
             inner_margin,
+            outer_margin: MarginSpec::ZERO,
             shadow: None,
         }
     }
@@ -3128,6 +3137,30 @@ impl FrameSpec {
     pub fn with_inner_margin(mut self, inner_margin: impl Into<MarginSpec>) -> Self {
         self.inner_margin = inner_margin.into();
         self
+    }
+
+    #[must_use]
+    pub fn with_outer_margin(mut self, outer_margin: impl Into<MarginSpec>) -> Self {
+        self.outer_margin = outer_margin.into();
+        self
+    }
+
+    /// Inner plus outer margin — the full space this frame takes beyond
+    /// its content.
+    #[must_use]
+    pub const fn total_margin(&self) -> MarginSpec {
+        MarginSpec {
+            left: self.inner_margin.left.saturating_add(self.outer_margin.left),
+            right: self
+                .inner_margin
+                .right
+                .saturating_add(self.outer_margin.right),
+            top: self.inner_margin.top.saturating_add(self.outer_margin.top),
+            bottom: self
+                .inner_margin
+                .bottom
+                .saturating_add(self.outer_margin.bottom),
+        }
     }
 
     #[must_use]

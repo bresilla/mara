@@ -808,6 +808,45 @@ fn d13_a_group_fills_a_single_slot() {
     }
 }
 
+/// Inner and outer margin do different jobs: the outer holds the
+/// border away from the parent's cursor, the inner holds content away
+/// from the border. A frame that folded them together would place the
+/// border in the wrong place.
+#[test]
+fn d13_frame_outer_margin_offsets_the_border_itself() {
+    use mara_core::backend::record::RecordingBackend;
+    use mara_core::layout::{Sense, UiBackend};
+    use mara_core::style::{FrameSpec, MarginSpec};
+
+    let spec = FrameSpec::new(
+        Color32::BLACK,
+        mara_core::vocab::Stroke::new(1.0, Color32::WHITE),
+        CornerRadius::same(2),
+        MarginSpec::symmetric(4, 4),
+    )
+    .with_outer_margin(MarginSpec::symmetric(10, 10));
+
+    assert_eq!(spec.total_margin().left, 14, "total is inner plus outer");
+
+    let mut backend =
+        RecordingBackend::at(Rect::from_min_size(Pos2::ZERO, Vec2::new(200.0, 120.0)));
+    let mut inner_min = Pos2::ZERO;
+    let rect = backend.framed(spec, &mut |inner| {
+        inner_min = inner.allocate(Vec2::new(10.0, 10.0), Sense::Hover).rect.min;
+    });
+
+    assert_eq!(
+        rect.min,
+        Pos2::new(10.0, 10.0),
+        "the border starts after the outer margin"
+    );
+    assert_eq!(
+        inner_min,
+        Pos2::new(14.0, 14.0),
+        "content starts after both margins"
+    );
+}
+
 /// Content is inset by the frame's margin, so a body cannot draw over
 /// its own border.
 #[test]
