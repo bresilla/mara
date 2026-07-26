@@ -14,6 +14,9 @@ repository.workspace = true
 
 [dependencies]
 egui = { workspace = true, default-features = false, features = ["default_fonts"] }
+# Ids hash with the backend's algorithm and seeds so the two agree —
+# verified by `e4_id_hash_matches_the_backend`.
+ahash = { version = "0.8", default-features = false, features = ["std"] }
 serde = { version = "1", features = ["derive"], optional = true }
 egui-scale = "0.4"
 # SVG rasterisation for `PaintCmd::Svg`. This is the ONLY thing Mara

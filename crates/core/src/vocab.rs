@@ -527,36 +527,49 @@ impl From<Rect> for egui::Rect {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct Id(egui::Id);
+/// Stable widget/state identity — WS-E4 native.
+///
+/// Holds the hash itself. The algorithm and seeds are the backend's, so
+/// `Id::new(x)` is the *same number* the backend produces for `x` —
+/// pinned by `e4_id_hash_matches_the_backend`.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct Id(u64);
+
+/// Hex, so ids stay recognisable in goldens and logs.
+impl std::fmt::Debug for Id {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Id({:016X})", self.0)
+    }
+}
+
+/// The backend's seeds. Changing them silently invalidates every
+/// persisted key, so they are written once, here.
+fn id_hasher() -> ahash::RandomState {
+    ahash::RandomState::with_seeds(1, 2, 3, 4)
+}
 
 impl Id {
     #[must_use]
     pub fn new(source: impl std::hash::Hash) -> Self {
-        Self(egui::Id::new(source))
+        Self(std::hash::BuildHasher::hash_one(&id_hasher(), source))
     }
 
+    /// Derive a child id, mirroring the backend's derivation so the two
+    /// agree: hash the parent's value, then the child.
     #[must_use]
     pub fn with(self, child: impl std::hash::Hash) -> Self {
-        Self(self.0.with(child))
+        use std::hash::{BuildHasher as _, Hasher as _};
+        let mut hasher = id_hasher().build_hasher();
+        hasher.write_u64(self.0);
+        child.hash(&mut hasher);
+        Self(hasher.finish())
     }
-}
 
-impl std::borrow::Borrow<egui::Id> for Id {
-    fn borrow(&self) -> &egui::Id {
-        &self.0
-    }
-}
-
-impl PartialEq<egui::Id> for Id {
-    fn eq(&self, other: &egui::Id) -> bool {
-        self.0 == *other
-    }
-}
-
-impl PartialEq<Id> for egui::Id {
-    fn eq(&self, other: &Id) -> bool {
-        *self == other.0
+    /// The raw hash.
+    #[must_use]
+    pub const fn value(self) -> u64 {
+        self.0
     }
 }
 
@@ -572,15 +585,38 @@ impl From<String> for Id {
     }
 }
 
-impl From<egui::Id> for Id {
-    fn from(id: egui::Id) -> Self {
-        Self(id)
+/// A Mara id and a backend id for the same source hash to the same
+/// number, so they compare by value.
+#[cfg(feature = "backend-egui-conv")]
+impl PartialEq<egui::Id> for Id {
+    fn eq(&self, other: &egui::Id) -> bool {
+        self.0 == other.value()
     }
 }
 
+#[cfg(feature = "backend-egui-conv")]
+impl PartialEq<Id> for egui::Id {
+    fn eq(&self, other: &Id) -> bool {
+        self.value() == other.0
+    }
+}
+
+#[cfg(feature = "backend-egui-conv")]
+impl From<egui::Id> for Id {
+    fn from(id: egui::Id) -> Self {
+        Self(id.value())
+    }
+}
+
+/// The backend's `Id` has no public constructor from a raw hash, so
+/// this re-hashes. Deterministic and total, which is all the backend
+/// asks of an id — but **not an inverse** of the conversion above.
+/// Anything that stores a Mara id *as* a backend id and reads it back
+/// must keep the mapping rather than convert twice.
+#[cfg(feature = "backend-egui-conv")]
 impl From<Id> for egui::Id {
     fn from(id: Id) -> Self {
-        id.0
+        egui::Id::new(id.0)
     }
 }
 

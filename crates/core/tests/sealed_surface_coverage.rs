@@ -818,8 +818,6 @@ fn d13_a_group_fills_a_single_slot() {
 #[cfg(feature = "backend-egui-conv")]
 #[test]
 fn e4_id_hash_matches_the_backend() {
-    use std::hash::BuildHasher as _;
-
     let state = ahash::RandomState::with_seeds(1, 2, 3, 4);
     for source in [
         "mara.shelf.layout",
@@ -829,7 +827,7 @@ fn e4_id_hash_matches_the_backend() {
         "some/rather/longer/identifier/with/segments",
     ] {
         assert_eq!(
-            state.hash_one(source),
+            std::hash::BuildHasher::hash_one(&state, source),
             egui::Id::new(source).value(),
             "hashing {source:?} disagrees with the backend"
         );
@@ -837,7 +835,10 @@ fn e4_id_hash_matches_the_backend() {
 
     // And for non-string sources, which ids are also built from.
     for n in [0_u64, 1, 42, u64::MAX] {
-        assert_eq!(state.hash_one(n), egui::Id::new(n).value());
+        assert_eq!(
+            std::hash::BuildHasher::hash_one(&state, n),
+            egui::Id::new(n).value()
+        );
     }
 }
 
@@ -859,37 +860,41 @@ fn e4_lerp_matches_the_backend_including_overshoot() {
     }
 }
 
-/// WS-E4/G1 constraint, pinned as a test because it decides whether
-/// `Id` can go native.
+/// WS-E4: `Id` is native now, and this pins the property that made it
+/// possible plus the sharp edge that remains.
 ///
-/// An `Id` must survive a round trip through the backend unchanged —
-/// Mara's state store is keyed by it, and some ids originate on the
-/// backend side (a `Ui`'s own id, auto-ids). The obvious native shape,
-/// "store the u64 hash", cannot work: the backend's constructor from a
-/// raw hash is private, so the only way back is to hash the value a
-/// second time, which lands somewhere else entirely. This asserts both
-/// halves — the round trip that must hold, and the re-hash that breaks
-/// it.
+/// A Mara id **is** the backend's hash for the same source, so
+/// `backend -> Mara` is lossless. The other direction is not its
+/// inverse — the backend has no public constructor from a raw hash, so
+/// it re-hashes. That asymmetry is why every store had to move to
+/// `MaraId` before the type changed: a store still keyed by the
+/// backend's id round-trips through the re-hash and silently loses the
+/// original identity.
 #[cfg(feature = "backend-egui-conv")]
 #[test]
-fn e4_id_must_round_trip_through_the_backend() {
+fn e4_id_is_lossless_inbound_and_rehashes_outbound() {
     use mara_core::vocab::Id;
 
-    for source in ["a_widget", "another", "mara.shelf.layout"] {
-        let mara = Id::new(source);
-        let there: egui::Id = mara.into();
-        let back: Id = there.into();
-        assert_eq!(back, mara, "an Id must survive the backend unchanged");
+    for source in ["a_widget", "mara.shelf.layout", "", "another/one"] {
+        // Same source, same number — the premise of the native `Id`.
+        assert_eq!(Id::new(source).value(), egui::Id::new(source).value());
 
-        // Why `Id` stays wrapped: re-hashing the value is not identity,
-        // so a native `Id` holding only the hash could not be converted
-        // back, and every state lookup keyed by a backend-origin id
-        // would silently miss.
-        let rehashed = egui::Id::new(there.value());
+        // Backend -> Mara -> backend-comparison is lossless.
+        let from_backend: Id = egui::Id::new(source).into();
+        assert_eq!(from_backend, Id::new(source));
+        assert!(from_backend == egui::Id::new(source));
+
+        // Mara -> backend is a re-hash, deterministic but not an
+        // inverse. Anything persisting a Mara id as a backend id must
+        // keep the mapping instead of converting twice.
+        let out: egui::Id = Id::new(source).into();
         assert_ne!(
-            rehashed, there,
-            "if this ever became equal, a native Id holding the hash would be viable"
+            out,
+            egui::Id::new(source),
+            "if this ever became equal the outbound conversion would be an inverse"
         );
+        let back: Id = out.into();
+        assert_ne!(back, Id::new(source));
     }
 }
 
