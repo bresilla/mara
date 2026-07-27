@@ -1131,7 +1131,7 @@ impl Normal {
                         }
                         paint_title(
                             ui,
-                            rect,
+                            rect.into(),
                             &title_text,
                             anchor,
                             accent,
@@ -2097,7 +2097,7 @@ fn paint_folder_tabs(
 #[allow(clippy::too_many_arguments)]
 fn paint_top_tabs(
     ui: &mut Ui,
-    title_rect: egui::Rect,
+    title_rect: MaraRect,
     tab_meta: &[(String, Icon<'static>)],
     tab_ids: &[Id],
     active_idx: usize,
@@ -2400,7 +2400,7 @@ fn top_tab_label_paint_cmd(pos: MaraPos2, title: &str, size: f32, color: MaraCol
 
 fn paint_icon_or_svg(
     ui: &mut Ui,
-    pos: egui::Pos2,
+    pos: MaraPos2,
     align: crate::vocab::Align2,
     icon: Icon<'_>,
     size: f32,
@@ -2492,7 +2492,7 @@ fn title_divider_paint_cmd(
 #[allow(clippy::too_many_arguments)]
 fn paint_title(
     ui: &mut Ui,
-    rect: egui::Rect,
+    rect: MaraRect,
     title: &str,
     anchor: PaneAnchor,
     accent: Color32,
@@ -2835,7 +2835,7 @@ fn paint_title(
 /// buttons (`Order::Middle`) and the pane chrome (`Order::Background`).
 fn paint_floating_icon(
     ui: &mut Ui,
-    strip_rect: egui::Rect,
+    strip_rect: MaraRect,
     anchor: PaneAnchor,
     title_col: Color32,
     openness: f32,
@@ -3021,7 +3021,7 @@ fn chevron_h_paint_cmd(
 // that.
 fn paint_corner_ticks(
     ui: &mut Ui,
-    outer_rect: egui::Rect,
+    outer_rect: MaraRect,
     accent: Color32,
     title_side: TitleSide,
     openness: f32,
