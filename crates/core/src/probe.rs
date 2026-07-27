@@ -135,12 +135,14 @@ pub fn format(poses: &[ElementPose]) -> String {
 
 /// Enable (fresh log) or disable pose recording for this frame. Call
 /// before running the UI.
+#[cfg(feature = "backend-egui-conv")]
 #[doc(hidden)]
 pub fn __internal_set_enabled(ctx: &egui::Context, on: bool) {
     crate::backend::egui::probe_set_enabled(ctx, on);
 }
 
 /// Drain and return the poses recorded this frame.
+#[cfg(feature = "backend-egui-conv")]
 #[doc(hidden)]
 pub fn __internal_drain(ctx: &egui::Context) -> Vec<ElementPose> {
     crate::backend::egui::probe_drain(ctx)
@@ -148,12 +150,14 @@ pub fn __internal_drain(ctx: &egui::Context) -> Vec<ElementPose> {
 
 /// Record a labeled global/structural pose (used by first-party
 /// layout code, e.g. the pane placer, to surface key rects).
+#[cfg(feature = "backend-egui-conv")]
 #[doc(hidden)]
 pub fn __internal_record(ctx: &egui::Context, pose: ElementPose) {
     crate::backend::egui::probe_record(ctx, pose);
 }
 
 /// Whether the probe is currently capturing this frame.
+#[cfg(feature = "backend-egui-conv")]
 #[doc(hidden)]
 pub fn __internal_enabled(ctx: &egui::Context) -> bool {
     crate::backend::egui::probe_enabled(ctx)
@@ -192,3 +196,32 @@ mod tests {
         assert!(format(&[]).contains("nothing recorded"));
     }
 }
+
+/// Fallbacks for a build with no backend. The probe is a diagnostic:
+/// with nothing to observe it reports "not capturing", so callers stay
+/// unconditional rather than every call site growing a `cfg`.
+#[cfg(not(feature = "backend-egui-conv"))]
+mod no_backend {
+    use super::ElementPose;
+
+    #[doc(hidden)]
+    pub fn __internal_set_enabled(_ctx: &dyn crate::context::MaraCtx, _on: bool) {}
+
+    #[doc(hidden)]
+    #[must_use]
+    pub fn __internal_drain(_ctx: &dyn crate::context::MaraCtx) -> Vec<ElementPose> {
+        Vec::new()
+    }
+
+    #[doc(hidden)]
+    pub fn __internal_record(_ctx: &dyn crate::context::MaraCtx, _pose: ElementPose) {}
+
+    #[doc(hidden)]
+    #[must_use]
+    pub fn __internal_enabled(_ctx: &dyn crate::context::MaraCtx) -> bool {
+        false
+    }
+}
+
+#[cfg(not(feature = "backend-egui-conv"))]
+pub use no_backend::*;

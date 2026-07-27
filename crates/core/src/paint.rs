@@ -207,11 +207,13 @@ impl PaintList {
 ///
 /// This is not app-facing API; future backends should consume
 /// `PaintCmd` directly through their own renderer.
+#[cfg(feature = "backend-egui-conv")]
 #[doc(hidden)]
 pub fn __internal_render_paint_cmd_egui(painter: &egui::Painter, cmd: PaintCmd) {
     crate::backend::egui::render_paint_cmd(painter, cmd);
 }
 
+#[cfg(feature = "backend-egui-conv")]
 #[doc(hidden)]
 pub fn __internal_render_paint_cmd_egui_ui(ui: &mut egui::Ui, cmd: PaintCmd) {
     crate::backend::egui::render_paint_cmd_ui(ui, cmd);
