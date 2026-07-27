@@ -170,36 +170,15 @@ pub fn __internal_shell_opted_out(ctx: &dyn MaraCtx) -> bool {
     fresh(ctx, shell_opt_out_pass_key())
 }
 
-/// Enforce Mara's defaults for this pass. Called by every Mara surface
-/// entry point; cheap after the first call of a pass (stamp reads).
-#[doc(hidden)]
-pub fn __internal_enforce_defaults(ctx: &egui::Context) {
-    if enforcing(ctx) {
-        return;
-    }
-
-    // Image loaders: `PaintCmd::Svg` needs a rasteriser registered on
-    // the context. Enforced here rather than left to the app so a
-    // sealed module can emit `Svg` and have it render, on any host,
-    // without the app knowing an image-loader chain exists.
-    // `install_image_loaders` guards each loader on
-    // `Context::is_loader_installed`, so calling it per pass is cheap.
-    #[cfg(feature = "svg")]
-    egui_extras::install_image_loaders(ctx);
-
-    // Theme: apply the active Mara theme unless the app applied one.
-    // `__internal_apply_theme` de-dupes internally, so re-applying every
-    // pass for theme-less apps is cheap and tracks resizes.
-    if !fresh(ctx, app_theme_pass_key()) {
-        set_enforcing(ctx, true);
-        crate::style::__internal_apply_theme(
-            ctx,
-            crate::style::AccentColor(crate::style::raw_accent()),
-            crate::style::glass_opacity(),
-        );
-        set_enforcing(ctx, false);
-    }
-
+/// Whether the Mara-owned fallback bar should render this pass.
+///
+/// The whole enforcement *policy* — stamps, the grace pass, the
+/// opt-out — decided without naming a backend. Only the rendering of
+/// the fallback needs one, which keeps the rule that decides "did the
+/// app do this, or does Mara?" testable and portable.
+///
+/// Returns the pass number to stamp when it says yes.
+fn fallback_bar_due(ctx: &dyn MaraCtx) -> Option<u64> {
     // Shelf-layout baseline: publish the full-viewport no-shelf layout
     // unless the app published one. Re-published per pass so floating
     // chrome tracks the live window size.
@@ -218,22 +197,59 @@ pub fn __internal_enforce_defaults(ctx: &egui::Context) {
     // Record the first pass enforcement ever ran on this context —
     // unconditionally, so early-outs below (app bar fresh, opt-out)
     // never make a later pass masquerade as the first one.
-    let first_seen = match MaraCtx::memory(ctx).get_temp::<u64>(grace_pass_key()) {
+    let first_seen = match ctx.memory().get_temp::<u64>(grace_pass_key()) {
         Some(first) => first,
         None => {
-            MaraCtx::memory(ctx).set_temp(grace_pass_key(), pass);
+            ctx.memory().set_temp(grace_pass_key(), pass);
             pass
         }
     };
     if fresh(ctx, app_shell_pass_key()) || __internal_shell_opted_out(ctx) {
-        return;
+        return None;
     }
     // First pass this context is ever seen: give the app the rest of
     // the pass to render its own bar (runners and well-behaved apps
     // draw it after content).
     if first_seen == pass {
+        return None;
+    }
+    Some(pass)
+}
+
+/// Enforce Mara's defaults for this pass. Called by every Mara surface
+/// entry point; cheap after the first call of a pass (stamp reads).
+#[cfg(feature = "backend-egui-conv")]
+#[doc(hidden)]
+pub fn __internal_enforce_defaults(ctx: &egui::Context) {
+    if enforcing(ctx) {
         return;
     }
+
+    // Image loaders: `PaintCmd::Svg` needs a rasteriser registered on
+    // the context. Enforced here rather than left to the app so a
+    // sealed module can emit `Svg` and have it render, on any host,
+    // without the app knowing an image-loader chain exists.
+    // `install_image_loaders` guards each loader on
+    // `Context::is_loader_installed`, so calling it per pass is cheap.
+    #[cfg(feature = "svg")]
+    egui_extras::install_image_loaders(ctx);
+
+    // Theme application builds backend visuals, so it stays on this
+    // side of the split. It de-dupes internally, so re-applying every
+    // pass for theme-less apps is cheap and tracks resizes.
+    if !fresh(ctx, app_theme_pass_key()) {
+        set_enforcing(ctx, true);
+        crate::style::__internal_apply_theme(
+            ctx,
+            crate::style::AccentColor(crate::style::raw_accent()),
+            crate::style::glass_opacity(),
+        );
+        set_enforcing(ctx, false);
+    }
+
+    let Some(pass) = fallback_bar_due(ctx) else {
+        return;
+    };
 
     // The app has had its chance — render the Mara-owned fallback bar.
     // The default `ShellBar` (app-menu + injected host controls, no
