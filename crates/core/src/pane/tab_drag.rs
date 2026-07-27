@@ -461,7 +461,7 @@ fn find_drop_target_filtered(
 /// Paint the dragged tab's preview at the cursor on Mara's overlay
 /// layer — floats above every pane / container layer.
 pub fn paint_drag_preview(
-    ctx: &Context,
+    ctx: &dyn crate::context::MaraCtx,
     pane_id: Id,
     button_size: MaraVec2,
     cursor: Pos2,
@@ -475,14 +475,12 @@ pub fn paint_drag_preview(
         cursor.y - button_size.y * 0.5,
     );
     let area_id = pane_id.with("mara_tab_drag_preview");
-    crate::backend::egui::show_area_for_host(
-        ctx,
-        AreaHost::new(area_id.into(), pos, Layer::Overlay).non_interactive(),
-        |ui| {
+    ctx.area(
+        AreaHost::new(area_id, pos, Layer::Overlay).non_interactive(),
+        &mut |ui| {
             let rect = MaraRect::from_min_size(pos, button_size);
-            let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
             for cmd in tab_drag_preview_paint_cmds(rect, accent.into()) {
-                backend.paint(cmd);
+                ui.paint(cmd);
             }
             // Glyph + label, centred. Best-effort; icon may be empty.
             if let Some(icon) = icon {
@@ -498,7 +496,7 @@ pub fn paint_drag_preview(
                     icon_size,
                     crate::style::on_panel(),
                 ) {
-                    backend.paint(cmd);
+                    ui.paint(cmd);
                 }
             }
             let _ = label;
