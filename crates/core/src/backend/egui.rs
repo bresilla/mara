@@ -670,9 +670,6 @@ pub(crate) fn pointer_latest_pos(ctx: &egui::Context) -> Option<vocab::Pos2> {
     ctx.pointer_latest_pos().map(Into::into)
 }
 
-pub(crate) fn pointer_any_released(ctx: &egui::Context) -> bool {
-    ctx.input(|input| input.pointer.any_released())
-}
 
 
 pub(crate) fn viewport_maximized(ctx: &egui::Context) -> bool {
@@ -875,11 +872,6 @@ pub(crate) fn reserve_pane_title_slot(ui: &mut egui::Ui, spec: PaneFlexSpec) -> 
     rect.into()
 }
 
-pub(crate) fn add_pane_body_gap(ui: &mut egui::Ui, spec: PaneFlexSpec) {
-    if spec.body_gap > 0.0 {
-        add_space_for_spec(ui, SpaceSpec::vertical(spec.body_gap));
-    }
-}
 
 pub(crate) fn show_pane_body_scroll_slot<R>(
     ui: &mut egui::Ui,

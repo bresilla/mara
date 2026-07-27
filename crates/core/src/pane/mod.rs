@@ -42,7 +42,7 @@ use crate::context::MaraCtx;
 use crate::vocab::Id;
 use egui::Color32;
 
-use crate::layout::{AreaHost, Layer, PaneBodyScrollSpec, PaneFlexSpec, UiBackend};
+use crate::layout::{AreaHost, Layer, PaneBodyScrollSpec, PaneFlexSpec};
 use crate::style;
 use crate::vocab::{
     Color32 as MaraColor32, Id as MaraId, Pos2 as MaraPos2, Rect as MaraRect, Vec2 as MaraVec2,
@@ -1284,7 +1284,13 @@ impl Pane {
         // strip and the body callback, hits exactly the first container
         // (no other paint runs between title and body) and leaves
         // every subsequent container's stacking gap unchanged.
-        crate::backend::egui::add_pane_body_gap(ui, flex_spec);
+        if flex_spec.body_gap > 0.0 {
+            crate::MaraUi::__internal_over(
+                &mut crate::MaraUi::__internal_backend_from_raw(ui),
+                accent,
+            )
+            .add_space(crate::layout::SpaceSpec::vertical(flex_spec.body_gap));
+        }
         let mut body = Some(body);
         let mut render_body = |ui: &mut egui::Ui| {
             // Reset per-frame drag bookkeeping (current cache + section
@@ -1626,8 +1632,11 @@ fn paint_resize_handles_inner(
     let accent_mara = MaraColor32::from(accent);
     let paint_indicator = |ui: &mut egui::Ui, rect: MaraRect, hovered: bool, dragged: bool| {
         if let Some(cmd) = pane_resize_indicator_paint_cmd(rect, accent_mara, hovered, dragged) {
-            let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
-            backend.paint(cmd);
+            crate::MaraUi::__internal_over(
+                &mut crate::MaraUi::__internal_backend_from_raw(ui),
+                accent_mara,
+            )
+            .paint(cmd);
         }
     };
     let pane_rect_mara = MaraRect::from(pane_rect);
