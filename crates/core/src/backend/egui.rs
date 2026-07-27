@@ -222,6 +222,10 @@ impl UiBackend for EguiUiBackend<'_> {
         self.ui.painter().set(ShapeIdx(slot.0), shape);
     }
 
+    fn hover_cursor(&mut self, response: &MaraResponse, cursor: crate::layout::CursorIcon) {
+        hover_cursor_for_ui_response(self.ui, response, cursor);
+    }
+
     fn hover_text(&mut self, response: &MaraResponse, text: &str) {
         hover_text(self.ui.ctx(), response.backend_response_id(), text);
     }

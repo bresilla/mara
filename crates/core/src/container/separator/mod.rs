@@ -102,12 +102,15 @@ pub enum SeparatorOrient {
 /// length on the main axis is the parent ui's `available_*`. Colour
 /// comes from [`style::outline_base`], which auto-flips per theme
 /// luma — white-tinted on Dark, black-tinted on Light.
-pub(crate) fn paint_separator(ui: &mut Ui, style: SeparatorStyle, orient: SeparatorOrient) {
+pub(crate) fn paint_separator(
+    ui: &mut crate::MaraUi<'_>,
+    style: SeparatorStyle,
+    orient: SeparatorOrient,
+) {
     if matches!(style, SeparatorStyle::None) {
         return;
     }
-    let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
-    paint_separator_backend(&mut backend, style, orient);
+    paint_separator_backend(ui.backend_mut(), style, orient);
 }
 
 /// Interactive variant: same allocation as [`paint_separator`] but
@@ -121,26 +124,25 @@ pub(crate) fn paint_separator(ui: &mut Ui, style: SeparatorStyle, orient: Separa
 /// flips to `ResizeVertical` for horizontal separators (drag changes
 /// vertical extent) and `ResizeHorizontal` for vertical separators.
 pub(crate) fn paint_separator_resize(
-    ui: &mut Ui,
+    ui: &mut crate::MaraUi<'_>,
     style: SeparatorStyle,
     orient: SeparatorOrient,
     id_salt: impl Hash,
     accent: impl Into<MaraColor32>,
 ) -> MaraResponse {
-    let id = Id::from(ui.id().with(("mara_separator_resize", id_salt)));
+    let id = ui.id().with(("mara_separator_resize", id_salt));
     let cursor = match orient {
         SeparatorOrient::Horizontal => CursorIcon::ResizeVertical,
         SeparatorOrient::Vertical => CursorIcon::ResizeHorizontal,
     };
-    let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
-    let resp = paint_separator_resize_backend(&mut backend, style, orient, id, accent.into());
-    crate::backend::egui::hover_cursor_for_ui_response(ui, &resp, cursor);
+    let resp = paint_separator_resize_backend(ui.backend_mut(), style, orient, id, accent.into());
+    ui.hover_cursor(&resp, cursor);
     resp
 }
 
 /// Backend-neutral non-interactive separator renderer.
 pub fn paint_separator_backend(
-    backend: &mut impl UiBackend,
+    backend: &mut dyn UiBackend,
     style: SeparatorStyle,
     orient: SeparatorOrient,
 ) -> MaraResponse {
@@ -151,7 +153,7 @@ pub fn paint_separator_backend(
 
 /// Backend-neutral interactive separator renderer.
 pub fn paint_separator_resize_backend(
-    backend: &mut impl UiBackend,
+    backend: &mut dyn UiBackend,
     style: SeparatorStyle,
     orient: SeparatorOrient,
     id: Id,
@@ -165,7 +167,7 @@ pub fn paint_separator_resize_backend(
     resp
 }
 
-fn allocate_strip_backend(backend: &mut impl UiBackend, orient: SeparatorOrient) -> MaraResponse {
+fn allocate_strip_backend(backend: &mut dyn UiBackend, orient: SeparatorOrient) -> MaraResponse {
     let available = backend.available_rect();
     let size = match orient {
         SeparatorOrient::Horizontal => Vec2::new(available.width().max(0.0), separator_strip_h()),
@@ -188,7 +190,7 @@ fn default_ink() -> MaraColor32 {
 }
 
 fn paint_into_backend(
-    backend: &mut impl UiBackend,
+    backend: &mut dyn UiBackend,
     rect: MaraRect,
     style: SeparatorStyle,
     orient: SeparatorOrient,
@@ -202,7 +204,7 @@ fn paint_into_backend(
 }
 
 fn paint_horizontal_backend(
-    backend: &mut impl UiBackend,
+    backend: &mut dyn UiBackend,
     rect: MaraRect,
     style: SeparatorStyle,
     ink: MaraColor32,
@@ -243,7 +245,7 @@ fn paint_horizontal_backend(
 }
 
 fn paint_vertical_backend(
-    backend: &mut impl UiBackend,
+    backend: &mut dyn UiBackend,
     rect: MaraRect,
     style: SeparatorStyle,
     ink: MaraColor32,

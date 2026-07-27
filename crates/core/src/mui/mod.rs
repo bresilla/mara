@@ -1665,6 +1665,21 @@ impl<'a> MaraUi<'a> {
         self.backend.interact(rect.into(), id.into(), sense)
     }
 
+    /// Show `cursor` while the pointer is over `response`.
+    pub fn hover_cursor(&mut self, response: &MaraResponse, cursor: crate::layout::CursorIcon) {
+        self.backend.hover_cursor(response, cursor);
+    }
+
+    /// Lend this surface's backend to code written against
+    /// [`UiBackend`].
+    ///
+    /// Not an escape hatch: `UiBackend` *is* the sealed drawing trait.
+    /// It exists so helpers already written backend-neutrally can be
+    /// called from a `MaraUi` without re-wrapping a raw backend.
+    pub fn backend_mut(&mut self) -> &mut dyn UiBackend {
+        &mut *self.backend
+    }
+
     /// Attach hover text to a response.
     pub fn hover_text(&mut self, response: &MaraResponse, text: &str) {
         self.backend.hover_text(response, text);

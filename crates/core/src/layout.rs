@@ -761,6 +761,15 @@ pub trait UiBackend {
 
     /// Show hover-tooltip `text` for a previously-returned response.
     /// No-op on backends without an overlay layer.
+    /// Show `cursor` while the pointer is over `response`.
+    ///
+    /// The default does nothing: a backend with no pointer cursor
+    /// (a recording backend, a headless test) is not wrong to ignore
+    /// this, and the drag still works.
+    fn hover_cursor(&mut self, response: &MaraResponse, cursor: CursorIcon) {
+        let _ = (response, cursor);
+    }
+
     fn hover_text(&mut self, response: &MaraResponse, text: &str) {
         let _ = (response, text);
     }
@@ -1060,6 +1069,9 @@ impl<T: UiBackend + ?Sized> UiBackend for &mut T {
     }
     fn fill_paint_slot(&mut self, slot: PaintSlot, cmd: Option<PaintCmd>) {
         (**self).fill_paint_slot(slot, cmd)
+    }
+    fn hover_cursor(&mut self, response: &MaraResponse, cursor: CursorIcon) {
+        (**self).hover_cursor(response, cursor)
     }
     fn hover_text(&mut self, response: &MaraResponse, text: &str) {
         (**self).hover_text(response, text)

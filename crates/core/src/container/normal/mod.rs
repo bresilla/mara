@@ -708,7 +708,10 @@ impl Normal {
                         // tracks the pod's bottom edge (each
                         // widget grows by delta/N).
                         let resp = crate::container::paint_separator_resize(
-                            body_ui,
+                            &mut crate::MaraUi::__internal_over(
+                                &mut crate::MaraUi::__internal_backend_from_raw(body_ui),
+                                pods_accent,
+                            ),
                             separator_after,
                             // Inter-pod separators are always
                             // horizontal — the body forces a
@@ -738,7 +741,10 @@ impl Normal {
                         }
                     } else {
                         crate::container::paint_separator(
-                            body_ui,
+                            &mut crate::MaraUi::__internal_over(
+                                &mut crate::MaraUi::__internal_backend_from_raw(body_ui),
+                                pods_accent,
+                            ),
                             separator_after,
                             crate::container::SeparatorOrient::Horizontal,
                         );
