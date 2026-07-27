@@ -2147,7 +2147,7 @@ fn container_move_empty_edge_target(
 }
 
 fn paint_shelf_move_ghost(
-    ctx: &egui::Context,
+    ctx: &dyn crate::context::MaraCtx,
     layout: ShelfLayout,
     state: &ShelfState,
     theme: &ShelfTheme,
@@ -2162,8 +2162,7 @@ fn paint_shelf_move_ghost(
         return;
     };
 
-    crate::backend::egui::show_area_slot(
-        ctx,
+    ctx.area_slot(
         AreaSlotSpec::new(
             AreaHost::new(
                 MaraId::new("mara_shelf_move_ghost"),
@@ -2173,21 +2172,17 @@ fn paint_shelf_move_ghost(
             .non_interactive(),
             rect.size().into(),
         ),
-        |ui| {
-            let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
-            let response = crate::layout::UiBackend::allocate(
-                &mut backend,
-                rect.size().into(),
-                crate::layout::Sense::Hover,
-            );
-            let local: Rect = response.rect.into();
-            paint_shelf_reservation_ghost(ui, local, target, style::active_accent().into());
+        &mut |mara| {
+            let local = mara
+                .allocate(MaraVec2::from(rect.size()), crate::layout::Sense::Hover)
+                .rect;
+            paint_shelf_reservation_ghost(mara, local, target, style::active_accent());
         },
     );
 }
 
 fn paint_container_move_ghost(
-    ctx: &egui::Context,
+    ctx: &dyn crate::context::MaraCtx,
     layout: ShelfLayout,
     state: &ShelfState,
     theme: &ShelfTheme,
@@ -2199,8 +2194,7 @@ fn paint_container_move_ghost(
         return;
     };
     if let Some((rect, accent)) = existing_shelf_container_slot_ghost(ctx, target, drag) {
-        crate::backend::egui::show_area_slot(
-            ctx,
+        ctx.area_slot(
             AreaSlotSpec::new(
                 AreaHost::new(
                     MaraId::new("mara_shelf_existing_container_slot_ghost"),
@@ -2210,15 +2204,11 @@ fn paint_container_move_ghost(
                 .non_interactive(),
                 rect.size().into(),
             ),
-            |ui| {
-                let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
-                let response = crate::layout::UiBackend::allocate(
-                    &mut backend,
-                    rect.size().into(),
-                    crate::layout::Sense::Hover,
-                );
-                let local: Rect = response.rect.into();
-                paint_container_slot_ghost(ui, local, accent);
+            &mut |mara| {
+                let local = mara
+                    .allocate(MaraVec2::from(rect.size()), crate::layout::Sense::Hover)
+                    .rect;
+                paint_container_slot_ghost(mara, local, accent.into());
             },
         );
         return;
@@ -2230,8 +2220,7 @@ fn paint_container_move_ghost(
         return;
     };
     let accent = style::active_accent();
-    crate::backend::egui::show_area_slot(
-        ctx,
+    ctx.area_slot(
         AreaSlotSpec::new(
             AreaHost::new(
                 MaraId::new("mara_shelf_container_move_ghost"),
@@ -2241,31 +2230,34 @@ fn paint_container_move_ghost(
             .non_interactive(),
             shelf_rect.size().into(),
         ),
-        |ui| {
-            let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
-            let response = crate::layout::UiBackend::allocate(
-                &mut backend,
-                shelf_rect.size().into(),
-                crate::layout::Sense::Hover,
-            );
-            let shelf_local: Rect = response.rect.into();
-            paint_shelf_reservation_ghost(ui, shelf_local, target, accent.into());
+        &mut |mara| {
+            let shelf_local = mara
+                .allocate(MaraVec2::from(shelf_rect.size()), crate::layout::Sense::Hover)
+                .rect;
+            paint_shelf_reservation_ghost(mara, shelf_local, target, accent.into());
 
-            let container_rect =
-                new_shelf_container_ghost_rect(ctx, drag.container_id, target, shelf_local);
-            paint_container_slot_ghost(ui, container_rect, accent.into());
+            let container_rect = new_shelf_container_ghost_rect(
+                ctx,
+                drag.container_id,
+                target,
+                shelf_local.into(),
+            );
+            paint_container_slot_ghost(mara, container_rect.into(), accent.into());
         },
     );
 }
 
-fn paint_container_slot_ghost(ui: &mut egui::Ui, rect: Rect, accent: Color32) {
-    let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
+fn paint_container_slot_ghost(
+    mara: &mut crate::MaraUi<'_>,
+    rect: MaraRect,
+    accent: MaraColor32,
+) {
     for cmd in container_slot_ghost_paint_cmds(
-        rect.into(),
-        accent.into(),
+        rect,
+        accent,
         MaraCornerRadius::same(style::theme().radius_md),
     ) {
-        crate::layout::UiBackend::paint(&mut backend, cmd);
+        mara.paint(cmd);
     }
 }
 
@@ -2288,13 +2280,17 @@ fn container_slot_ghost_paint_cmds(
     ]
 }
 
-fn paint_shelf_reservation_ghost(ui: &mut egui::Ui, rect: Rect, edge: ShelfEdge, accent: Color32) {
+fn paint_shelf_reservation_ghost(
+    mara: &mut crate::MaraUi<'_>,
+    rect: MaraRect,
+    edge: ShelfEdge,
+    accent: MaraColor32,
+) {
     let fill = style::fill_for(style::FillRole::DragGhost, accent);
     let stroke = style::stroke_for(style::StrokeRole::DragGhost, accent);
     let stroke = MaraStroke::new(stroke.width, stroke.color);
-    let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
-    for cmd in shelf_reservation_ghost_paint_cmds(edge, rect.into(), fill, stroke) {
-        crate::layout::UiBackend::paint(&mut backend, cmd);
+    for cmd in shelf_reservation_ghost_paint_cmds(edge, rect, fill, stroke) {
+        mara.paint(cmd);
     }
 }
 
