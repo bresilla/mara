@@ -153,7 +153,10 @@ check:
 	@! grep -RInE 'egui::Area::new|egui::Order::' crates/core/src/pane/drag.rs crates/core/src/pane/tab_drag.rs
 	@! (awk '/^#\[cfg\(test\)\]/ { exit } { print }' crates/core/src/pane/drag.rs | grep -nE 'allocate_exact_size|egui::Sense|egui::Rect::from_min_size|egui::pos2|ui[.]painter[(][)][.]rect|egui::Stroke::new|egui::StrokeKind')
 	@! (awk '/^#\[cfg\(test\)\]/ { exit } { print }' crates/core/src/pane/tab_drag.rs | grep -nE 'button_size:[[:space:]]*egui::Vec2|egui::pos2|ui[.]painter[(][)][.]rect|egui::Stroke::new|egui::StrokeKind')
-	@! grep -RInE 'ui[.]painter[(][)]|egui::FontId|egui::FontFamily|egui::epaint::TextShape|egui::Align2|egui::CornerRadius|ui[.]ctx[(][)][.](request_repaint|input)' crates/core/src/pane/title.rs
+	# `title.rs` paints entirely through `MaraUi`/`MaraPainter` now, so the
+	# old list of banned egui idioms is superseded by the stronger claim:
+	# the file names no backend type at all.
+	@! grep -RInE '(^|[^:a-z_])egui::' crates/core/src/pane/title.rs
 	@! (awk '/^#\[cfg\(test\)\]/ { exit } { print }' crates/core/src/embed.rs | grep -nE 'ui[.]painter[(][)]|render_paint_cmd[(]ui[.]painter')
 	@! grep -RInE 'egui::CursorIcon|on_hover_cursor' crates/core/src/shelf
 	@! grep -RInE 'egui::Area::new|egui::Order::' crates/core/src/shelf/mod.rs

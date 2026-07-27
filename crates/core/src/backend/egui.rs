@@ -109,6 +109,16 @@ pub(crate) fn measure_text_for_spec(
         .into()
 }
 
+pub(crate) fn measure_text_runs_for_painter(
+    painter: &egui::Painter,
+    runs: &[TextRun],
+) -> vocab::Vec2 {
+    let Some((job, _fallback_color)) = layout_job_for_text_runs(painter, runs) else {
+        return vocab::Vec2::ZERO;
+    };
+    painter.layout_job(job).size().into()
+}
+
 pub(crate) fn measure_text_runs_for_ui(ui: &egui::Ui, runs: &[TextRun]) -> vocab::Vec2 {
     let Some((job, _fallback_color)) = layout_job_for_text_runs(ui.painter(), runs) else {
         return vocab::Vec2::ZERO;
@@ -606,9 +616,6 @@ pub(crate) fn request_repaint(ctx: &egui::Context) {
     ctx.request_repaint();
 }
 
-pub(crate) fn request_repaint_after_ms(ctx: &egui::Context, ms: u64) {
-    ctx.request_repaint_after(std::time::Duration::from_millis(ms));
-}
 
 pub(crate) fn request_repaint_after(ctx: &egui::Context, after: std::time::Duration) {
     ctx.request_repaint_after(after);

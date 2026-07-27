@@ -835,6 +835,28 @@ impl MaraPainter {
     /// Command-recording painters have no font atlas and return the
     /// same coarse estimate the recording backend uses, so headless
     /// layout stays deterministic rather than collapsing to zero.
+    /// Size of a run sequence laid out as one line.
+    ///
+    /// [`measure_text`](MaraPainter::measure_text) covers a single
+    /// uniform string; a title that mixes weights or families needs the
+    /// runs measured together, because per-run widths do not sum to the
+    /// laid-out width once spacing and kerning apply.
+    #[must_use]
+    pub fn measure_text_runs(&self, runs: &[crate::paint::TextRun]) -> vocab::Vec2 {
+        match &self.sink {
+            MaraPainterSink::Egui(painter) => {
+                backend::egui::measure_text_runs_for_painter(painter, runs)
+            }
+            MaraPainterSink::Commands { .. } => runs.iter().fold(vocab::Vec2::ZERO, |acc, run| {
+                let one = self.measure_text(&run.text, run.size, false);
+                vocab::Vec2::new(
+                    acc.x + one.x + run.leading_space,
+                    acc.y.max(one.y),
+                )
+            }),
+        }
+    }
+
     #[must_use]
     pub fn measure_text(&self, text: &str, size: f32, mono: bool) -> vocab::Vec2 {
         match &self.sink {

@@ -1246,7 +1246,20 @@ impl Pane {
         let paint_title_strip = |ui: &mut egui::Ui| {
             let alloc_rect: egui::Rect =
                 crate::backend::egui::reserve_pane_title_slot(ui, flex_spec).into();
-            title::paint_pane_title(ui, alloc_rect, id, &title_text, anchor, accent);
+            {
+                let ctx = ui.ctx().clone();
+                let mut raw = crate::MaraUi::__internal_backend_from_raw(ui);
+                let mut mara = crate::MaraUi::__internal_over(&mut raw, accent);
+                title::paint_pane_title(
+                    &mut mara,
+                    &ctx,
+                    alloc_rect.into(),
+                    id,
+                    &title_text,
+                    anchor,
+                    accent.into(),
+                );
+            }
         };
 
         // The outer child_ui already carries the correct layout

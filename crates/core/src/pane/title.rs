@@ -2,14 +2,16 @@
 //! accent vs GAME caution stripes), with text alignment + blinking
 //! pip placement driven by the pane's [`PaneAnchor`].
 //!
-//! All drawing is lowered to Mara [`PaintCmd`] values and submitted
-//! through the egui backend adapter; this module no longer calls
-//! `egui::Painter` directly. Time/animation/scramble effects still
-//! read the host context through backend helpers and crate-internal
-//! style helpers while egui remains the only backend.
+//! Fully sealed: the module names no backend type. Drawing goes
+//! through [`MaraUi`](crate::MaraUi)/[`MaraPainter`](crate::MaraPainter)
+//! as [`PaintCmd`] values, and the time/animation/scramble effects read
+//! frame state through [`MaraCtx`](crate::context::MaraCtx), which the
+//! caller passes in — a painting surface does not vend a context.
+//!
+//! `make check` enforces the seal by banning any backend path in
+//! this file.
 
-use crate::vocab::Id;
-use egui::{Color32, Rect};
+use crate::vocab::{Color32, Id, Rect};
 
 use super::anchor::{PaneAnchor, TitleSide};
 use crate::paint::{PaintCmd, TextRun};
@@ -19,16 +21,10 @@ use crate::vocab::{
     Pos2 as MaraPos2, Rect as MaraRect, Vec2 as MaraVec2,
 };
 
-/// Submit a single Mara paint command through the egui backend.
-fn paint_cmd(ui: &mut egui::Ui, cmd: PaintCmd) {
-    let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
-    crate::layout::UiBackend::paint(&mut backend, cmd);
-}
-
 /// Paint one blinking pip rectangle, optionally with a red/cyan
 /// chromatic-aberration flash split along the strip's reading axis.
 fn paint_pip(
-    ui: &mut egui::Ui,
+    ui: &mut crate::MaraUi<'_>,
     r: MaraRect,
     chromatic_pulse: bool,
     is_horizontal_strip: bool,
@@ -49,16 +45,14 @@ fn paint_pip(
                 MaraVec2::new(0.0, CHROM_OFFSET),
             )
         };
-        paint_cmd(
-            ui,
+        ui.painter().paint_cmd(
             PaintCmd::RectFilled {
                 rect: r.translate(off_red),
                 corner: MaraCornerRadius::ZERO,
                 fill: chrom_red,
             },
         );
-        paint_cmd(
-            ui,
+        ui.painter().paint_cmd(
             PaintCmd::RectFilled {
                 rect: r.translate(off_cyan),
                 corner: MaraCornerRadius::ZERO,
@@ -66,8 +60,7 @@ fn paint_pip(
             },
         );
     }
-    paint_cmd(
-        ui,
+    ui.painter().paint_cmd(
         PaintCmd::RectFilled {
             rect: r,
             corner: MaraCornerRadius::ZERO,
@@ -90,7 +83,10 @@ fn paint_pip(
 /// 4. Divider hairline on the body-facing edge of the strip
 ///    (`pane_show_title_divider`).
 pub(crate) fn paint_pane_title(
-    ui: &mut egui::Ui,
+    ui: &mut crate::MaraUi<'_>,
+    // Theme animation state lives on the context, which a surface does
+    // not vend; pass it rather than widen `UiBackend` for one caller.
+    ctx: &dyn crate::context::MaraCtx,
     rect: Rect,
     id: Id,
     title: &str,
@@ -106,8 +102,7 @@ pub(crate) fn paint_pane_title(
 
     // ── 1. Background ──
     if !theme.pane.fill_visible && !stripes_on {
-        paint_cmd(
-            ui,
+        ui.painter().paint_cmd(
             PaintCmd::RectFilled {
                 rect: m_rect,
                 corner: MaraCornerRadius::same(theme.radius_lg),
@@ -118,10 +113,10 @@ pub(crate) fn paint_pane_title(
     if stripes_on {
         // Stripes are visible — keep animating. Without this egui only
         // repaints on input events and the strip would appear frozen.
-        crate::backend::egui::request_repaint_after_ms(ui.ctx(), 16);
-        let time_s = crate::context::MaraCtx::now(ui.ctx()) as f32;
+        ui.request_repaint_after(std::time::Duration::from_millis(16));
+        let time_s = ui.now() as f32;
         if let Some(cmd) = style::caution_stripes_paint_cmd(m_rect, accent, time_s) {
-            paint_cmd(ui, cmd);
+            ui.painter().paint_cmd(cmd);
         }
     }
 
@@ -145,13 +140,13 @@ pub(crate) fn paint_pane_title(
     // `scramble_titles` is off) so the chromatic-aberration helper
     // below can ask whether the cipher is currently running.
     let session_id = id.with("pane2_title_session");
-    let session = style::appearance_session(ui.ctx(), session_id);
+    let session = style::appearance_session(ctx, session_id);
     let scramble_id = session_id.with(session);
     let displayed = if theme.scramble_titles {
-        let scrambled = style::scramble_text(ui.ctx(), scramble_id, &title_uc, true);
+        let scrambled = style::scramble_text(ctx, scramble_id, &title_uc, true);
         // Same periodic single-letter glitch the container title
         // uses — keeps the pane title alive after its decode cycle.
-        style::glitch_text(ui.ctx(), session_id.with("glitch"), &scrambled)
+        style::glitch_text(ctx, session_id.with("glitch"), &scrambled)
     } else {
         title_uc.clone()
     };
@@ -191,12 +186,12 @@ pub(crate) fn paint_pane_title(
     //
     // PRO leaves the flag false → both branches collapse to 0.0.
     let aberration = if theme.pane.title_chromatic_aberration {
-        let periodic = style::chromatic_aberration_offset(ui.ctx(), id.with("chrom_aberr"));
+        let periodic = style::chromatic_aberration_offset(ctx, id.with("chrom_aberr"));
         let cipher_offset =
-            if theme.scramble_titles && style::scramble_active(ui.ctx(), scramble_id, &title_uc) {
+            if theme.scramble_titles && style::scramble_active(ctx, scramble_id, &title_uc) {
                 const CIPHER_PEAK: f32 = 6.0;
-                let now = crate::context::MaraCtx::now(ui.ctx()) as f32;
-                crate::backend::egui::request_repaint_after_ms(ui.ctx(), 33);
+                let now = ui.now() as f32;
+                ui.request_repaint_after(std::time::Duration::from_millis(33));
                 let pulse = (now * 32.0).sin().abs();
                 CIPHER_PEAK * (0.55 + 0.45 * pulse)
             } else {
@@ -235,8 +230,7 @@ pub(crate) fn paint_pane_title(
             // (Y) on each ghost for a touch of CRT-misregistration
             // grit without smearing the glyph height.
             const CROSS_JITTER: f32 = 1.0;
-            paint_cmd(
-                ui,
+            ui.painter().paint_cmd(
                 PaintCmd::TextRuns {
                     pos: MaraPos2::new(pos.x - aberration, pos.y - CROSS_JITTER),
                     anchor: align,
@@ -244,8 +238,7 @@ pub(crate) fn paint_pane_title(
                     runs: make_runs(chr_red),
                 },
             );
-            paint_cmd(
-                ui,
+            ui.painter().paint_cmd(
                 PaintCmd::TextRuns {
                     pos: MaraPos2::new(pos.x + aberration, pos.y + CROSS_JITTER),
                     anchor: align,
@@ -254,8 +247,7 @@ pub(crate) fn paint_pane_title(
                 },
             );
         }
-        paint_cmd(
-            ui,
+        ui.painter().paint_cmd(
             PaintCmd::TextRuns {
                 pos,
                 anchor: align,
@@ -268,7 +260,7 @@ pub(crate) fn paint_pane_title(
         // glyphs; the aberration ghosts reuse the same run tinted
         // red/cyan. `measure_text_runs_for_ui` gives the laid-out
         // size so the rotated origin can be centred on the strip.
-        let g: MaraVec2 = crate::backend::egui::measure_text_runs_for_ui(ui, &make_runs(text_col));
+        let g: MaraVec2 = ui.painter().measure_text_runs(&make_runs(text_col));
         let cx = m_rect.center().x;
         let on_right_side = title_side == TitleSide::Right;
         let top_to_bottom = on_right_side ^ reversed;
@@ -315,8 +307,7 @@ pub(crate) fn paint_pane_title(
         // height after rotation.
         if aberration > 0.0 {
             const CROSS_JITTER: f32 = 1.0;
-            paint_cmd(
-                ui,
+            ui.painter().paint_cmd(
                 PaintCmd::TextRuns {
                     pos: MaraPos2::new(text_pos.x - CROSS_JITTER, text_pos.y - aberration),
                     anchor: MaraAlign2::LEFT_TOP,
@@ -324,8 +315,7 @@ pub(crate) fn paint_pane_title(
                     runs: make_runs(chr_red),
                 },
             );
-            paint_cmd(
-                ui,
+            ui.painter().paint_cmd(
                 PaintCmd::TextRuns {
                     pos: MaraPos2::new(text_pos.x + CROSS_JITTER, text_pos.y + aberration),
                     anchor: MaraAlign2::LEFT_TOP,
@@ -334,8 +324,7 @@ pub(crate) fn paint_pane_title(
                 },
             );
         }
-        paint_cmd(
-            ui,
+        ui.painter().paint_cmd(
             PaintCmd::TextRuns {
                 pos: text_pos,
                 anchor: MaraAlign2::LEFT_TOP,
@@ -352,7 +341,7 @@ pub(crate) fn paint_pane_title(
         // stays bright at the start of each cycle. Bumped from 0.08
         // so the on-state lingers a touch
         // longer and reads clearly between dims.
-        let time = crate::context::MaraCtx::now(ui.ctx()) as f32;
+        let time = ui.now() as f32;
         const ON_FRAC: f32 = 0.16;
         let on = time.fract() < ON_FRAC;
         let alpha = if on { 255 } else { 76 };
@@ -441,7 +430,7 @@ pub(crate) fn paint_pane_title(
                 );
             }
         }
-        crate::backend::egui::request_repaint_after_ms(ui.ctx(), 33);
+        ui.request_repaint_after(std::time::Duration::from_millis(33));
     }
 
     // ── 5. Divider hairline on the body-facing edge ──
@@ -469,6 +458,6 @@ pub(crate) fn paint_pane_title(
                 stroke,
             },
         };
-        paint_cmd(ui, line);
+        ui.painter().paint_cmd(line);
     }
 }
