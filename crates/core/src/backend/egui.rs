@@ -2390,6 +2390,22 @@ impl crate::context::MaraCtx for egui::Context {
         unstable_dt(self)
     }
 
+    fn area(
+        &self,
+        host: crate::layout::AreaHost,
+        body: &mut dyn FnMut(&mut crate::MaraUi<'_>),
+    ) -> vocab::Rect {
+        let accent = crate::style::active_accent();
+        show_area_for_host(self, host, |ui| {
+            let mut backend = EguiUiBackend::new(ui);
+            let mut mara = crate::MaraUi::over(&mut backend, accent);
+            body(&mut mara);
+        })
+        .response
+        .rect
+        .into()
+    }
+
     fn memory(&self) -> MaraMemoryCtx<'_> {
         MaraMemoryCtx::__internal_from_backend_ctx(self)
     }

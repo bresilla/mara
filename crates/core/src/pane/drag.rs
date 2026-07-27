@@ -370,7 +370,7 @@ fn paint_ghost_rect(backend: &mut dyn UiBackend, rect: MaraRect, accent: MaraCol
 /// Paint the dragged container's preview at the cursor on
 /// `Order::Tooltip` so it floats above every other UI element.
 pub fn paint_drag_preview(
-    ctx: &Context,
+    ctx: &dyn crate::context::MaraCtx,
     pane_id: Id,
     snapshot: &[RectEntry],
     dragged: Id,
@@ -384,13 +384,11 @@ pub fn paint_drag_preview(
     let cursor = MaraPos2::from(cursor);
     let pos = MaraPos2::new(cursor.x - size.x * 0.5, cursor.y - size.y * 0.5);
     let area_id = pane_id.with("mara_pane_drag_preview");
-    crate::backend::egui::show_area_for_host(
-        ctx,
-        AreaHost::new(area_id.into(), pos, Layer::Overlay).non_interactive(),
-        |ui| {
-            let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
+    ctx.area(
+        AreaHost::new(area_id, pos, Layer::Overlay).non_interactive(),
+        &mut |ui| {
             paint_ghost_rect(
-                &mut backend,
+                ui.backend_mut(),
                 MaraRect::from_min_size(pos, size),
                 accent.into(),
                 72,

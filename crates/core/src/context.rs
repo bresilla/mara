@@ -60,6 +60,22 @@ pub trait MaraCtx {
     /// Duration of the previous frame, in seconds. Never negative.
     fn dt(&self) -> f32;
 
+    /// Show a floating surface — an overlay, a tooltip, a drag
+    /// preview — positioned and layered by `host`.
+    ///
+    /// The context-level sibling of
+    /// [`MaraUi::overlay_at`](crate::MaraUi::overlay_at): a floating
+    /// surface belongs to the frame, not to whatever happened to be
+    /// drawing when it was requested, so it is requested from here.
+    ///
+    /// Returns the rect the surface occupied. The default returns
+    /// [`Rect::NOTHING`] and runs nothing — a host with no notion of
+    /// floating layers has nowhere to put it.
+    fn area(&self, host: crate::layout::AreaHost, body: &mut dyn FnMut(&mut crate::MaraUi<'_>)) -> Rect {
+        let _ = (host, body);
+        Rect::NOTHING
+    }
+
     /// Backend-neutral state store.
     fn memory(&self) -> MaraMemoryCtx<'_>;
 }
