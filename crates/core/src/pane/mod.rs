@@ -42,7 +42,7 @@ use crate::memory::MaraAnim;
 use crate::vocab::Id;
 use egui::Color32;
 
-use crate::layout::{AreaHost, Layer, PaneBodyScrollSpec, PaneFlexSpec};
+use crate::layout::{AreaHost, PaneBodyScrollSpec, PaneFlexSpec};
 use crate::style;
 use crate::vocab::{
     Color32 as MaraColor32, Id as MaraId, Pos2 as MaraPos2, Rect as MaraRect, Vec2 as MaraVec2,
@@ -1171,13 +1171,17 @@ impl Pane {
                 // corner-anchored panes whose Area state collapsed
                 // to a degenerate clip.
                 if pane_resize.flow || pane_resize.span {
+                    let mut backend = crate::mui::MaraBackend::Egui(
+                        crate::backend::egui::EguiUiBackend::new(outer_ui),
+                    );
+                    let mut mara = crate::MaraUi::over(&mut backend, pane_accent);
                     paint_resize_handles_inline(
-                        outer_ui,
+                        &mut mara,
                         pane_id,
-                        pane_accent,
+                        pane_accent.into(),
                         pane_anchor,
                         pane_resize,
-                        painted_rect.get(),
+                        painted_rect.get().into(),
                     );
                 }
             });
@@ -1485,76 +1489,6 @@ impl Pane {
     }
 }
 
-/// Overlay drag-handles on the pane's resizable edges. Each handle
-/// is a `Sense::drag` rect of `RESIZE_HANDLE_THICKNESS` thickness
-/// sitting INSIDE the pane's painted rect — no layout space taken.
-/// A subtle accent strip paints only on hover / drag so the user
-/// can see what they're grabbing without the chrome cluttering the
-/// pane edge at rest. Drag deltas mutate the persistent
-/// `user_flow` / `user_span` so subsequent frames pick
-/// up the new size.
-///
-/// The handles live in their own `egui::Area` on `Order::Middle`
-/// (above the pane's `Order::Background` Area). Without this split,
-/// hover / drag events on the handle rect were absorbed by the
-/// pane's underlying Background layer and never reached the handle.
-#[allow(dead_code)]
-fn paint_resize_handles(
-    ctx: &egui::Context,
-    pane_id: Id,
-    accent: Color32,
-    anchor: PaneAnchor,
-    resize: PaneResize,
-    pane_rect: egui::Rect,
-) {
-    let title_side = anchor.title_side();
-    let horizontal_strip = title_side.is_horizontal_strip();
-    let zone = anchor.zone();
-    crate::backend::egui::area_for_host(AreaHost::new(
-        pane_id.with("mara_pane_resize_handles_area").into(),
-        pane_rect.min.into(),
-        Layer::Middle,
-    ))
-    // Force the Area to cover the WHOLE pane every frame.
-    // Without this the Area's `state.size` defaults to a tiny
-    // (degenerate) rect on the first paint — only widgets
-    // registered via `ui.interact()` whose rects fall inside
-    // that initial rect register hover / click. Centre-anchored
-    // panes happened to accumulate state across frames and end
-    // up with a usable rect, while corner-anchored panes
-    // (TopRail::End, BottomRail::Start, etc.) silently lost
-    // their resize handles. `default_size` seeds it; the
-    // `allocate_rect` inside the show closure forces the
-    // current-frame rect every paint regardless of any prior
-    // shrink.
-    .default_size(pane_rect.size())
-    .movable(false)
-    .interactable(true)
-    .show(ctx, |ui| {
-        // Expand the Area's `min_rect` (and therefore its clip
-        // rect) to cover the full pane WITHOUT registering an
-        // interactive widget. Using `allocate_rect(_, Sense::hover())`
-        // here was eating the container-title clicks that fold /
-        // unfold the containers — even though `Sense::hover` is
-        // not a click sense, the widget rect still wins the
-        // hit-test because it sits on `Order::Middle` (above the
-        // pane Area's `Order::Background`). `expand_to_include_rect`
-        // just grows `min_rect` for layout / clip purposes.
-        ui.expand_to_include_rect(pane_rect);
-        paint_resize_handles_inner(
-            ui,
-            pane_id,
-            accent,
-            anchor,
-            resize,
-            pane_rect,
-            title_side,
-            horizontal_strip,
-            zone,
-        );
-    });
-}
-
 /// Register the resize handles directly on the pane's own `Ui`
 /// (Order::Background), skipping the separate `Order::Middle` Area
 /// used by [`paint_resize_handles`]. Within a single layer egui's
@@ -1563,18 +1497,18 @@ fn paint_resize_handles(
 /// clicks anywhere else (which would break the container title-
 /// strip clicks that fold / unfold).
 fn paint_resize_handles_inline(
-    ui: &mut egui::Ui,
+    mara: &mut crate::MaraUi<'_>,
     pane_id: Id,
-    accent: Color32,
+    accent: MaraColor32,
     anchor: PaneAnchor,
     resize: PaneResize,
-    pane_rect: egui::Rect,
+    pane_rect: MaraRect,
 ) {
     let title_side = anchor.title_side();
     let horizontal_strip = title_side.is_horizontal_strip();
     let zone = anchor.zone();
     paint_resize_handles_inner(
-        ui,
+        mara,
         pane_id,
         accent,
         anchor,
@@ -1588,12 +1522,12 @@ fn paint_resize_handles_inline(
 
 #[allow(clippy::too_many_arguments)]
 fn paint_resize_handles_inner(
-    ui: &mut egui::Ui,
+    mara: &mut crate::MaraUi<'_>,
     pane_id: Id,
-    accent: Color32,
+    accent: MaraColor32,
     anchor: PaneAnchor,
     resize: PaneResize,
-    pane_rect: egui::Rect,
+    pane_rect: MaraRect,
     title_side: TitleSide,
     horizontal_strip: bool,
     _zone: RailZone,
@@ -1609,8 +1543,8 @@ fn paint_resize_handles_inner(
     //     along the pane's flow axis (horizontal). Each one takes
     //     a slice, so min main = SUM of registered widths. Cross
     //     keeps the global [`MIN_USER_SPAN`] floor.
-    let container_mins = container_min_widths(ui.ctx(), pane_id);
-    let container_min_flows_v = container_min_flows(ui.ctx(), pane_id);
+    let container_mins = container_min_widths(mara.ctx(), pane_id);
+    let container_min_flows_v = container_min_flows(mara.ctx(), pane_id);
     let max_min = container_mins.iter().copied().fold(0.0_f32, f32::max);
     let sum_min: f32 = container_mins.iter().sum();
     let sum_min_flow: f32 = container_min_flows_v.iter().sum();
@@ -1634,40 +1568,27 @@ fn paint_resize_handles_inner(
     } else {
         MIN_USER_SPAN
     };
-    let accent_mara = MaraColor32::from(accent);
-    let paint_indicator = |ui: &mut egui::Ui, rect: MaraRect, hovered: bool, dragged: bool| {
-        if let Some(cmd) = pane_resize_indicator_paint_cmd(rect, accent_mara, hovered, dragged) {
-            crate::MaraUi::__internal_over(
-                &mut crate::MaraUi::__internal_backend_from_raw(ui),
-                accent_mara,
-            )
-            .paint(cmd);
-        }
-    };
-    let pane_rect_mara = MaraRect::from(pane_rect);
+    let accent_mara = accent;
+    let paint_indicator =
+        |mara: &mut crate::MaraUi<'_>, rect: MaraRect, hovered: bool, dragged: bool| {
+            if let Some(cmd) = pane_resize_indicator_paint_cmd(rect, accent_mara, hovered, dragged)
+            {
+                mara.paint(cmd);
+            }
+        };
+    let pane_rect_mara = pane_rect;
 
     // ── Main-axis handle (inner edge) ──
     if resize.flow {
         let handle_rect_mara = pane_main_resize_handle_rect(pane_rect_mara, title_side);
         let id = pane_id.with("mara_pane_resize_main");
-        let resp = {
-            let mut raw = crate::MaraUi::__internal_backend_from_raw(ui);
-            crate::MaraUi::__internal_over(&mut raw, accent).interact(
-                handle_rect_mara,
-                id,
-                crate::layout::Sense::ClickAndDrag,
-            )
-        };
+        let resp = { mara.interact(handle_rect_mara, id, crate::layout::Sense::ClickAndDrag) };
         let hovered = resp.hovered();
         let dragged = resp.dragged();
         if hovered || dragged {
-            crate::MaraUi::__internal_over(
-                &mut crate::MaraUi::__internal_backend_from_raw(ui),
-                accent,
-            )
-            .set_cursor_icon(pane_main_resize_cursor(horizontal_strip));
+            mara.set_cursor_icon(pane_main_resize_cursor(horizontal_strip));
         }
-        paint_indicator(ui, handle_rect_mara, hovered, dragged);
+        paint_indicator(mara, handle_rect_mara, hovered, dragged);
         if dragged {
             let delta = resp.drag_delta;
             let flow_delta = if horizontal_strip { delta.y } else { delta.x };
@@ -1679,12 +1600,12 @@ fn paint_resize_handles_inner(
             // which rail the pane lives on.
             let invert = matches!(title_side, TitleSide::Bottom | TitleSide::Right);
             let signed = if invert { -flow_delta } else { flow_delta };
-            let cur = user_flow(ui.ctx(), pane_id);
+            let cur = user_flow(mara.ctx(), pane_id);
             // Container-derived floor: vertical-strip panes (LEFT /
             // RIGHT rails) refuse to shrink below the SUM of their
             // containers' min widths so each container fits.
             let new_v = (cur + signed).max(min_flow_bound);
-            set_user_flow(ui.ctx(), pane_id, new_v);
+            set_user_flow(mara.ctx(), pane_id, new_v);
         }
     }
 
@@ -1709,35 +1630,24 @@ fn paint_resize_handles_inner(
 
         let mut handle_one = |rect: MaraRect, salt: &'static str, sign: f32, factor: f32| {
             let id = pane_id.with(salt);
-            let resp = {
-                let mut raw = crate::MaraUi::__internal_backend_from_raw(ui);
-                crate::MaraUi::__internal_over(&mut raw, accent).interact(
-                    rect,
-                    id,
-                    crate::layout::Sense::ClickAndDrag,
-                )
-            };
+            let resp = mara.interact(rect, id, crate::layout::Sense::ClickAndDrag);
             let hovered = resp.hovered();
             let dragged = resp.dragged();
             if hovered || dragged {
-                crate::MaraUi::__internal_over(
-                    &mut crate::MaraUi::__internal_backend_from_raw(ui),
-                    accent,
-                )
-                .set_cursor_icon(icon);
+                mara.set_cursor_icon(icon);
             }
-            paint_indicator(ui, rect, hovered, dragged);
+            paint_indicator(mara, rect, hovered, dragged);
             if dragged {
                 let delta = resp.drag_delta;
                 let span_delta = if horizontal_strip { delta.x } else { delta.y };
                 let signed = sign * span_delta * factor;
-                let cur = user_span(ui.ctx(), pane_id);
+                let cur = user_span(mara.ctx(), pane_id);
                 // Container-derived floor: horizontal-strip panes
                 // (TOP / BOTTOM rails) refuse to shrink below the
                 // largest container min width so the widest
                 // container still fits cross-wise.
                 let new_v = (cur + signed).max(min_span_bound);
-                set_user_span(ui.ctx(), pane_id, new_v);
+                set_user_span(mara.ctx(), pane_id, new_v);
             }
         };
 
