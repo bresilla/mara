@@ -415,7 +415,7 @@ pub fn __internal_maximizable_with_opts_egui(
 /// `Foreground` order would get shadowed by canvas widgets like
 /// the graph graph that register their own foreground sub-layers.
 fn max_button_overlay(
-    ctx: &egui::Context,
+    ctx: &dyn crate::context::MaraCtx,
     pos: MaraPos2,
     maximized: bool,
     accent: impl Into<MaraColor32>,
@@ -575,7 +575,7 @@ fn compute_chip_pos(
 /// widget enters fullscreen the chip reappears where the user left
 /// it. Returns `true` on a regular click (= restore).
 fn fullscreen_minimize_button(
-    ctx: &egui::Context,
+    ctx: &dyn crate::context::MaraCtx,
     screen: MaraRect,
     opts: OverlayOpts,
     btn_size: f32,
@@ -584,19 +584,18 @@ fn fullscreen_minimize_button(
     id_salt: impl Hash + Copy,
 ) -> bool {
     let accent = accent.into();
-    let accent_egui = crate::backend::egui::color32_for_backend(accent);
     // Persisted user-chosen anchor (set on drag-release). When
     // empty, fall back to the caller-supplied `opts`.
     let anchor_key = crate::vocab::Id::new("mara_maximize_chip_anchor").with(id_salt);
     let stored: Option<(RibbonEdge, RibbonCluster)> =
-        crate::memory::MaraMemoryCtx::new(ctx).get_temp(anchor_key);
+        ctx.memory().get_temp(anchor_key);
     let active_anchor = stored.unwrap_or((opts.minimize_edge, opts.minimize_cluster));
     // While the user is mid-drag, override the chip position with
     // the cursor (so the chip follows the pointer) — keyed by the
     // SAME id so the value clears on release.
     let drag_pos_key = crate::vocab::Id::new("mara_maximize_chip_drag_pos").with(id_salt);
     let drag_cursor: Option<MaraPos2> =
-        crate::memory::MaraMemoryCtx::new(ctx).get_temp(drag_pos_key);
+        ctx.memory().get_temp(drag_pos_key);
     let chip_pos: MaraPos2 = if let Some(c) = drag_cursor {
         MaraPos2::new(c.x - btn_size * 0.5, c.y - btn_size * 0.5)
     } else {
@@ -656,12 +655,12 @@ fn fullscreen_minimize_button(
                     /* hovered */ resp.hovered(),
                 );
                 let glyph_col = if resp.hovered() {
-                    crate::style::contrast_text_for(accent_egui).into()
+                    crate::style::contrast_text_for(accent).into()
                 } else {
                     egui::Color32::from_rgba_unmultiplied(
-                        accent_egui.r(),
-                        accent_egui.g(),
-                        accent_egui.b(),
+                        accent.r(),
+                        accent.g(),
+                        accent.b(),
                         220,
                     )
                 };
@@ -767,32 +766,31 @@ fn ribbon_style_chip_paint_cmds(
     active: bool,
     hovered: bool,
 ) -> [PaintCmd; 2] {
-    let accent_egui = crate::backend::egui::color32_for_backend(accent);
     let bg = if active {
         let blend = |a: u8, b: u8| ((a as f32) * 0.75 + (b as f32) * 0.25).round() as u8;
         let tinted = egui::Color32::from_rgb(
-            blend(crate::style::theme().bg_raised.r(), accent_egui.r()),
-            blend(crate::style::theme().bg_raised.g(), accent_egui.g()),
-            blend(crate::style::theme().bg_raised.b(), accent_egui.b()),
+            blend(crate::style::theme().bg_raised.r(), accent.r()),
+            blend(crate::style::theme().bg_raised.g(), accent.g()),
+            blend(crate::style::theme().bg_raised.b(), accent.b()),
         );
-        glass_fill(tinted, accent_egui, glass_alpha_window())
+        glass_fill(tinted, accent, glass_alpha_window())
     } else if hovered {
         glass_fill(
             crate::style::theme().bg_raised,
-            accent_egui,
+            accent,
             glass_alpha_window(),
         )
     } else {
         glass_fill(
             crate::style::theme().bg_panel,
-            accent_egui,
+            accent,
             glass_alpha_window(),
         )
     };
     let stroke = if active {
         MaraStroke::new(crate::style::theme().stroke.border_width, accent)
     } else {
-        stroke_for(StrokeRole::WidgetBorder, accent_egui)
+        stroke_for(StrokeRole::WidgetBorder, accent)
     };
     let corner: MaraCornerRadius = radius_for(RadiusRole::Section);
     [
