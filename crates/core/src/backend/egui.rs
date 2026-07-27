@@ -551,10 +551,6 @@ pub(crate) fn consume_keys<const N: usize>(
         .collect()
 }
 
-pub(crate) fn key_pressed(ctx: &egui::Context, key: MaraKey) -> bool {
-    ctx.input(|input| input.key_pressed(egui_key(key)))
-}
-
 // ─── Layout pose probe ──────────────────────────────────────────────
 //
 // Backend-side storage + recording for `crate::probe`. A shared log is
@@ -2410,6 +2406,10 @@ impl crate::context::MaraCtx for egui::Context {
         clip: vocab::Rect,
     ) -> crate::MaraPainter {
         crate::MaraPainter::new(area_registered_painter(self, layer, id, clip))
+    }
+
+    fn set_cursor_icon(&self, cursor: CursorIcon) {
+        set_cursor_icon_for_context(self, cursor);
     }
 
     fn enforce_defaults(&self) {

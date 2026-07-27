@@ -110,6 +110,20 @@ pub trait MaraCtx {
         crate::MaraPainter::__internal_recording(clip)
     }
 
+    /// Set the pointer cursor for the rest of this frame.
+    ///
+    /// The frame-level sibling of
+    /// [`MaraUi::set_cursor_icon`](crate::MaraUi::set_cursor_icon). A
+    /// surface can only speak for the pointer while it is over that
+    /// surface; a drag in progress carries the pointer *off* the
+    /// surface that started it, and the grab cursor has to survive
+    /// that. So the cursor for a live drag is set here.
+    ///
+    /// The default does nothing — a host with no pointer has no cursor.
+    fn set_cursor_icon(&self, cursor: crate::layout::CursorIcon) {
+        let _ = cursor;
+    }
+
     /// Apply Mara's enforced per-pass defaults to this host.
     ///
     /// Every Mara surface entry point calls this before it draws, which
