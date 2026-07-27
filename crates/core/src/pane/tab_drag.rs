@@ -10,10 +10,10 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::vocab::Id;
-use egui::{Color32, Context, Pos2, Rect};
+use egui::{Color32, Pos2, Rect};
 
 use crate::icons::Icon;
-use crate::layout::{AreaHost, Layer, UiBackend};
+use crate::layout::{AreaHost, Layer};
 use crate::paint::PaintCmd;
 use crate::vocab::{
     Color32 as MaraColor32, CornerRadius as MaraCornerRadius, Pos2 as MaraPos2, Rect as MaraRect,

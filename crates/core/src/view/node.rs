@@ -225,7 +225,7 @@ fn show_split_divider(
     salt: MaraId,
     divider: &super::layout::SplitDivider,
 ) -> Option<f32> {
-    use crate::layout::{AreaHost, AreaSlotSpec, CursorIcon, Layer, Sense, UiBackend};
+    use crate::layout::{AreaHost, AreaSlotSpec, CursorIcon, Layer, Sense};
 
     let egui_ctx = ctx.__internal_egui_ctx();
     let id = MaraId::new(("mara_split_divider", salt, &divider.path, divider.boundary));

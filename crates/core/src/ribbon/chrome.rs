@@ -1158,22 +1158,25 @@ pub fn draw_unified_ribbon_chrome(
         crate::context::MaraCtx::area_slot(
             ctx,
             outline_spec.area_slot(Layer::Foreground, false),
-            &mut |ui| {
+            // Named `mara`, not `ui`: this is the sealed surface. The
+            // guard in `make check` bans the backend `Ui`'s interact
+            // call in this file, and the name keeps the two distinct.
+            &mut |mara| {
                 let rect = outline_spec
                     .item_screen_rect(0)
                     .expect("single ribbon drop-outline spec must have an item rect");
-                let _response = ui.interact(
+                let _response = mara.interact(
                     rect,
                     MaraId::new("mara_ribbon_drop_outline_hit"),
                     MaraSense::Hover,
                 );
                 let corner = crate::style::radius_for(crate::style::RadiusRole::Section);
-                ui.paint(PaintCmd::RectFilled {
+                mara.paint(PaintCmd::RectFilled {
                     rect,
                     corner,
                     fill: crate::style::fill_for(crate::style::FillRole::DragGhost, accent),
                 });
-                ui.paint(PaintCmd::RectStroke {
+                mara.paint(PaintCmd::RectStroke {
                     rect,
                     corner,
                     stroke: crate::style::stroke_for(crate::style::StrokeRole::DragGhost, accent),

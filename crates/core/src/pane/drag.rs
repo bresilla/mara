@@ -17,7 +17,9 @@
 //!   rect renders at the cursor (paint-only, separate Area).
 
 use crate::vocab::Id;
-use egui::{Color32, Context, Pos2, Rect, Ui, Vec2};
+use egui::{Color32, Pos2, Rect, Vec2};
+#[cfg(test)]
+use egui::Context;
 
 use crate::layout::{AreaHost, Layer, Sense, UiBackend};
 use crate::paint::PaintCmd;
