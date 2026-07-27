@@ -1089,9 +1089,6 @@ pub(crate) fn hover_cursor_for_ui_response(
     hover_cursor_for_response(ui.ctx(), response, cursor);
 }
 
-pub(crate) fn is_ui_rect_visible(ui: &egui::Ui, rect: vocab::Rect) -> bool {
-    ui.is_rect_visible(rect.into())
-}
 
 pub(crate) fn set_cursor_icon_for_context(ctx: &egui::Context, cursor: CursorIcon) {
     ctx.set_cursor_icon(egui_cursor_icon(cursor));

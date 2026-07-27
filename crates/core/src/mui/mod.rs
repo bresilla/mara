@@ -1651,6 +1651,23 @@ impl<'a> MaraUi<'a> {
     /// Fill, stroke, corner radius, inner margin and shadow come from
     /// the [`crate::style::FrameSpec`], and the frame paints behind the
     /// content rather than over it.
+    /// Take `size` from the flow and return the rect it landed in.
+    ///
+    /// The ordinary way to place content: the cursor advances, so the
+    /// next item lands after this one. Use
+    /// [`interact`](MaraUi::interact) for content placed at a rect you
+    /// computed yourself.
+    pub fn allocate(&mut self, size: impl Into<vocab::Vec2>, sense: crate::layout::Sense) -> MaraResponse {
+        self.backend.allocate(size.into(), sense)
+    }
+
+    /// Whether `rect` is inside the visible clip — lets a surface skip
+    /// painting work that would be clipped away entirely.
+    #[must_use]
+    pub fn is_rect_visible(&self, rect: impl Into<vocab::Rect>) -> bool {
+        self.backend.is_rect_visible(rect.into())
+    }
+
     /// Hit-test `rect` under `id` without allocating layout space.
     ///
     /// For content placed explicitly — a ribbon button at a computed

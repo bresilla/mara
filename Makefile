@@ -146,8 +146,9 @@ check:
 	@! (sed -n '/fn paint_top_tabs/,/fn paint_tab_rect_chrome/p' crates/core/src/container/normal/mod.rs | grep -nE 'egui::Rect::from_min|egui::pos2|egui::vec2|[[:space:]]pos2[(]|[[:space:]]vec2[(]')
 	@! (sed -n '/fn paint_floating_icon/,/fn paint_cmd/p' crates/core/src/container/normal/mod.rs | grep -nE 'egui::Rect::from_min|Rect::from_min|egui::pos2|egui::vec2|[[:space:]]pos2[(]|[[:space:]]vec2[(]')
 	@! grep -RInE 'pub fn new[(][^#]*id:[[:space:]]*impl[[:space:]]+std::hash::Hash' crates/core/src/container/tabbed/mod.rs
-	@! grep -RInE 'egui::CursorIcon|on_hover_cursor|circle_filled' crates/core/src/pane/dots.rs
-	@! grep -RInE 'allocate_exact_size|ui[.]interact[(]|egui::Sense|use egui::.*Response|pub fn paint_container_dots|ui[.]painter[(][)]' crates/core/src/pane/dots.rs
+	# The dot handle draws through `MaraUi` only; the old idiom list is
+	# superseded by the stronger claim that it names no backend type.
+	@! (awk '/^#\[cfg\(test\)\]/ { exit } { print }' crates/core/src/pane/dots.rs | grep -nE '(^|[^:a-z_])egui::')
 	@! grep -RInE 'pub use dots::paint_container_dots' crates/core/src/pane/mod.rs
 	@! grep -RIn 'egui::CursorIcon' crates/core/src/pane/mod.rs
 	@! grep -RInE 'egui::Area::new|egui::Order::' crates/core/src/pane/drag.rs crates/core/src/pane/tab_drag.rs
