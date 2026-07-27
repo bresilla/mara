@@ -88,6 +88,28 @@ pub trait MaraCtx {
         Rect::NOTHING
     }
 
+    /// A painter over a registered floating layer, clipped to `clip`.
+    ///
+    /// [`area`](MaraCtx::area) lends its surface to a closure and takes
+    /// it back at the end; a view backdrop instead needs a painter it
+    /// can **keep** and hand to drawing code that knows nothing about
+    /// surfaces. Registering the layer under `id` also fixes its z-slot,
+    /// so the backdrop keeps its depth when the region moves or resizes
+    /// and panes opened later stack above it rather than behind it.
+    ///
+    /// The default records commands instead of rasterising: a host with
+    /// no layer stack still gets a painter that behaves correctly, it
+    /// just paints nowhere.
+    fn layer_painter(
+        &self,
+        layer: crate::layout::Layer,
+        id: crate::vocab::Id,
+        clip: Rect,
+    ) -> crate::MaraPainter {
+        let _ = (layer, id);
+        crate::MaraPainter::__internal_recording(clip)
+    }
+
     /// Backend-neutral state store.
     fn memory(&self) -> MaraMemoryCtx<'_>;
 }

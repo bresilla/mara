@@ -1841,6 +1841,38 @@ mod tests {
     use super::*;
     use crate::vocab::{Color32, CornerRadius, Pos2, Rect, Stroke, Vec2};
 
+    /// A floating surface paints with the accent its host names, not
+    /// the process-wide one.
+    ///
+    /// A scoped view node is handed its own accent. Before the host
+    /// carried it, `MaraCtx::area` reached for `active_accent()`, so a
+    /// node's accent applied to everything it drew *except* the body it
+    /// owns — a mismatch nothing would have reported.
+    #[test]
+    fn area_body_paints_with_the_hosts_accent() {
+        use crate::context::MaraCtx;
+
+        let want = Color32::from_rgb(1, 2, 3);
+        assert_ne!(
+            want,
+            crate::style::active_accent(),
+            "the global accent must differ, or this test passes vacuously"
+        );
+
+        let ctx = egui::Context::default();
+        let mut seen = None;
+        let _ = ctx.run_ui(Default::default(), |ui| {
+            MaraCtx::area(
+                ui.ctx(),
+                AreaHost::new(vocab::Id::new("accented"), Pos2::ZERO, Layer::Foreground)
+                    .accent(want),
+                &mut |mara| seen = Some(mara.accent()),
+            );
+        });
+
+        assert_eq!(seen, Some(want));
+    }
+
     #[test]
     fn egui_order_mapping_preserves_layer_rank() {
         // The egui backend must honour the Layer contract: a
@@ -2344,7 +2376,7 @@ impl crate::context::MaraCtx for egui::Context {
         host: crate::layout::AreaHost,
         body: &mut dyn FnMut(&mut crate::MaraUi<'_>),
     ) -> vocab::Rect {
-        let accent = crate::style::active_accent();
+        let accent = host.accent.unwrap_or_else(crate::style::active_accent);
         show_area_for_host(self, host, |ui| {
             let mut backend = EguiUiBackend::new(ui);
             let mut mara = crate::MaraUi::over(&mut backend, accent);
@@ -2360,7 +2392,7 @@ impl crate::context::MaraCtx for egui::Context {
         spec: crate::layout::AreaSlotSpec,
         body: &mut dyn FnMut(&mut crate::MaraUi<'_>),
     ) -> vocab::Rect {
-        let accent = crate::style::active_accent();
+        let accent = spec.host.accent.unwrap_or_else(crate::style::active_accent);
         show_area_slot(self, spec, |ui| {
             let mut backend = EguiUiBackend::new(ui);
             let mut mara = crate::MaraUi::over(&mut backend, accent);
@@ -2369,6 +2401,15 @@ impl crate::context::MaraCtx for egui::Context {
         .response
         .rect
         .into()
+    }
+
+    fn layer_painter(
+        &self,
+        layer: crate::layout::Layer,
+        id: vocab::Id,
+        clip: vocab::Rect,
+    ) -> crate::MaraPainter {
+        crate::MaraPainter::new(area_registered_painter(self, layer, id, clip))
     }
 
     fn memory(&self) -> MaraMemoryCtx<'_> {

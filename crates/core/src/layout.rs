@@ -74,6 +74,14 @@ pub struct AreaHost {
     /// backend can apply it while creating the area, so the caller
     /// never needs to hold on to a backend response just to reorder.
     pub bring_to_top: bool,
+    /// Accent this surface paints with, when it differs from the
+    /// process-wide active accent.
+    ///
+    /// A view node can carry its own accent — a scoped child is handed
+    /// one explicitly. Without this the surface would fall back to the
+    /// global accent, so the node's accent would apply to everything it
+    /// drew *except* its own body, which is the one part it owns.
+    pub accent: Option<crate::vocab::Color32>,
 }
 
 impl AreaHost {
@@ -85,7 +93,15 @@ impl AreaHost {
             layer,
             interactable: true,
             bring_to_top: false,
+            accent: None,
         }
+    }
+
+    /// Paint this surface with `accent` rather than the process-wide one.
+    #[must_use]
+    pub const fn accent(mut self, accent: crate::vocab::Color32) -> Self {
+        self.accent = Some(accent);
+        self
     }
 
     #[must_use]
