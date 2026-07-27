@@ -135,32 +135,30 @@ pub fn format(poses: &[ElementPose]) -> String {
 
 /// Enable (fresh log) or disable pose recording for this frame. Call
 /// before running the UI.
-#[cfg(feature = "backend-egui-conv")]
 #[doc(hidden)]
-pub fn __internal_set_enabled(ctx: &egui::Context, on: bool) {
-    crate::backend::egui::probe_set_enabled(ctx, on);
+pub fn __internal_set_enabled(ctx: &dyn crate::context::MaraCtx, on: bool) {
+    ctx.probe_set_enabled(on);
 }
 
 /// Drain and return the poses recorded this frame.
-#[cfg(feature = "backend-egui-conv")]
 #[doc(hidden)]
-pub fn __internal_drain(ctx: &egui::Context) -> Vec<ElementPose> {
-    crate::backend::egui::probe_drain(ctx)
+#[must_use]
+pub fn __internal_drain(ctx: &dyn crate::context::MaraCtx) -> Vec<ElementPose> {
+    ctx.probe_drain()
 }
 
 /// Record a labeled global/structural pose (used by first-party
 /// layout code, e.g. the pane placer, to surface key rects).
-#[cfg(feature = "backend-egui-conv")]
 #[doc(hidden)]
-pub fn __internal_record(ctx: &egui::Context, pose: ElementPose) {
-    crate::backend::egui::probe_record(ctx, pose);
+pub fn __internal_record(ctx: &dyn crate::context::MaraCtx, pose: ElementPose) {
+    ctx.probe_record(pose);
 }
 
 /// Whether the probe is currently capturing this frame.
-#[cfg(feature = "backend-egui-conv")]
 #[doc(hidden)]
-pub fn __internal_enabled(ctx: &egui::Context) -> bool {
-    crate::backend::egui::probe_enabled(ctx)
+#[must_use]
+pub fn __internal_enabled(ctx: &dyn crate::context::MaraCtx) -> bool {
+    ctx.probe_enabled()
 }
 
 #[cfg(test)]

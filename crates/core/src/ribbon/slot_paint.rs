@@ -1,5 +1,4 @@
 use crate::context::MaraCtx;
-use egui::Context;
 
 use super::{
     RibbonAction, RibbonCluster, RibbonDrag, RibbonEdge, RibbonOpen, RibbonPlacement, RibbonScope,
@@ -52,11 +51,11 @@ pub struct RibbonSlotClick {
 /// of calling this raw backend helper directly.
 #[doc(hidden)]
 pub fn __internal_draw_slot_ribbons_egui(
-    ctx: &Context,
+    ctx: &dyn crate::context::MaraCtx,
     accent: impl Into<MaraColor32>,
     ribbons: &[ResolvedSlotRibbon],
 ) -> Vec<RibbonSlotClick> {
-    crate::enforce::__internal_enforce_defaults(ctx);
+    ctx.enforce_defaults();
     let accent: MaraColor32 = accent.into();
     let augmented = shelf_augmented_ribbons(ctx, ribbons, ShelfButtonOrder::Simple);
     let base = augmented.as_deref().unwrap_or(ribbons);
@@ -66,7 +65,7 @@ pub fn __internal_draw_slot_ribbons_egui(
 }
 
 fn draw_slot_ribbons_inner(
-    ctx: &Context,
+    ctx: &dyn crate::context::MaraCtx,
     accent: MaraColor32,
     ribbons: &[ResolvedSlotRibbon],
 ) -> Vec<RibbonSlotClick> {
@@ -91,14 +90,14 @@ fn draw_slot_ribbons_inner(
 /// of calling this raw backend helper directly.
 #[doc(hidden)]
 pub fn __internal_draw_slot_ribbons_featureful_egui(
-    ctx: &Context,
+    ctx: &dyn crate::context::MaraCtx,
     accent: impl Into<MaraColor32>,
     ribbons: &[ResolvedSlotRibbon],
     open: &mut RibbonOpen,
     placement: &mut RibbonPlacement,
     drag: &mut RibbonDrag,
 ) -> Vec<RibbonSlotClick> {
-    crate::enforce::__internal_enforce_defaults(ctx);
+    ctx.enforce_defaults();
     draw_slot_ribbons_featureful_inner(ctx, accent.into(), ribbons, open, placement, drag, true)
 }
 
@@ -108,14 +107,14 @@ pub fn __internal_draw_slot_ribbons_featureful_egui(
 /// buttons — otherwise every featureful render re-injects them and they
 /// appear once per render call (doubled maximize/close + shelf toggles).
 pub fn __internal_draw_slot_ribbons_featureful_no_system_egui(
-    ctx: &Context,
+    ctx: &dyn crate::context::MaraCtx,
     accent: impl Into<MaraColor32>,
     ribbons: &[ResolvedSlotRibbon],
     open: &mut RibbonOpen,
     placement: &mut RibbonPlacement,
     drag: &mut RibbonDrag,
 ) -> Vec<RibbonSlotClick> {
-    crate::enforce::__internal_enforce_defaults(ctx);
+    ctx.enforce_defaults();
     draw_slot_ribbons_featureful_inner(ctx, accent.into(), ribbons, open, placement, drag, false)
 }
 
@@ -154,7 +153,7 @@ pub(crate) fn resolve_leaf_ribbon(def: &RibbonSlotDef) -> Option<ResolvedSlotRib
 /// system chrome is injected — only the shell bar owns window controls.
 /// Returns the clicks the caller dispatches.
 pub(crate) fn __internal_draw_view_ribbons(
-    ctx: &Context,
+    ctx: &dyn crate::context::MaraCtx,
     region: MaraRect,
     salt: MaraId,
     accent: MaraColor32,
@@ -329,7 +328,7 @@ pub(crate) fn view_ribbon_edges(
 }
 
 fn draw_slot_ribbons_featureful_inner(
-    ctx: &Context,
+    ctx: &dyn crate::context::MaraCtx,
     accent: MaraColor32,
     ribbons: &[ResolvedSlotRibbon],
     open: &mut RibbonOpen,
@@ -402,7 +401,7 @@ enum ShelfButtonOrder {
 }
 
 fn shelf_augmented_ribbons(
-    ctx: &Context,
+    ctx: &dyn crate::context::MaraCtx,
     ribbons: &[ResolvedSlotRibbon],
     order: ShelfButtonOrder,
 ) -> Option<Vec<ResolvedSlotRibbon>> {
@@ -411,7 +410,7 @@ fn shelf_augmented_ribbons(
     // close + maximize), so hide both on phone-class. Computed here and
     // passed in so the augmentation stays a pure function of its args.
     let hide_window_controls = crate::style::screen_class() == crate::style::Breakpoint::Phone;
-    let maximized = crate::backend::egui::viewport_maximized(ctx);
+    let maximized = ctx.viewport_maximized();
     augment_shelf_buttons_with_chrome(
         ribbons,
         crate::window_chrome::__internal_window_chrome_host_capabilities(ctx),
@@ -636,7 +635,7 @@ fn is_top_permanent_ribbon(ribbon: &ResolvedSlotRibbon) -> bool {
 /// Returns `None` above phone-class, so desktop/tablet keep the
 /// borrowed slice with no copy.
 fn responsive_phone_ribbons(
-    ctx: &Context,
+    ctx: &dyn crate::context::MaraCtx,
     ribbons: &[ResolvedSlotRibbon],
 ) -> Option<Vec<ResolvedSlotRibbon>> {
     if crate::style::screen_class() != crate::style::Breakpoint::Phone {
@@ -867,7 +866,7 @@ fn can_use_featureful_chrome(ribbons: &[ResolvedSlotRibbon]) -> bool {
 /// This frontend only omits the featureful extras (drag/reorder,
 /// placement overrides, panel-open state); the geometry is one backend.
 fn draw_one_slot_ribbon(
-    ctx: &Context,
+    ctx: &dyn crate::context::MaraCtx,
     accent: MaraColor32,
     ribbon: &ResolvedSlotRibbon,
     all_ribbons: &[ResolvedSlotRibbon],

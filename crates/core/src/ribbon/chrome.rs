@@ -1,6 +1,5 @@
 #[cfg(feature = "bevy")]
 use bevy::prelude::*;
-use egui;
 
 use crate::context::MaraCtx;
 use std::collections::HashMap;
@@ -818,14 +817,14 @@ fn paint_item_glyph(
 }
 
 pub fn draw_unified_ribbon_chrome(
-    ctx: &egui::Context,
+    ctx: &dyn crate::context::MaraCtx,
     accent: MaraColor32,
     ribbons: &[ResolvedSlotRibbon],
     open: &mut RibbonOpen,
     placement: &mut RibbonPlacement,
     drag: &mut RibbonDrag,
     active: impl Fn(&'static str) -> bool,
-) -> Vec<egui::Id> {
+) -> Vec<MaraId> {
     let insets = compute_side_insets(ribbons);
     // Window-pass only: publish the chrome bounds and which WINDOW edges
     // carry rails. A node-scoped render (a leaf drawing its own ribbons
@@ -841,7 +840,7 @@ pub fn draw_unified_ribbon_chrome(
         let mut memory = MaraCtx::memory(ctx);
         memory.set_temp(chrome_bounds_key(), chrome);
         memory.set_temp::<[bool; 4]>(
-            egui::Id::new("mara_published_ribbon_edges"),
+            MaraId::new("mara_published_ribbon_edges"),
             [
                 edge_has_ribbon(ribbons, RibbonEdge::Left),
                 edge_has_ribbon(ribbons, RibbonEdge::Right),

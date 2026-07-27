@@ -2528,6 +2528,30 @@ impl crate::context::MaraCtx for egui::Context {
         set_cursor_icon_for_context(self, cursor);
     }
 
+    fn window_rect(&self) -> vocab::Rect {
+        self.viewport_rect().into()
+    }
+
+    fn viewport_maximized(&self) -> bool {
+        viewport_maximized(self)
+    }
+
+    fn probe_enabled(&self) -> bool {
+        probe_enabled(self)
+    }
+
+    fn probe_record(&self, pose: crate::probe::ElementPose) {
+        probe_record(self, pose);
+    }
+
+    fn probe_set_enabled(&self, on: bool) {
+        probe_set_enabled(self, on);
+    }
+
+    fn probe_drain(&self) -> Vec<crate::probe::ElementPose> {
+        probe_drain(self)
+    }
+
     fn enforce_defaults(&self) {
         crate::enforce::__internal_enforce_defaults(self);
     }

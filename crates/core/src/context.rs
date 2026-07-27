@@ -128,6 +128,59 @@ pub trait MaraCtx {
         let _ = cursor;
     }
 
+    /// Whether the layout probe is capturing this frame.
+    ///
+    /// Recording a pose costs a string format at every call site, so
+    /// callers gate on this first.
+    fn probe_enabled(&self) -> bool {
+        false
+    }
+
+    /// Record one labeled layout pose for the probe.
+    ///
+    /// The probe is how first-party tooling reads back where things
+    /// actually landed. It lives on the context because a pose belongs
+    /// to the frame, not to whichever surface happened to notice it.
+    ///
+    /// Both default to inert: a host with no probe records nothing.
+    fn probe_record(&self, pose: crate::probe::ElementPose) {
+        let _ = pose;
+    }
+
+    /// Enable (with a fresh log) or disable pose recording.
+    fn probe_set_enabled(&self, on: bool) {
+        let _ = on;
+    }
+
+    /// Drain and return the poses recorded this frame.
+    fn probe_drain(&self) -> Vec<crate::probe::ElementPose> {
+        Vec::new()
+    }
+
+    /// The host window's full rect, including any native chrome.
+    ///
+    /// [`content_rect`](MaraCtx::content_rect) is what a view lays out
+    /// into; this is the window itself. They differ exactly when Mara
+    /// draws its own title bar, which is when the window chrome needs
+    /// to know where the real edges are.
+    ///
+    /// Defaults to `content_rect` — with no chrome, they are the same
+    /// rect.
+    fn window_rect(&self) -> Rect {
+        self.content_rect()
+    }
+
+    /// Whether the host window is maximized.
+    ///
+    /// Window chrome draws a different glyph for maximize and restore,
+    /// so it has to ask. Frame-level rather than per-surface: there is
+    /// one window, and every surface that asks means the same one.
+    ///
+    /// Defaults to `false` — a host with no window is not maximized.
+    fn viewport_maximized(&self) -> bool {
+        false
+    }
+
     /// Apply Mara's enforced per-pass defaults to this host.
     ///
     /// Every Mara surface entry point calls this before it draws, which

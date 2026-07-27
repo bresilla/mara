@@ -359,11 +359,11 @@ pub fn hit_test_window_chrome_regions(
 #[must_use]
 #[doc(hidden)]
 pub fn __internal_hovered_resize_corner(
-    ctx: &egui::Context,
+    ctx: &dyn crate::context::MaraCtx,
     window_rect: Rect,
     metrics: WindowChromeTheme,
 ) -> Option<WindowResizeDirection> {
-    let pos = ctx.input(|input| input.pointer.hover_pos())?.into();
+    let pos = ctx.input().pointer?;
     let regions = __internal_window_chrome_regions(ctx);
     if regions
         .exclusion_rects
@@ -384,19 +384,19 @@ pub fn __internal_hovered_resize_corner(
 /// clickable native-resize area.
 #[doc(hidden)]
 pub fn __internal_paint_resize_corner_hover(
-    ctx: &egui::Context,
+    ctx: &dyn crate::context::MaraCtx,
     accent: Color32,
     metrics: WindowChromeTheme,
 ) -> Option<WindowResizeDirection> {
-    let window_rect = Rect::from(ctx.viewport_rect());
+    let window_rect = ctx.window_rect();
     let direction = __internal_hovered_resize_corner(ctx, window_rect, metrics)?;
     let (horizontal, vertical) = resize_corner_paint_rects(window_rect, direction, metrics)?;
 
-    let painter =
-        crate::MaraPainter::__internal_from_egui(ctx.layer_painter(crate::layer::layer_id(
-            "mara_window_resize_corner_hover",
-            crate::layer::z::WINDOW_CHROME,
-        )));
+    let painter = ctx.layer_painter(
+        crate::layout::Layer::Foreground,
+        crate::vocab::Id::new("mara_window_resize_corner_hover"),
+        window_rect,
+    );
     painter.rect_filled(horizontal, crate::vocab::CornerRadius::ZERO, accent);
     painter.rect_filled(vertical, crate::vocab::CornerRadius::ZERO, accent);
     Some(direction)
