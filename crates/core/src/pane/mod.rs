@@ -648,7 +648,7 @@ impl Pane {
             if last_frame + 1 < frame_now {
                 elapsed = 0.0;
             }
-            let dt = crate::backend::egui::unstable_dt(ctx);
+            let dt = MaraCtx::dt(ctx);
             elapsed += dt;
             {
                 let mut memory = MaraCtx::memory(ctx);
@@ -1298,7 +1298,7 @@ impl Pane {
             let pre_body_drag = drag::state(ui.ctx(), id);
             if let (Some(item), Some(pos)) = (
                 pre_body_drag.item,
-                crate::backend::egui::pointer_interact_pos(ui.ctx()).map(Into::into),
+                MaraCtx::input(ui.ctx()).interact_pointer.map(Into::into),
             ) {
                 drag::set_drag(
                     ui.ctx(),
@@ -1339,7 +1339,7 @@ impl Pane {
             {
                 let snap = drag::target_cache(ui.ctx(), id);
                 let total = drag::current_cache(ui.ctx(), id).len();
-                let cursor = crate::backend::egui::pointer_interact_pos(ui.ctx())
+                let cursor = MaraCtx::input(ui.ctx()).interact_pointer
                     .map(Into::into)
                     .or(drag_state.cursor);
                 if let Some(c) = cursor {
@@ -1371,18 +1371,19 @@ impl Pane {
             // ── Floating preview + cursor + release commit ──
             if let Some(dragged_id) = drag_state.item {
                 let snap = drag::target_cache(ui.ctx(), id);
-                let cursor = crate::backend::egui::pointer_interact_pos(ui.ctx())
+                let cursor = MaraCtx::input(ui.ctx()).interact_pointer
                     .map(Into::into)
                     .or(drag_state.cursor);
                 if let Some(c) = cursor {
                     drag::paint_drag_preview(ui.ctx(), id, &snap, dragged_id, c, accent);
-                    crate::backend::egui::set_cursor_icon_for_ui(
-                        ui,
-                        crate::layout::CursorIcon::Grabbing,
-                    );
+                    crate::MaraUi::__internal_over(
+                        &mut crate::MaraUi::__internal_backend_from_raw(ui),
+                        accent,
+                    )
+                    .set_cursor_icon(crate::layout::CursorIcon::Grabbing);
                 }
 
-                if crate::backend::egui::pointer_any_released(ui.ctx()) {
+                if MaraCtx::input(ui.ctx()).any_released {
                     if let Some(c) = cursor {
                         let cursor_axis = if horizontal_stack { c.x } else { c.y };
                         let target_idx =
@@ -1400,7 +1401,7 @@ impl Pane {
 
             // ── Tab drag: preview + commit-on-release ──
             if let Some(tab_drag_state) = tab_drag::drag_state(ui.ctx(), id.into()) {
-                let cursor = crate::backend::egui::pointer_latest_pos(ui.ctx())
+                let cursor = MaraCtx::input(ui.ctx()).pointer
                     .map(Into::into)
                     .or(tab_drag_state.cursor);
                 if let Some(c) = cursor {
@@ -1427,12 +1428,13 @@ impl Pane {
                         "",
                         tab_drag_state.icon,
                     );
-                    crate::backend::egui::set_cursor_icon_for_ui(
-                        ui,
-                        crate::layout::CursorIcon::Grabbing,
-                    );
+                    crate::MaraUi::__internal_over(
+                        &mut crate::MaraUi::__internal_backend_from_raw(ui),
+                        accent,
+                    )
+                    .set_cursor_icon(crate::layout::CursorIcon::Grabbing);
                 }
-                if crate::backend::egui::pointer_any_released(ui.ctx()) {
+                if MaraCtx::input(ui.ctx()).any_released {
                     if let Some(c) = cursor
                         && let Some((tgt_cid, slot)) =
                             tab_drag::find_drop_target_for_drag(ui.ctx(), id.into(), c, tab_drag_state)
@@ -1635,20 +1637,21 @@ fn paint_resize_handles_inner(
         let handle_rect_mara = pane_main_resize_handle_rect(pane_rect_mara, title_side);
         let id = pane_id.with("mara_pane_resize_main");
         let resp = {
-            let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
-            backend.interact(
+            let mut raw = crate::MaraUi::__internal_backend_from_raw(ui);
+            crate::MaraUi::__internal_over(&mut raw, accent).interact(
                 handle_rect_mara,
-                id.into(),
+                id,
                 crate::layout::Sense::ClickAndDrag,
             )
         };
         let hovered = resp.hovered();
         let dragged = resp.dragged();
         if hovered || dragged {
-            crate::backend::egui::set_cursor_icon_for_ui(
-                ui,
-                pane_main_resize_cursor(horizontal_strip),
-            );
+            crate::MaraUi::__internal_over(
+                &mut crate::MaraUi::__internal_backend_from_raw(ui),
+                accent,
+            )
+            .set_cursor_icon(pane_main_resize_cursor(horizontal_strip));
         }
         paint_indicator(ui, handle_rect_mara, hovered, dragged);
         if dragged {
@@ -1693,13 +1696,21 @@ fn paint_resize_handles_inner(
         let mut handle_one = |rect: MaraRect, salt: &'static str, sign: f32, factor: f32| {
             let id = pane_id.with(salt);
             let resp = {
-                let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
-                backend.interact(rect, id.into(), crate::layout::Sense::ClickAndDrag)
+                let mut raw = crate::MaraUi::__internal_backend_from_raw(ui);
+                crate::MaraUi::__internal_over(&mut raw, accent).interact(
+                    rect,
+                    id,
+                    crate::layout::Sense::ClickAndDrag,
+                )
             };
             let hovered = resp.hovered();
             let dragged = resp.dragged();
             if hovered || dragged {
-                crate::backend::egui::set_cursor_icon_for_ui(ui, icon);
+                crate::MaraUi::__internal_over(
+                    &mut crate::MaraUi::__internal_backend_from_raw(ui),
+                    accent,
+                )
+                .set_cursor_icon(icon);
             }
             paint_indicator(ui, rect, hovered, dragged);
             if dragged {
