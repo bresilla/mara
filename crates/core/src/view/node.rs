@@ -227,7 +227,10 @@ fn show_split_divider(
 ) -> Option<f32> {
     use crate::layout::{AreaHost, AreaSlotSpec, CursorIcon, Layer, Sense};
 
-    let egui_ctx = ctx.__internal_egui_ctx();
+    // The node already carries a seam context — reaching for the raw
+    // handle here only to hand it straight back to `area_slot` was a
+    // round trip through the backend for nothing.
+    let seam = ctx.__internal_seam_ctx();
     let id = MaraId::new(("mara_split_divider", salt, &divider.path, divider.boundary));
     let strip = divider.strip;
     let vertical_line = divider.vertical_line;
@@ -236,7 +239,7 @@ fn show_split_divider(
     // seam takes `&mut dyn FnMut`, which cannot be generic over it.
     let mut divider_response = None;
     crate::context::MaraCtx::area_slot(
-        egui_ctx,
+        seam,
         AreaSlotSpec::new(
             AreaHost::new(id, strip.min, Layer::Foreground),
             strip.size(),

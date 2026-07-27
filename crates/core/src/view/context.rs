@@ -98,6 +98,15 @@ impl<'a> ViewCtx<'a> {
         self.egui_ctx
     }
 
+    /// The node's seam context. First-party hook for core code that
+    /// needs frame state and would otherwise reach for the raw handle
+    /// above just to hand it to something taking `&dyn MaraCtx`.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn __internal_seam_ctx(&self) -> &dyn crate::context::MaraCtx {
+        self.ctx
+    }
+
     #[must_use]
     pub fn content_rect(&self) -> MaraRect {
         // The node's region, minus the ribbons this node drew itself
