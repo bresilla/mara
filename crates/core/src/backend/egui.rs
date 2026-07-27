@@ -136,7 +136,7 @@ impl UiBackend for EguiUiBackend<'_> {
 
     fn allocate(&mut self, size: vocab::Vec2, sense: Sense) -> MaraResponse {
         let (_rect, response) = self.ui.allocate_exact_size(size.into(), egui_sense(sense));
-        let mara: MaraResponse = response.into();
+        let mara: MaraResponse = mara_response_from(&response);
         probe_record_response(self.ui.ctx(), "alloc", None, &mara);
         mara
     }
@@ -146,16 +146,15 @@ impl UiBackend for EguiUiBackend<'_> {
     }
 
     fn reserve_rect(&mut self, rect: vocab::Rect, sense: Sense) -> MaraResponse {
-        let mara: MaraResponse = self.ui.allocate_rect(rect.into(), egui_sense(sense)).into();
+        let mara: MaraResponse =
+            mara_response_from(&self.ui.allocate_rect(rect.into(), egui_sense(sense)));
         probe_record_response(self.ui.ctx(), "reserve", None, &mara);
         mara
     }
 
     fn interact(&mut self, rect: vocab::Rect, id: vocab::Id, sense: Sense) -> MaraResponse {
-        let mara: MaraResponse = self
-            .ui
-            .interact(rect.into(), id.into(), egui_sense(sense))
-            .into();
+        let mara: MaraResponse =
+            mara_response_from(&self.ui.interact(rect.into(), id.into(), egui_sense(sense)));
         probe_record_response(self.ui.ctx(), "interact", Some(id), &mara);
         mara
     }
@@ -1002,7 +1001,7 @@ pub(crate) fn show_singleline_text_edit_for_spec(
     response.rect = rect.into();
     let has_focus = response.has_focus();
     TextEditOutput {
-        response: response.into(),
+        response: mara_response_from(&response),
         has_focus,
     }
 }
@@ -1228,6 +1227,35 @@ pub(crate) fn painter_for_ui_surface(ui: &egui::Ui, spec: PaintSurfaceSpec) -> e
         PaintSurfaceRegion::RemainingAvailable => painter_for_ui_clip(ui, ui_available_rect(ui)),
         PaintSurfaceRegion::ClipRect(rect) => painter_for_ui_clip(ui, rect),
     }
+}
+
+/// Snapshot an egui response into Mara's plain-data form.
+///
+/// Was `impl From<egui::Response> for MaraResponse`; moved here because
+/// that impl cannot live in a backend crate — both types would be
+/// foreign to it. Public because host-tier code and the vendored graph
+/// renderer still hold raw responses and need the same snapshot; they
+/// call this rather than reimplementing the flag capture.
+pub fn mara_response_from(inner: &egui::Response) -> MaraResponse {
+    let mut mara = MaraResponse::__internal_from_backend(
+        inner.rect.into(),
+        vocab::PointerButton::ALL.map(|button| inner.clicked_by(egui_pointer_button(button))),
+        vocab::PointerButton::ALL.map(|button| inner.dragged_by(egui_pointer_button(button))),
+        remember_response(inner),
+    );
+    mara.clicked = inner.clicked();
+    mara.double_clicked = inner.double_clicked();
+    mara.secondary_clicked = inner.secondary_clicked();
+    mara.hovered = inner.hovered();
+    mara.changed = inner.changed();
+    mara.dragged = inner.dragged();
+    mara.drag_started = inner.drag_started();
+    mara.drag_stopped = inner.drag_stopped();
+    mara.pointer_button_down = inner.is_pointer_button_down_on();
+    mara.drag_delta = inner.drag_delta().into();
+    mara.interact_pointer = inner.interact_pointer_pos().map(Into::into);
+    mara.hover_pos = inner.hover_pos().map(Into::into);
+    mara
 }
 
 pub(crate) fn remember_response(response: &egui::Response) -> vocab::Id {

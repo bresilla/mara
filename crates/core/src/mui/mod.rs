@@ -84,30 +84,33 @@ pub struct MaraResponse {
     backend_response: vocab::Id,
 }
 
-impl From<egui::Response> for MaraResponse {
-    fn from(inner: egui::Response) -> Self {
-        let backend_response = backend::egui::remember_response(&inner);
-        let clicked_by = vocab::PointerButton::ALL
-            .map(|button| inner.clicked_by(backend::egui::egui_pointer_button(button)));
-        let dragged_by = vocab::PointerButton::ALL
-            .map(|button| inner.dragged_by(backend::egui::egui_pointer_button(button)));
+impl MaraResponse {
+    /// Build a response around the parts a backend cannot reach.
+    ///
+    /// Everything a consumer branches on is a public field, so a
+    /// backend assigns those directly. These three it cannot: the
+    /// per-button flags and the side-table key are captured once, at
+    /// the moment the widget was laid out, because a `MaraResponse` is
+    /// a *snapshot* — there is no live backend response to re-query.
+    ///
+    /// This replaces a `From<BackendResponse>` impl, which cannot
+    /// follow the backend into its own crate: both the backend's
+    /// response type and `MaraResponse` would be foreign there, so the
+    /// impl would be illegal under the orphan rule. A constructor is
+    /// the seam that survives the split.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn __internal_from_backend(
+        rect: vocab::Rect,
+        clicked_by: [bool; 3],
+        dragged_by: [bool; 3],
+        backend_response: vocab::Id,
+    ) -> Self {
         Self {
             clicked_by,
             dragged_by,
-            clicked: inner.clicked(),
-            double_clicked: inner.double_clicked(),
-            secondary_clicked: inner.secondary_clicked(),
-            hovered: inner.hovered(),
-            changed: inner.changed(),
-            dragged: inner.dragged(),
-            drag_started: inner.drag_started(),
-            drag_stopped: inner.drag_stopped(),
-            pointer_button_down: inner.is_pointer_button_down_on(),
-            drag_delta: inner.drag_delta().into(),
-            interact_pointer: inner.interact_pointer_pos().map(Into::into),
-            hover_pos: inner.hover_pos().map(Into::into),
-            rect: inner.rect.into(),
             backend_response,
+            ..Self::synthetic(rect)
         }
     }
 }

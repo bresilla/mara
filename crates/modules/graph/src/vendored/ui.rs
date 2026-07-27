@@ -1540,7 +1540,7 @@ where
 
     graph_state.store(graph, ui.ctx());
 
-    graph_resp.into()
+    mara_core::backend::egui::mara_response_from(&graph_resp)
 }
 
 #[allow(clippy::too_many_arguments)]

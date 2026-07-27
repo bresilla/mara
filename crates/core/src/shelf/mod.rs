@@ -720,8 +720,14 @@ pub fn __internal_show_shelves_egui<'a>(
                 );
                 let paint_rect = shelf_paint_rect(shelf_edge, shelf_rect);
                 paint_shelf_background(&mut mara, paint_rect.into(), shelf.accent, &shelf_theme);
-                let resize_response =
-                    resize_shelf(&mut mara, &shelf, render_id, state, &shelf_theme, shelf_rect);
+                let resize_response = resize_shelf(
+                    &mut mara,
+                    &shelf,
+                    render_id,
+                    state,
+                    &shelf_theme,
+                    shelf_rect,
+                );
                 (move_response, resize_response)
             };
 
