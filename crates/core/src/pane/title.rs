@@ -119,7 +119,7 @@ pub(crate) fn paint_pane_title(
         // Stripes are visible — keep animating. Without this egui only
         // repaints on input events and the strip would appear frozen.
         crate::backend::egui::request_repaint_after_ms(ui.ctx(), 16);
-        let time_s = crate::backend::egui::input_time(ui.ctx()) as f32;
+        let time_s = crate::context::MaraCtx::now(ui.ctx()) as f32;
         if let Some(cmd) = style::caution_stripes_paint_cmd(m_rect, accent, time_s) {
             paint_cmd(ui, cmd);
         }
@@ -195,7 +195,7 @@ pub(crate) fn paint_pane_title(
         let cipher_offset =
             if theme.scramble_titles && style::scramble_active(ui.ctx(), scramble_id, &title_uc) {
                 const CIPHER_PEAK: f32 = 6.0;
-                let now = crate::backend::egui::input_time(ui.ctx()) as f32;
+                let now = crate::context::MaraCtx::now(ui.ctx()) as f32;
                 crate::backend::egui::request_repaint_after_ms(ui.ctx(), 33);
                 let pulse = (now * 32.0).sin().abs();
                 CIPHER_PEAK * (0.55 + 0.45 * pulse)
@@ -352,7 +352,7 @@ pub(crate) fn paint_pane_title(
         // stays bright at the start of each cycle. Bumped from 0.08
         // so the on-state lingers a touch
         // longer and reads clearly between dims.
-        let time = crate::backend::egui::input_time(ui.ctx()) as f32;
+        let time = crate::context::MaraCtx::now(ui.ctx()) as f32;
         const ON_FRAC: f32 = 0.16;
         let on = time.fract() < ON_FRAC;
         let alpha = if on { 255 } else { 76 };

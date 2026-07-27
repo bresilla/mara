@@ -319,7 +319,7 @@ pub fn __internal_maximizable_with_opts_egui(
         // Fullscreen within the current view node's region (a cell), or
         // the whole window when no node is scoping (the root / host).
         let screen = current_node_region(&ctx)
-            .unwrap_or_else(|| crate::backend::egui::context_content_rect(&ctx));
+            .unwrap_or_else(|| crate::context::MaraCtx::content_rect(&ctx));
         let content = opts.content_avoidance.apply_to_rect(screen);
         crate::backend::egui::show_area_for_host(
             &ctx,

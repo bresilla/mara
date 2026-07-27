@@ -177,7 +177,7 @@ pub fn __internal_command_palette_egui(
         picked = Some(filtered[state.selected].id);
     }
 
-    let screen = crate::backend::egui::context_content_rect(ctx);
+    let screen = crate::context::MaraCtx::content_rect(ctx);
     // Full-screen scrim so clicks outside the palette dismiss it.
     // `Order::Foreground` places it above panes, below the
     // palette itself (which we paint at `Tooltip`).

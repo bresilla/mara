@@ -1577,7 +1577,7 @@ fn resize_shelf(
                 shelf.max_extent(theme),
             );
             state.set_edge_size(shelf_id, shelf.edge, next);
-            crate::backend::egui::request_repaint(ui.ctx());
+            MaraCtx::request_repaint(ui.ctx());
         } else {
             state.resize_starts.remove(&size_key);
         }
@@ -1593,7 +1593,7 @@ fn resize_shelf(
             shelf.max_extent(theme),
         );
         state.set_edge_size(shelf_id, shelf.edge, next);
-        crate::backend::egui::request_repaint(ui.ctx());
+        MaraCtx::request_repaint(ui.ctx());
     }
     if resp.drag_stopped() {
         state.resize_starts.remove(&size_key);
@@ -2013,7 +2013,7 @@ fn handle_shelf_move_drag(input: ShelfMoveDragInput<'_, '_>) {
             let target = shelf_move_target(cursor, available, occupied, shelf_edge);
             state.update_drag(cursor, target);
             crate::backend::egui::set_cursor_icon_for_context(ctx, CursorIcon::Grabbing);
-            crate::backend::egui::request_repaint(ctx);
+            MaraCtx::request_repaint(ctx);
         }
         if input.any_released {
             state.finish_drag();

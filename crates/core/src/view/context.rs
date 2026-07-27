@@ -54,7 +54,7 @@ impl<'a> ViewCtx<'a> {
     ) -> Self {
         crate::enforce::__internal_enforce_defaults(egui_ctx);
         Self {
-            region: backend::egui::context_content_rect(egui_ctx),
+            region: crate::context::MaraCtx::content_rect(egui_ctx),
             egui_ctx,
             workspace,
             accent: accent.into(),
@@ -391,7 +391,7 @@ impl<'a> ViewCtx<'a> {
 
     /// Ask the host to schedule another frame.
     pub fn request_repaint(&self) {
-        backend::egui::request_repaint(self.egui_ctx);
+        crate::context::MaraCtx::request_repaint(self.egui_ctx);
     }
 
     /// Ask the host to schedule a frame no later than `after` — for

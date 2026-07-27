@@ -3063,7 +3063,7 @@ fn paint_corner_ticks(
     let prev_active_id = snap_id.with("prev_active");
     let prev_body_open_id = snap_id.with("prev_body_open");
     let first_seen_id = snap_id.with("first_seen");
-    let now = crate::backend::egui::input_time(ui.ctx());
+    let now = crate::context::MaraCtx::now(ui.ctx());
     let opacity_active = ui.opacity() >= OPACITY_GATE;
     let body_open_now: bool = crate::memory::MaraMemoryCtx::new(ui.ctx())
         .get_persisted::<bool>(container_id.with("body_open"))
@@ -3123,7 +3123,7 @@ fn paint_corner_ticks(
         None => 0.0,
     };
     if appear < 1.0 {
-        crate::backend::egui::request_repaint(ui.ctx());
+        crate::context::MaraCtx::request_repaint(ui.ctx());
     }
     // Snap progress is driven by `appear` ALONE — re-arming events
     // (pane launch, single-container unfold) drop `first_seen`,

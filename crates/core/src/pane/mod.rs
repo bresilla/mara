@@ -801,7 +801,7 @@ impl Pane {
         let screen = region.intersect(
             MaraCtx::memory(ctx)
                 .get_temp::<MaraRect>(crate::ribbon::chrome::chrome_bounds_key())
-                .unwrap_or_else(|| crate::backend::egui::context_content_rect(ctx)),
+                .unwrap_or_else(|| MaraCtx::content_rect(ctx)),
         );
         // Reserve `RAIL_INSET` on the pane's OWN rail (its title
         // strip lives there); on the opposite side only reserve
