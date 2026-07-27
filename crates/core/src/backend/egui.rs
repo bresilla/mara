@@ -629,9 +629,6 @@ pub(crate) fn context_pixels_per_point(ctx: &egui::Context) -> f32 {
     ctx.pixels_per_point()
 }
 
-pub(crate) fn context_time(ctx: &egui::Context) -> f64 {
-    ctx.input(|input| input.time)
-}
 
 pub(crate) fn unstable_dt(ctx: &egui::Context) -> f32 {
     ctx.input(|input| input.unstable_dt).max(0.0)

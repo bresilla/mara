@@ -128,7 +128,7 @@ impl<'a> ViewCtx<'a> {
     /// absent, so sibling cells only see the pointer over themselves.
     #[must_use]
     pub fn input(&self) -> MaraInput {
-        let mut snapshot = backend::egui::input_snapshot(self.egui_ctx);
+        let mut snapshot = crate::context::MaraCtx::input(self.egui_ctx);
         if snapshot.pointer.is_some_and(|p| !self.region.contains(p)) {
             snapshot.pointer = None;
         }
@@ -379,14 +379,14 @@ impl<'a> ViewCtx<'a> {
     /// rendering into its own pixel buffer must size that buffer by.
     #[must_use]
     pub fn pixels_per_point(&self) -> f32 {
-        backend::egui::context_pixels_per_point(self.egui_ctx)
+        crate::context::MaraCtx::pixels_per_point(self.egui_ctx)
     }
 
     /// Seconds since the host started, for time-based animation and
     /// throttling. Monotonic within a run; not a wall clock.
     #[must_use]
     pub fn now(&self) -> f64 {
-        backend::egui::context_time(self.egui_ctx)
+        crate::context::MaraCtx::now(self.egui_ctx)
     }
 
     /// Ask the host to schedule another frame.
@@ -397,7 +397,7 @@ impl<'a> ViewCtx<'a> {
     /// Ask the host to schedule a frame no later than `after` — for
     /// views polling off-thread work (tile fetches, decode queues).
     pub fn request_repaint_after(&self, after: std::time::Duration) {
-        backend::egui::request_repaint_after(self.egui_ctx, after);
+        crate::context::MaraCtx::request_repaint_after(self.egui_ctx, after);
     }
 
     /// Current responsive size class for this node's region. Views
