@@ -1162,7 +1162,10 @@ fn render_shelf_body(input: ShelfBodyInput<'_, '_, '_, '_>) {
                             entry,
                         );
                         pane::paint_ghost_gap_entry_inline(
-                            viewport,
+                            &mut crate::MaraUi::__internal_over(
+                                &mut crate::MaraUi::__internal_backend_from_raw(viewport),
+                                shelf.accent,
+                            ),
                             entry,
                             shelf.accent.into(),
                             horizontal_stack,

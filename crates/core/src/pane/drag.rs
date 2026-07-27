@@ -301,16 +301,13 @@ pub fn dragged_entry(snapshot: &[RectEntry], dragged: Id) -> Option<RectEntry> {
 /// a translucent accent rect. Pushes subsequent containers along
 /// the stack axis exactly like the dragged container would.
 pub fn paint_ghost_gap_inline(
-    ui: &mut Ui,
+    ui: &mut crate::MaraUi<'_>,
     dragged_size: Vec2,
     accent: Color32,
     _horizontal_stack: bool,
 ) {
-    let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
-    let rect = backend
-        .allocate(MaraVec2::from(dragged_size), Sense::Hover)
-        .rect;
-    paint_ghost_rect(&mut backend, rect, accent.into(), 36);
+    let rect = ui.allocate(MaraVec2::from(dragged_size), Sense::Hover).rect;
+    paint_ghost_rect(ui.backend_mut(), rect, accent.into(), 36);
 }
 
 /// Allocate a same-main-axis slot but keep the ghost's cross-axis
@@ -320,14 +317,13 @@ pub fn paint_ghost_gap_inline(
 /// cursor makes the ghost appear shifted left/up compared to where
 /// the container will land.
 pub fn paint_ghost_gap_entry_inline(
-    ui: &mut Ui,
+    ui: &mut crate::MaraUi<'_>,
     entry: RectEntry,
     accent: Color32,
     horizontal_stack: bool,
 ) {
     let size = entry.rect.size();
-    let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
-    let slot_rect = backend.allocate(MaraVec2::from(size), Sense::Hover).rect;
+    let slot_rect = ui.allocate(MaraVec2::from(size), Sense::Hover).rect;
     let entry_rect: MaraRect = entry.rect.into();
     let rect = if horizontal_stack {
         MaraRect::from_min_size(
@@ -340,7 +336,7 @@ pub fn paint_ghost_gap_entry_inline(
             MaraVec2::from(size),
         )
     };
-    paint_ghost_rect(&mut backend, rect, accent.into(), 36);
+    paint_ghost_rect(ui.backend_mut(), rect, accent.into(), 36);
 }
 
 fn ghost_rect_paint_cmds(rect: MaraRect, accent: MaraColor32, fill_alpha: u8) -> [PaintCmd; 2] {
@@ -365,7 +361,7 @@ fn ghost_rect_paint_cmds(rect: MaraRect, accent: MaraColor32, fill_alpha: u8) ->
     ]
 }
 
-fn paint_ghost_rect(backend: &mut impl UiBackend, rect: MaraRect, accent: MaraColor32, alpha: u8) {
+fn paint_ghost_rect(backend: &mut dyn UiBackend, rect: MaraRect, accent: MaraColor32, alpha: u8) {
     for cmd in ghost_rect_paint_cmds(rect, accent, alpha) {
         backend.paint(cmd);
     }

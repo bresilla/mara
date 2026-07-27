@@ -1051,7 +1051,15 @@ impl Normal {
             if cur_idx == target_idx
                 && let Some(entry) = pane::dragged_entry(&snap, dragged_id)
             {
-                pane::paint_ghost_gap_entry_inline(ui, entry, accent, horizontal_stack);
+                pane::paint_ghost_gap_entry_inline(
+                    &mut crate::MaraUi::__internal_over(
+                        &mut crate::MaraUi::__internal_backend_from_raw(ui),
+                        accent,
+                    ),
+                    entry,
+                    accent,
+                    horizontal_stack,
+                );
             }
         }
 

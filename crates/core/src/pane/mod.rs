@@ -1349,7 +1349,15 @@ impl Pane {
                     if target_idx >= total
                         && let Some(entry) = drag::dragged_entry(&snap, dragged_id)
                     {
-                        drag::paint_ghost_gap_entry_inline(ui, entry, accent, horizontal_stack);
+                        drag::paint_ghost_gap_entry_inline(
+                            &mut crate::MaraUi::__internal_over(
+                                &mut crate::MaraUi::__internal_backend_from_raw(ui),
+                                accent,
+                            ),
+                            entry,
+                            accent,
+                            horizontal_stack,
+                        );
                     }
                 }
             }
