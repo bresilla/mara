@@ -903,12 +903,10 @@ fn draw_one_slot_ribbon(
             SIDE_BTN_SIZE,
             SIDE_BTN_GAP,
         );
-        crate::backend::egui::show_slot_ribbon_area(ctx, spec, Layer::Foreground, |ui| {
+        ctx.area_slot(spec.area_slot(Layer::Foreground, true), &mut |mara| {
             let Some(rect) = spec.item_screen_rect(0) else {
                 return;
             };
-            let mut raw = crate::MaraUi::__internal_backend_from_raw(ui);
-            let mut mara = crate::MaraUi::__internal_over(&mut raw, accent);
             let response = mara.interact(
                 rect,
                 MaraId::new(("mara_slot_ribbon_item", ribbon.id, item.id)),
@@ -920,7 +918,7 @@ fn draw_one_slot_ribbon(
             }
             let glyph = glyph_for_item(item);
             paint_ribbon_glyph(
-                &mut mara,
+                mara,
                 rect,
                 glyph,
                 ribbon_button_fg(accent, item.active, response.hovered(), glyph),

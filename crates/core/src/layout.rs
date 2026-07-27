@@ -602,6 +602,23 @@ pub struct SlotRibbonLayoutSpec {
 }
 
 impl SlotRibbonLayoutSpec {
+    /// The floating-surface spec this ribbon occupies.
+    ///
+    /// Pure data-to-data: a ribbon *is* an area slot at its own
+    /// position and size, so the backend needs no ribbon-specific
+    /// entry point — [`MaraCtx::area_slot`](crate::context::MaraCtx::area_slot)
+    /// takes it directly.
+    #[must_use]
+    pub fn area_slot(&self, layer: Layer, interactable: bool) -> AreaSlotSpec {
+        let host = AreaHost::new(self.id, self.pos, layer);
+        let host = if interactable {
+            host
+        } else {
+            host.non_interactive()
+        };
+        AreaSlotSpec::new(host, self.size)
+    }
+
     #[must_use]
     pub fn new(
         id: Id,
