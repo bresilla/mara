@@ -220,6 +220,15 @@ impl UiBackend for RecordingBackend {
         Rect::from_min_max(self.cursor, self.available.max)
     }
 
+    fn inline_picker_scope(
+        &mut self,
+        _spec: crate::layout::InlinePickerSpec,
+        body: &mut dyn FnMut(&mut dyn UiBackend),
+    ) {
+        // No per-scope style here; the picker still draws.
+        body(self);
+    }
+
     fn push_clip(&mut self, rect: Rect) {
         self.clips.push(rect);
         // Clips only ever shrink.

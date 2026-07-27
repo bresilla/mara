@@ -1929,7 +1929,12 @@ fn paint_widgets(
                         let mut rgba: [f32; 4] = crate::memory::MaraMemoryCtx::new(ui.ctx()).get_persisted::<[f32; 4]>(val_key)
                             .unwrap_or(cfg.initial);
                         let changed = if cfg.alpha {
-                            let resp = color_rgba(ui, &cfg.label, &mut rgba, cfg.accent);
+                            let resp = {
+                                let mut raw = crate::MaraUi::__internal_backend_from_raw(ui);
+                                let mut mara =
+                                    crate::MaraUi::__internal_over(&mut raw, cfg.accent);
+                                color_rgba(&mut mara, &cfg.label, &mut rgba, cfg.accent)
+                            };
                             crate::debug::tag(
                                 ui,
                                 resp.rect.into(),
@@ -1938,7 +1943,12 @@ fn paint_widgets(
                             resp.changed()
                         } else {
                             let mut rgb = [rgba[0], rgba[1], rgba[2]];
-                            let resp = color_rgb(ui, &cfg.label, &mut rgb, cfg.accent);
+                            let resp = {
+                                let mut raw = crate::MaraUi::__internal_backend_from_raw(ui);
+                                let mut mara =
+                                    crate::MaraUi::__internal_over(&mut raw, cfg.accent);
+                                color_rgb(&mut mara, &cfg.label, &mut rgb, cfg.accent)
+                            };
                             rgba[0] = rgb[0];
                             rgba[1] = rgb[1];
                             rgba[2] = rgb[2];

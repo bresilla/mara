@@ -222,6 +222,17 @@ impl UiBackend for EguiUiBackend<'_> {
         self.ui.painter().set(ShapeIdx(slot.0), shape);
     }
 
+    fn inline_picker_scope(
+        &mut self,
+        spec: crate::layout::InlinePickerSpec,
+        body: &mut dyn FnMut(&mut dyn UiBackend),
+    ) {
+        show_inline_picker_scope(self.ui, spec, |ui| {
+            let mut child = EguiUiBackend::new(ui);
+            body(&mut child);
+        });
+    }
+
     fn set_cursor_icon(&mut self, cursor: crate::layout::CursorIcon) {
         set_cursor_icon_for_ui(self.ui, cursor);
     }

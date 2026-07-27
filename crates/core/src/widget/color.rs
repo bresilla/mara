@@ -30,15 +30,16 @@ pub const COLOR_SWATCH_H: f32 = 20.0;
 /// `Response` whose `.changed()` fires whenever the picker writes
 /// back to `rgb`. Each channel is normalised in `0.0..=1.0`.
 pub(crate) fn color_rgb(
-    ui: &mut egui::Ui,
+    ui: &mut crate::MaraUi<'_>,
     label: &str,
     rgb: &mut [f32; 3],
     accent: impl Into<Color32>,
 ) -> MaraResponse {
     let accent = accent.into();
-    let id = color_picker_memory_id(crate::backend::egui::ui_id(ui), label);
+    let id = color_picker_memory_id(ui.id(), label);
     let mut open = {
-        let memory = crate::backend::egui::memory_ctx_for_ui(ui);
+        let backend = ui.backend_mut();
+        let memory = backend.memory();
         crate::popup::PopupState::load(&memory, id).is_open()
     };
 
@@ -46,20 +47,17 @@ pub(crate) fn color_rgb(
     let mut row_resp = labelled_swatch(ui, label, preview, open, accent);
 
     if apply_color_picker_toggle(&mut open, &row_resp) {
-        let mut memory = crate::backend::egui::memory_ctx_for_ui(ui);
+        let backend = ui.backend_mut();
+        let mut memory = backend.memory();
         crate::popup::PopupState::new(open).store(&mut memory, id);
     }
 
     if open {
-        crate::backend::egui::add_space_for_spec(
-            ui,
-            SpaceSpec::vertical(theme().widgets.color.picker_gap),
-        );
+        ui.add_space(SpaceSpec::vertical(theme().widgets.color.picker_gap));
         let mut color32 = preview;
         let changed = picker_scope(ui, |ui| {
-            let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
             crate::widget::color_picker::color_picker_backend(
-                &mut backend,
+                ui.backend_mut(),
                 &mut color32,
                 ColorPickerAlpha::Opaque,
             )
@@ -68,10 +66,7 @@ pub(crate) fn color_rgb(
             apply_rgb_picker_color(rgb, color32);
             row_resp.changed = true;
         }
-        crate::backend::egui::add_space_for_spec(
-            ui,
-            SpaceSpec::vertical(theme().widgets.color.picker_gap),
-        );
+        ui.add_space(SpaceSpec::vertical(theme().widgets.color.picker_gap));
     }
     row_resp
 }
@@ -80,15 +75,16 @@ pub(crate) fn color_rgb(
 /// [`color_rgb`] but exposes the alpha slider in the picker body and
 /// renders the checker-over-alpha preview in the swatch.
 pub(crate) fn color_rgba(
-    ui: &mut egui::Ui,
+    ui: &mut crate::MaraUi<'_>,
     label: &str,
     rgba: &mut [f32; 4],
     accent: impl Into<Color32>,
 ) -> MaraResponse {
     let accent = accent.into();
-    let id = color_picker_memory_id(crate::backend::egui::ui_id(ui), label);
+    let id = color_picker_memory_id(ui.id(), label);
     let mut open = {
-        let memory = crate::backend::egui::memory_ctx_for_ui(ui);
+        let backend = ui.backend_mut();
+        let memory = backend.memory();
         crate::popup::PopupState::load(&memory, id).is_open()
     };
 
@@ -96,20 +92,17 @@ pub(crate) fn color_rgba(
     let mut row_resp = labelled_swatch(ui, label, preview, open, accent);
 
     if apply_color_picker_toggle(&mut open, &row_resp) {
-        let mut memory = crate::backend::egui::memory_ctx_for_ui(ui);
+        let backend = ui.backend_mut();
+        let mut memory = backend.memory();
         crate::popup::PopupState::new(open).store(&mut memory, id);
     }
 
     if open {
-        crate::backend::egui::add_space_for_spec(
-            ui,
-            SpaceSpec::vertical(theme().widgets.color.picker_gap),
-        );
+        ui.add_space(SpaceSpec::vertical(theme().widgets.color.picker_gap));
         let mut color32 = preview;
         let changed = picker_scope(ui, |ui| {
-            let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
             crate::widget::color_picker::color_picker_backend(
-                &mut backend,
+                ui.backend_mut(),
                 &mut color32,
                 ColorPickerAlpha::OnlyBlend,
             )
@@ -118,10 +111,7 @@ pub(crate) fn color_rgba(
             apply_rgba_picker_color(rgba, color32);
             row_resp.changed = true;
         }
-        crate::backend::egui::add_space_for_spec(
-            ui,
-            SpaceSpec::vertical(theme().widgets.color.picker_gap),
-        );
+        ui.add_space(SpaceSpec::vertical(theme().widgets.color.picker_gap));
     }
     row_resp
 }
@@ -130,18 +120,17 @@ pub(crate) fn color_rgba(
 /// Returns the swatch button's `Response` so the caller can react to
 /// clicks (toggle the inline picker open).
 fn labelled_swatch(
-    ui: &mut egui::Ui,
+    ui: &mut crate::MaraUi<'_>,
     label: &str,
     color: Color32,
     open: bool,
     accent: Color32,
 ) -> MaraResponse {
-    let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
-    labelled_swatch_backend(&mut backend, label, color, open, accent)
+    labelled_swatch_backend(ui.backend_mut(), label, color, open, accent)
 }
 
 pub fn labelled_swatch_backend(
-    backend: &mut impl UiBackend,
+    backend: &mut dyn UiBackend,
     label: &str,
     color: Color32,
     open: bool,
@@ -242,12 +231,12 @@ fn apply_rgba_picker_color(rgba: &mut [f32; 4], color: Color32) {
 /// renders at the container's width instead of the theme's compact
 /// slider width. Scoping via `ui.scope` confines the override to this
 /// call — other sliders in the parent ui keep their normal width.
-fn picker_scope<R>(ui: &mut egui::Ui, content: impl FnOnce(&mut egui::Ui) -> R) -> R {
-    crate::backend::egui::show_inline_picker_scope(
-        ui,
-        picker_scope_spec(crate::backend::egui::ui_available_width(ui)),
-        content,
-    )
+fn picker_scope<R>(
+    ui: &mut crate::MaraUi<'_>,
+    content: impl FnOnce(&mut crate::MaraUi<'_>) -> R,
+) -> R {
+    let spec = picker_scope_spec(ui.available_rect().width());
+    ui.inline_picker_scope(spec, content)
 }
 
 fn picker_scope_spec(available_width: f32) -> InlinePickerSpec {

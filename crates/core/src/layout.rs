@@ -778,6 +778,21 @@ pub trait UiBackend {
 
     /// Show hover-tooltip `text` for a previously-returned response.
     /// No-op on backends without an overlay layer.
+    /// Run `body` in a scope with a widened clip and a slider width
+    /// from `spec` — what an inline picker needs so its indicator can
+    /// overhang without being clipped, and its sliders match the
+    /// container rather than the theme's compact default.
+    ///
+    /// Required rather than defaulted: the obvious default — run
+    /// `body` unscoped — cannot be written here, because `self` is
+    /// unsized behind the trait object. A backend with no per-scope
+    /// style should implement it as exactly that.
+    fn inline_picker_scope(
+        &mut self,
+        spec: InlinePickerSpec,
+        body: &mut dyn FnMut(&mut dyn UiBackend),
+    );
+
     /// Set the pointer cursor for this frame.
     ///
     /// Unconditional, unlike [`hover_cursor`](UiBackend::hover_cursor):
@@ -1095,6 +1110,13 @@ impl<T: UiBackend + ?Sized> UiBackend for &mut T {
     }
     fn fill_paint_slot(&mut self, slot: PaintSlot, cmd: Option<PaintCmd>) {
         (**self).fill_paint_slot(slot, cmd)
+    }
+    fn inline_picker_scope(
+        &mut self,
+        spec: InlinePickerSpec,
+        body: &mut dyn FnMut(&mut dyn UiBackend),
+    ) {
+        (**self).inline_picker_scope(spec, body)
     }
     fn set_cursor_icon(&mut self, cursor: CursorIcon) {
         (**self).set_cursor_icon(cursor)

@@ -988,6 +988,16 @@ impl crate::layout::UiBackend for MaraBackend<'_> {
             Self::Recording(b) => b.memory(),
         }
     }
+    fn inline_picker_scope(
+        &mut self,
+        spec: crate::layout::InlinePickerSpec,
+        body: &mut dyn FnMut(&mut dyn UiBackend),
+    ) {
+        match self {
+            Self::Egui(b) => b.inline_picker_scope(spec, body),
+            Self::Recording(b) => b.inline_picker_scope(spec, body),
+        }
+    }
     fn add_space(&mut self, spec: SpaceSpec) {
         match self {
             Self::Egui(b) => b.add_space(spec),
@@ -1682,6 +1692,30 @@ impl<'a> MaraUi<'a> {
         self.backend.interact(rect.into(), id.into(), sense)
     }
 
+    /// Run `body` in an inline-picker scope — widened clip so the
+    /// indicator can overhang, container-width sliders.
+    pub fn inline_picker_scope<R>(
+        &mut self,
+        spec: crate::layout::InlinePickerSpec,
+        body: impl FnOnce(&mut MaraUi<'_>) -> R,
+    ) -> R {
+        let accent = self.accent;
+        let mut body = Some(body);
+        let mut out = None;
+        self.backend.inline_picker_scope(spec, &mut |backend| {
+            if let Some(body) = body.take() {
+                let mut inner = MaraUi::over(backend, accent);
+                out = Some(body(&mut inner));
+            }
+        });
+        out.expect("UiBackend::inline_picker_scope must run its body exactly once")
+    }
+
+    /// Insert blank space along the current flow axis.
+    pub fn add_space(&mut self, spec: crate::layout::SpaceSpec) {
+        self.backend.add_space(spec);
+    }
+
     /// Set the pointer cursor for this frame.
     pub fn set_cursor_icon(&mut self, cursor: crate::layout::CursorIcon) {
         self.backend.set_cursor_icon(cursor);
@@ -2030,18 +2064,12 @@ impl<'a> MaraUi<'a> {
 
     pub fn color_rgb(&mut self, label: &str, rgb: &mut [f32; 3]) -> MaraResponse {
         let accent = self.accent;
-        let Some(ui) = self.egui_ui_opt() else {
-            return Self::noop_response();
-        };
-        color_rgb(ui, label, rgb, accent)
+        color_rgb(self, label, rgb, accent)
     }
 
     pub fn color_rgba(&mut self, label: &str, rgba: &mut [f32; 4]) -> MaraResponse {
         let accent = self.accent;
-        let Some(ui) = self.egui_ui_opt() else {
-            return Self::noop_response();
-        };
-        color_rgba(ui, label, rgba, accent)
+        color_rgba(self, label, rgba, accent)
     }
 
     /// Foldable titled section whose body is itself a sealed
