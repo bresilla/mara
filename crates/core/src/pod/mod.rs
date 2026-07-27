@@ -1585,7 +1585,7 @@ fn paint_widgets(
         // pods that happen to share the same label — the pushed
         // id (= pod_id ⊕ slot_idx) is unique per (pod, widget
         // slot), so every child id inherits uniqueness.
-        let salt: MaraId = egui::Id::new((pod_id, slot_idx)).into();
+        let salt = MaraId::new((pod_id, slot_idx));
         // `spec` is moved into the id-scope body; `in_id_scope`
         // takes an `FnMut`, so bridge the one-shot move through an
         // `Option::take`.
