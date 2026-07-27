@@ -11,7 +11,7 @@ use super::{
     slot_paint::ResolvedSlotRibbon,
 };
 use crate::{
-    layout::{Layer, Sense as MaraSense, SlotRibbonLayoutSpec, UiBackend},
+    layout::{Layer, Sense as MaraSense, SlotRibbonLayoutSpec},
     paint::PaintCmd,
     vocab::{
         Align2 as MaraAlign2, Color32 as MaraColor32, Id as MaraId, Pos2 as MaraPos2,
@@ -1124,7 +1124,7 @@ pub fn draw_unified_ribbon_chrome(
             drag_started_idx = Some(idx);
         }
         if dragging_this && response.dragged() {
-            drag.cursor = crate::backend::egui::pointer_interact_pos(ctx);
+            drag.cursor = MaraCtx::input(ctx).interact_pointer;
         }
         if dragging_this && response.drag_stopped() {
             drag_stopped = true;
@@ -1198,7 +1198,7 @@ pub fn draw_unified_ribbon_chrome(
     if let Some(idx) = drag_started_idx {
         let (_, _, rid, iid, cluster, slot) = flat[idx];
         drag.item = Some(iid);
-        drag.cursor = crate::backend::egui::pointer_interact_pos(ctx);
+        drag.cursor = MaraCtx::input(ctx).interact_pointer;
         drag.source = Some(placement.resolve_parts(iid, rid, cluster, slot));
     }
 
@@ -1224,7 +1224,16 @@ pub fn draw_unified_ribbon_chrome(
 
     let empty_main_bar_drag_started = ribbons.first().is_some_and(|main| {
         let main_strip = strip_rect(main, ctx, insets_for_ribbon(ribbons, main, insets));
-        crate::backend::egui::primary_pointer_pressed_interact_pos(ctx).is_some_and(|pos| {
+        {
+            let input = MaraCtx::input(ctx);
+            // Only the press that starts an interaction counts — a held
+            // pointer must not re-trigger every frame.
+            input
+                .primary_pressed
+                .then_some(input.interact_pointer)
+                .flatten()
+        }
+        .is_some_and(|pos| {
             main_strip.contains(pos) && !button_rects.iter().any(|rect| rect.contains(pos))
         })
     });

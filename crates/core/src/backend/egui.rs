@@ -7,7 +7,7 @@ use crate::{
         AreaHost, AreaSlotSpec, ChildRegion, ContainerBodySpec, CursorIcon, FrameHostSpec,
         InlinePickerSpec, ItemSpacingSpec, Layer, PaintSurfaceRegion, PaintSurfaceSpec,
         PaneBodyScrollAxis, PaneBodyScrollSpec, PaneFlexSpec, PopupAlign, PopupListSpec, PopupSpec,
-        PopupTrigger, ScrollAxis, ScrollRegion, Sense, SlotRibbonLayoutSpec, SpaceSpec, StackAlign,
+        PopupTrigger, ScrollAxis, ScrollRegion, Sense, SpaceSpec, StackAlign,
         StackDirection, TextEditRegion, TextEditSpec, TextMeasureSpec, UiBackend,
     },
     memory::MaraMemoryCtx,
@@ -674,15 +674,6 @@ pub(crate) fn pointer_any_released(ctx: &egui::Context) -> bool {
     ctx.input(|input| input.pointer.any_released())
 }
 
-pub(crate) fn primary_pointer_pressed_interact_pos(ctx: &egui::Context) -> Option<vocab::Pos2> {
-    ctx.input(|input| {
-        if input.pointer.button_pressed(egui::PointerButton::Primary) {
-            input.pointer.interact_pos().map(Into::into)
-        } else {
-            None
-        }
-    })
-}
 
 pub(crate) fn viewport_maximized(ctx: &egui::Context) -> bool {
     ctx.input(|input| input.viewport().maximized)
@@ -937,30 +928,7 @@ pub(crate) fn show_pane_body_scroll_slot<R>(
     .inner
 }
 
-pub(crate) fn show_slot_ribbon_area<R>(
-    ctx: &egui::Context,
-    spec: SlotRibbonLayoutSpec,
-    layer: Layer,
-    body: impl FnOnce(&mut egui::Ui) -> R,
-) -> egui::InnerResponse<R> {
-    show_slot_ribbon_area_with_interactivity(ctx, spec, layer, true, body)
-}
 
-pub(crate) fn show_slot_ribbon_area_with_interactivity<R>(
-    ctx: &egui::Context,
-    spec: SlotRibbonLayoutSpec,
-    layer: Layer,
-    interactable: bool,
-    body: impl FnOnce(&mut egui::Ui) -> R,
-) -> egui::InnerResponse<R> {
-    let host = AreaHost::new(spec.id, spec.pos, layer);
-    let host = if interactable {
-        host
-    } else {
-        host.non_interactive()
-    };
-    show_area_slot(ctx, AreaSlotSpec::new(host, spec.size), body)
-}
 
 pub(crate) fn egui_popup_align(align: PopupAlign) -> egui::RectAlign {
     match align {
@@ -1335,9 +1303,6 @@ pub(crate) fn hover_text_for_ui_response(ui: &egui::Ui, response: &MaraResponse,
     hover_text(ui.ctx(), response.backend_response_id(), text);
 }
 
-pub(crate) fn move_area_response_to_top(ctx: &egui::Context, response: &egui::Response) {
-    ctx.move_to_top(response.layer_id);
-}
 
 pub(crate) fn input_snapshot(ctx: &egui::Context) -> MaraInput {
     ctx.input(|i| MaraInput {
