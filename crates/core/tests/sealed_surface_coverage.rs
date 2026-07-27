@@ -1018,6 +1018,36 @@ fn d13_layout_flow_group_is_reachable_from_maraui() {
     });
 }
 
+/// `constrain_to` pins a surface to a rect outright — clip, minimum
+/// and maximum. Stronger than a clip scope, which only narrows what is
+/// drawn: a constrained surface also stops reporting a size of its
+/// own. This is what a fullscreen overlay backdrop needs, and it
+/// replaced a backend-only layer painter.
+#[test]
+fn d13_constrain_to_pins_the_surface_extent() {
+    use mara_core::MaraUi;
+    use mara_core::backend::record::RecordingBackend;
+
+    let full = Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 300.0));
+    let pinned = Rect::from_min_size(Pos2::new(20.0, 10.0), Vec2::new(80.0, 40.0));
+
+    let mut backend = RecordingBackend::at(full);
+    MaraUi::__internal_over_backend(&mut backend, Color32::WHITE, &mut |ui| {
+        assert_eq!(ui.available_rect(), full);
+        ui.constrain_to(pinned);
+        assert_eq!(
+            ui.available_rect(),
+            pinned,
+            "a constrained surface reports the rect it was pinned to"
+        );
+        assert_eq!(
+            ui.cursor(),
+            pinned.min,
+            "and lays out from that rect's origin, not the parent's"
+        );
+    });
+}
+
 /// A clip scope cannot be left unbalanced — that is the whole reason it
 /// is a scope and not a push/pop pair.
 #[test]

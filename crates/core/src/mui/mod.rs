@@ -1716,6 +1716,11 @@ impl<'a> MaraUi<'a> {
         self.backend.add_space(spec);
     }
 
+    /// Pin this surface to exactly `rect` — clip, minimum and maximum.
+    pub fn constrain_to(&mut self, rect: impl Into<vocab::Rect>) {
+        self.backend.constrain_to(rect.into());
+    }
+
     /// Set the pointer cursor for this frame.
     pub fn set_cursor_icon(&mut self, cursor: crate::layout::CursorIcon) {
         self.backend.set_cursor_icon(cursor);

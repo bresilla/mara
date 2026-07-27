@@ -229,6 +229,13 @@ impl UiBackend for RecordingBackend {
         body(self);
     }
 
+    fn constrain_to(&mut self, rect: Rect) {
+        // Headless: the surface's own extent *is* its available rect,
+        // so pinning it is what "constrained" means here.
+        self.available = rect;
+        self.cursor = rect.min;
+    }
+
     fn push_clip(&mut self, rect: Rect) {
         self.clips.push(rect);
         // Clips only ever shrink.

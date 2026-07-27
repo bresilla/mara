@@ -816,6 +816,18 @@ pub trait UiBackend {
         body: &mut dyn FnMut(&mut dyn UiBackend),
     );
 
+    /// Pin this surface to exactly `rect` — clip, minimum and maximum
+    /// all set to it.
+    ///
+    /// For a surface whose extent is decided by the caller rather than
+    /// by its content: a fullscreen overlay backdrop, a node region.
+    /// Stronger than [`clipped`](UiBackend::push_clip), which only
+    /// narrows what is drawn — this also stops the surface reporting a
+    /// size other than `rect`.
+    fn constrain_to(&mut self, rect: Rect) {
+        let _ = rect;
+    }
+
     /// Set the pointer cursor for this frame.
     ///
     /// Unconditional, unlike [`hover_cursor`](UiBackend::hover_cursor):
@@ -1140,6 +1152,9 @@ impl<T: UiBackend + ?Sized> UiBackend for &mut T {
         body: &mut dyn FnMut(&mut dyn UiBackend),
     ) {
         (**self).inline_picker_scope(spec, body)
+    }
+    fn constrain_to(&mut self, rect: Rect) {
+        (**self).constrain_to(rect)
     }
     fn set_cursor_icon(&mut self, cursor: CursorIcon) {
         (**self).set_cursor_icon(cursor)

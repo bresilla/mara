@@ -233,6 +233,10 @@ impl UiBackend for EguiUiBackend<'_> {
         });
     }
 
+    fn constrain_to(&mut self, rect: vocab::Rect) {
+        constrain_ui_to_rect(self.ui, rect);
+    }
+
     fn set_cursor_icon(&mut self, cursor: crate::layout::CursorIcon) {
         set_cursor_icon_for_ui(self.ui, cursor);
     }
@@ -649,18 +653,6 @@ pub(crate) fn unstable_dt(ctx: &egui::Context) -> f32 {
     ctx.input(|input| input.unstable_dt).max(0.0)
 }
 
-pub(crate) fn context_painter_for_layer(
-    ctx: &egui::Context,
-    layer: Layer,
-    id: vocab::Id,
-    clip: vocab::Rect,
-) -> egui::Painter {
-    egui::Painter::new(
-        ctx.clone(),
-        egui::LayerId::new(egui_order_for_layer(layer), id.into()),
-        clip.into(),
-    )
-}
 
 pub(crate) fn pointer_interact_pos(ctx: &egui::Context) -> Option<vocab::Pos2> {
     ctx.pointer_interact_pos().map(Into::into)
@@ -1291,9 +1283,6 @@ pub(crate) fn hover_text(ctx: &egui::Context, key: vocab::Id, text: &str) {
     });
 }
 
-pub(crate) fn hover_text_for_ui_response(ui: &egui::Ui, response: &MaraResponse, text: &str) {
-    hover_text(ui.ctx(), response.backend_response_id(), text);
-}
 
 
 pub(crate) fn input_snapshot(ctx: &egui::Context) -> MaraInput {
@@ -1913,22 +1902,6 @@ mod tests {
             stroke: Stroke::NONE,
         });
         assert!(matches!(sector, egui::Shape::Path(_)));
-    }
-
-    #[test]
-    fn context_painter_for_layer_uses_mara_layer_and_clip() {
-        let ctx = egui::Context::default();
-        let clip = Rect::from_min_size(Pos2::new(1.0, 2.0), Vec2::new(30.0, 10.0));
-
-        assert_eq!(
-            egui_order_for_layer(Layer::Foreground),
-            egui::Order::Foreground
-        );
-
-        let painter =
-            context_painter_for_layer(&ctx, Layer::Foreground, vocab::Id::new("test"), clip);
-
-        assert_eq!(painter_clip_rect(&painter), clip);
     }
 
     #[test]
