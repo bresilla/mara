@@ -17,7 +17,7 @@
 //!   These constants are a contract; changing them invalidates every
 //!   golden snapshot.
 
-use std::any::Any;
+use std::any::{Any, TypeId};
 use std::collections::HashMap;
 
 use crate::layout::{AreaHost, Sense, UiBackend};
@@ -29,10 +29,15 @@ use crate::vocab::{Id, Pos2, Rect, Vec2};
 /// Headless [`MaraMemory`] store — a type-erased `HashMap` per lane.
 /// The backend-neutral state cores (popup/focus/scroll) and widget
 /// tests persist through this without an egui context.
+///
+/// Keyed by id **and** type, matching the egui store. Keying on id
+/// alone would let a headless run silently overwrite a value that the
+/// same code keeps distinct on a real backend — a divergence that
+/// shows up as a test passing for the wrong reason.
 #[derive(Default)]
 pub struct RecordingMemory {
-    temp: HashMap<Id, Box<dyn Any + Send + Sync>>,
-    persisted: HashMap<Id, Box<dyn Any + Send + Sync>>,
+    temp: HashMap<(Id, TypeId), Box<dyn Any + Send + Sync>>,
+    persisted: HashMap<(Id, TypeId), Box<dyn Any + Send + Sync>>,
 }
 
 /// Headless animation: completes instantly. Goldens and tests pin the
@@ -58,7 +63,7 @@ impl MaraMemory for RecordingMemory {
         T: Clone + Send + Sync + 'static,
     {
         self.persisted
-            .get(&id)
+            .get(&(id, TypeId::of::<T>()))
             .and_then(|value| value.downcast_ref::<T>())
             .cloned()
     }
@@ -67,7 +72,8 @@ impl MaraMemory for RecordingMemory {
     where
         T: Clone + Send + Sync + 'static,
     {
-        self.persisted.insert(id, Box::new(value));
+        self.persisted
+            .insert((id, TypeId::of::<T>()), Box::new(value));
     }
 
     fn get_temp<T>(&self, id: Id) -> Option<T>
@@ -75,7 +81,7 @@ impl MaraMemory for RecordingMemory {
         T: Clone + Send + Sync + 'static,
     {
         self.temp
-            .get(&id)
+            .get(&(id, TypeId::of::<T>()))
             .and_then(|value| value.downcast_ref::<T>())
             .cloned()
     }
@@ -84,16 +90,14 @@ impl MaraMemory for RecordingMemory {
     where
         T: Clone + Send + Sync + 'static,
     {
-        self.temp.insert(id, Box::new(value));
+        self.temp.insert((id, TypeId::of::<T>()), Box::new(value));
     }
 
-    /// Id-keyed (the store holds one value per id, unlike egui's
-    /// id+type keying — Mara code never stores two types under one id).
     fn remove_temp<T>(&mut self, id: Id)
     where
         T: Clone + Send + Sync + 'static,
     {
-        self.temp.remove(&id);
+        self.temp.remove(&(id, TypeId::of::<T>()));
     }
 }
 

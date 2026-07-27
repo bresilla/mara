@@ -2323,6 +2323,93 @@ pub(crate) use offscreen::{OffscreenInput, render_offscreen};
 // the ratchet accounts for egui coupling under `backend/`, and this is
 // the one place `MaraCtx` is allowed to know what a context is.
 
+/// Mara's own state map, carried by the backend context.
+///
+/// egui's store is generic on read — `get_temp::<T>` needs the type at
+/// the call site — so no erased `dyn` store can wrap it: there is no
+/// way to ask it for a value without naming the type. Owning the map
+/// instead and keeping one handle in the context sidesteps that
+/// entirely: egui carries it, Mara reads it.
+///
+/// Nothing is given up by not using egui's store. This workspace
+/// builds egui without `persistence`, so its store is in-memory too —
+/// `persisted` and `temp` differ only in whether a value survives a
+/// sweep, which this map tracks itself with the flag in its key.
+#[derive(Clone, Default)]
+struct MaraStateMap(
+    std::sync::Arc<
+        std::sync::Mutex<
+            std::collections::HashMap<
+                (vocab::Id, bool, std::any::TypeId),
+                crate::memory::StateCell,
+            >,
+        >,
+    >,
+);
+
+fn mara_state_map_key() -> egui::Id {
+    egui::Id::new("mara_state_map")
+}
+
+/// The context's state map, created on first use.
+///
+/// Clones the handle out from under egui's lock rather than working
+/// inside it — the two locks are never held at once, so a read that
+/// happens to trigger another read cannot deadlock.
+fn mara_state_map(ctx: &egui::Context) -> MaraStateMap {
+    ctx.data_mut(|data| {
+        data.get_temp_mut_or_default::<MaraStateMap>(mara_state_map_key())
+            .clone()
+    })
+}
+
+impl crate::memory::MaraStore for egui::Context {
+    fn get_any(
+        &self,
+        id: vocab::Id,
+        persisted: bool,
+        ty: std::any::TypeId,
+    ) -> Option<crate::memory::StateCell> {
+        let map = mara_state_map(self);
+        let guard = map.0.lock().unwrap_or_else(|e| e.into_inner());
+        guard.get(&(id, persisted, ty)).cloned()
+    }
+
+    fn set_any(
+        &self,
+        id: vocab::Id,
+        persisted: bool,
+        ty: std::any::TypeId,
+        value: crate::memory::StateCell,
+    ) {
+        let map = mara_state_map(self);
+        let mut guard = map.0.lock().unwrap_or_else(|e| e.into_inner());
+        guard.insert((id, persisted, ty), value);
+    }
+
+    fn remove_any(&self, id: vocab::Id, ty: std::any::TypeId) {
+        let map = mara_state_map(self);
+        let mut guard = map.0.lock().unwrap_or_else(|e| e.into_inner());
+        guard.remove(&(id, false, ty));
+    }
+
+    fn animate_bool(&self, id: vocab::Id, value: bool, animation_time: f32) -> f32 {
+        self.animate_bool_with_time(id.into(), value, animation_time)
+    }
+
+    fn animate_value(&self, id: vocab::Id, target: f32, animation_time: f32) -> f32 {
+        self.animate_value_with_time(id.into(), target, animation_time)
+    }
+
+    fn animate_bool_responsive(&self, id: vocab::Id, value: bool) -> f32 {
+        egui::Context::animate_bool_responsive(self, id.into(), value)
+    }
+
+    fn pass_nr(&self) -> u64 {
+        self.cumulative_pass_nr()
+    }
+}
+
 impl crate::context::MaraCtx for egui::Context {
     fn input(&self) -> MaraInput {
         input_snapshot(self)

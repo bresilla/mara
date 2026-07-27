@@ -6,6 +6,53 @@
 //! raw backend context.
 
 use crate::vocab::Id;
+use std::any::{Any, TypeId};
+use std::sync::Arc;
+
+/// A type-erased state value.
+///
+/// `Arc` rather than `Box` because a read hands the value back out
+/// while the store keeps it: the generic wrapper downcasts, clones the
+/// `T` it wanted, and drops the handle. A `Box` would force the store
+/// to give up ownership just to be read.
+pub type StateCell = Arc<dyn Any + Send + Sync>;
+
+/// The object-safe half of memory — what a backend must supply.
+///
+/// [`MaraMemory`] cannot ride behind `dyn`: every method is generic
+/// over the stored type. This is the erased form underneath it. Keys
+/// carry a [`TypeId`] so two values of different types can share an
+/// [`Id`], which is what the backend stores already allow and what
+/// callers rely on.
+///
+/// Every method takes `&self`: a frame's state is written through
+/// shared handles, so interior mutability belongs to the
+/// implementation rather than to every caller's borrow.
+pub trait MaraStore {
+    /// Fetch the value of type `ty` under `id`, from the persisted or
+    /// the temp half of the store.
+    fn get_any(&self, id: Id, persisted: bool, ty: TypeId) -> Option<StateCell>;
+
+    /// Store `value` under `id`, replacing any value of the same type.
+    fn set_any(&self, id: Id, persisted: bool, ty: TypeId, value: StateCell);
+
+    /// Drop the temp value of type `ty` under `id`, if any.
+    fn remove_any(&self, id: Id, ty: TypeId);
+
+    /// 0.0→1.0 progress toward `value` over `animation_time` seconds.
+    fn animate_bool(&self, id: Id, value: bool, animation_time: f32) -> f32;
+
+    /// Value eased toward `target` over `animation_time`.
+    fn animate_value(&self, id: Id, target: f32, animation_time: f32) -> f32;
+
+    /// [`animate_bool`](MaraStore::animate_bool) at the host's default
+    /// duration.
+    fn animate_bool_responsive(&self, id: Id, value: bool) -> f32;
+
+    /// Monotonic frame counter — the sweep clock behind
+    /// [`MaraMemoryCtx::cache`].
+    fn pass_nr(&self) -> u64;
+}
 
 pub trait MaraMemory {
     fn get_persisted<T>(&self, id: Id) -> Option<T>
@@ -47,12 +94,11 @@ pub trait MaraAnim {
 /// Memory handle vended by [`UiBackend::memory`](crate::layout::UiBackend::memory)
 /// — PLAN.md Phase 2.2.
 ///
-/// A closed enum rather than a trait object: egui's data store is
-/// typed (generic get/set only), so a type-erased `dyn` store cannot
-/// wrap it without breaking its persistence model. Each backend adds
-/// a variant; the generic [`MaraMemory`]/[`MaraAnim`] impls dispatch
-/// by match, and the [`UiBackend`](crate::layout::UiBackend) trait
-/// stays object-safe because this return type is concrete.
+/// A closed enum rather than a trait object because the generic
+/// [`MaraMemory`]/[`MaraAnim`] methods are not object-safe; dispatch
+/// is by match, and the [`UiBackend`](crate::layout::UiBackend) trait
+/// stays object-safe because this return type is concrete. The
+/// *erasure* lives one level down, in [`MaraStore`].
 pub enum BackendMemory<'a> {
     /// Live egui context store (interior-mutable).
     Egui(MaraMemoryCtx<'a>),
@@ -136,29 +182,32 @@ impl MaraAnim for BackendMemory<'_> {
     }
 }
 
+/// Typed memory over an erased [`MaraStore`].
+///
+/// The store answers in [`StateCell`]s; this puts the types back on,
+/// so callers keep writing `get_temp::<Foo>(id)` and never see the
+/// erasure underneath.
 pub struct MaraMemoryCtx<'a> {
-    pub(crate) ctx: &'a egui::Context,
+    pub(crate) store: &'a dyn MaraStore,
 }
 
 impl MaraAnim for MaraMemoryCtx<'_> {
     fn animate_bool(&mut self, id: Id, value: bool, animation_time: f32) -> f32 {
-        self.ctx
-            .animate_bool_with_time(id.into(), value, animation_time)
+        self.store.animate_bool(id, value, animation_time)
     }
 
     fn animate_value(&mut self, id: Id, target: f32, animation_time: f32) -> f32 {
-        self.ctx
-            .animate_value_with_time(id.into(), target, animation_time)
+        self.store.animate_value(id, target, animation_time)
     }
 
     fn animate_bool_responsive(&mut self, id: Id, value: bool) -> f32 {
-        self.ctx.animate_bool_responsive(id.into(), value)
+        self.store.animate_bool_responsive(id, value)
     }
 }
 
 impl<'a> MaraMemoryCtx<'a> {
-    pub(crate) fn new(ctx: &'a egui::Context) -> Self {
-        Self { ctx }
+    pub(crate) fn new(store: &'a dyn MaraStore) -> Self {
+        Self { store }
     }
 
     /// First-party hook: build a memory facade from a host's backend
@@ -166,8 +215,19 @@ impl<'a> MaraMemoryCtx<'a> {
     /// crate but is still first-party. Doc-hidden; not a stable API.
     #[doc(hidden)]
     #[must_use]
-    pub fn __internal_from_backend_ctx(ctx: &'a egui::Context) -> Self {
-        Self::new(ctx)
+    pub fn __internal_from_backend_ctx(store: &'a dyn MaraStore) -> Self {
+        Self::new(store)
+    }
+
+    /// Read `T` out of the store, putting the type back on.
+    fn read<T>(&self, id: Id, persisted: bool) -> Option<T>
+    where
+        T: Clone + Send + Sync + 'static,
+    {
+        self.store
+            .get_any(id, persisted, TypeId::of::<T>())?
+            .downcast_ref::<T>()
+            .cloned()
     }
 
     /// A frame-scoped memoisation cache, created on first use.
@@ -196,7 +256,7 @@ impl<'a> MaraMemoryCtx<'a> {
 
         // Sweep at most once per frame, keyed by the host's pass number
         // so repeated access within a frame is free.
-        let pass = self.ctx.cumulative_pass_nr();
+        let pass = self.store.pass_nr();
         let swept_key = id.with("mara_cache_swept_pass");
         if self.get_temp::<u64>(swept_key) != Some(pass) {
             handle.sweep();
@@ -248,36 +308,37 @@ impl MaraMemory for MaraMemoryCtx<'_> {
     where
         T: Clone + Send + Sync + 'static,
     {
-        self.ctx.data_mut(|data| data.get_persisted::<T>(id.into()))
+        self.read(id, true)
     }
 
     fn set_persisted<T>(&mut self, id: Id, value: T)
     where
         T: Clone + Send + Sync + 'static,
     {
-        self.ctx
-            .data_mut(|data| data.insert_persisted(id.into(), value));
+        self.store
+            .set_any(id, true, TypeId::of::<T>(), Arc::new(value));
     }
 
     fn get_temp<T>(&self, id: Id) -> Option<T>
     where
         T: Clone + Send + Sync + 'static,
     {
-        self.ctx.data(|data| data.get_temp::<T>(id.into()))
+        self.read(id, false)
     }
 
     fn set_temp<T>(&mut self, id: Id, value: T)
     where
         T: Clone + Send + Sync + 'static,
     {
-        self.ctx.data_mut(|data| data.insert_temp(id.into(), value));
+        self.store
+            .set_any(id, false, TypeId::of::<T>(), Arc::new(value));
     }
 
     fn remove_temp<T>(&mut self, id: Id)
     where
         T: Clone + Send + Sync + 'static,
     {
-        self.ctx.data_mut(|data| data.remove::<T>(id.into()));
+        self.store.remove_any(id, TypeId::of::<T>());
     }
 }
 
@@ -298,6 +359,63 @@ mod tests {
         assert_eq!(memory.get_persisted::<u32>(key.with("persisted")), Some(7));
     }
 
+    /// The store keys on `(id, persisted, type)`. Each component of
+    /// that key is load-bearing, and getting one wrong loses or
+    /// aliases state silently — a read simply returns `None` and the
+    /// caller falls back to a default. These pin all three.
+    #[test]
+    fn erased_store_keys_on_id_and_type_and_half() {
+        let ctx = egui::Context::default();
+        let key = Id::new("erasure");
+        let mut memory = MaraMemoryCtx::new(&ctx);
+
+        // Type is part of the key: two types share one id without
+        // clobbering each other, as the backend stores allow.
+        memory.set_temp(key, 1_u32);
+        memory.set_temp(key, "one".to_owned());
+        assert_eq!(memory.get_temp::<u32>(key), Some(1));
+        assert_eq!(memory.get_temp::<String>(key), Some("one".to_owned()));
+
+        // A type that was never stored reads as absent rather than
+        // downcasting some other value that happens to share the id.
+        assert_eq!(memory.get_temp::<i64>(key), None);
+
+        // Persisted and temp are separate halves of the store, so the
+        // same id and type can hold a different value in each.
+        memory.set_persisted(key, 2_u32);
+        assert_eq!(memory.get_persisted::<u32>(key), Some(2));
+        assert_eq!(
+            memory.get_temp::<u32>(key),
+            Some(1),
+            "writing the persisted half must not disturb the temp one"
+        );
+
+        // `remove_temp` names the temp half only.
+        memory.remove_temp::<u32>(key);
+        assert_eq!(memory.get_temp::<u32>(key), None);
+        assert_eq!(
+            memory.get_persisted::<u32>(key),
+            Some(2),
+            "removing a temp value must leave the persisted one alone"
+        );
+        assert_eq!(
+            memory.get_temp::<String>(key),
+            Some("one".to_owned()),
+            "removing one type must leave another type at the same id alone"
+        );
+    }
+
+    /// Two facades built from the same context see one store — state
+    /// is keyed by the host, not by the handle that reached it.
+    #[test]
+    fn facades_over_one_context_share_a_store() {
+        let ctx = egui::Context::default();
+        let key = Id::new("shared");
+
+        MaraMemoryCtx::new(&ctx).set_temp(key, 5_u32);
+        assert_eq!(MaraMemoryCtx::new(&ctx).get_temp::<u32>(key), Some(5));
+    }
+
     #[test]
     fn backend_memory_recording_roundtrip_and_instant_anim() {
         use crate::layout::UiBackend;
@@ -310,6 +428,17 @@ mod tests {
         memory.set_temp(key, "frame".to_owned());
         assert_eq!(memory.get_persisted::<u32>(key), Some(7));
         assert_eq!(memory.get_temp::<String>(key), Some("frame".to_owned()));
+
+        // Same keying contract as the egui store — see
+        // `erased_store_keys_on_id_and_type_and_half`. A headless run
+        // that aliased these would make a test pass for the wrong
+        // reason.
+        memory.set_temp(key, 1_u8);
+        assert_eq!(memory.get_temp::<String>(key), Some("frame".to_owned()));
+        assert_eq!(memory.get_temp::<u8>(key), Some(1));
+        memory.remove_temp::<u8>(key);
+        assert_eq!(memory.get_temp::<String>(key), Some("frame".to_owned()));
+        assert_eq!(memory.get_persisted::<u32>(key), Some(7));
 
         assert_eq!(memory.animate_bool(key.with("a"), true, 0.25), 1.0);
         assert_eq!(memory.animate_bool(key.with("a"), false, 0.25), 0.0);
