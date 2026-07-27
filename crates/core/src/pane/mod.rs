@@ -1150,7 +1150,7 @@ impl Pane {
                 // rect with a `Pane[<title>]` label when the user
                 // toggles the inspector and hovers inside.
                 crate::debug::tag(
-                    outer_ui,
+                    outer_ui.ctx(),
                     painted_rect.get(),
                     format!("Pane[{}]", pane_title_dbg),
                 );

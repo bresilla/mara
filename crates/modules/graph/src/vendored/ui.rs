@@ -3,15 +3,15 @@
 use std::{collections::HashMap, hash::Hash};
 
 use egui::{
-    Align, CornerRadius, Id, LayerId, Layout, Margin, Modifiers, PointerButton,
-    Scene, Sense, StrokeKind, Style, Ui, UiBuilder, UiKind, UiStackInfo,
+    Align, CornerRadius, Id, LayerId, Layout, Margin, Modifiers, PointerButton, Scene, Sense,
+    StrokeKind, Style, Ui, UiBuilder, UiKind, UiStackInfo,
     collapsing_header::paint_default_icon,
     emath::{GuiRounding, TSTransform},
     response::Flags,
 };
 use mara_core::MaraResponse;
-use mara_core::vocab::{Color32, Pos2, Rect, Stroke, Vec2, pos2, vec2};
 use mara_core::style::{FrameRole, FrameSpec, frame_for};
+use mara_core::vocab::{Color32, Pos2, Rect, Stroke, Vec2, pos2, vec2};
 use smallvec::SmallVec;
 
 use crate::vendored::{Graph, InPin, InPinId, Node, NodeId, OutPin, OutPinId, ui::wire::WireId};
@@ -751,7 +751,13 @@ impl GraphStyle {
         self.select_stoke.unwrap_or_else(|| {
             Stroke::new(
                 style.visuals.selection.stroke.width,
-                style.visuals.selection.stroke.color.gamma_multiply(0.5).into(),
+                style
+                    .visuals
+                    .selection
+                    .stroke
+                    .color
+                    .gamma_multiply(0.5)
+                    .into(),
             )
         })
     }
@@ -1515,7 +1521,10 @@ where
         }
     }
 
-    ui.advance_cursor_after_rect(egui::Rect::from_min_size(graph_resp.rect.min, egui::Vec2::ZERO));
+    ui.advance_cursor_after_rect(egui::Rect::from_min_size(
+        graph_resp.rect.min,
+        egui::Vec2::ZERO,
+    ));
 
     if let Some(node) = node_to_top
         && graph.nodes.contains(node.0)
@@ -1925,7 +1934,9 @@ where
     });
     // node_state.set_body_width(body_size.x);
 
-    DrawBodyResponse { final_rect: final_rect.into() }
+    DrawBodyResponse {
+        final_rect: final_rect.into(),
+    }
 }
 
 //First step for split big function to parts
@@ -2173,8 +2184,10 @@ where
         let node_layout =
             viewer.node_layout(style.get_node_layout(), node, &inputs, &outputs, graph);
 
-        let payload_clip_rect =
-            Rect::from_min_max(node_rect.min.into(), pos2(node_rect.max.x, f32::INFINITY).into());
+        let payload_clip_rect = Rect::from_min_max(
+            node_rect.min.into(),
+            pos2(node_rect.max.x, f32::INFINITY).into(),
+        );
 
         let pins_rect = match node_layout.kind {
             NodeLayoutKind::Coil => {
@@ -2618,43 +2631,47 @@ where
                 .id_salt("header"),
         );
 
-        mara_core::backend::egui::egui_frame_for_style_spec(header_frame).show(header_ui, |ui: &mut Ui| {
-            ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-                if style.get_collapsible() {
-                    let (_, r) = ui.allocate_exact_size(
-                        egui::Vec2::from(vec2(ui.spacing().icon_width, ui.spacing().icon_width)),
-                        Sense::click(),
-                    );
-                    paint_default_icon(ui, openness, &r);
+        mara_core::backend::egui::egui_frame_for_style_spec(header_frame).show(
+            header_ui,
+            |ui: &mut Ui| {
+                ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+                    if style.get_collapsible() {
+                        let (_, r) = ui.allocate_exact_size(
+                            egui::Vec2::from(vec2(
+                                ui.spacing().icon_width,
+                                ui.spacing().icon_width,
+                            )),
+                            Sense::click(),
+                        );
+                        paint_default_icon(ui, openness, &r);
 
-                    if r.clicked_by(PointerButton::Primary) {
-                        // Toggle node's openness.
-                        graph.open_node(node, !open);
+                        if r.clicked_by(PointerButton::Primary) {
+                            // Toggle node's openness.
+                            graph.open_node(node, !open);
+                        }
                     }
-                }
 
-                ui.allocate_exact_size(egui::Vec2::from(header_drag_space), Sense::hover());
+                    ui.allocate_exact_size(egui::Vec2::from(header_drag_space), Sense::hover());
 
-                with_mara_ui(ui, |mui| {
-                    viewer.show_header(node, &inputs, &outputs, mui, graph)
+                    with_mara_ui(ui, |mui| {
+                        viewer.show_header(node, &inputs, &outputs, mui, graph)
+                    });
+
+                    header_rect = with_mara_ui(ui, |mara| mara.occupied_rect());
                 });
 
-                header_rect = with_mara_ui(ui, |mara| mara.occupied_rect());
-            });
+                header_frame_rect = header_rect.expand_by(header_frame.total_margin());
 
-            header_frame_rect = 
-                header_rect.expand_by(header_frame.total_margin());
-
-
-            ui.advance_cursor_after_rect(egui::Rect::from_min_max(
-                header_rect.min.into(),
-                pos2(
-                    f32::max(header_rect.max.x, node_rect.max.x),
-                    header_rect.min.y,
-                )
-                .into(),
-            ));
-        });
+                ui.advance_cursor_after_rect(egui::Rect::from_min_max(
+                    header_rect.min.into(),
+                    pos2(
+                        f32::max(header_rect.max.x, node_rect.max.x),
+                        header_rect.min.y,
+                    )
+                    .into(),
+                ));
+            },
+        );
 
         with_mara_ui(ui, |mara| mara.expand_to_include(header_rect));
         let header_size = header_rect.size();
@@ -2680,7 +2697,10 @@ where
                 Some(mara_core::paint::PaintCmd::RectStroke {
                     rect: halo_rect.into(),
                     corner: mara_core::vocab::CornerRadius::same(halo.radius),
-                    stroke: mara_core::vocab::Stroke::new(halo.width, mara_core::vocab::Color32::from(halo.color)),
+                    stroke: mara_core::vocab::Stroke::new(
+                        halo.width,
+                        mara_core::vocab::Color32::from(halo.color),
+                    ),
                 }),
             );
         });

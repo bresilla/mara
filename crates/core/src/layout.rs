@@ -7,7 +7,7 @@
 
 use crate::{
     mui::{MaraInput, MaraResponse},
-    paint::PaintCmd,
+    paint::{PaintCmd, TextFamily},
     vocab::{Color32, CornerRadius, Id, Pos2, Rect, Vec2},
 };
 
@@ -1075,6 +1075,51 @@ pub trait UiBackend {
 
     /// Ask the host to schedule another frame (e.g. an animation is in
     /// flight). No-op on backends without an event loop.
+    /// The frame context behind this surface.
+    ///
+    /// Render code needs frame-level state — input, the clock, the
+    /// memory store, floating layers — but handing it a backend handle
+    /// to get there is exactly the coupling the seam exists to remove.
+    /// So every surface can produce its own context instead.
+    fn ctx(&self) -> &dyn crate::context::MaraCtx;
+
+    /// Paint `cmd` on its own z-layer above this surface.
+    ///
+    /// Container chrome — corner ticks, a floating icon — has to sit
+    /// above the body it decorates while still belonging to the
+    /// surface that drew it. A plain [`paint`](UiBackend::paint) would
+    /// land in this surface's own layer and be covered.
+    ///
+    /// `tier` orders layers relative to each other; `rect` bounds the
+    /// layer and `opacity` fades it with the surface. The default
+    /// paints inline, which is the closest a backend without a layer
+    /// stack can get.
+    fn paint_on_z_layer(&mut self, id: Id, tier: u16, rect: Rect, opacity: f32, cmd: PaintCmd) {
+        let _ = (id, tier, rect, opacity);
+        self.paint(cmd);
+    }
+
+    /// `family` if the host can render it, else a proportional
+    /// fallback.
+    ///
+    /// A font family is a request, not a guarantee — asking for one the
+    /// host never loaded silently paints nothing on some backends. The
+    /// default assumes any family is available.
+    fn available_text_family(&self, family: TextFamily) -> TextFamily {
+        family
+    }
+
+    /// This surface's paint opacity, 0.0..=1.0.
+    ///
+    /// Surfaces fade in as a group, and painters that animate need to
+    /// know how far along that fade is — an effect timed to start
+    /// "once the surface is nearly opaque" is invisible otherwise.
+    /// Defaults to fully opaque, which is what a backend with no fade
+    /// model means.
+    fn opacity(&self) -> f32 {
+        1.0
+    }
+
     fn request_repaint(&self) {}
 
     /// Ask the host to schedule a frame no later than `after`. Surfaces
@@ -1108,6 +1153,18 @@ pub trait UiBackend {
 /// widget `*_backend(&mut impl UiBackend, …)` functions accept the
 /// backend `MaraUi` carries without every one becoming `?Sized`.
 impl<T: UiBackend + ?Sized> UiBackend for &mut T {
+    fn ctx(&self) -> &dyn crate::context::MaraCtx {
+        (**self).ctx()
+    }
+    fn opacity(&self) -> f32 {
+        (**self).opacity()
+    }
+    fn paint_on_z_layer(&mut self, id: Id, tier: u16, rect: Rect, opacity: f32, cmd: PaintCmd) {
+        (**self).paint_on_z_layer(id, tier, rect, opacity, cmd)
+    }
+    fn available_text_family(&self, family: TextFamily) -> TextFamily {
+        (**self).available_text_family(family)
+    }
     fn begin_area(&mut self, host: AreaHost, rect: Rect) {
         (**self).begin_area(host, rect)
     }

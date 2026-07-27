@@ -1608,7 +1608,7 @@ fn paint_widgets(
                                 .set_temp(buf_key, buf.clone());
                         }
                         crate::debug::tag(
-                            ui,
+                            ui.ctx(),
                             resp.rect.into(),
                             format!("widget[text_input/search #{}]", search_idx),
                         );
@@ -1832,7 +1832,7 @@ fn paint_widgets(
                             crate::memory::MaraMemoryCtx::new(ui.ctx()).set_persisted(val_key, sel);
                         }
                         crate::debug::tag(
-                            ui,
+                            ui.ctx(),
                             resp.rect.into(),
                             format!("widget[dropdown #{}]", dropdown_idx),
                         );
@@ -1939,7 +1939,7 @@ fn paint_widgets(
                                 color_rgba(&mut mara, &cfg.label, &mut rgba, cfg.accent)
                             };
                             crate::debug::tag(
-                                ui,
+                                ui.ctx(),
                                 resp.rect.into(),
                                 format!("widget[color_rgba #{}]", color_idx),
                             );
@@ -1956,7 +1956,7 @@ fn paint_widgets(
                             rgba[2] = rgb[2];
                             rgba[3] = 1.0;
                             crate::debug::tag(
-                                ui,
+                                ui.ctx(),
                                 resp.rect.into(),
                                 format!("widget[color_rgb #{}]", color_idx),
                             );

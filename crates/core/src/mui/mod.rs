@@ -982,6 +982,41 @@ impl crate::layout::UiBackend for MaraBackend<'_> {
             Self::Recording(b) => b.input(),
         }
     }
+    fn ctx(&self) -> &dyn crate::context::MaraCtx {
+        match self {
+            Self::Egui(b) => b.ctx(),
+            Self::Recording(b) => b.ctx(),
+        }
+    }
+
+    fn opacity(&self) -> f32 {
+        match self {
+            Self::Egui(b) => b.opacity(),
+            Self::Recording(b) => b.opacity(),
+        }
+    }
+
+    fn paint_on_z_layer(
+        &mut self,
+        id: vocab::Id,
+        tier: u16,
+        rect: vocab::Rect,
+        opacity: f32,
+        cmd: crate::paint::PaintCmd,
+    ) {
+        match self {
+            Self::Egui(b) => b.paint_on_z_layer(id, tier, rect, opacity, cmd),
+            Self::Recording(b) => b.paint_on_z_layer(id, tier, rect, opacity, cmd),
+        }
+    }
+
+    fn available_text_family(&self, family: crate::paint::TextFamily) -> crate::paint::TextFamily {
+        match self {
+            Self::Egui(b) => b.available_text_family(family),
+            Self::Recording(b) => b.available_text_family(family),
+        }
+    }
+
     fn memory(&self) -> crate::memory::BackendMemory<'_> {
         match self {
             Self::Egui(b) => b.memory(),
@@ -1418,6 +1453,44 @@ impl<'a> MaraUi<'a> {
     }
 
     /// Ask the host to schedule another frame.
+    /// The frame context behind this surface — input, the clock, the
+    /// memory store, floating layers.
+    #[must_use]
+    pub fn ctx(&self) -> &dyn crate::context::MaraCtx {
+        self.backend.ctx()
+    }
+
+    /// This surface's paint opacity, 0.0..=1.0. Painters that animate
+    /// consult it so an effect can wait for a group fade to finish.
+    #[must_use]
+    pub fn opacity(&self) -> f32 {
+        self.backend.opacity()
+    }
+
+    /// Paint `cmd` on its own z-layer above this surface — for chrome
+    /// that must sit over the body it decorates.
+    pub fn paint_on_z_layer(
+        &mut self,
+        id: impl Into<vocab::Id>,
+        tier: u16,
+        rect: impl Into<vocab::Rect>,
+        opacity: f32,
+        cmd: crate::paint::PaintCmd,
+    ) {
+        self.backend
+            .paint_on_z_layer(id.into(), tier, rect.into(), opacity, cmd);
+    }
+
+    /// `family` if this surface's host can render it, else a
+    /// proportional fallback.
+    #[must_use]
+    pub fn available_text_family(
+        &self,
+        family: crate::paint::TextFamily,
+    ) -> crate::paint::TextFamily {
+        self.backend.available_text_family(family)
+    }
+
     pub fn request_repaint(&self) {
         self.backend.request_repaint();
     }

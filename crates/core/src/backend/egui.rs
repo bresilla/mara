@@ -119,13 +119,6 @@ pub(crate) fn measure_text_runs_for_painter(
     painter.layout_job(job).size().into()
 }
 
-pub(crate) fn measure_text_runs_for_ui(ui: &egui::Ui, runs: &[TextRun]) -> vocab::Vec2 {
-    let Some((job, _fallback_color)) = layout_job_for_text_runs(ui.painter(), runs) else {
-        return vocab::Vec2::ZERO;
-    };
-    ui.painter().layout_job(job).size().into()
-}
-
 impl UiBackend for EguiUiBackend<'_> {
     fn begin_area(&mut self, _host: AreaHost, rect: vocab::Rect) {
         let rect: egui::Rect = rect.into();
@@ -173,6 +166,29 @@ impl UiBackend for EguiUiBackend<'_> {
 
     fn available_height(&self) -> f32 {
         ui_available_height(self.ui)
+    }
+
+    fn ctx(&self) -> &dyn crate::context::MaraCtx {
+        self.ui.ctx()
+    }
+
+    fn opacity(&self) -> f32 {
+        self.ui.opacity()
+    }
+
+    fn paint_on_z_layer(
+        &mut self,
+        id: vocab::Id,
+        tier: u16,
+        rect: vocab::Rect,
+        opacity: f32,
+        cmd: PaintCmd,
+    ) {
+        render_paint_cmd_on_z_layer(self.ui, id, tier, rect, opacity, cmd);
+    }
+
+    fn available_text_family(&self, family: TextFamily) -> TextFamily {
+        available_text_family_for_ui(self.ui, family)
     }
 
     fn memory(&self) -> crate::memory::BackendMemory<'_> {
@@ -648,10 +664,6 @@ pub(crate) fn unstable_dt(ctx: &egui::Context) -> f32 {
 
 pub(crate) fn pointer_interact_pos(ctx: &egui::Context) -> Option<vocab::Pos2> {
     ctx.pointer_interact_pos().map(Into::into)
-}
-
-pub(crate) fn pointer_latest_pos(ctx: &egui::Context) -> Option<vocab::Pos2> {
-    ctx.pointer_latest_pos().map(Into::into)
 }
 
 pub(crate) fn viewport_maximized(ctx: &egui::Context) -> bool {

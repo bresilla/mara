@@ -9,8 +9,7 @@
 use mara_core::{
     MaraModule, MaraView, ModuleInlineCtx, ModuleResponse, RibbonAction, RibbonCluster, RibbonEdge,
     RibbonOverridePolicy, RibbonScope, RibbonSlot, RibbonSlotDef, RibbonSlotId, RibbonSlotItem,
-    ViewCtx, ViewId, WorkspaceCtx,
-    vocab::Align2 as MaraAlign2,
+    ViewCtx, ViewId, WorkspaceCtx, vocab::Align2 as MaraAlign2,
 };
 
 #[derive(Clone, Debug, PartialEq)]

@@ -90,7 +90,13 @@ check:
 		$$(ls -d crates/modules/*/src | grep -vE 'modules/graph/')
 	@! grep -n 'raw-egui' example/Cargo.toml
 	@! grep -n 'raw-egui' crates/core/Cargo.toml mara/Cargo.toml
-	@! grep -RInE 'cfg[(]feature[[:space:]]*=[[:space:]]*"raw-egui"|^[[:space:]]*pub[[:space:]]+use[[:space:]]+egui([:;]|$$)|^[[:space:]]*pub[[:space:]]+fn[[:space:]]+(from_raw|raw_ui_mut|raw|egui|egui_ctx|ctx)[(]' crates/core/src mara/src
+	@! grep -RInE 'cfg[(]feature[[:space:]]*=[[:space:]]*"raw-egui"|^[[:space:]]*pub[[:space:]]+use[[:space:]]+egui([:;]|$$)|^[[:space:]]*pub[[:space:]]+fn[[:space:]]+(from_raw|raw_ui_mut|raw|egui|egui_ctx)[(]' crates/core/src mara/src
+# `ctx` came off that name list when `MaraUi::ctx` started returning
+# `&dyn MaraCtx`. The name was only ever a proxy for what actually
+# matters — handing a caller the backend — so ban that directly. Named
+# `pub fn`s only: `__internal_*` hooks are the deliberate first-party
+# escape and go away with WS-G.
+	@! grep -RInE '^[[:space:]]*pub[[:space:]]+fn[[:space:]]+[a-z][a-z_0-9]*[(][^)]*[)][[:space:]]*->[[:space:]]*&?[[:space:]]*(egui::(Context|Ui)|mut[[:space:]]+egui::Ui)' crates/core/src mara/src
 	@! grep -nE '^pub type .*=[[:space:]]*egui::' crates/core/src/vocab.rs
 	@! grep -nE '^(mara_core|mara_(map|canvas|image|code|graph|3d|bevy))[[:space:]]*=' example/Cargo.toml
 # The demo example may depend on egui directly: it always reached egui via

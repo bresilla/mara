@@ -17,7 +17,7 @@
 //!   These constants are a contract; changing them invalidates every
 //!   golden snapshot.
 
-use std::any::{Any, TypeId};
+use std::any::TypeId;
 use std::collections::HashMap;
 
 use crate::layout::{AreaHost, Sense, UiBackend};
@@ -36,8 +36,8 @@ use crate::vocab::{Id, Pos2, Rect, Vec2};
 /// shows up as a test passing for the wrong reason.
 #[derive(Default)]
 pub struct RecordingMemory {
-    temp: HashMap<(Id, TypeId), Box<dyn Any + Send + Sync>>,
-    persisted: HashMap<(Id, TypeId), Box<dyn Any + Send + Sync>>,
+    temp: HashMap<(Id, TypeId), crate::memory::StateCell>,
+    persisted: HashMap<(Id, TypeId), crate::memory::StateCell>,
 }
 
 /// Headless animation: completes instantly. Goldens and tests pin the
@@ -73,7 +73,7 @@ impl MaraMemory for RecordingMemory {
         T: Clone + Send + Sync + 'static,
     {
         self.persisted
-            .insert((id, TypeId::of::<T>()), Box::new(value));
+            .insert((id, TypeId::of::<T>()), std::sync::Arc::new(value));
     }
 
     fn get_temp<T>(&self, id: Id) -> Option<T>
@@ -90,7 +90,8 @@ impl MaraMemory for RecordingMemory {
     where
         T: Clone + Send + Sync + 'static,
     {
-        self.temp.insert((id, TypeId::of::<T>()), Box::new(value));
+        self.temp
+            .insert((id, TypeId::of::<T>()), std::sync::Arc::new(value));
     }
 
     fn remove_temp<T>(&mut self, id: Id)
@@ -98,6 +99,51 @@ impl MaraMemory for RecordingMemory {
         T: Clone + Send + Sync + 'static,
     {
         self.temp.remove(&(id, TypeId::of::<T>()));
+    }
+}
+
+/// Headless animation is instant, so the store needs no clock — but it
+/// still has to answer as a [`MaraStore`](crate::memory::MaraStore) so
+/// a recording surface can vend a real [`MaraMemoryCtx`].
+impl crate::memory::MaraStore for std::cell::RefCell<RecordingMemory> {
+    fn get_any(&self, id: Id, persisted: bool, ty: TypeId) -> Option<crate::memory::StateCell> {
+        let memory = self.borrow();
+        let lane = if persisted {
+            &memory.persisted
+        } else {
+            &memory.temp
+        };
+        lane.get(&(id, ty)).cloned()
+    }
+
+    fn set_any(&self, id: Id, persisted: bool, ty: TypeId, value: crate::memory::StateCell) {
+        let mut memory = self.borrow_mut();
+        let lane = if persisted {
+            &mut memory.persisted
+        } else {
+            &mut memory.temp
+        };
+        lane.insert((id, ty), value);
+    }
+
+    fn remove_any(&self, id: Id, ty: TypeId) {
+        self.borrow_mut().temp.remove(&(id, ty));
+    }
+
+    fn animate_bool(&self, _id: Id, value: bool, _animation_time: f32) -> f32 {
+        if value { 1.0 } else { 0.0 }
+    }
+
+    fn animate_value(&self, _id: Id, target: f32, _animation_time: f32) -> f32 {
+        target
+    }
+
+    fn animate_bool_responsive(&self, _id: Id, value: bool) -> f32 {
+        if value { 1.0 } else { 0.0 }
+    }
+
+    fn pass_nr(&self) -> u64 {
+        0
     }
 }
 
@@ -192,6 +238,47 @@ impl RecordingBackend {
             self.cursor.y += size.y;
         }
         rect
+    }
+}
+
+/// A recording surface is its own context.
+///
+/// Every surface can hand out a [`MaraCtx`](crate::context::MaraCtx) —
+/// that is what lets render code reach frame state without being given
+/// a backend handle. Headless, "the frame" is just this backend: the
+/// region it was told to fill, the store it already owns, and a clock
+/// that never advances.
+impl crate::context::MaraCtx for RecordingBackend {
+    fn input(&self) -> crate::mui::MaraInput {
+        crate::mui::MaraInput::default()
+    }
+
+    fn pass_nr(&self) -> u64 {
+        0
+    }
+
+    fn content_rect(&self) -> Rect {
+        self.available
+    }
+
+    fn pixels_per_point(&self) -> f32 {
+        1.0
+    }
+
+    fn request_repaint(&self) {}
+
+    fn request_repaint_after(&self, _after: std::time::Duration) {}
+
+    fn now(&self) -> f64 {
+        0.0
+    }
+
+    fn dt(&self) -> f32 {
+        0.0
+    }
+
+    fn memory(&self) -> crate::memory::MaraMemoryCtx<'_> {
+        crate::memory::MaraMemoryCtx::__internal_from_backend_ctx(&self.memory)
     }
 }
 
@@ -306,6 +393,10 @@ impl UiBackend for RecordingBackend {
 
     fn memory(&self) -> crate::memory::BackendMemory<'_> {
         crate::memory::BackendMemory::Recording(&self.memory)
+    }
+
+    fn ctx(&self) -> &dyn crate::context::MaraCtx {
+        self
     }
 
     fn framed(

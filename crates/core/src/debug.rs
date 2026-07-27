@@ -43,7 +43,7 @@
 
 use crate::memory::MaraMemory;
 use crate::vocab::Id;
-use egui::{Color32, FontId, Rect, Stroke, StrokeKind, Ui};
+use egui::{Color32, FontId, Rect, Stroke, StrokeKind};
 
 const ENABLED_KEY: &str = "mara_debug_inspector_enabled";
 const BEST_KEY: &str = "mara_debug_inspector_best";
@@ -72,16 +72,16 @@ fn best_id() -> Id {
 }
 
 /// `true` when the inspector is on. Cheap — single ctx-data read.
-pub fn is_enabled(ctx: &egui::Context) -> bool {
+pub fn is_enabled(ctx: &dyn crate::context::MaraCtx) -> bool {
     {
-        let memory = crate::memory::MaraMemoryCtx::new(ctx);
+        let memory = ctx.memory();
         memory.get_temp::<bool>(enabled_id()).unwrap_or(false)
     }
 }
 
 /// Toggle the inspector overlay globally for this `ctx`.
-pub fn set_enabled(ctx: &egui::Context, on: bool) {
-    crate::memory::MaraMemoryCtx::new(ctx).set_temp(enabled_id(), on);
+pub fn set_enabled(ctx: &dyn crate::context::MaraCtx, on: bool) {
+    ctx.memory().set_temp(enabled_id(), on);
 }
 
 /// Register a hover-triggered debug entry. When the inspector is on
@@ -93,11 +93,11 @@ pub fn set_enabled(ctx: &egui::Context, on: bool) {
 ///
 /// Cheap when the inspector is off — single ctx-data read for the
 /// enabled flag.
-pub fn tag(ui: &Ui, rect: Rect, label: impl Into<String>) {
-    if !is_enabled(ui.ctx()) {
+pub fn tag(ctx: &dyn crate::context::MaraCtx, rect: Rect, label: impl Into<String>) {
+    if !is_enabled(ctx) {
         return;
     }
-    let Some(pointer) = ui.ctx().pointer_hover_pos() else {
+    let Some(pointer) = ctx.input().pointer.map(Into::into) else {
         return;
     };
     if !rect.contains(pointer) {
@@ -105,7 +105,7 @@ pub fn tag(ui: &Ui, rect: Rect, label: impl Into<String>) {
     }
     let label = label.into();
     {
-        let mut memory = crate::memory::MaraMemoryCtx::new(ui.ctx());
+        let mut memory = ctx.memory();
         let prev: Option<Best> = memory.get_temp::<Best>(best_id());
         let take = match prev {
             None => true,
@@ -173,7 +173,7 @@ pub fn paint(ctx: &egui::Context) {
     if !is_enabled(ctx) {
         return;
     }
-    let mut memory = crate::memory::MaraMemoryCtx::new(ctx);
+    let mut memory = crate::context::MaraCtx::memory(ctx);
     let best: Option<Best> = memory.get_temp::<Best>(best_id());
     memory.remove_temp::<Best>(best_id());
     let Some(best) = best else {

@@ -1,10 +1,5 @@
+use egui::{Context, Id, Pos2, Rect, Ui, Vec2, ahash::HashSet, emath::GuiRounding, style::Spacing};
 use mara_core::transform::Transform;
-use egui::{
-    Context, Id, Pos2, Rect, Ui, Vec2,
-    ahash::HashSet,
-    emath::GuiRounding,
-    style::Spacing,
-};
 use smallvec::{SmallVec, ToSmallVec, smallvec};
 
 use crate::vendored::{Graph, InPinId, NodeId, OutPinId};

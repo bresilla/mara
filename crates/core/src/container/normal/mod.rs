@@ -424,20 +424,25 @@ impl Normal {
             strip_thickness,
             title_offset,
         );
-        paint_folder_tabs(
-            ui,
-            strip_rect,
-            &tab_meta,
-            &tab_ids,
-            active_idx,
-            accent,
-            pane_id,
-            active_idx_key,
-            strip_side,
-            tab_theme.tab_len,
-            tab_theme.tab_gap,
-            tab_theme.tab_overlap,
-        );
+        {
+            let mut backend =
+                crate::mui::MaraBackend::Egui(crate::backend::egui::EguiUiBackend::new(ui));
+            let mut mara = crate::MaraUi::over(&mut backend, accent);
+            paint_folder_tabs(
+                &mut mara,
+                strip_rect,
+                &tab_meta,
+                &tab_ids,
+                active_idx,
+                accent,
+                pane_id,
+                active_idx_key,
+                strip_side,
+                tab_theme.tab_len,
+                tab_theme.tab_gap,
+                tab_theme.tab_overlap,
+            );
+        }
 
         // Advance the parent layout past the union of strip + body.
         // `allocate_rect` takes a concrete rect (in absolute coords)
@@ -548,16 +553,21 @@ impl Normal {
         let inner_y = theme.section_pad_y as f32;
         let title_rect = top_tab_title_rect(title_rect.into(), inner_x, inner_y);
 
-        paint_top_tabs(
-            ui,
-            title_rect.into(),
-            &tab_meta,
-            &tab_ids,
-            active_idx,
-            accent,
-            pane_id,
-            active_idx_key,
-        );
+        {
+            let mut backend =
+                crate::mui::MaraBackend::Egui(crate::backend::egui::EguiUiBackend::new(ui));
+            let mut mara = crate::MaraUi::over(&mut backend, accent);
+            paint_top_tabs(
+                &mut mara,
+                title_rect.into(),
+                &tab_meta,
+                &tab_ids,
+                active_idx,
+                accent,
+                pane_id,
+                active_idx_key,
+            );
+        }
         out
     }
 
@@ -695,7 +705,7 @@ impl Normal {
                         out.push(pod.show(inner_ui));
                     });
                 crate::debug::tag(
-                    body_ui,
+                    body_ui.ctx(),
                     frame_resp.response.rect,
                     format!("Pod[{:?}]", pod_id),
                 );
@@ -762,7 +772,7 @@ impl Normal {
                     let strip_rect =
                         separator_debug_rect(sep_rect_before.into(), sep_rect_after.into());
                     crate::debug::tag(
-                        body_ui,
+                        body_ui.ctx(),
                         strip_rect.into(),
                         format!("separator[{:?}]", separator_after),
                     );
@@ -1150,17 +1160,23 @@ impl Normal {
                                 },
                             );
                         }
-                        paint_title(
-                            ui,
-                            rect.into(),
-                            &title_text,
-                            anchor,
-                            accent,
-                            open,
-                            openness,
-                            icon,
-                            pane_id,
-                        );
+                        {
+                            let mut backend = crate::mui::MaraBackend::Egui(
+                                crate::backend::egui::EguiUiBackend::new(ui),
+                            );
+                            let mut mara = crate::MaraUi::over(&mut backend, accent);
+                            paint_title(
+                                &mut mara,
+                                rect.into(),
+                                &title_text,
+                                anchor,
+                                accent,
+                                open,
+                                openness,
+                                icon,
+                                pane_id,
+                            );
+                        }
                     };
 
                     let render_body = |ui: &mut Ui, body: Box<dyn FnOnce(&mut Ui)>| {
@@ -1303,14 +1319,20 @@ impl Normal {
                     // a no-op there.
                     let used_outer =
                         rect_expanded_by_margin(ui.min_rect().into(), style::section_padding());
-                    paint_corner_ticks(
-                        ui,
-                        used_outer.into(),
-                        accent,
-                        title_side,
-                        openness,
-                        pane_id,
-                    );
+                    {
+                        let mut backend = crate::mui::MaraBackend::Egui(
+                            crate::backend::egui::EguiUiBackend::new(ui),
+                        );
+                        let mut mara = crate::MaraUi::over(&mut backend, accent);
+                        paint_corner_ticks(
+                            &mut mara,
+                            used_outer.into(),
+                            accent,
+                            title_side,
+                            openness,
+                            pane_id,
+                        );
+                    }
                     ((), banner_cmd)
                 },
             );
@@ -1344,7 +1366,7 @@ impl Normal {
         // Custom debug inspector — outline the container's full
         // painted Frame rect with a `Normal[<title>]` label.
         crate::debug::tag(
-            ui,
+            ui.ctx(),
             frame_response.response.rect,
             format!("Normal[{}]", title_text),
         );
@@ -1884,7 +1906,7 @@ fn top_tab_cell_geometry(
 ///   Pane bg shows through. Hover adds a faint accent overlay.
 #[allow(clippy::too_many_arguments)]
 fn paint_folder_tabs(
-    ui: &mut Ui,
+    mara: &mut crate::MaraUi<'_>,
     strip_rect: MaraRect,
     tab_meta: &[(String, Icon<'static>)],
     tab_ids: &[Id],
@@ -1932,18 +1954,23 @@ fn paint_folder_tabs(
     // basis), then reset this container's button cache so this
     // frame's `push_button` calls replace the stale entries
     // cleanly.
-    let parent_pane_id: Id = crate::memory::MaraMemoryCtx::new(ui.ctx())
+    let parent_pane_id: Id = mara
+        .ctx()
+        .memory()
         .get_temp(pane::active_pane_key())
         .unwrap_or(pane_id);
-    let drag = pane::tab_drag::drag_state(ui.ctx(), parent_pane_id.into());
-    let cursor_pos = crate::backend::egui::pointer_latest_pos(ui.ctx()).map(Into::into);
+    let drag = pane::tab_drag::drag_state(mara.ctx(), parent_pane_id.into());
+    let cursor_pos = mara.input().pointer;
     let drop_target = match (drag, cursor_pos) {
-        (Some(drag), Some(p)) => {
-            pane::tab_drag::find_drop_target_for_drag(ui.ctx(), parent_pane_id.into(), p, drag)
-        }
+        (Some(drag), Some(p)) => pane::tab_drag::find_drop_target_for_drag(
+            mara.ctx(),
+            parent_pane_id.into(),
+            p.into(),
+            drag,
+        ),
         _ => None,
     };
-    pane::tab_drag::reset_container_buttons(ui.ctx(), parent_pane_id.into(), pane_id.into());
+    pane::tab_drag::reset_container_buttons(mara.ctx(), parent_pane_id.into(), pane_id.into());
 
     // Build the visible cell list. `Some(i)` = paint tab_meta[i] in
     // this cell; `None` = ghost gap (drop preview). Filters out the
@@ -1994,7 +2021,7 @@ fn paint_folder_tabs(
             // Drop-slot ghost gap — translucent accent fill so the
             // user sees exactly where the tab will land.
             paint_tab_rect_chrome(
-                ui,
+                mara,
                 cell.base,
                 cell.corners,
                 MaraColor32::from_rgba_unmultiplied(accent.r(), accent.g(), accent.b(), 36),
@@ -2007,16 +2034,14 @@ fn paint_folder_tabs(
         let is_active = i == active_idx;
         let paint_rect = if is_active { cell.active } else { cell.base };
         let resp = {
-            let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
-            crate::layout::UiBackend::interact(
-                &mut backend,
+            mara.interact(
                 cell.base,
-                pane_id.with("mara_tab_btn").with(tab_id).into(),
+                pane_id.with("mara_tab_btn").with(tab_id),
                 crate::layout::Sense::ClickAndDrag,
             )
         };
         pane::tab_drag::push_button(
-            ui.ctx(),
+            mara.ctx(),
             parent_pane_id.into(),
             pane::tab_drag::TabButtonEntry {
                 container_id: pane_id.into(),
@@ -2025,26 +2050,23 @@ fn paint_folder_tabs(
             },
         );
         if resp.hovered() && drag.is_none() {
-            crate::backend::egui::set_cursor_icon_for_ui(
-                ui,
-                crate::layout::CursorIcon::PointingHand,
-            );
+            mara.set_cursor_icon(crate::layout::CursorIcon::PointingHand);
         }
         if resp.clicked() && drag.is_none() {
             {
-                let mut memory = crate::memory::MaraMemoryCtx::new(ui.ctx());
+                let mut memory = mara.ctx().memory();
                 memory.set_persisted(active_idx_key, i);
                 memory.set_persisted(active_tab_id_key(active_idx_key), tab_id);
             }
         }
         if resp.drag_started() {
             pane::tab_drag::set_drag(
-                ui.ctx(),
+                mara.ctx(),
                 parent_pane_id.into(),
                 pane::tab_drag::TabDragState {
                     tab_id: tab_id.into(),
                     source_container: pane_id.into(),
-                    cursor: crate::backend::egui::pointer_latest_pos(ui.ctx()).map(Into::into),
+                    cursor: mara.input().pointer.map(Into::into),
                     icon: Some(*icn),
                 },
             );
@@ -2055,7 +2077,7 @@ fn paint_folder_tabs(
             // body-facing edges, extending `tab_overlap` past the
             // body's edge so the fill overpaints the container's
             // adjacent stroke at this tab's range).
-            paint_tab_rect_chrome(ui, paint_rect, cell.corners, active_fill, None);
+            paint_tab_rect_chrome(mara, paint_rect, cell.corners, active_fill, None);
             // Only the SELECTED tab gets a border, and only on its three
             // OUTER sides — the body-facing side stays open so the tab's
             // outline flows straight into the body's border (folder tab).
@@ -2063,16 +2085,12 @@ fn paint_folder_tabs(
             // tab, so the open ends meet the body border seamlessly.
             let border = style::stroke_for(style::StrokeRole::SectionBorder, accent);
             let points = active_tab_border_points(cell.base, f32::from(tab_radius), strip_side);
-            let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
-            crate::layout::UiBackend::paint(
-                &mut backend,
-                PaintCmd::Polyline {
-                    points,
-                    stroke: border,
-                },
-            );
+            mara.paint(PaintCmd::Polyline {
+                points,
+                stroke: border,
+            });
             paint_icon_or_svg(
-                ui,
+                mara,
                 cell.base.center().into(),
                 crate::vocab::Align2::CENTER_CENTER,
                 *icn,
@@ -2083,7 +2101,7 @@ fn paint_folder_tabs(
             // Inactive tabs paint NO background — bare icon at
             // reduced alpha so the active tab dominates the strip.
             paint_icon_or_svg(
-                ui,
+                mara,
                 cell.base.center().into(),
                 crate::vocab::Align2::CENTER_CENTER,
                 *icn,
@@ -2092,13 +2110,13 @@ fn paint_folder_tabs(
             );
         }
         crate::debug::tag(
-            ui,
+            mara.ctx(),
             base_rect,
             format!("Tab[{}]{}", i, if is_active { "*" } else { "" }),
         );
     }
     pane::tab_drag::push_strip(
-        ui.ctx(),
+        mara.ctx(),
         parent_pane_id.into(),
         pane::tab_drag::TabStripEntry {
             container_id: pane_id.into(),
@@ -2106,7 +2124,7 @@ fn paint_folder_tabs(
             axis_horizontal: strip_horizontal,
         },
     );
-    crate::debug::tag(ui, strip_rect.into(), "TabStrip".to_string());
+    crate::debug::tag(mara.ctx(), strip_rect.into(), "TabStrip".to_string());
 }
 
 /// Paint GAME-theme tab buttons over the container's title rect,
@@ -2118,7 +2136,7 @@ fn paint_folder_tabs(
 /// persists the new active idx for next frame.
 #[allow(clippy::too_many_arguments)]
 fn paint_top_tabs(
-    ui: &mut Ui,
+    mara: &mut crate::MaraUi<'_>,
     title_rect: MaraRect,
     tab_meta: &[(String, Icon<'static>)],
     tab_ids: &[Id],
@@ -2131,18 +2149,23 @@ fn paint_top_tabs(
         return;
     }
     // ── Tab drag state (cross-container reorder within this pane) ──
-    let parent_pane_id: Id = crate::memory::MaraMemoryCtx::new(ui.ctx())
+    let parent_pane_id: Id = mara
+        .ctx()
+        .memory()
         .get_temp(pane::active_pane_key())
         .unwrap_or(pane_id);
-    let drag = pane::tab_drag::drag_state(ui.ctx(), parent_pane_id.into());
-    let cursor_pos = crate::backend::egui::pointer_latest_pos(ui.ctx()).map(Into::into);
+    let drag = pane::tab_drag::drag_state(mara.ctx(), parent_pane_id.into());
+    let cursor_pos = mara.input().pointer;
     let drop_target = match (drag, cursor_pos) {
-        (Some(drag), Some(p)) => {
-            pane::tab_drag::find_drop_target_for_drag(ui.ctx(), parent_pane_id.into(), p, drag)
-        }
+        (Some(drag), Some(p)) => pane::tab_drag::find_drop_target_for_drag(
+            mara.ctx(),
+            parent_pane_id.into(),
+            p.into(),
+            drag,
+        ),
         _ => None,
     };
-    pane::tab_drag::reset_container_buttons(ui.ctx(), parent_pane_id.into(), pane_id.into());
+    pane::tab_drag::reset_container_buttons(mara.ctx(), parent_pane_id.into(), pane_id.into());
 
     // Visible cell list — same logic as paint_folder_tabs.
     let visible: Vec<Option<usize>> = {
@@ -2191,7 +2214,7 @@ fn paint_top_tabs(
     let inactive_icon_size = base_icon_size * 0.8;
     let active_folded = inactive_icon_size * 1.365;
     let active_unfolded = active_folded * 1.785;
-    let openness = pane::body_openness(ui.ctx(), pane_id);
+    let openness = pane::body_openness(mara.ctx(), pane_id);
     let openness_t = smoothstep(openness);
     let active_icon_size = crate::vocab::lerp(active_folded, active_unfolded, openness_t);
     let label_font_size: f32 = 11.0;
@@ -2204,7 +2227,7 @@ fn paint_top_tabs(
         let cell_rect_egui: Rect = cell_rect.into();
         let Some(&i) = slot.as_ref() else {
             paint_tab_rect_chrome(
-                ui,
+                mara,
                 cell_rect,
                 MaraCornerRadius::ZERO,
                 MaraColor32::from_rgba_unmultiplied(accent.r(), accent.g(), accent.b(), 56),
@@ -2215,16 +2238,14 @@ fn paint_top_tabs(
         let (title, icn) = (&tab_meta[i].0, &tab_meta[i].1);
         let tab_id = tab_ids[i];
         let resp = {
-            let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
-            crate::layout::UiBackend::interact(
-                &mut backend,
+            mara.interact(
                 cell_rect,
-                pane_id.with("mara_top_tab").with(tab_id).into(),
+                pane_id.with("mara_top_tab").with(tab_id),
                 crate::layout::Sense::ClickAndDrag,
             )
         };
         pane::tab_drag::push_button(
-            ui.ctx(),
+            mara.ctx(),
             parent_pane_id.into(),
             pane::tab_drag::TabButtonEntry {
                 container_id: pane_id.into(),
@@ -2233,26 +2254,23 @@ fn paint_top_tabs(
             },
         );
         if resp.hovered() && drag.is_none() {
-            crate::backend::egui::set_cursor_icon_for_ui(
-                ui,
-                crate::layout::CursorIcon::PointingHand,
-            );
+            mara.set_cursor_icon(crate::layout::CursorIcon::PointingHand);
         }
         if resp.clicked() && drag.is_none() {
             {
-                let mut memory = crate::memory::MaraMemoryCtx::new(ui.ctx());
+                let mut memory = mara.ctx().memory();
                 memory.set_persisted(active_idx_key, i);
                 memory.set_persisted(active_tab_id_key(active_idx_key), tab_id);
             }
         }
         if resp.drag_started() {
             pane::tab_drag::set_drag(
-                ui.ctx(),
+                mara.ctx(),
                 parent_pane_id.into(),
                 pane::tab_drag::TabDragState {
                     tab_id: tab_id.into(),
                     source_container: pane_id.into(),
-                    cursor: crate::backend::egui::pointer_latest_pos(ui.ctx()).map(Into::into),
+                    cursor: mara.input().pointer.map(Into::into),
                     icon: Some(*icn),
                 },
             );
@@ -2265,7 +2283,7 @@ fn paint_top_tabs(
         };
         if !is_active {
             paint_tab_rect_chrome(
-                ui,
+                mara,
                 cell_rect,
                 MaraCornerRadius::ZERO,
                 inactive_fill.into(),
@@ -2281,14 +2299,14 @@ fn paint_top_tabs(
         // active icon SHRINKS and the newly-active icon GROWS at
         // the same time, smoothly, instead of popping in/out.
         let active_target = if is_active { 1.0 } else { 0.0 };
-        let active_t = crate::memory::MaraMemoryCtx::new(ui.ctx()).animate_value(
+        let active_t = mara.ctx().memory().animate_value(
             pane_id.with("mara_top_tab_active").with(i).into(),
             active_target,
             0.2,
         );
         let icon_size = crate::vocab::lerp(inactive_icon_size, active_icon_size, active_t);
         paint_icon_or_svg(
-            ui,
+            mara,
             cell.icon_center.into(),
             crate::vocab::Align2::CENTER_CENTER,
             *icn,
@@ -2299,7 +2317,7 @@ fn paint_top_tabs(
         // egui's `animate_value_with_time` smooths the shift so
         // the move reads as an animation, not a teleport.
         let shift_target = if is_active { label_font_size } else { 0.0 };
-        let label_shift = crate::memory::MaraMemoryCtx::new(ui.ctx()).animate_value(
+        let label_shift = mara.ctx().memory().animate_value(
             pane_id.with("mara_top_tab_label_shift").with(i).into(),
             shift_target,
             0.2,
@@ -2309,17 +2327,17 @@ fn paint_top_tabs(
             cell.label_center_base.y + label_shift,
         );
         paint_cmd(
-            ui,
+            mara,
             top_tab_label_paint_cmd(label_center, title, label_font_size, glyph_col),
         );
         crate::debug::tag(
-            ui,
+            mara.ctx(),
             cell_rect_egui,
             format!("TopTab[{}]{}", i, if is_active { "*" } else { "" }),
         );
     }
     pane::tab_drag::push_strip(
-        ui.ctx(),
+        mara.ctx(),
         parent_pane_id.into(),
         pane::tab_drag::TabStripEntry {
             container_id: pane_id.into(),
@@ -2327,7 +2345,7 @@ fn paint_top_tabs(
             axis_horizontal: true,
         },
     );
-    crate::debug::tag(ui, title_rect.into(), "TopTabStrip".to_string());
+    crate::debug::tag(mara.ctx(), title_rect.into(), "TopTabStrip".to_string());
 }
 
 /// Outline points for the SELECTED folder tab: a path along the tab's
@@ -2381,15 +2399,14 @@ fn active_tab_border_points(base: MaraRect, radius: f32, strip_side: TitleSide) 
 }
 
 fn paint_tab_rect_chrome(
-    ui: &mut Ui,
+    mara: &mut crate::MaraUi<'_>,
     rect: MaraRect,
     corner: MaraCornerRadius,
     fill: MaraColor32,
     stroke: Option<MaraStroke>,
 ) {
-    let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
     for cmd in tab_rect_chrome_paint_cmds(rect, corner, fill, stroke) {
-        crate::layout::UiBackend::paint(&mut backend, cmd);
+        mara.paint(cmd);
     }
 }
 
@@ -2422,7 +2439,7 @@ fn top_tab_label_paint_cmd(pos: MaraPos2, title: &str, size: f32, color: MaraCol
 }
 
 fn paint_icon_or_svg(
-    ui: &mut Ui,
+    mara: &mut crate::MaraUi<'_>,
     pos: MaraPos2,
     align: crate::vocab::Align2,
     icon: Icon<'_>,
@@ -2434,16 +2451,17 @@ fn paint_icon_or_svg(
             if let Some(cmd) =
                 icon_name_paint_cmd(pos.into(), align.into(), name, size, color.into())
             {
-                let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
-                crate::layout::UiBackend::paint(&mut backend, cmd);
+                mara.paint(cmd);
             }
         }
         Icon::Svg(svg) => {
-            let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
-            crate::layout::UiBackend::paint(
-                &mut backend,
-                icon_svg_paint_cmd(pos.into(), align.into(), svg, size, color.into()),
-            );
+            mara.paint(icon_svg_paint_cmd(
+                pos.into(),
+                align.into(),
+                svg,
+                size,
+                color.into(),
+            ));
         }
     }
 }
@@ -2514,7 +2532,7 @@ fn title_divider_paint_cmd(
 ///   in GAME (painted by caller).
 #[allow(clippy::too_many_arguments)]
 fn paint_title(
-    ui: &mut Ui,
+    mara: &mut crate::MaraUi<'_>,
     rect: MaraRect,
     title: &str,
     anchor: PaneAnchor,
@@ -2528,7 +2546,8 @@ fn paint_title(
     // know exactly where the title row landed — used by
     // `Normal::show_tabs` (GAME path) to overlay tab buttons on the
     // title row after the container has rendered.
-    crate::memory::MaraMemoryCtx::new(ui.ctx())
+    mara.ctx()
+        .memory()
         .set_temp(pane_id.with("mara_normal_title_rect"), rect);
 
     let theme = style::theme();
@@ -2541,8 +2560,7 @@ fn paint_title(
         style::section_title_color(accent).into()
     };
 
-    let title_family =
-        crate::backend::egui::available_text_family_for_ui(ui, style::title_font_family());
+    let title_family = mara.available_text_family(style::title_font_family());
     let bracket_visible = theme.section_title_brackets && !open;
     let any_brackets = theme.section_title_brackets;
     let title_uc = title.to_uppercase();
@@ -2570,15 +2588,15 @@ fn paint_title(
     // makes `scramble_text` see no stored prev for this id and
     // restart the decode cycle from t = 0.
     let displayed = if theme.scramble_titles {
-        let session_id = ui.id().with(("mara_normal_title_session", title));
-        let session = style::appearance_session(ui.ctx(), session_id);
-        let fold_ver = pane::fold_version(ui.ctx(), pane_id);
+        let session_id = mara.id().with(("mara_normal_title_session", title));
+        let session = style::appearance_session(mara.ctx(), session_id);
+        let fold_ver = pane::fold_version(mara.ctx(), pane_id);
         let scramble_id = session_id.with(session).with(fold_ver);
-        let active = ui.opacity() >= 0.95;
-        let scrambled = style::scramble_text(ui.ctx(), scramble_id, &title_uc, active);
+        let active = mara.opacity() >= 0.95;
+        let scrambled = style::scramble_text(mara.ctx(), scramble_id, &title_uc, active);
         // Post-stabilisation glitch: every ~5 s a random letter
         // momentarily becomes a scramble symbol and reverts.
-        style::glitch_text(ui.ctx(), session_id.with("glitch"), &scrambled)
+        style::glitch_text(mara.ctx(), session_id.with("glitch"), &scrambled)
     } else {
         title_uc
     };
@@ -2707,7 +2725,7 @@ fn paint_title(
             bracket_color,
         );
     }
-    let title_size = crate::backend::egui::measure_text_runs_for_ui(ui, &title_runs);
+    let title_size = mara.painter().measure_text_runs(&title_runs);
 
     match title_side {
         TitleSide::Top | TitleSide::Bottom => {
@@ -2720,7 +2738,7 @@ fn paint_title(
                     rect.left() + container_theme.title_inset + icon_theme.section_chevron_w * 0.5
                 };
                 paint_chevron_h(
-                    ui,
+                    mara,
                     rect.into(),
                     MaraPos2::new(chevron_x, rect.center().y),
                     title_side,
@@ -2744,7 +2762,7 @@ fn paint_title(
                 )
             };
             paint_cmd_clipped(
-                ui,
+                mara,
                 rect.into(),
                 PaintCmd::TextRuns {
                     pos: text_pos,
@@ -2757,7 +2775,7 @@ fn paint_title(
             // Body-facing divider — PRO only, when expanded.
             if !filled && open {
                 paint_cmd(
-                    ui,
+                    mara,
                     title_divider_paint_cmd(
                         rect.into(),
                         title_side,
@@ -2782,7 +2800,7 @@ fn paint_title(
                     rect.bottom() - container_theme.title_inset - icon_theme.section_chevron_w * 0.5
                 };
                 paint_chevron_h(
-                    ui,
+                    mara,
                     rect.into(),
                     MaraPos2::new(cx, chevron_y),
                     title_side,
@@ -2812,7 +2830,7 @@ fn paint_title(
                 )
             };
             paint_cmd_clipped(
-                ui,
+                mara,
                 rect.into(),
                 PaintCmd::TextRuns {
                     pos: text_pos,
@@ -2824,7 +2842,7 @@ fn paint_title(
 
             if !filled && open {
                 paint_cmd(
-                    ui,
+                    mara,
                     title_divider_paint_cmd(
                         rect.into(),
                         title_side,
@@ -2843,7 +2861,7 @@ fn paint_title(
     // floating ornament. The growth is `smoothstep`-eased so it pops
     // through `cubic-bezier(0.42, 0, 0.58, 1)` rather than linear.
     if !inline_icon && let Some(icon_src) = icon {
-        paint_floating_icon(ui, rect, anchor, title_col, openness, icon_src);
+        paint_floating_icon(mara, rect, anchor, title_col, openness, icon_src);
     }
 }
 
@@ -2857,7 +2875,7 @@ fn paint_title(
 /// Painted on `Order::Foreground` so the icon sits ABOVE the ribbon
 /// buttons (`Order::Middle`) and the pane chrome (`Order::Background`).
 fn paint_floating_icon(
-    ui: &mut Ui,
+    mara: &mut crate::MaraUi<'_>,
     strip_rect: MaraRect,
     anchor: PaneAnchor,
     title_col: Color32,
@@ -2884,20 +2902,19 @@ fn paint_floating_icon(
     // above container chrome and corner ticks, below any
     // fullscreen / maximize overlay so the icon doesn't bleed
     // through a maximised node graph / code editor.
-    // Foreground-layer painters do NOT inherit the parent ui's
+    // Foreground-layer painters do NOT inherit the parent mara's
     // opacity, so during the stagger fade the icon would otherwise
     // pop in at full alpha while the container chrome was still
     // fading. Mirror the parent's opacity onto this layer's
     // painter so the icon fades with its container.
-    let layer_id: MaraId = ui.id().with("mara_floating_icon_layer").into();
-    let parent_opacity = ui.opacity();
+    let layer_id: MaraId = mara.id().with("mara_floating_icon_layer").into();
+    let parent_opacity = mara.opacity();
     match icon_src {
         Icon::Name(name) => {
             if let Some(cmd) =
                 icon_name_paint_cmd(icon.pos, icon.align, name, size, title_col.into())
             {
-                crate::backend::egui::render_paint_cmd_on_z_layer(
-                    ui,
+                mara.paint_on_z_layer(
                     layer_id,
                     crate::layer::z::CONTAINER_FLOATING_ICON,
                     icon.rect,
@@ -2907,8 +2924,7 @@ fn paint_floating_icon(
             }
         }
         Icon::Svg(svg) => {
-            crate::backend::egui::render_paint_cmd_on_z_layer(
-                ui,
+            mara.paint_on_z_layer(
                 layer_id,
                 crate::layer::z::CONTAINER_FLOATING_ICON,
                 icon.rect,
@@ -2919,16 +2935,12 @@ fn paint_floating_icon(
     }
 }
 
-fn paint_cmd(ui: &mut Ui, cmd: PaintCmd) {
-    let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
-    crate::layout::UiBackend::paint(&mut backend, cmd);
+fn paint_cmd(mara: &mut crate::MaraUi<'_>, cmd: PaintCmd) {
+    mara.paint(cmd);
 }
 
-fn paint_cmd_clipped(ui: &mut Ui, clip: MaraRect, cmd: PaintCmd) {
-    let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
-    crate::layout::UiBackend::push_clip(&mut backend, clip);
-    crate::layout::UiBackend::paint(&mut backend, cmd);
-    crate::layout::UiBackend::pop_clip(&mut backend);
+fn paint_cmd_clipped(mara: &mut crate::MaraUi<'_>, clip: MaraRect, cmd: PaintCmd) {
+    mara.clipped(clip, |mara| mara.paint(cmd));
 }
 
 /// Polynomial smoothstep, `t * t * (3 - 2t)`. Approximates
@@ -2964,7 +2976,7 @@ fn ease_out_elastic(t: f32) -> f32 {
 /// `openness` 0..=1. Glyph reads `›` (closed) → `⌄` (open) for a
 /// Top title; mirrored / rotated for the other three sides.
 fn paint_chevron_h(
-    ui: &mut Ui,
+    mara: &mut crate::MaraUi<'_>,
     clip: MaraRect,
     center: MaraPos2,
     title_side: TitleSide,
@@ -2972,7 +2984,7 @@ fn paint_chevron_h(
     tint: MaraColor32,
 ) {
     paint_cmd_clipped(
-        ui,
+        mara,
         clip,
         chevron_h_paint_cmd(center, title_side, openness, tint),
     );
@@ -3035,7 +3047,7 @@ fn chevron_h_paint_cmd(
 /// * `ease_out_back` produces a small overshoot past rest before
 ///   settling, plus a fade-in driven by the same `snap_t` so a
 ///   collapsed container doesn't have ticks "floating" outside it.
-// Per-container stable id passed in as `container_id`. `ui.id()`
+// Per-container stable id passed in as `container_id`. `mara.id()`
 // inside the function is the Frame's content_ui id which collapses
 // to `parent.with("child")` — the SAME id for every sibling Frame
 // in the same parent — so we can't key per-container snap state on
@@ -3043,7 +3055,7 @@ fn chevron_h_paint_cmd(
 // container's `cid`, unique per stack slot) and we key state under
 // that.
 fn paint_corner_ticks(
-    ui: &mut Ui,
+    mara: &mut crate::MaraUi<'_>,
     outer_rect: MaraRect,
     accent: Color32,
     title_side: TitleSide,
@@ -3057,7 +3069,7 @@ fn paint_corner_ticks(
     }
     let rest_inset = theme.section_corner_ticks_inset;
     // Snap-in animation parameters. The snap clock starts only
-    // when `ui.opacity() >= 0.95` — i.e. AFTER the per-section
+    // when `mara.opacity() >= 0.95` — i.e. AFTER the per-section
     // staggered fade-in has essentially finished — so the user
     // actually sees the brackets fly in instead of having the
     // animation play out invisibly under the fade. Same gating
@@ -3073,7 +3085,7 @@ fn paint_corner_ticks(
     // before the end. `stagger_opacity` reaches exactly `1.0` at
     // the end of the fade (smoothstep at `t = 1.0` is `1.0`), and
     // `multiply_opacity` is skipped when `stagger_opacity == 1.0`
-    // → `ui.opacity()` jumps to exactly `1.0` — `0.999` is just
+    // → `mara.opacity()` jumps to exactly `1.0` — `0.999` is just
     // a float-tolerance cushion against rounding.
     const OPACITY_GATE: f32 = 0.999;
     /// Extra delay between the fade completing and the snap
@@ -3086,9 +3098,11 @@ fn paint_corner_ticks(
     let prev_active_id = snap_id.with("prev_active");
     let prev_body_open_id = snap_id.with("prev_body_open");
     let first_seen_id = snap_id.with("first_seen");
-    let now = crate::context::MaraCtx::now(ui.ctx());
-    let opacity_active = ui.opacity() >= OPACITY_GATE;
-    let body_open_now: bool = crate::memory::MaraMemoryCtx::new(ui.ctx())
+    let now = crate::context::MaraCtx::now(mara.ctx());
+    let opacity_active = mara.opacity() >= OPACITY_GATE;
+    let body_open_now: bool = mara
+        .ctx()
+        .memory()
         .get_persisted::<bool>(container_id.with("body_open"))
         .unwrap_or(true);
     // `first_seen` is the start-of-snap timestamp. It's set on
@@ -3106,7 +3120,7 @@ fn paint_corner_ticks(
     let first_seen: Option<f64> = {
         // Each of these is a read-then-write of the *previous* frame's
         // value; splitting a pair would lose the edge it detects.
-        let mut memory = crate::memory::MaraMemoryCtx::new(ui.ctx());
+        let mut memory = mara.ctx().memory();
         let prev_active = memory.get_temp::<bool>(prev_active_id).unwrap_or(false);
         memory.set_temp(prev_active_id, opacity_active);
         let became_inactive = prev_active && !opacity_active;
@@ -3146,7 +3160,7 @@ fn paint_corner_ticks(
         None => 0.0,
     };
     if appear < 1.0 {
-        crate::context::MaraCtx::request_repaint(ui.ctx());
+        crate::context::MaraCtx::request_repaint(mara.ctx());
     }
     // Snap progress is driven by `appear` ALONE — re-arming events
     // (pane launch, single-container unfold) drop `first_seen`,
@@ -3252,12 +3266,11 @@ fn paint_corner_ticks(
         len,
         [tl.into(), tr.into(), bl.into(), br.into()],
     ) {
-        crate::backend::egui::render_paint_cmd_on_z_layer(
-            ui,
+        mara.paint_on_z_layer(
             layer_id,
             crate::layer::z::CONTAINER_TICKS,
-            outer_rect.into(),
-            ui.opacity(),
+            outer_rect,
+            mara.opacity(),
             cmd,
         );
     }
