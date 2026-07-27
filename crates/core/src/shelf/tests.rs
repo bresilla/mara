@@ -1169,7 +1169,7 @@ fn published_existing_shelf_target_prefers_live_rendered_container_positions() {
         .expect("existing shelf slot ghost should use the live target slot");
     assert_eq!(
         rect.min,
-        pos2(96.0, 260.0),
+        MaraPos2::new(96.0, 260.0),
         "the foreground ghost should keep the target slot's main-axis position while filling the shelf cross-axis"
     );
 }
@@ -1224,7 +1224,7 @@ fn existing_shelf_slot_ghost_translates_local_shelf_rects_to_screen_space() {
 
     assert_eq!(
         rect.min,
-        pos2(576.0, 500.0),
+        MaraPos2::new(576.0, 500.0),
         "foreground ghost areas are positioned in screen space, so local shelf geometry must be translated by the shelf area's screen offset"
     );
 }
@@ -1457,7 +1457,7 @@ fn published_bottom_shelf_target_tracks_horizontal_middle_slot() {
     );
     let (rect, _) = existing_shelf_container_slot_ghost(&ctx, ShelfEdge::Bottom, drag)
         .expect("bottom shelf slot ghost should be computed");
-    assert_eq!(rect.min, pos2(384.0, 492.0));
+    assert_eq!(rect.min, MaraPos2::new(384.0, 492.0));
     assert_eq!(rect.height(), 144.0);
 }
 

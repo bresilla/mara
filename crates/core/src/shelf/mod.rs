@@ -1189,7 +1189,7 @@ fn render_shelf_body(input: ShelfBodyInput<'_, '_, '_, '_>) {
                 },
             );
             update_container_move_target_slot(
-                viewport,
+                viewport.ctx(),
                 shelf_id,
                 pane_id,
                 shelf.edge,
@@ -1617,7 +1617,7 @@ fn resized_shelf_extent(edge: ShelfEdge, start: f32, delta: Vec2, min: f32, max:
 }
 
 fn update_container_move_target_slot(
-    viewport: &mut egui::Ui,
+    ctx: &dyn crate::context::MaraCtx,
     shelf_id: Id,
     pane_id: Id,
     shelf_edge: ShelfEdge,
@@ -1631,8 +1631,8 @@ fn update_container_move_target_slot(
     if drag.target_edge != Some(shelf_edge) {
         return;
     }
-    let snap = shelf_target_cache(viewport.ctx(), pane_id);
-    let input = crate::backend::egui::input_snapshot_for_ui(viewport);
+    let snap = shelf_target_cache(ctx, pane_id);
+    let input = ctx.input();
     let cursor = input
         .interact_pointer
         .or(input.pointer)
@@ -1640,12 +1640,8 @@ fn update_container_move_target_slot(
         .unwrap_or(drag.cursor);
     let cursor_axis = if horizontal_stack { cursor.x } else { cursor.y };
     let target_slot = pane::compute_target(&snap, drag.container_id, cursor_axis, horizontal_stack);
-    let target_size = container_move_ghost_size_for_edge(
-        viewport.ctx(),
-        drag.container_id,
-        shelf_edge,
-        content_rect,
-    );
+    let target_size =
+        container_move_ghost_size_for_edge(ctx, drag.container_id, shelf_edge, content_rect);
     state.update_container_move_target_slot(shelf_id, pane_id, target_slot, target_size);
 }
 
@@ -1972,7 +1968,7 @@ fn shelf_resize_cursor(edge: ShelfEdge) -> CursorIcon {
 }
 
 struct ShelfMoveDragInput<'a, 'state> {
-    ctx: &'a egui::Context,
+    ctx: &'a dyn crate::context::MaraCtx,
     shelf_id: Id,
     shelf_edge: ShelfEdge,
     pane_id: Id,
@@ -2015,14 +2011,14 @@ fn handle_shelf_move_drag(input: ShelfMoveDragInput<'_, '_>) {
             let occupied = occupied_edges_for_layout(layout, Some(shelf_edge));
             let target = shelf_move_target(cursor, available, occupied, shelf_edge);
             state.update_drag(cursor, target);
-            crate::backend::egui::set_cursor_icon_for_context(ctx, CursorIcon::Grabbing);
+            ctx.set_cursor_icon(CursorIcon::Grabbing);
             MaraCtx::request_repaint(ctx);
         }
         if input.any_released {
             state.finish_drag();
         }
     }
-    if state.drag.is_some() && crate::backend::egui::key_pressed(ctx, crate::mui::MaraKey::Escape) {
+    if state.drag.is_some() && ctx.input().key_pressed(crate::mui::MaraKey::Escape) {
         state.cancel_drag();
     }
 }
@@ -2206,9 +2202,9 @@ fn paint_container_move_ghost(
             ),
             &mut |mara| {
                 let local = mara
-                    .allocate(MaraVec2::from(rect.size()), crate::layout::Sense::Hover)
+                    .allocate(rect.size(), crate::layout::Sense::Hover)
                     .rect;
-                paint_container_slot_ghost(mara, local, accent.into());
+                paint_container_slot_ghost(mara, local, accent);
             },
         );
         return;
@@ -2332,7 +2328,7 @@ fn existing_shelf_container_slot_ghost(
     ctx: &dyn crate::context::MaraCtx,
     target: ShelfEdge,
     drag: ShelfContainerMoveState,
-) -> Option<(Rect, Color32)> {
+) -> Option<(MaraRect, MaraColor32)> {
     let target_pane = drag.target_pane?;
     let target_slot = drag.target_slot?;
     if external_container_gap_was_painted(ctx, target_pane) {
@@ -2350,7 +2346,7 @@ fn existing_shelf_container_slot_ghost(
         target_slot,
         info.horizontal_stack,
     )
-    .map(|rect| (rect.translate(info.screen_offset), info.accent))
+    .map(|rect| (rect.translate(info.screen_offset).into(), info.accent.into()))
 }
 
 fn shelf_target_cache(ctx: &dyn crate::context::MaraCtx, pane_id: Id) -> Vec<pane::RectEntry> {
