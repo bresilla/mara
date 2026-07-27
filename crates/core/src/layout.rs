@@ -761,6 +761,15 @@ pub trait UiBackend {
 
     /// Show hover-tooltip `text` for a previously-returned response.
     /// No-op on backends without an overlay layer.
+    /// Set the pointer cursor for this frame.
+    ///
+    /// Unconditional, unlike [`hover_cursor`](UiBackend::hover_cursor):
+    /// the caller has already decided the pointer is over something
+    /// that should change it.
+    fn set_cursor_icon(&mut self, cursor: CursorIcon) {
+        let _ = cursor;
+    }
+
     /// Show `cursor` while the pointer is over `response`.
     ///
     /// The default does nothing: a backend with no pointer cursor
@@ -1069,6 +1078,9 @@ impl<T: UiBackend + ?Sized> UiBackend for &mut T {
     }
     fn fill_paint_slot(&mut self, slot: PaintSlot, cmd: Option<PaintCmd>) {
         (**self).fill_paint_slot(slot, cmd)
+    }
+    fn set_cursor_icon(&mut self, cursor: CursorIcon) {
+        (**self).set_cursor_icon(cursor)
     }
     fn hover_cursor(&mut self, response: &MaraResponse, cursor: CursorIcon) {
         (**self).hover_cursor(response, cursor)

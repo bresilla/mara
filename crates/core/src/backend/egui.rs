@@ -222,6 +222,10 @@ impl UiBackend for EguiUiBackend<'_> {
         self.ui.painter().set(ShapeIdx(slot.0), shape);
     }
 
+    fn set_cursor_icon(&mut self, cursor: crate::layout::CursorIcon) {
+        set_cursor_icon_for_ui(self.ui, cursor);
+    }
+
     fn hover_cursor(&mut self, response: &MaraResponse, cursor: crate::layout::CursorIcon) {
         hover_cursor_for_ui_response(self.ui, response, cursor);
     }
@@ -2397,6 +2401,22 @@ impl crate::context::MaraCtx for egui::Context {
     ) -> vocab::Rect {
         let accent = crate::style::active_accent();
         show_area_for_host(self, host, |ui| {
+            let mut backend = EguiUiBackend::new(ui);
+            let mut mara = crate::MaraUi::over(&mut backend, accent);
+            body(&mut mara);
+        })
+        .response
+        .rect
+        .into()
+    }
+
+    fn area_slot(
+        &self,
+        spec: crate::layout::AreaSlotSpec,
+        body: &mut dyn FnMut(&mut crate::MaraUi<'_>),
+    ) -> vocab::Rect {
+        let accent = crate::style::active_accent();
+        show_area_slot(self, spec, |ui| {
             let mut backend = EguiUiBackend::new(ui);
             let mut mara = crate::MaraUi::over(&mut backend, accent);
             body(&mut mara);

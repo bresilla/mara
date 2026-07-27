@@ -76,6 +76,18 @@ pub trait MaraCtx {
         Rect::NOTHING
     }
 
+    /// [`area`](MaraCtx::area) with a minimum size — for a floating
+    /// surface whose extent is known up front (a divider strip, a
+    /// fixed-size popup) rather than derived from its content.
+    fn area_slot(
+        &self,
+        spec: crate::layout::AreaSlotSpec,
+        body: &mut dyn FnMut(&mut crate::MaraUi<'_>),
+    ) -> Rect {
+        let _ = (spec, body);
+        Rect::NOTHING
+    }
+
     /// Backend-neutral state store.
     fn memory(&self) -> MaraMemoryCtx<'_>;
 }

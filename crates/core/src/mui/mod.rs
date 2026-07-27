@@ -1682,6 +1682,11 @@ impl<'a> MaraUi<'a> {
         self.backend.interact(rect.into(), id.into(), sense)
     }
 
+    /// Set the pointer cursor for this frame.
+    pub fn set_cursor_icon(&mut self, cursor: crate::layout::CursorIcon) {
+        self.backend.set_cursor_icon(cursor);
+    }
+
     /// Show `cursor` while the pointer is over `response`.
     pub fn hover_cursor(&mut self, response: &MaraResponse, cursor: crate::layout::CursorIcon) {
         self.backend.hover_cursor(response, cursor);
