@@ -720,7 +720,11 @@ pub(crate) fn show_area_for_host<R>(
 ) -> egui::InnerResponse<R> {
     let host_id = host.id;
     let host_layer = host.layer;
+    let raise = host.bring_to_top;
     let inner = area_for_host(host).show(ctx, body);
+    if raise {
+        ctx.move_to_top(inner.response.layer_id);
+    }
     if probe_enabled(ctx) {
         probe_record(
             ctx,

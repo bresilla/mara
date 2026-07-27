@@ -68,6 +68,12 @@ pub struct AreaHost {
     pub pos: Pos2,
     pub layer: Layer,
     pub interactable: bool,
+    /// Raise this area above its siblings in the same layer.
+    ///
+    /// A property of the host rather than a call after the fact: the
+    /// backend can apply it while creating the area, so the caller
+    /// never needs to hold on to a backend response just to reorder.
+    pub bring_to_top: bool,
 }
 
 impl AreaHost {
@@ -78,7 +84,14 @@ impl AreaHost {
             pos,
             layer,
             interactable: true,
+            bring_to_top: false,
         }
+    }
+
+    #[must_use]
+    pub const fn bring_to_top(mut self) -> Self {
+        self.bring_to_top = true;
+        self
     }
 
     #[must_use]
@@ -617,6 +630,16 @@ impl SlotRibbonLayoutSpec {
             host.non_interactive()
         };
         AreaSlotSpec::new(host, self.size)
+    }
+
+    /// [`area_slot`](SlotRibbonLayoutSpec::area_slot) that also raises
+    /// the area above its siblings — what a ribbon button needs so it
+    /// stays clickable over neighbouring chrome.
+    #[must_use]
+    pub fn area_slot_on_top(&self, layer: Layer, interactable: bool) -> AreaSlotSpec {
+        let mut spec = self.area_slot(layer, interactable);
+        spec.host = spec.host.bring_to_top();
+        spec
     }
 
     #[must_use]

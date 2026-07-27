@@ -1072,8 +1072,14 @@ pub fn draw_unified_ribbon_chrome(
             SIDE_BTN_SIZE,
             SIDE_BTN_GAP,
         );
-        let area_response =
-            crate::backend::egui::show_slot_ribbon_area(ctx, button_spec, layer, |ui| {
+        // The button's interaction comes back through a capture: the
+        // seam's body is `&mut dyn FnMut`, which cannot be generic over
+        // a return value.
+        let mut button_response = None;
+        crate::context::MaraCtx::area_slot(
+            ctx,
+            button_spec.area_slot_on_top(layer, true),
+            &mut |mara| {
                 let sense = if item.draggable {
                     MaraSense::ClickAndDrag
                 } else {
@@ -1082,12 +1088,11 @@ pub fn draw_unified_ribbon_chrome(
                 let rect = button_spec
                     .item_screen_rect(0)
                     .expect("single ribbon button spec must have an item rect");
-                let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
                 let response =
-                    backend.interact(rect, MaraId::new(("mara_ribbon_btn_hit", iid)), sense);
-                if crate::probe::__internal_enabled(ui.ctx()) {
+                    mara.interact(rect, MaraId::new(("mara_ribbon_btn_hit", iid)), sense);
+                if crate::probe::__internal_enabled(ctx) {
                     crate::probe::__internal_record(
-                        ui.ctx(),
+                        ctx,
                         crate::probe::ElementPose::new("ribbon-btn", rect).with_label(format!(
                             "{:?}/{:?} '{}'",
                             ribbon.edge, cluster_eff, item.tooltip
@@ -1100,7 +1105,7 @@ pub fn draw_unified_ribbon_chrome(
                     is_active,
                     response.hovered() || dragging_this,
                 ) {
-                    crate::backend::egui::render_paint_cmd_ui(ui, cmd);
+                    mara.paint(cmd);
                 }
                 let glyph = RibbonGlyph::Icon(item.icon);
                 let fg = ribbon_button_fg(
@@ -1109,16 +1114,12 @@ pub fn draw_unified_ribbon_chrome(
                     response.hovered() || dragging_this,
                     glyph,
                 );
-                {
-                    let mut raw = crate::MaraUi::__internal_backend_from_raw(ui);
-                    let mut mara = crate::MaraUi::__internal_over(&mut raw, accent);
-                    paint_item_glyph(&mut mara, rect, item, fg);
-                }
-                crate::backend::egui::hover_text_for_ui_response(ui, &response, &item.tooltip);
-                response
-            });
-        crate::backend::egui::move_area_response_to_top(ctx, &area_response.response);
-        let response = area_response.inner;
+                paint_item_glyph(mara, rect, item, fg);
+                mara.hover_text(&response, &item.tooltip);
+                button_response = Some(response);
+            },
+        );
+        let response = button_response.expect("area_slot must run its body exactly once");
         if item.draggable && response.drag_started() {
             drag_started_idx = Some(idx);
         }
