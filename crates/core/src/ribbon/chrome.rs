@@ -789,7 +789,12 @@ fn item_role(item: &RibbonSlotItem, ribbon: &ResolvedSlotRibbon) -> RibbonRole {
     item.role.unwrap_or(ribbon.role)
 }
 
-fn paint_item_glyph(ui: &mut egui::Ui, rect: MaraRect, item: &RibbonSlotItem, fg: MaraColor32) {
+fn paint_item_glyph(
+    ui: &mut crate::MaraUi<'_>,
+    rect: MaraRect,
+    item: &RibbonSlotItem,
+    fg: MaraColor32,
+) {
     let icon = crate::icons::Icon::from(item.icon);
     if matches!(icon, crate::icons::Icon::Name(_)) && !crate::icons::icon_fonts_ready() {
         return;
@@ -801,7 +806,7 @@ fn paint_item_glyph(ui: &mut egui::Ui, rect: MaraRect, item: &RibbonSlotItem, fg
         18.0,
         fg,
     ) {
-        crate::backend::egui::render_paint_cmd_ui(ui, cmd);
+        ui.paint(cmd);
     }
 }
 
@@ -1104,7 +1109,11 @@ pub fn draw_unified_ribbon_chrome(
                     response.hovered() || dragging_this,
                     glyph,
                 );
-                paint_item_glyph(ui, rect, item, fg);
+                {
+                    let mut raw = crate::MaraUi::__internal_backend_from_raw(ui);
+                    let mut mara = crate::MaraUi::__internal_over(&mut raw, accent);
+                    paint_item_glyph(&mut mara, rect, item, fg);
+                }
                 crate::backend::egui::hover_text_for_ui_response(ui, &response, &item.tooltip);
                 response
             });
