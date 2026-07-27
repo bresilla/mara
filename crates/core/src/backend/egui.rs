@@ -2412,6 +2412,10 @@ impl crate::context::MaraCtx for egui::Context {
         crate::MaraPainter::new(area_registered_painter(self, layer, id, clip))
     }
 
+    fn enforce_defaults(&self) {
+        crate::enforce::__internal_enforce_defaults(self);
+    }
+
     fn memory(&self) -> MaraMemoryCtx<'_> {
         MaraMemoryCtx::__internal_from_backend_ctx(self)
     }

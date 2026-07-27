@@ -57,7 +57,7 @@ impl<'a> ViewCtx<'a> {
         accent: impl Into<MaraColor32>,
         content_avoidance: RibbonAvoidance,
     ) -> Self {
-        crate::enforce::__internal_enforce_defaults(egui_ctx);
+        crate::context::MaraCtx::enforce_defaults(egui_ctx);
         Self {
             region: crate::context::MaraCtx::content_rect(egui_ctx),
             ctx: egui_ctx,

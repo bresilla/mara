@@ -110,6 +110,19 @@ pub trait MaraCtx {
         crate::MaraPainter::__internal_recording(clip)
     }
 
+    /// Apply Mara's enforced per-pass defaults to this host.
+    ///
+    /// Every Mara surface entry point calls this before it draws, which
+    /// is what makes the defaults *enforced* rather than opt-in: an app
+    /// that never asks still gets the theme, the image-loader chain a
+    /// sealed module's `Svg` command needs, and the shell bar. Cheap
+    /// after the first call of a pass — the rest are stamp reads.
+    ///
+    /// The default does nothing. A host with no widget tree has no
+    /// visuals to install and no bar to fall back to, so there is
+    /// nothing to enforce.
+    fn enforce_defaults(&self) {}
+
     /// Backend-neutral state store.
     fn memory(&self) -> MaraMemoryCtx<'_>;
 }
