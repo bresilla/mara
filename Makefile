@@ -157,6 +157,9 @@ check:
 	# old list of banned egui idioms is superseded by the stronger claim:
 	# the file names no backend type at all.
 	@! grep -RInE '(^|[^:a-z_])egui::' crates/core/src/pane/title.rs
+	# Same for the separator renderer: it draws through `MaraUi` and
+	# `UiBackend` only.
+	@! grep -RInE '(^|[^:a-z_])egui::' crates/core/src/container/separator/mod.rs
 	@! (awk '/^#\[cfg\(test\)\]/ { exit } { print }' crates/core/src/embed.rs | grep -nE 'ui[.]painter[(][)]|render_paint_cmd[(]ui[.]painter')
 	@! grep -RInE 'egui::CursorIcon|on_hover_cursor' crates/core/src/shelf
 	@! grep -RInE 'egui::Area::new|egui::Order::' crates/core/src/shelf/mod.rs

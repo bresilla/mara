@@ -1173,6 +1173,7 @@ impl PaintSlot {
 /// Hidden egui measurement adapter for first-party crates that have
 /// already expressed text measurement as Mara-owned data but still run
 /// on the current egui backend.
+#[cfg(feature = "backend-egui-conv")]
 #[doc(hidden)]
 pub fn __internal_measure_text_egui(painter: &egui::Painter, spec: &TextMeasureSpec) -> Vec2 {
     crate::backend::egui::measure_text_for_spec(painter, spec)
