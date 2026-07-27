@@ -113,10 +113,15 @@ fn dot_rects_key(pane_id: Id) -> Id {
 }
 
 pub(crate) fn clear_container_dot_rects(ctx: &dyn crate::context::MaraCtx, pane_id: Id) {
-    ctx.memory().remove_temp::<Vec<MaraRect>>(dot_rects_key(pane_id));
+    ctx.memory()
+        .remove_temp::<Vec<MaraRect>>(dot_rects_key(pane_id));
 }
 
-pub(crate) fn record_container_dot_rect(ctx: &dyn crate::context::MaraCtx, pane_id: Id, rect: impl Into<MaraRect>) {
+pub(crate) fn record_container_dot_rect(
+    ctx: &dyn crate::context::MaraCtx,
+    pane_id: Id,
+    rect: impl Into<MaraRect>,
+) {
     let rect = rect.into();
     let mut memory = ctx.memory();
     let mut rects: Vec<MaraRect> = memory.get_temp(dot_rects_key(pane_id)).unwrap_or_default();

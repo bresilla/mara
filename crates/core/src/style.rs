@@ -1036,9 +1036,7 @@ pub(crate) fn appearance_session(ctx: &dyn crate::context::MaraCtx, id: impl Int
     let key_sess = id.with("mara_session_count");
     let now = ctx.pass_nr();
     let last: Option<u64> = ctx.memory().get_temp(key_seen);
-    let mut sess: u64 = ctx.memory()
-        .get_temp(key_sess)
-        .unwrap_or(0);
+    let mut sess: u64 = ctx.memory().get_temp(key_sess).unwrap_or(0);
     let bumped = !matches!(last, Some(p) if p + 1 == now);
     if bumped {
         sess = sess.wrapping_add(1);
@@ -1122,9 +1120,7 @@ pub(crate) fn scramble_text(
     let key_start = id.with("mara_scramble_start");
     let key_prev = id.with("mara_scramble_prev");
     let prev: Option<String> = ctx.memory().get_temp(key_prev);
-    let mut start: f64 = ctx.memory()
-        .get_temp(key_start)
-        .unwrap_or(now);
+    let mut start: f64 = ctx.memory().get_temp(key_start).unwrap_or(now);
     // Restart scramble whenever the text changes (or on first sight,
     // including the frame `active` first flips to true).
     if prev.as_deref() != Some(current) {
@@ -1189,9 +1185,7 @@ pub(crate) fn scramble_active(
         return true;
     }
     let now = ctx.now();
-    let start: f64 = ctx.memory()
-        .get_temp(key_start)
-        .unwrap_or(now);
+    let start: f64 = ctx.memory().get_temp(key_start).unwrap_or(now);
     let elapsed = now - start;
     let total = MIN_DUR + (current.chars().count() as f64) * STAGGER;
     elapsed < total
@@ -1206,7 +1200,11 @@ pub(crate) fn scramble_active(
 /// Intended to follow `scramble_text` so the title plays its decode
 /// cycle on appear, then the occasional glitch flickers a single
 /// letter every few seconds against the locked text.
-pub(crate) fn glitch_text(ctx: &dyn crate::context::MaraCtx, id: impl Into<MaraId>, base: &str) -> String {
+pub(crate) fn glitch_text(
+    ctx: &dyn crate::context::MaraCtx,
+    id: impl Into<MaraId>,
+    base: &str,
+) -> String {
     let id: egui::Id = id.into().into();
     const GLITCH_DUR: f64 = 0.18;
 
@@ -1282,7 +1280,10 @@ pub(crate) fn glitch_text(ctx: &dyn crate::context::MaraCtx, id: impl Into<MaraI
 ///
 /// Same hash-driven timing pattern as [`glitch_text`] so different titles
 /// fire on staggered, deterministic schedules.
-pub(crate) fn chromatic_aberration_offset(ctx: &dyn crate::context::MaraCtx, id: impl Into<MaraId>) -> f32 {
+pub(crate) fn chromatic_aberration_offset(
+    ctx: &dyn crate::context::MaraCtx,
+    id: impl Into<MaraId>,
+) -> f32 {
     let id: egui::Id = id.into().into();
     /// Total split duration, peak in the middle.
     const DUR: f64 = 0.28;
@@ -3183,7 +3184,10 @@ impl FrameSpec {
     #[must_use]
     pub const fn total_margin(&self) -> MarginSpec {
         MarginSpec {
-            left: self.inner_margin.left.saturating_add(self.outer_margin.left),
+            left: self
+                .inner_margin
+                .left
+                .saturating_add(self.outer_margin.left),
             right: self
                 .inner_margin
                 .right

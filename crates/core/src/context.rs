@@ -71,7 +71,11 @@ pub trait MaraCtx {
     /// Returns the rect the surface occupied. The default returns
     /// [`Rect::NOTHING`] and runs nothing — a host with no notion of
     /// floating layers has nowhere to put it.
-    fn area(&self, host: crate::layout::AreaHost, body: &mut dyn FnMut(&mut crate::MaraUi<'_>)) -> Rect {
+    fn area(
+        &self,
+        host: crate::layout::AreaHost,
+        body: &mut dyn FnMut(&mut crate::MaraUi<'_>),
+    ) -> Rect {
         let _ = (host, body);
         Rect::NOTHING
     }

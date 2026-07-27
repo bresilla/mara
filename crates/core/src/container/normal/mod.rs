@@ -535,8 +535,8 @@ impl Normal {
         // Read the title rect that `paint_title` stashed during
         // render. If absent (folded container or first frame), skip
         // the tab paint — there's nothing to overlay on.
-        let title_rect: Option<MaraRect> =
-            crate::memory::MaraMemoryCtx::new(ui.ctx()).get_temp(pane_id.with("mara_normal_title_rect"));
+        let title_rect: Option<MaraRect> = crate::memory::MaraMemoryCtx::new(ui.ctx())
+            .get_temp(pane_id.with("mara_normal_title_rect"));
         let Some(title_rect) = title_rect else {
             return out;
         };
@@ -688,7 +688,9 @@ impl Normal {
                     crate::container::SeparatorStyle::None
                 };
                 let frame_resp = Frame::new()
-                    .inner_margin(egui::Margin::from(style::MarginSpec::symmetric(pod_pad_x, pod_pad_y)))
+                    .inner_margin(egui::Margin::from(style::MarginSpec::symmetric(
+                        pod_pad_x, pod_pad_y,
+                    )))
                     .show(body_ui, |inner_ui| {
                         out.push(pod.show(inner_ui));
                     });
@@ -732,12 +734,15 @@ impl Normal {
                             // rather than scaling individual
                             // widgets.
                             let key = crate::pod::Pod::widget_height_key(pod_id);
-                            let cur = crate::memory::MaraMemoryCtx::new(body_ui.ctx()).get_persisted::<f32>(key).unwrap_or(crate::style::UNIT);
+                            let cur = crate::memory::MaraMemoryCtx::new(body_ui.ctx())
+                                .get_persisted::<f32>(key)
+                                .unwrap_or(crate::style::UNIT);
                             let new = (cur + resp.drag_delta.y).clamp(
                                 style::theme().pod.min_widget_h,
                                 style::theme().pod.max_widget_h,
                             );
-                            crate::memory::MaraMemoryCtx::new(body_ui.ctx()).set_persisted(key, new);
+                            crate::memory::MaraMemoryCtx::new(body_ui.ctx())
+                                .set_persisted(key, new);
                         }
                     } else {
                         crate::container::paint_separator(
@@ -790,7 +795,8 @@ impl Normal {
         // First-frame fallback: if no active pane is set yet,
         // register against the container's own pane_id so the
         // entry isn't lost.
-        let parent_pane_id: Id = crate::memory::MaraMemoryCtx::new(ui.ctx()).get_temp(pane::active_pane_key())
+        let parent_pane_id: Id = crate::memory::MaraMemoryCtx::new(ui.ctx())
+            .get_temp(pane::active_pane_key())
             .unwrap_or(self.pane_id);
         let min_w = self
             .min_width
@@ -1131,7 +1137,8 @@ impl Normal {
                         }
                         if resp.drag_started()
                             && let Some(active_pane_id) =
-                                crate::memory::MaraMemoryCtx::new(ui.ctx()).get_temp::<Id>(pane::active_pane_key())
+                                crate::memory::MaraMemoryCtx::new(ui.ctx())
+                                    .get_temp::<Id>(pane::active_pane_key())
                         {
                             pane::set_drag(
                                 ui.ctx(),
@@ -1925,7 +1932,8 @@ fn paint_folder_tabs(
     // basis), then reset this container's button cache so this
     // frame's `push_button` calls replace the stale entries
     // cleanly.
-    let parent_pane_id: Id = crate::memory::MaraMemoryCtx::new(ui.ctx()).get_temp(pane::active_pane_key())
+    let parent_pane_id: Id = crate::memory::MaraMemoryCtx::new(ui.ctx())
+        .get_temp(pane::active_pane_key())
         .unwrap_or(pane_id);
     let drag = pane::tab_drag::drag_state(ui.ctx(), parent_pane_id.into());
     let cursor_pos = crate::backend::egui::pointer_latest_pos(ui.ctx()).map(Into::into);
@@ -2123,7 +2131,8 @@ fn paint_top_tabs(
         return;
     }
     // ── Tab drag state (cross-container reorder within this pane) ──
-    let parent_pane_id: Id = crate::memory::MaraMemoryCtx::new(ui.ctx()).get_temp(pane::active_pane_key())
+    let parent_pane_id: Id = crate::memory::MaraMemoryCtx::new(ui.ctx())
+        .get_temp(pane::active_pane_key())
         .unwrap_or(pane_id);
     let drag = pane::tab_drag::drag_state(ui.ctx(), parent_pane_id.into());
     let cursor_pos = crate::backend::egui::pointer_latest_pos(ui.ctx()).map(Into::into);

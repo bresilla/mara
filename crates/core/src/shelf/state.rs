@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
-use crate::vocab::Id;
-use egui::{Color32, Pos2, Rect, Vec2};
+use crate::vocab::{Color32 as MaraColor32, Id};
+use egui::{Pos2, Rect, Vec2};
 
 use super::{ShelfEdge, sanitize_extent, shelf_active_container_key_for};
 
@@ -53,7 +53,7 @@ pub(super) struct ShelfPaneInfo {
     pub(super) content_rect: Rect,
     pub(super) screen_rect: Rect,
     pub(super) screen_offset: Vec2,
-    pub(super) accent: Color32,
+    pub(super) accent: MaraColor32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

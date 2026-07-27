@@ -45,28 +45,22 @@ fn paint_pip(
                 MaraVec2::new(0.0, CHROM_OFFSET),
             )
         };
-        ui.painter().paint_cmd(
-            PaintCmd::RectFilled {
-                rect: r.translate(off_red),
-                corner: MaraCornerRadius::ZERO,
-                fill: chrom_red,
-            },
-        );
-        ui.painter().paint_cmd(
-            PaintCmd::RectFilled {
-                rect: r.translate(off_cyan),
-                corner: MaraCornerRadius::ZERO,
-                fill: chrom_cyan,
-            },
-        );
-    }
-    ui.painter().paint_cmd(
-        PaintCmd::RectFilled {
-            rect: r,
+        ui.painter().paint_cmd(PaintCmd::RectFilled {
+            rect: r.translate(off_red),
             corner: MaraCornerRadius::ZERO,
-            fill: pip_color,
-        },
-    );
+            fill: chrom_red,
+        });
+        ui.painter().paint_cmd(PaintCmd::RectFilled {
+            rect: r.translate(off_cyan),
+            corner: MaraCornerRadius::ZERO,
+            fill: chrom_cyan,
+        });
+    }
+    ui.painter().paint_cmd(PaintCmd::RectFilled {
+        rect: r,
+        corner: MaraCornerRadius::ZERO,
+        fill: pip_color,
+    });
 }
 
 /// Paint the title strip background + text inside `rect`. Five
@@ -102,13 +96,11 @@ pub(crate) fn paint_pane_title(
 
     // ── 1. Background ──
     if !theme.pane.fill_visible && !stripes_on {
-        ui.painter().paint_cmd(
-            PaintCmd::RectFilled {
-                rect: m_rect,
-                corner: MaraCornerRadius::same(theme.radius_lg),
-                fill: style::pane_fill(accent),
-            },
-        );
+        ui.painter().paint_cmd(PaintCmd::RectFilled {
+            rect: m_rect,
+            corner: MaraCornerRadius::same(theme.radius_lg),
+            fill: style::pane_fill(accent),
+        });
     }
     if stripes_on {
         // Stripes are visible — keep animating. Without this egui only
@@ -230,31 +222,25 @@ pub(crate) fn paint_pane_title(
             // (Y) on each ghost for a touch of CRT-misregistration
             // grit without smearing the glyph height.
             const CROSS_JITTER: f32 = 1.0;
-            ui.painter().paint_cmd(
-                PaintCmd::TextRuns {
-                    pos: MaraPos2::new(pos.x - aberration, pos.y - CROSS_JITTER),
-                    anchor: align,
-                    angle: 0.0,
-                    runs: make_runs(chr_red),
-                },
-            );
-            ui.painter().paint_cmd(
-                PaintCmd::TextRuns {
-                    pos: MaraPos2::new(pos.x + aberration, pos.y + CROSS_JITTER),
-                    anchor: align,
-                    angle: 0.0,
-                    runs: make_runs(chr_cyan),
-                },
-            );
-        }
-        ui.painter().paint_cmd(
-            PaintCmd::TextRuns {
-                pos,
+            ui.painter().paint_cmd(PaintCmd::TextRuns {
+                pos: MaraPos2::new(pos.x - aberration, pos.y - CROSS_JITTER),
                 anchor: align,
                 angle: 0.0,
-                runs: make_runs(text_col),
-            },
-        );
+                runs: make_runs(chr_red),
+            });
+            ui.painter().paint_cmd(PaintCmd::TextRuns {
+                pos: MaraPos2::new(pos.x + aberration, pos.y + CROSS_JITTER),
+                anchor: align,
+                angle: 0.0,
+                runs: make_runs(chr_cyan),
+            });
+        }
+        ui.painter().paint_cmd(PaintCmd::TextRuns {
+            pos,
+            anchor: align,
+            angle: 0.0,
+            runs: make_runs(text_col),
+        });
     } else {
         // Vertical strip: a single rotated text run drives the main
         // glyphs; the aberration ghosts reuse the same run tinted
@@ -307,31 +293,25 @@ pub(crate) fn paint_pane_title(
         // height after rotation.
         if aberration > 0.0 {
             const CROSS_JITTER: f32 = 1.0;
-            ui.painter().paint_cmd(
-                PaintCmd::TextRuns {
-                    pos: MaraPos2::new(text_pos.x - CROSS_JITTER, text_pos.y - aberration),
-                    anchor: MaraAlign2::LEFT_TOP,
-                    angle,
-                    runs: make_runs(chr_red),
-                },
-            );
-            ui.painter().paint_cmd(
-                PaintCmd::TextRuns {
-                    pos: MaraPos2::new(text_pos.x + CROSS_JITTER, text_pos.y + aberration),
-                    anchor: MaraAlign2::LEFT_TOP,
-                    angle,
-                    runs: make_runs(chr_cyan),
-                },
-            );
-        }
-        ui.painter().paint_cmd(
-            PaintCmd::TextRuns {
-                pos: text_pos,
+            ui.painter().paint_cmd(PaintCmd::TextRuns {
+                pos: MaraPos2::new(text_pos.x - CROSS_JITTER, text_pos.y - aberration),
                 anchor: MaraAlign2::LEFT_TOP,
                 angle,
-                runs: make_runs(text_col),
-            },
-        );
+                runs: make_runs(chr_red),
+            });
+            ui.painter().paint_cmd(PaintCmd::TextRuns {
+                pos: MaraPos2::new(text_pos.x + CROSS_JITTER, text_pos.y + aberration),
+                anchor: MaraAlign2::LEFT_TOP,
+                angle,
+                runs: make_runs(chr_cyan),
+            });
+        }
+        ui.painter().paint_cmd(PaintCmd::TextRuns {
+            pos: text_pos,
+            anchor: MaraAlign2::LEFT_TOP,
+            angle,
+            runs: make_runs(text_col),
+        });
     }
 
     // ── 4. Blinking pip(s) (GAME only) ──

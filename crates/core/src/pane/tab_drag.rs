@@ -187,10 +187,16 @@ fn read_moved_out(ctx: &dyn crate::context::MaraCtx, container_id: Id) -> HashSe
 }
 
 fn write_moved_out(ctx: &dyn crate::context::MaraCtx, container_id: Id, tabs: HashSet<Id>) {
-    ctx.memory().set_persisted(moved_out_key(container_id), tabs);
+    ctx.memory()
+        .set_persisted(moved_out_key(container_id), tabs);
 }
 
-fn mark_moved_out(ctx: &dyn crate::context::MaraCtx, source_container: Id, target_container: Id, tab_id: Id) {
+fn mark_moved_out(
+    ctx: &dyn crate::context::MaraCtx,
+    source_container: Id,
+    target_container: Id,
+    tab_id: Id,
+) {
     if source_container != target_container {
         let mut source_moved = read_moved_out(ctx, source_container);
         source_moved.insert(tab_id);
@@ -380,7 +386,8 @@ pub fn commit_drop(
     target_order.insert(slot, tab_id);
     order.insert(target_container, target_order);
     write_order(ctx, pane_id, order);
-    ctx.memory().set_persisted(active_tab_key(target_container), slot);
+    ctx.memory()
+        .set_persisted(active_tab_key(target_container), slot);
     ctx.memory()
         .set_persisted(active_tab_id_key(target_container), tab_id);
 }
@@ -391,7 +398,11 @@ pub fn commit_drop(
 /// would receive the drop. Returns `None` if the cursor isn't over
 /// any registered tab strip in this pane.
 #[cfg(test)]
-fn find_drop_target(ctx: &dyn crate::context::MaraCtx, pane_id: Id, cursor: Pos2) -> Option<(Id, usize)> {
+fn find_drop_target(
+    ctx: &dyn crate::context::MaraCtx,
+    pane_id: Id,
+    cursor: Pos2,
+) -> Option<(Id, usize)> {
     find_drop_target_filtered(ctx, pane_id, cursor, None)
 }
 

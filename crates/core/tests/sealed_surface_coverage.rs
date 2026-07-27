@@ -848,7 +848,12 @@ fn e4_id_hash_matches_the_backend() {
 #[cfg(feature = "backend-egui-conv")]
 #[test]
 fn e4_lerp_matches_the_backend_including_overshoot() {
-    for &(a, b) in &[(0.0_f32, 1.0_f32), (-3.5, 7.25), (12.0, 12.0), (100.0, -50.0)] {
+    for &(a, b) in &[
+        (0.0_f32, 1.0_f32),
+        (-3.5, 7.25),
+        (12.0, 12.0),
+        (100.0, -50.0),
+    ] {
         for step in -4..=14 {
             let t = step as f32 / 10.0;
             assert_eq!(
@@ -1117,13 +1122,12 @@ fn d13_framed_with_returns_the_bodys_value() {
 
     let mut backend =
         RecordingBackend::at(Rect::from_min_size(Pos2::ZERO, Vec2::new(200.0, 120.0)));
-    let (rect, inner) =
-        MaraUi::__internal_over_backend_ret(&mut backend, Color32::WHITE, |ui| {
-            ui.framed_with(spec, |inner| {
-                inner.label("inside");
-                "computed inside the frame"
-            })
-        });
+    let (rect, inner) = MaraUi::__internal_over_backend_ret(&mut backend, Color32::WHITE, |ui| {
+        ui.framed_with(spec, |inner| {
+            inner.label("inside");
+            "computed inside the frame"
+        })
+    });
 
     assert_eq!(
         inner, "computed inside the frame",

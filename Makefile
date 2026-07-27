@@ -167,7 +167,10 @@ check:
 	@! grep -RInE 'allocate_exact_size' crates/core/src/shelf/mod.rs
 	@! (awk '/^#\[cfg\(test\)\]/ { exit } { print }' crates/core/src/shelf/mod.rs | grep -nE 'ui[.]interact[(]|egui::Sense|Sense::(drag|click_and_drag)[(]')
 	@! (awk '/^#\[cfg\(test\)\]/ { exit } { print }' crates/core/src/shelf/mod.rs | grep -nE 'ui[.]painter[(][)]|render_paint_cmd[(]ui[.]painter')
-	@! (awk '/^#\[cfg\(test\)\]/ { exit } { print }' crates/core/src/shelf/mod.rs | grep -nE 'area_for_host|show_area_for_host|ui[.]set_min_size|[.]request_repaint[(][)]')
+	# Bare `.request_repaint()` used to mean egui's, so banning it kept the
+	# file on `MaraCtx`. `MaraUi` now carries one of its own, which is the
+	# sealed path — so name the raw form the guard was ever after.
+	@! (awk '/^#\[cfg\(test\)\]/ { exit } { print }' crates/core/src/shelf/mod.rs | grep -nE 'area_for_host|show_area_for_host|ui[.]set_min_size|ui[.]ctx[(][)][.]request_repaint')
 	@! (awk '/^#\[cfg\(test\)\]/ { exit } { print }' crates/core/src/shelf/mod.rs | grep -nE 'backend::egui::(pointer_|primary_pointer)')
 	@! (awk '/^#\[cfg\(test\)\]/ { exit } { print }' crates/core/src/shelf/mod.rs | grep -nE 'primary_pointer_down|pointer_(interact|latest)_pos[(]ctx|pointer_any_released[(]ctx')
 	@! (awk '/^#\[cfg\(test\)\]/ { exit } { print }' crates/core/src/shelf/mod.rs | grep -nE 'egui::ScrollArea|spacing_mut[(][)][.]item_spacing')

@@ -318,8 +318,12 @@ fn gc_view_ribbon_state(memory: &mut crate::memory::MaraMemoryCtx<'_>, salt: Mar
 /// ribbons. Entries from earlier passes are ignored — a view that
 /// stopped drawing ribbons (or a tab that went inactive) must not keep
 /// shrinking anyone's content rect.
-pub(crate) fn view_ribbon_edges(ctx: &dyn crate::context::MaraCtx, salt: MaraId) -> Option<[bool; 4]> {
-    let (pass, edges) = ctx.memory()
+pub(crate) fn view_ribbon_edges(
+    ctx: &dyn crate::context::MaraCtx,
+    salt: MaraId,
+) -> Option<[bool; 4]> {
+    let (pass, edges) = ctx
+        .memory()
         .get_temp::<(u64, [bool; 4])>(view_ribbon_edges_key(salt))?;
     (pass == ctx.pass_nr()).then_some(edges)
 }

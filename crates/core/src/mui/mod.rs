@@ -849,10 +849,7 @@ impl MaraPainter {
             }
             MaraPainterSink::Commands { .. } => runs.iter().fold(vocab::Vec2::ZERO, |acc, run| {
                 let one = self.measure_text(&run.text, run.size, false);
-                vocab::Vec2::new(
-                    acc.x + one.x + run.leading_space,
-                    acc.y.max(one.y),
-                )
+                vocab::Vec2::new(acc.x + one.x + run.leading_space, acc.y.max(one.y))
             }),
         }
     }
@@ -1667,7 +1664,11 @@ impl<'a> MaraUi<'a> {
     /// next item lands after this one. Use
     /// [`interact`](MaraUi::interact) for content placed at a rect you
     /// computed yourself.
-    pub fn allocate(&mut self, size: impl Into<vocab::Vec2>, sense: crate::layout::Sense) -> MaraResponse {
+    pub fn allocate(
+        &mut self,
+        size: impl Into<vocab::Vec2>,
+        sense: crate::layout::Sense,
+    ) -> MaraResponse {
         self.backend.allocate(size.into(), sense)
     }
 
@@ -1798,7 +1799,11 @@ impl<'a> MaraUi<'a> {
     /// corrupts every later draw on the surface, and a scope cannot be
     /// left unbalanced. Clips only ever shrink — `rect` is intersected
     /// with the current one.
-    pub fn clipped<R>(&mut self, rect: impl Into<vocab::Rect>, body: impl FnOnce(&mut MaraUi<'_>) -> R) -> R {
+    pub fn clipped<R>(
+        &mut self,
+        rect: impl Into<vocab::Rect>,
+        body: impl FnOnce(&mut MaraUi<'_>) -> R,
+    ) -> R {
         let accent = self.accent;
         self.backend.push_clip(rect.into());
         let out = {

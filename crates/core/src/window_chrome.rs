@@ -262,7 +262,8 @@ pub fn __internal_window_chrome_host_capabilities(
 
 /// Clear published native-window chrome regions.
 pub(crate) fn clear_window_chrome_regions(ctx: &dyn crate::context::MaraCtx) {
-    ctx.memory().remove_temp::<WindowChromeRegions>(regions_key());
+    ctx.memory()
+        .remove_temp::<WindowChromeRegions>(regions_key());
 }
 
 /// Hit-test only the diagonal resize corners.

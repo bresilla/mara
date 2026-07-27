@@ -37,8 +37,8 @@ pub use drag::{
 };
 pub(crate) use drag::{ghost_gap_suppressed, set_ghost_gap_suppressed, set_snapshot};
 
-use crate::memory::MaraAnim;
 use crate::context::MaraCtx;
+use crate::memory::MaraAnim;
 use crate::vocab::Id;
 use egui::Color32;
 
@@ -142,7 +142,11 @@ pub(crate) fn user_flow(ctx: &dyn crate::context::MaraCtx, pane_id: impl Into<Ma
 
 /// Persist the user-set body main extent for `pane_id`. Clamped to
 /// [`MIN_USER_FLOW`] .. [`MAX_USER_FLOW`].
-pub(crate) fn set_user_flow(ctx: &dyn crate::context::MaraCtx, pane_id: impl Into<MaraId>, value: f32) {
+pub(crate) fn set_user_flow(
+    ctx: &dyn crate::context::MaraCtx,
+    pane_id: impl Into<MaraId>,
+    value: f32,
+) {
     let pane_id: Id = pane_id.into().into();
     let clamped = sanitize_user_extent(value, DEFAULT_FLOW_OPEN, MIN_USER_FLOW, MAX_USER_FLOW);
     ctx.memory()
@@ -167,7 +171,11 @@ pub(crate) fn user_span(ctx: &dyn crate::context::MaraCtx, pane_id: impl Into<Ma
 
 /// Persist the user-set CROSS extent for `pane_id`. Clamped to
 /// [`MIN_USER_SPAN`] .. [`MAX_USER_SPAN`].
-pub(crate) fn set_user_span(ctx: &dyn crate::context::MaraCtx, pane_id: impl Into<MaraId>, value: f32) {
+pub(crate) fn set_user_span(
+    ctx: &dyn crate::context::MaraCtx,
+    pane_id: impl Into<MaraId>,
+    value: f32,
+) {
     let pane_id: Id = pane_id.into().into();
     let clamped = sanitize_user_extent(value, PANE_OUTER_SPAN, MIN_USER_SPAN, MAX_USER_SPAN);
     ctx.memory()
@@ -264,9 +272,7 @@ pub fn __internal_publish_ribbon_pane_ids(
 /// mistake is loud in development) — a user action must never abort the
 /// host app over a chrome-bookkeeping slip.
 fn pane_has_ribbon_button(ctx: &dyn crate::context::MaraCtx, pane_id: Id) -> bool {
-    let Some(ids) =
-        ctx.memory().get_temp::<Vec<Id>>(ribbon_pane_ids_key())
-    else {
+    let Some(ids) = ctx.memory().get_temp::<Vec<Id>>(ribbon_pane_ids_key()) else {
         return true;
     };
     let registered = ids.contains(&pane_id);
@@ -502,9 +508,7 @@ fn publish_pane_rect(ctx: &dyn crate::context::MaraCtx, rect: impl Into<MaraRect
 fn maybe_reset_published_pane_rects(ctx: &dyn crate::context::MaraCtx) {
     let key = Id::new("mara_published_pane_rects_pass");
     let now = ctx.pass_nr();
-    let last: u64 = ctx.memory()
-        .get_temp(key)
-        .unwrap_or(u64::MAX);
+    let last: u64 = ctx.memory().get_temp(key).unwrap_or(u64::MAX);
     if last != now {
         {
             let mut memory = ctx.memory();
@@ -639,12 +643,8 @@ impl Pane {
             let frame_key = self.id.with("mara_pane_anim_frame");
             let state_key = self.id.with("mara_pane_anim_elapsed");
             let frame_now = MaraCtx::pass_nr(ctx);
-            let last_frame: u64 = MaraCtx::memory(ctx)
-                .get_temp(frame_key)
-                .unwrap_or(0);
-            let mut elapsed: f32 = MaraCtx::memory(ctx)
-                .get_temp(state_key)
-                .unwrap_or(99.0);
+            let last_frame: u64 = MaraCtx::memory(ctx).get_temp(frame_key).unwrap_or(0);
+            let mut elapsed: f32 = MaraCtx::memory(ctx).get_temp(state_key).unwrap_or(99.0);
             if last_frame + 1 < frame_now {
                 elapsed = 0.0;
             }
@@ -873,8 +873,7 @@ impl Pane {
                     // Older-toggled (or never-toggled) open
                     // container — fold to free space for the
                     // newer-toggled ones above.
-                    MaraCtx::memory(ctx)
-                        .set_persisted(cid.with("body_open"), false);
+                    MaraCtx::memory(ctx).set_persisted(cid.with("body_open"), false);
                 }
             }
             // Recompute pane_flow with the folds applied. After the
@@ -943,8 +942,7 @@ impl Pane {
         // perpendicular ribbon — the "going above the ribbon"
         // symptom. We keep `user_span` unmodified so the user's
         // drag intent survives a window-shrink + re-enlarge cycle.
-        MaraCtx::memory(ctx)
-            .set_temp::<f32>(self.id.with("mara_pane_effective_span"), span_outer);
+        MaraCtx::memory(ctx).set_temp::<f32>(self.id.with("mara_pane_effective_span"), span_outer);
 
         let outer_size = layout::pane_outer_size(horizontal_strip, span_outer, pane_flow);
 
@@ -1345,7 +1343,8 @@ impl Pane {
             {
                 let snap = drag::target_cache(ui.ctx(), id);
                 let total = drag::current_cache(ui.ctx(), id).len();
-                let cursor = MaraCtx::input(ui.ctx()).interact_pointer
+                let cursor = MaraCtx::input(ui.ctx())
+                    .interact_pointer
                     .map(Into::into)
                     .or(drag_state.cursor);
                 if let Some(c) = cursor {
@@ -1377,7 +1376,8 @@ impl Pane {
             // ── Floating preview + cursor + release commit ──
             if let Some(dragged_id) = drag_state.item {
                 let snap = drag::target_cache(ui.ctx(), id);
-                let cursor = MaraCtx::input(ui.ctx()).interact_pointer
+                let cursor = MaraCtx::input(ui.ctx())
+                    .interact_pointer
                     .map(Into::into)
                     .or(drag_state.cursor);
                 if let Some(c) = cursor {
@@ -1407,7 +1407,8 @@ impl Pane {
 
             // ── Tab drag: preview + commit-on-release ──
             if let Some(tab_drag_state) = tab_drag::drag_state(ui.ctx(), id.into()) {
-                let cursor = MaraCtx::input(ui.ctx()).pointer
+                let cursor = MaraCtx::input(ui.ctx())
+                    .pointer
                     .map(Into::into)
                     .or(tab_drag_state.cursor);
                 if let Some(c) = cursor {
@@ -1442,8 +1443,12 @@ impl Pane {
                 }
                 if MaraCtx::input(ui.ctx()).any_released {
                     if let Some(c) = cursor
-                        && let Some((tgt_cid, slot)) =
-                            tab_drag::find_drop_target_for_drag(ui.ctx(), id.into(), c, tab_drag_state)
+                        && let Some((tgt_cid, slot)) = tab_drag::find_drop_target_for_drag(
+                            ui.ctx(),
+                            id.into(),
+                            c,
+                            tab_drag_state,
+                        )
                     {
                         tab_drag::commit_drop(
                             ui.ctx(),

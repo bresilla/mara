@@ -1,5 +1,9 @@
 use super::*;
 use crate::layout::ScrollAxis;
+use crate::vocab::Color32;
+
+/// A second accent, distinguishable from the default in assertions.
+const OTHER_ACCENT: Color32 = Color32::from_rgb(140, 160, 250);
 
 fn test_tabs() -> Vec<Tab> {
     vec![Tab::new("test.tab", "Tab", "box")]
@@ -2883,7 +2887,7 @@ fn edge_only_moved_container_renders_inside_existing_edge_shelf_group() {
             ShelfDef::new(source_shelf, ShelfEdge::Left, Color32::WHITE).container(
                 ShelfContainer::tabbed(moved_container, "Moved", "box", test_tabs()),
             ),
-            ShelfDef::new(target_shelf, ShelfEdge::Right, Color32::LIGHT_BLUE)
+            ShelfDef::new(target_shelf, ShelfEdge::Right, OTHER_ACCENT)
                 .default_size(260.0)
                 .movable()
                 .container(ShelfContainer::tabbed(
@@ -2901,10 +2905,7 @@ fn edge_only_moved_container_renders_inside_existing_edge_shelf_group() {
         .find(|group| group.id == target_shelf && group.edge == ShelfEdge::Right)
         .expect("existing target edge shelf should own the right group");
     assert_eq!(target_group.containers.len(), 2);
-    assert_eq!(
-        egui::Color32::from(target_group.accent),
-        Color32::LIGHT_BLUE
-    );
+    assert_eq!(target_group.accent, OTHER_ACCENT);
     assert_eq!(target_group.default_size, Some(260.0));
     assert!(target_group.movable);
     assert!(
@@ -2938,7 +2939,7 @@ fn edge_only_moved_container_renders_inside_overridden_edge_shelf_group() {
             ShelfDef::new(source_shelf, ShelfEdge::Left, Color32::WHITE).container(
                 ShelfContainer::tabbed(moved_container, "Moved", "box", test_tabs()),
             ),
-            ShelfDef::new(target_shelf, ShelfEdge::Bottom, Color32::LIGHT_BLUE)
+            ShelfDef::new(target_shelf, ShelfEdge::Bottom, OTHER_ACCENT)
                 .default_size(260.0)
                 .movable()
                 .container(ShelfContainer::tabbed(
@@ -2956,10 +2957,7 @@ fn edge_only_moved_container_renders_inside_overridden_edge_shelf_group() {
         .find(|group| group.id == target_shelf && group.edge == ShelfEdge::Right)
         .expect("state-moved target shelf should own the right group");
     assert_eq!(target_group.containers.len(), 2);
-    assert_eq!(
-        egui::Color32::from(target_group.accent),
-        Color32::LIGHT_BLUE
-    );
+    assert_eq!(target_group.accent, OTHER_ACCENT);
     assert_eq!(target_group.default_size, Some(260.0));
     assert!(target_group.movable);
     assert!(
@@ -3167,7 +3165,7 @@ fn moved_shelf_cannot_collapse_into_existing_shelf_edge() {
         ShelfDef::new(moved_shelf, ShelfEdge::Left, Color32::WHITE).container(
             ShelfContainer::tabbed(moved_container, "Moved", "box", test_tabs()),
         ),
-        ShelfDef::new(existing_shelf, ShelfEdge::Right, Color32::LIGHT_BLUE).container(
+        ShelfDef::new(existing_shelf, ShelfEdge::Right, OTHER_ACCENT).container(
             ShelfContainer::tabbed(existing_container, "Existing", "box", test_tabs()),
         ),
     ];
@@ -3435,7 +3433,7 @@ fn moved_container_with_missing_owner_renders_in_existing_edge_shelf() {
             ShelfDef::new(source_shelf, ShelfEdge::Left, Color32::WHITE).container(
                 ShelfContainer::tabbed(moved_container, "Moved", "box", test_tabs()),
             ),
-            ShelfDef::new(replacement_shelf, ShelfEdge::Right, Color32::LIGHT_BLUE)
+            ShelfDef::new(replacement_shelf, ShelfEdge::Right, OTHER_ACCENT)
                 .default_size(260.0)
                 .container(ShelfContainer::tabbed(
                     Id::new("replacement-container"),
@@ -3451,7 +3449,7 @@ fn moved_container_with_missing_owner_renders_in_existing_edge_shelf() {
         .iter()
         .find(|group| group.id == replacement_shelf && group.edge == ShelfEdge::Right)
         .expect("stale owner ids should fall back to the current shelf on the target edge");
-    assert_eq!(egui::Color32::from(right_group.accent), Color32::LIGHT_BLUE);
+    assert_eq!(right_group.accent, OTHER_ACCENT);
     assert_eq!(right_group.default_size, Some(260.0));
     assert!(
         right_group

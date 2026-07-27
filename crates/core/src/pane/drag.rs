@@ -17,9 +17,9 @@
 //!   rect renders at the cursor (paint-only, separate Area).
 
 use crate::vocab::Id;
-use egui::{Color32, Pos2, Rect, Vec2};
 #[cfg(test)]
 use egui::Context;
+use egui::{Color32, Pos2, Rect, Vec2};
 
 use crate::layout::{AreaHost, Layer, Sense, UiBackend};
 use crate::paint::PaintCmd;
@@ -73,9 +73,7 @@ fn order_key(pane_id: Id) -> Id {
     pane_id.with("mara_pane_section_order")
 }
 pub fn state(ctx: &dyn crate::context::MaraCtx, pane_id: Id) -> DragState {
-    ctx.memory()
-        .get_temp(drag_key(pane_id))
-        .unwrap_or_default()
+    ctx.memory().get_temp(drag_key(pane_id)).unwrap_or_default()
 }
 
 pub fn set_drag(ctx: &dyn crate::context::MaraCtx, pane_id: Id, state: DragState) {
@@ -100,7 +98,11 @@ pub fn begin_frame(ctx: &dyn crate::context::MaraCtx, pane_id: Id) {
 /// Suppress only the inline layout gap for this pane during the
 /// current frame. The dragged item is still lifted out of layout and
 /// the drag state stays active.
-pub(crate) fn set_ghost_gap_suppressed(ctx: &dyn crate::context::MaraCtx, pane_id: Id, suppressed: bool) {
+pub(crate) fn set_ghost_gap_suppressed(
+    ctx: &dyn crate::context::MaraCtx,
+    pane_id: Id,
+    suppressed: bool,
+) {
     let mut memory = ctx.memory();
     if suppressed {
         memory.set_temp(ghost_gap_suppressed_key(pane_id), true);
@@ -119,7 +121,13 @@ pub fn push_rect(ctx: &dyn crate::context::MaraCtx, pane_id: Id, id: Id, rect: R
     push_rect_with_frame(ctx, pane_id, id, rect, None);
 }
 
-pub fn push_rect_with_frame(ctx: &dyn crate::context::MaraCtx, pane_id: Id, id: Id, rect: Rect, frame: Option<Rect>) {
+pub fn push_rect_with_frame(
+    ctx: &dyn crate::context::MaraCtx,
+    pane_id: Id,
+    id: Id,
+    rect: Rect,
+    frame: Option<Rect>,
+) {
     let mut memory = ctx.memory();
     let mut cache: Vec<RectEntry> = memory.get_temp(current_key(pane_id)).unwrap_or_default();
     if let Some(slot) = cache.iter_mut().find(|e| e.id == id) {
@@ -168,7 +176,11 @@ pub fn target_cache(ctx: &dyn crate::context::MaraCtx, pane_id: Id) -> Vec<RectE
     cache
 }
 
-pub(crate) fn set_snapshot(ctx: &dyn crate::context::MaraCtx, pane_id: Id, snapshot: Vec<RectEntry>) {
+pub(crate) fn set_snapshot(
+    ctx: &dyn crate::context::MaraCtx,
+    pane_id: Id,
+    snapshot: Vec<RectEntry>,
+) {
     ctx.memory().set_temp(snapshot_key(pane_id), snapshot);
 }
 
@@ -200,7 +212,11 @@ pub fn finalize_snapshot(ctx: &dyn crate::context::MaraCtx, pane_id: Id) {
 /// a drag is in flight — the dragged container vanishes from
 /// layout and a ghost gap travels with the cursor instead. On
 /// release, the persistent order is updated.
-pub fn section_order_for(ctx: &dyn crate::context::MaraCtx, pane_id: Id, defaults: &[Id]) -> Vec<Id> {
+pub fn section_order_for(
+    ctx: &dyn crate::context::MaraCtx,
+    pane_id: Id,
+    defaults: &[Id],
+) -> Vec<Id> {
     let stored: Vec<Id> = ctx
         .memory()
         .get_persisted(order_key(pane_id))

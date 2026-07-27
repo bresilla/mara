@@ -7,8 +7,8 @@ use crate::{
         AreaHost, AreaSlotSpec, ChildRegion, ContainerBodySpec, CursorIcon, FrameHostSpec,
         InlinePickerSpec, ItemSpacingSpec, Layer, PaintSurfaceRegion, PaintSurfaceSpec,
         PaneBodyScrollAxis, PaneBodyScrollSpec, PaneFlexSpec, PopupAlign, PopupListSpec, PopupSpec,
-        PopupTrigger, ScrollAxis, ScrollRegion, Sense, SpaceSpec, StackAlign,
-        StackDirection, TextEditRegion, TextEditSpec, TextMeasureSpec, UiBackend,
+        PopupTrigger, ScrollAxis, ScrollRegion, Sense, SpaceSpec, StackAlign, StackDirection,
+        TextEditRegion, TextEditSpec, TextMeasureSpec, UiBackend,
     },
     memory::MaraMemoryCtx,
     mui::{MaraInput, MaraKey, MaraResponse},
@@ -635,7 +635,6 @@ pub(crate) fn request_repaint(ctx: &egui::Context) {
     ctx.request_repaint();
 }
 
-
 pub(crate) fn request_repaint_after(ctx: &egui::Context, after: std::time::Duration) {
     ctx.request_repaint_after(after);
 }
@@ -644,11 +643,9 @@ pub(crate) fn context_pixels_per_point(ctx: &egui::Context) -> f32 {
     ctx.pixels_per_point()
 }
 
-
 pub(crate) fn unstable_dt(ctx: &egui::Context) -> f32 {
     ctx.input(|input| input.unstable_dt).max(0.0)
 }
-
 
 pub(crate) fn pointer_interact_pos(ctx: &egui::Context) -> Option<vocab::Pos2> {
     ctx.pointer_interact_pos().map(Into::into)
@@ -657,8 +654,6 @@ pub(crate) fn pointer_interact_pos(ctx: &egui::Context) -> Option<vocab::Pos2> {
 pub(crate) fn pointer_latest_pos(ctx: &egui::Context) -> Option<vocab::Pos2> {
     ctx.pointer_latest_pos().map(Into::into)
 }
-
-
 
 pub(crate) fn viewport_maximized(ctx: &egui::Context) -> bool {
     ctx.input(|input| input.viewport().maximized)
@@ -860,7 +855,6 @@ pub(crate) fn reserve_pane_title_slot(ui: &mut egui::Ui, spec: PaneFlexSpec) -> 
     rect.into()
 }
 
-
 pub(crate) fn show_pane_body_scroll_slot<R>(
     ui: &mut egui::Ui,
     spec: PaneBodyScrollSpec,
@@ -907,8 +901,6 @@ pub(crate) fn show_pane_body_scroll_slot<R>(
     )
     .inner
 }
-
-
 
 pub(crate) fn egui_popup_align(align: PopupAlign) -> egui::RectAlign {
     match align {
@@ -1055,7 +1047,6 @@ pub(crate) fn hover_cursor_for_ui_response(
 ) {
     hover_cursor_for_response(ui.ctx(), response, cursor);
 }
-
 
 pub(crate) fn set_cursor_icon_for_context(ctx: &egui::Context, cursor: CursorIcon) {
     ctx.set_cursor_icon(egui_cursor_icon(cursor));
@@ -1278,8 +1269,6 @@ pub(crate) fn hover_text(ctx: &egui::Context, key: vocab::Id, text: &str) {
         response.clone().on_hover_text(text);
     });
 }
-
-
 
 pub(crate) fn input_snapshot(ctx: &egui::Context) -> MaraInput {
     ctx.input(|i| MaraInput {

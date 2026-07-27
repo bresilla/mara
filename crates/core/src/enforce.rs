@@ -98,7 +98,9 @@ struct FallbackShell {
 /// the enforced work never counts as "the app did it" and entry points
 /// reached from inside enforcement don't recurse.
 pub(crate) fn enforcing(ctx: &dyn MaraCtx) -> bool {
-    ctx.memory().get_temp::<bool>(enforcing_key()).unwrap_or(false)
+    ctx.memory()
+        .get_temp::<bool>(enforcing_key())
+        .unwrap_or(false)
 }
 
 fn set_enforcing(ctx: &dyn MaraCtx, on: bool) {

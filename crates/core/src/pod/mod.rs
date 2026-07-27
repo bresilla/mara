@@ -1598,12 +1598,14 @@ fn paint_widgets(
                 WidgetSpec::Search(cfg) => {
                     if let Some(ui) = backend.__internal_egui_ui_mut() {
                         let buf_key = pod_id.with(("mara_pod_search_buf", search_idx));
-                        let mut buf: String = crate::memory::MaraMemoryCtx::new(ui.ctx()).get_temp::<String>(buf_key)
+                        let mut buf: String = crate::memory::MaraMemoryCtx::new(ui.ctx())
+                            .get_temp::<String>(buf_key)
                             .unwrap_or_default();
                         let resp = text_input(ui, &mut buf, &cfg.placeholder, cfg.accent);
                         let changed = resp.changed();
                         if changed {
-                            crate::memory::MaraMemoryCtx::new(ui.ctx()).set_temp(buf_key, buf.clone());
+                            crate::memory::MaraMemoryCtx::new(ui.ctx())
+                                .set_temp(buf_key, buf.clone());
                         }
                         crate::debug::tag(
                             ui,
@@ -1813,7 +1815,8 @@ fn paint_widgets(
                 WidgetSpec::Dropdown(cfg) => {
                     if let Some(ui) = backend.__internal_egui_ui_mut() {
                         let val_key = pod_id.with(("mara_pod_dropdown_idx", dropdown_idx));
-                        let mut sel: usize = crate::memory::MaraMemoryCtx::new(ui.ctx()).get_persisted::<usize>(val_key)
+                        let mut sel: usize = crate::memory::MaraMemoryCtx::new(ui.ctx())
+                            .get_persisted::<usize>(val_key)
                             .unwrap_or(cfg.initial)
                             .min(cfg.options.len().saturating_sub(1));
                         let opts: Vec<&str> = cfg.options.iter().map(String::as_str).collect();
@@ -1926,13 +1929,13 @@ fn paint_widgets(
                 WidgetSpec::Color(cfg) => {
                     if let Some(ui) = backend.__internal_egui_ui_mut() {
                         let val_key = pod_id.with(("mara_pod_color_val", color_idx));
-                        let mut rgba: [f32; 4] = crate::memory::MaraMemoryCtx::new(ui.ctx()).get_persisted::<[f32; 4]>(val_key)
+                        let mut rgba: [f32; 4] = crate::memory::MaraMemoryCtx::new(ui.ctx())
+                            .get_persisted::<[f32; 4]>(val_key)
                             .unwrap_or(cfg.initial);
                         let changed = if cfg.alpha {
                             let resp = {
                                 let mut raw = crate::MaraUi::__internal_backend_from_raw(ui);
-                                let mut mara =
-                                    crate::MaraUi::__internal_over(&mut raw, cfg.accent);
+                                let mut mara = crate::MaraUi::__internal_over(&mut raw, cfg.accent);
                                 color_rgba(&mut mara, &cfg.label, &mut rgba, cfg.accent)
                             };
                             crate::debug::tag(
@@ -1945,8 +1948,7 @@ fn paint_widgets(
                             let mut rgb = [rgba[0], rgba[1], rgba[2]];
                             let resp = {
                                 let mut raw = crate::MaraUi::__internal_backend_from_raw(ui);
-                                let mut mara =
-                                    crate::MaraUi::__internal_over(&mut raw, cfg.accent);
+                                let mut mara = crate::MaraUi::__internal_over(&mut raw, cfg.accent);
                                 color_rgb(&mut mara, &cfg.label, &mut rgb, cfg.accent)
                             };
                             rgba[0] = rgb[0];
@@ -1961,7 +1963,8 @@ fn paint_widgets(
                             resp.changed()
                         };
                         if changed {
-                            crate::memory::MaraMemoryCtx::new(ui.ctx()).set_persisted(val_key, rgba);
+                            crate::memory::MaraMemoryCtx::new(ui.ctx())
+                                .set_persisted(val_key, rgba);
                         }
                         response.colors.push(ColorResponse { rgba, changed });
                     } else {

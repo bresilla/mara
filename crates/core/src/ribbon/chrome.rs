@@ -130,7 +130,10 @@ pub const fn ribbon_clearance() -> f32 {
 }
 
 #[must_use]
-pub(crate) fn ribbon_avoiding_rect(ctx: &dyn crate::context::MaraCtx, avoidance: RibbonAvoidance) -> MaraRect {
+pub(crate) fn ribbon_avoiding_rect(
+    ctx: &dyn crate::context::MaraCtx,
+    avoidance: RibbonAvoidance,
+) -> MaraRect {
     // Every edge is gated on a window rail actually existing there this
     // frame: avoidance reserves clearance for real rails only. Per-view
     // ribbons render inside their own leaf's region (PLAN Phase 3), so a
@@ -525,7 +528,11 @@ pub(crate) fn insets_for_ribbon(
     out
 }
 
-fn strip_rect(ribbon: &ResolvedSlotRibbon, ctx: &dyn crate::context::MaraCtx, insets: SideInsets) -> MaraRect {
+fn strip_rect(
+    ribbon: &ResolvedSlotRibbon,
+    ctx: &dyn crate::context::MaraCtx,
+    insets: SideInsets,
+) -> MaraRect {
     let screen = ribbon_rect(ctx, ribbon);
     let strip_inset = |inset: f32| {
         if inset > EDGE_GAP {

@@ -520,11 +520,11 @@ pub(crate) fn render_containers_with_tab_scope<'a>(
         }
 
         let dot_resp = {
-                let ctx = body_ui.ctx().clone();
-                let mut raw = crate::MaraUi::__internal_backend_from_raw(body_ui);
-                let mut mara = crate::MaraUi::__internal_over(&mut raw, accent);
-                paint_container_dots(&mut mara, &ctx, dots_orient, cid, accent)
-            };
+            let ctx = body_ui.ctx().clone();
+            let mut raw = crate::MaraUi::__internal_backend_from_raw(body_ui);
+            let mut mara = crate::MaraUi::__internal_over(&mut raw, accent);
+            paint_container_dots(&mut mara, &ctx, dots_orient, cid, accent)
+        };
         let body_open: bool = crate::memory::MaraMemoryCtx::new(body_ui.ctx())
             .get_persisted::<bool>(cid.with("body_open"))
             .unwrap_or(true);

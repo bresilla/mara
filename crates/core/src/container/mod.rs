@@ -88,7 +88,10 @@ fn container_initial_flow_key(cid: Id) -> Id {
 /// flow set by [`crate::container::Normal::initial_flow`]. Returns
 /// `None` when the container has no override (use the global
 /// default in that case).
-pub(crate) fn container_initial_flow(ctx: &dyn crate::context::MaraCtx, cid: impl Into<MaraId>) -> Option<f32> {
+pub(crate) fn container_initial_flow(
+    ctx: &dyn crate::context::MaraCtx,
+    cid: impl Into<MaraId>,
+) -> Option<f32> {
     let cid: Id = cid.into().into();
     ctx.memory()
         .get_persisted::<f32>(container_initial_flow_key(cid))
@@ -100,14 +103,19 @@ pub(crate) fn container_initial_flow(ctx: &dyn crate::context::MaraCtx, cid: imp
 /// [`crate::container::Normal::show`] when the builder set
 /// `initial_flow`. Subsequent calls overwrite — the most recent
 /// value wins.
-pub(crate) fn set_container_initial_flow(ctx: &dyn crate::context::MaraCtx, cid: impl Into<MaraId>, value: f32) {
+pub(crate) fn set_container_initial_flow(
+    ctx: &dyn crate::context::MaraCtx,
+    cid: impl Into<MaraId>,
+    value: f32,
+) {
     let cid: Id = cid.into().into();
     let v = if value.is_finite() {
         value.clamp(CONTAINER_MIN_FLOW, CONTAINER_MAX_FLOW)
     } else {
         f32::NAN
     };
-    ctx.memory().set_persisted(container_initial_flow_key(cid), v);
+    ctx.memory()
+        .set_persisted(container_initial_flow_key(cid), v);
 }
 
 /// Read the flow-axis size the container should render at. The
@@ -143,9 +151,7 @@ pub(crate) fn container_flow(
 ) -> f32 {
     let cid: Id = cid.into().into();
     let (min_v, max_v) = container_flow_bounds(is_horizontal_strip);
-    if let Some(user) =
-        ctx.memory().get_persisted::<f32>(container_flow_key(cid))
-    {
+    if let Some(user) = ctx.memory().get_persisted::<f32>(container_flow_key(cid)) {
         let fallback = if is_horizontal_strip {
             CONTAINER_DEFAULT_FLOW
         } else {
@@ -153,7 +159,8 @@ pub(crate) fn container_flow(
         };
         let repaired = sanitize_flow(user, fallback, min_v, max_v);
         if repaired != user {
-            ctx.memory().set_persisted(container_flow_key(cid), repaired);
+            ctx.memory()
+                .set_persisted(container_flow_key(cid), repaired);
         }
         return repaired;
     }
@@ -167,7 +174,8 @@ pub(crate) fn container_flow(
     // runaway body doesn't dominate the whole pane.
     let override_default = container_initial_flow(ctx, cid);
     if is_horizontal_strip {
-        if let Some(intrinsic) = ctx.memory()
+        if let Some(intrinsic) = ctx
+            .memory()
             .get_persisted::<f32>(container_intrinsic_key(cid))
         {
             let fallback = override_default.unwrap_or(CONTAINER_DEFAULT_FLOW);
@@ -228,7 +236,11 @@ pub(crate) fn container_flow_bounds(is_horizontal_strip: bool) -> (f32, f32) {
 /// Persist the measured intrinsic body content size for `cid`.
 /// Called by [`Normal::show`] every frame after the body renders.
 /// Read by [`container_flow`]'s auto-fit path on subsequent frames.
-pub(crate) fn record_container_intrinsic(ctx: &dyn crate::context::MaraCtx, cid: impl Into<MaraId>, height: f32) {
+pub(crate) fn record_container_intrinsic(
+    ctx: &dyn crate::context::MaraCtx,
+    cid: impl Into<MaraId>,
+    height: f32,
+) {
     let cid: Id = cid.into().into();
     let v = if height.is_finite() {
         height.max(0.0)
