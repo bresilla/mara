@@ -8,7 +8,7 @@ use super::{
     paint::{paint_ribbon_glyph, ribbon_button_fg, ribbon_button_paint_cmds},
     resolve_slot_items,
 };
-use crate::layout::{Layer, Sense as MaraSense, SlotRibbonLayoutSpec, UiBackend};
+use crate::layout::{Layer, Sense as MaraSense, SlotRibbonLayoutSpec};
 use crate::vocab::{Color32 as MaraColor32, Id as MaraId, Rect as MaraRect};
 
 #[cfg(test)]
@@ -907,19 +907,20 @@ fn draw_one_slot_ribbon(
             let Some(rect) = spec.item_screen_rect(0) else {
                 return;
             };
-            let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
-            let response = backend.interact(
+            let mut raw = crate::MaraUi::__internal_backend_from_raw(ui);
+            let mut mara = crate::MaraUi::__internal_over(&mut raw, accent);
+            let response = mara.interact(
                 rect,
                 MaraId::new(("mara_slot_ribbon_item", ribbon.id, item.id)),
                 MaraSense::Click,
             );
-            crate::backend::egui::hover_text_for_ui_response(ui, &response, &item.tooltip);
+            mara.hover_text(&response, &item.tooltip);
             for cmd in ribbon_button_paint_cmds(rect, accent, item.active, response.hovered()) {
-                crate::backend::egui::render_paint_cmd_ui(ui, cmd);
+                mara.paint(cmd);
             }
             let glyph = glyph_for_item(item);
             paint_ribbon_glyph(
-                ui,
+                &mut mara,
                 rect,
                 glyph,
                 ribbon_button_fg(accent, item.active, response.hovered(), glyph),

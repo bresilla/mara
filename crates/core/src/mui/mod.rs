@@ -1651,6 +1651,35 @@ impl<'a> MaraUi<'a> {
     /// Fill, stroke, corner radius, inner margin and shadow come from
     /// the [`crate::style::FrameSpec`], and the frame paints behind the
     /// content rather than over it.
+    /// Hit-test `rect` under `id` without allocating layout space.
+    ///
+    /// For content placed explicitly — a ribbon button at a computed
+    /// rect, a hotspot over already-painted pixels — where `allocate`
+    /// would disturb the flow.
+    pub fn interact(
+        &mut self,
+        rect: impl Into<vocab::Rect>,
+        id: impl Into<vocab::Id>,
+        sense: crate::layout::Sense,
+    ) -> MaraResponse {
+        self.backend.interact(rect.into(), id.into(), sense)
+    }
+
+    /// Attach hover text to a response.
+    pub fn hover_text(&mut self, response: &MaraResponse, text: &str) {
+        self.backend.hover_text(response, text);
+    }
+
+    /// Submit a paint command to this surface.
+    ///
+    /// Differs from `painter().paint_cmd` in that the surface can
+    /// render commands needing more than a painter — notably
+    /// [`PaintCmd::Svg`], which resolves through the host's image
+    /// loader.
+    pub fn paint(&mut self, cmd: crate::paint::PaintCmd) {
+        self.backend.paint(cmd);
+    }
+
     /// The rect drawing on this surface is clipped to.
     #[must_use]
     pub fn clip_rect(&self) -> vocab::Rect {

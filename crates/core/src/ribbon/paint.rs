@@ -32,7 +32,7 @@ pub(crate) fn lerp_rgb(a: MaraColor32, b: MaraColor32, t: f32) -> MaraColor32 {
 /// Centred on `rect`'s middle; size = 14 px (text/icon) or rect
 /// shrunk by 6 px (svg). Tinted in `fg`.
 pub(crate) fn paint_ribbon_glyph(
-    ui: &mut egui::Ui,
+    ui: &mut crate::MaraUi<'_>,
     rect: MaraRect,
     glyph: super::chrome::RibbonGlyph,
     fg: MaraColor32,
@@ -41,7 +41,7 @@ pub(crate) fn paint_ribbon_glyph(
         return;
     }
     if let Some(cmd) = ribbon_glyph_paint_cmd(rect, glyph, fg) {
-        crate::backend::egui::render_paint_cmd_ui(ui, cmd);
+        ui.paint(cmd);
     }
 }
 
