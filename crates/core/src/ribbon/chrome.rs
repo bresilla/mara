@@ -1155,41 +1155,29 @@ pub fn draw_unified_ribbon_chrome(
             SIDE_BTN_SIZE,
             SIDE_BTN_GAP,
         );
-        crate::backend::egui::show_slot_ribbon_area_with_interactivity(
+        crate::context::MaraCtx::area_slot(
             ctx,
-            outline_spec,
-            Layer::Foreground,
-            false,
-            |ui| {
+            outline_spec.area_slot(Layer::Foreground, false),
+            &mut |ui| {
                 let rect = outline_spec
                     .item_screen_rect(0)
                     .expect("single ribbon drop-outline spec must have an item rect");
-                let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
-                let _response = backend.interact(
+                let _response = ui.interact(
                     rect,
                     MaraId::new("mara_ribbon_drop_outline_hit"),
                     MaraSense::Hover,
                 );
                 let corner = crate::style::radius_for(crate::style::RadiusRole::Section);
-                crate::backend::egui::render_paint_cmd_ui(
-                    ui,
-                    PaintCmd::RectFilled {
-                        rect,
-                        corner,
-                        fill: crate::style::fill_for(crate::style::FillRole::DragGhost, accent),
-                    },
-                );
-                crate::backend::egui::render_paint_cmd_ui(
-                    ui,
-                    PaintCmd::RectStroke {
-                        rect,
-                        corner,
-                        stroke: crate::style::stroke_for(
-                            crate::style::StrokeRole::DragGhost,
-                            accent,
-                        ),
-                    },
-                );
+                ui.paint(PaintCmd::RectFilled {
+                    rect,
+                    corner,
+                    fill: crate::style::fill_for(crate::style::FillRole::DragGhost, accent),
+                });
+                ui.paint(PaintCmd::RectStroke {
+                    rect,
+                    corner,
+                    stroke: crate::style::stroke_for(crate::style::StrokeRole::DragGhost, accent),
+                });
             },
         );
     }
