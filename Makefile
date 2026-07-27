@@ -270,7 +270,9 @@ check:
 	@! grep -RInE 'egui::Color32|accent_egui' crates/core/src/widget/chip.rs
 	@! grep -RInE 'egui::Color32|egui::Stroke|egui::lerp|egui::CornerRadius' crates/core/src/widget/progressbar.rs crates/core/src/widget/toggle.rs crates/core/src/widget/slider.rs
 	@! grep -RInE 'egui::Color32|accent_egui' crates/core/src/widget/select.rs
-	@! grep -RInE 'accent_egui|ui[.](id|ctx|add_space|available_width)[(]|egui::(Color32|color_picker)' crates/core/src/widget/color.rs
+	# Superseded by the stronger claim: the colour picker names no
+	# backend type at all, so it runs on any backend.
+	@! grep -RInE '(^|[^:a-z_])egui::' crates/core/src/widget/color.rs
 	@! grep -RInE 'ui[.](id|ctx)[(]|MaraMemoryCtx' crates/core/src/widget/foldable.rs
 	@! grep -RInE 'egui::Color32|egui::Stroke|ui[.](ctx|id)[(]' crates/core/src/widget/dropdown.rs crates/core/src/widget/text_input/mod.rs
 	@! grep -RInE 'pub fn context_menu_mara|spacing_mut[(][)][.]item_spacing' crates/core/src/widget/context_menu.rs

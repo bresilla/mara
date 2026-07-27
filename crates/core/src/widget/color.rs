@@ -7,9 +7,13 @@
 //! * [`color_rgba`] — same, but the expanded picker exposes the alpha
 //!   slider and the swatch shows the alpha-over-checker preview.
 //!
-//! Click the swatch to toggle the picker — open state lives in egui
-//! ctx data keyed off `(ui_id, label)` so every callsite remembers
-//! frame-to-frame independently.
+//! Click the swatch to toggle the picker — open state lives in the
+//! surface's own state store keyed off `(surface id, label)`, so every
+//! callsite remembers frame-to-frame independently.
+//!
+//! Fully sealed: the picker draws and stores through `MaraUi` alone,
+//! so it works on any backend. `make check` enforces that this file
+//! names no backend type.
 //!
 //! The picker body is drawn from paint primitives (WS-E1.3) — we
 //! don't reinvent the HSV / hue / saturation controls yet; we just
