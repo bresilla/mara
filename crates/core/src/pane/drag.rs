@@ -19,7 +19,7 @@
 use crate::vocab::Id;
 #[cfg(test)]
 use egui::Context;
-use egui::{Color32, Pos2, Rect, Vec2};
+use egui::{Pos2, Rect, Vec2};
 
 use crate::layout::{AreaHost, Layer, Sense, UiBackend};
 use crate::paint::PaintCmd;
@@ -321,11 +321,11 @@ pub fn dragged_entry(snapshot: &[RectEntry], dragged: Id) -> Option<RectEntry> {
 pub fn paint_ghost_gap_inline(
     ui: &mut crate::MaraUi<'_>,
     dragged_size: Vec2,
-    accent: Color32,
+    accent: MaraColor32,
     _horizontal_stack: bool,
 ) {
     let rect = ui.allocate(MaraVec2::from(dragged_size), Sense::Hover).rect;
-    paint_ghost_rect(ui.backend_mut(), rect, accent.into(), 36);
+    paint_ghost_rect(ui.backend_mut(), rect, accent, 36);
 }
 
 /// Allocate a same-main-axis slot but keep the ghost's cross-axis
@@ -337,7 +337,7 @@ pub fn paint_ghost_gap_inline(
 pub fn paint_ghost_gap_entry_inline(
     ui: &mut crate::MaraUi<'_>,
     entry: RectEntry,
-    accent: Color32,
+    accent: MaraColor32,
     horizontal_stack: bool,
 ) {
     let size = entry.rect.size();
@@ -354,7 +354,7 @@ pub fn paint_ghost_gap_entry_inline(
             MaraVec2::from(size),
         )
     };
-    paint_ghost_rect(ui.backend_mut(), rect, accent.into(), 36);
+    paint_ghost_rect(ui.backend_mut(), rect, accent, 36);
 }
 
 fn ghost_rect_paint_cmds(rect: MaraRect, accent: MaraColor32, fill_alpha: u8) -> [PaintCmd; 2] {
@@ -393,7 +393,7 @@ pub fn paint_drag_preview(
     snapshot: &[RectEntry],
     dragged: Id,
     cursor: Pos2,
-    accent: Color32,
+    accent: MaraColor32,
 ) {
     let Some(entry) = snapshot.iter().find(|e| e.id == dragged) else {
         return;
@@ -408,7 +408,7 @@ pub fn paint_drag_preview(
             paint_ghost_rect(
                 ui.backend_mut(),
                 MaraRect::from_min_size(pos, size),
-                accent.into(),
+                accent,
                 72,
             );
         },

@@ -10,7 +10,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::vocab::Id;
-use egui::{Color32, Pos2, Rect};
+use egui::{Pos2, Rect};
 
 use crate::icons::Icon;
 use crate::layout::{AreaHost, Layer};
@@ -476,7 +476,7 @@ pub fn paint_drag_preview(
     pane_id: Id,
     button_size: MaraVec2,
     cursor: Pos2,
-    accent: Color32,
+    accent: MaraColor32,
     label: &str,
     icon: Option<Icon<'static>>,
 ) {
@@ -490,7 +490,7 @@ pub fn paint_drag_preview(
         AreaHost::new(area_id, pos, Layer::Overlay).non_interactive(),
         &mut |ui| {
             let rect = MaraRect::from_min_size(pos, button_size);
-            for cmd in tab_drag_preview_paint_cmds(rect, accent.into()) {
+            for cmd in tab_drag_preview_paint_cmds(rect, accent) {
                 ui.paint(cmd);
             }
             // Glyph + label, centred. Best-effort; icon may be empty.

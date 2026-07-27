@@ -3,7 +3,6 @@
 //! static ribbons and the drag-aware layout both route here so the
 //! pixel-level look stays identical whichever path the caller took.
 
-use egui;
 
 use crate::paint::PaintCmd;
 use crate::style::{
@@ -202,7 +201,7 @@ pub(crate) fn ribbon_button_paint_cmds(
     let bg_idle = theme.bg_panel;
     let bg: MaraColor32 = if is_active {
         let blend = |a: u8, b: u8| ((a as f32) * 0.75 + (b as f32) * 0.25).round() as u8;
-        let tinted = egui::Color32::from_rgb(
+        let tinted = MaraColor32::from_rgb(
             blend(bg_raised.r(), accent_raw.r()),
             blend(bg_raised.g(), accent_raw.g()),
             blend(bg_raised.b(), accent_raw.b()),

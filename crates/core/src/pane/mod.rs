@@ -1364,7 +1364,7 @@ impl Pane {
                                 accent,
                             ),
                             entry,
-                            accent,
+                            accent.into(),
                             horizontal_stack,
                         );
                     }
@@ -1385,7 +1385,7 @@ impl Pane {
                     .map(Into::into)
                     .or(drag_state.cursor);
                 if let Some(c) = cursor {
-                    drag::paint_drag_preview(ui.ctx(), id, &snap, dragged_id, c, accent);
+                    drag::paint_drag_preview(ui.ctx(), id, &snap, dragged_id, c, accent.into());
                     crate::MaraUi::__internal_over(
                         &mut crate::MaraUi::__internal_backend_from_raw(ui),
                         accent,
@@ -1435,7 +1435,7 @@ impl Pane {
                         id.into(),
                         preview_size,
                         c,
-                        accent,
+                        accent.into(),
                         "",
                         tab_drag_state.icon,
                     );

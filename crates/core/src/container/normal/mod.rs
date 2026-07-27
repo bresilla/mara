@@ -1073,7 +1073,7 @@ impl Normal {
                         accent,
                     ),
                     entry,
-                    accent,
+                    accent.into(),
                     horizontal_stack,
                 );
             }

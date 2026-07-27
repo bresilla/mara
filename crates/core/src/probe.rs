@@ -195,31 +195,3 @@ mod tests {
     }
 }
 
-/// Fallbacks for a build with no backend. The probe is a diagnostic:
-/// with nothing to observe it reports "not capturing", so callers stay
-/// unconditional rather than every call site growing a `cfg`.
-#[cfg(not(feature = "backend-egui-conv"))]
-mod no_backend {
-    use super::ElementPose;
-
-    #[doc(hidden)]
-    pub fn __internal_set_enabled(_ctx: &dyn crate::context::MaraCtx, _on: bool) {}
-
-    #[doc(hidden)]
-    #[must_use]
-    pub fn __internal_drain(_ctx: &dyn crate::context::MaraCtx) -> Vec<ElementPose> {
-        Vec::new()
-    }
-
-    #[doc(hidden)]
-    pub fn __internal_record(_ctx: &dyn crate::context::MaraCtx, _pose: ElementPose) {}
-
-    #[doc(hidden)]
-    #[must_use]
-    pub fn __internal_enabled(_ctx: &dyn crate::context::MaraCtx) -> bool {
-        false
-    }
-}
-
-#[cfg(not(feature = "backend-egui-conv"))]
-pub use no_backend::*;
