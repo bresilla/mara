@@ -10,6 +10,13 @@
 //! from docs and carries no stability promise — the ratchet counts its
 //! callers, and `make check` bans app code from naming it.
 
+/// The egui adapter, gated on the same switch as the vocab
+/// conversions it depends on. Turning `backend-egui-conv` off must
+/// remove *both* — a backend without its conversions cannot compile,
+/// and conversions without a backend have nothing to convert to.
+/// Together they are the WS-G1 split criterion: what is left when this
+/// is off is the backend-free crate.
+#[cfg(feature = "backend-egui-conv")]
 #[doc(hidden)]
 pub mod egui;
 pub mod record;
