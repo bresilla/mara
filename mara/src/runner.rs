@@ -51,13 +51,23 @@ pub struct CreationContext<'a> {
     pub host: MaraHostCtx<'a>,
 }
 
-impl CreationContext<'_> {
-    /// Internal first-party accessor — raw egui-wgpu render state.
-    /// Sealed apps use `host.gpu()` for the opaque handle instead.
-    #[doc(hidden)]
+impl<'a> CreationContext<'a> {
+    /// Opaque GPU handle, for constructing GPU-backed views at startup.
+    ///
+    /// The sanctioned way for an app to get a [`MaraRenderState`] before
+    /// any frame has run (PLAN.md WS-C1.4). `MaraHostCtx::gpu()` is the
+    /// per-frame equivalent, but a viewport that wants its wgpu
+    /// resources at construction time has no host context yet — this is
+    /// where the runner owns the render state, so this is where the
+    /// handle is minted.
+    ///
+    /// `None` when the runner came up without a GPU surface.
+    ///
+    /// [`MaraRenderState`]: mara_gpu::MaraRenderState
     #[must_use]
-    pub fn __internal_render_state(&self) -> Option<&egui_wgpu::RenderState> {
+    pub fn gpu(&self) -> Option<mara_gpu::MaraRenderState<'a>> {
         self.render_state
+            .map(mara_gpu::MaraRenderState::__internal_new)
     }
 
     /// Internal first-party accessor — NOT part of the public API

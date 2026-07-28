@@ -2299,10 +2299,10 @@ impl DemoApp {
     }
 
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn new_winit(render_state: Option<&egui_wgpu::RenderState>) -> Self {
+    pub fn new_winit(gpu: Option<mara::ui::mara_gpu::MaraRenderState<'_>>) -> Self {
         Self {
             bevy_view: MaraBevyViewport::with_render_state_and_content(
-                render_state,
+                gpu,
                 crate::bevy_content::configure_app,
             ),
             bevy_workspace: WorkspaceStack::new("demo-bevy-workspace"),
@@ -2409,7 +2409,7 @@ use mara::window::{CreationContext as RunnerCreationContext, WindowApp as Runner
 #[cfg(not(target_arch = "wasm32"))]
 impl RunnerWindowApp for DemoApp {
     fn new(ctx: RunnerCreationContext<'_>) -> Self {
-        Self::new_winit(ctx.__internal_render_state())
+        Self::new_winit(ctx.gpu())
     }
 
     fn update(&mut self, host: &mut MaraHostCtx<'_>) {

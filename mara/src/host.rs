@@ -253,15 +253,6 @@ impl<'a> MaraHostCtx<'a> {
         self.egui
     }
 
-    /// Internal first-party accessor — exposes the raw egui-wgpu render
-    /// state, so it is hidden and not semver-stable. Sealed consumers
-    /// get GPU wiring through the published context state
-    /// (`view_ctx` publishes the target format) instead.
-    #[doc(hidden)]
-    pub fn __internal_render_state(&self) -> Option<&'a egui_wgpu::RenderState> {
-        self.render_state
-    }
-
     /// Opaque GPU handle for GPU-module `show` calls (Bevy viewport,
     /// 3D). Sealed: the app passes it through without ever seeing the
     /// underlying egui-wgpu types (ADR 0002).

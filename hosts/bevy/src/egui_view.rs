@@ -89,9 +89,16 @@ impl MaraBevyViewport {
         }
     }
 
-    pub fn with_render_state(render_state: Option<&egui_wgpu::RenderState>) -> Self {
+    /// A viewport that takes its wgpu resources at construction.
+    ///
+    /// Takes the opaque [`MaraRenderState`](mara_gpu::MaraRenderState)
+    /// rather than a raw `egui_wgpu::RenderState` (PLAN.md WS-C1.4), so
+    /// an app can build one at startup from
+    /// `CreationContext::gpu()` without naming a backend type.
+    pub fn with_render_state(render_state: Option<mara_gpu::MaraRenderState<'_>>) -> Self {
         let bevy = render_state
             .map(|render_state| {
+                let render_state = render_state.__internal_raw();
                 BevyEmbeddedView::with_wgpu_resources(BevyViewportWgpuResources::new(
                     render_state.device.clone(),
                     render_state.queue.clone(),
@@ -114,11 +121,14 @@ impl MaraBevyViewport {
         }
     }
 
+    /// [`with_render_state`](Self::with_render_state) with an app
+    /// configurator, for a viewport whose Bevy world needs setting up.
     pub fn with_render_state_and_content(
-        render_state: Option<&egui_wgpu::RenderState>,
+        render_state: Option<mara_gpu::MaraRenderState<'_>>,
         configure_app: impl Fn(&mut bevy::prelude::App) + Send + Sync + 'static,
     ) -> Self {
         let bevy = if let Some(render_state) = render_state {
+            let render_state = render_state.__internal_raw();
             BevyEmbeddedView::with_wgpu_resources_and_app_config(
                 BevyViewportWgpuResources::new(
                     render_state.device.clone(),
