@@ -197,6 +197,15 @@ pub struct ScrollRegion {
     pub auto_shrink: [bool; 2],
     pub max_extent: f32,
     pub item_spacing: Vec2,
+    /// Smallest extent the scroll viewport may shrink to, when the
+    /// host imposes a floor of its own.
+    ///
+    /// `None` keeps the host's default. Backends generally refuse to
+    /// shrink a scroll viewport below some minimum (egui's is 64 px),
+    /// which silently inflates a region deliberately sized smaller —
+    /// a pod given an exact height by its container, say. `Some(0.0)`
+    /// says the caller means the size it asked for.
+    pub min_scrolled_extent: Option<f32>,
 }
 
 impl ScrollRegion {
@@ -218,7 +227,16 @@ impl ScrollRegion {
             auto_shrink,
             max_extent,
             item_spacing,
+            min_scrolled_extent: None,
         }
+    }
+
+    /// Let the viewport shrink to `extent`, overriding the host's own
+    /// minimum.
+    #[must_use]
+    pub const fn min_scrolled_extent(mut self, extent: f32) -> Self {
+        self.min_scrolled_extent = Some(extent);
+        self
     }
 
     #[must_use]
@@ -234,6 +252,7 @@ impl ScrollRegion {
             auto_shrink,
             max_extent,
             item_spacing,
+            min_scrolled_extent: None,
         }
     }
 }
@@ -1109,6 +1128,13 @@ pub trait UiBackend {
         family
     }
 
+    /// Run `body` in a child surface occupying `region`.
+    ///
+    /// The closure form of a child `Ui`: a returned child would have to
+    /// name the backend's surface type, so the scope keeps it behind
+    /// the seam.
+    fn in_region(&mut self, region: ChildRegion, body: &mut dyn FnMut(&mut dyn UiBackend));
+
     /// This surface's paint opacity, 0.0..=1.0.
     ///
     /// Surfaces fade in as a group, and painters that animate need to
@@ -1158,6 +1184,9 @@ impl<T: UiBackend + ?Sized> UiBackend for &mut T {
     }
     fn opacity(&self) -> f32 {
         (**self).opacity()
+    }
+    fn in_region(&mut self, region: ChildRegion, body: &mut dyn FnMut(&mut dyn UiBackend)) {
+        (**self).in_region(region, body)
     }
     fn paint_on_z_layer(&mut self, id: Id, tier: u16, rect: Rect, opacity: f32, cmd: PaintCmd) {
         (**self).paint_on_z_layer(id, tier, rect, opacity, cmd)

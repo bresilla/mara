@@ -1444,7 +1444,7 @@ impl Pod {
     /// Render the pod into the current egui backend. Public app
     /// code reaches this through [`crate::mui::MaraUi::pod`] or a
     /// Mara container, not by passing around a raw `egui::Ui`.
-    pub(crate) fn show(self, ui: &mut Ui) -> PodResponse {
+    pub(crate) fn show(self, mara: &mut crate::MaraUi<'_>) -> PodResponse {
         let pod_id = self.id;
         let mut response = PodResponse::default();
         // Two paths share the same ScrollArea-clipped viewport
@@ -1461,7 +1461,7 @@ impl Pod {
             // so the pod still renders.
             let key: Id = Self::forced_height_key(pod_id).into();
             Some(
-                crate::memory::MaraMemoryCtx::new(ui.ctx())
+                mara.ctx().memory()
                     .get_temp::<f32>(key)
                     .unwrap_or_else(|| self.natural_h())
                     .max(theme().pod.min_widget_h),
@@ -1470,7 +1470,7 @@ impl Pod {
             let natural_h = self.natural_h();
             let key: Id = Self::widget_height_key(pod_id).into();
             Some(
-                crate::memory::MaraMemoryCtx::new(ui.ctx())
+                mara.ctx().memory()
                     .get_persisted::<f32>(key)
                     .unwrap_or(natural_h)
                     .clamp(theme().pod.min_widget_h, theme().pod.max_widget_h),
@@ -1479,60 +1479,66 @@ impl Pod {
             None
         };
         if let Some(viewport_h) = viewport_h {
-            let avail_w = ui.available_width().max(1.0);
-            let slot_rect = {
-                let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
-                crate::layout::UiBackend::allocate(
-                    &mut backend,
+            let avail_w = mara.available_rect().width().max(1.0);
+            let slot_rect = mara
+                .allocate(
                     crate::vocab::Vec2::new(avail_w, viewport_h),
                     crate::layout::Sense::Hover,
                 )
-                .rect
-            };
-            let mut child = crate::backend::egui::child_ui_for_region(
-                ui,
+                .rect;
+            let scrolled = self.resizable && !self.fill;
+            // `widgets` owns a move-only `Custom` closure, so it cannot
+            // be borrowed into the nested scopes below — it is handed
+            // inward one level at a time instead.
+            let mut widgets = Some(self.widgets);
+            mara.in_region(
                 crate::layout::ChildRegion::top_down(slot_rect, crate::layout::StackAlign::Min),
-            );
-            // `shrink_clip_rect` (= intersect with current clip) so a
-            // pod inside an already-clipped container can never grow
-            // its own clip. Hierarchy stays intact:
-            //   widget rect ⊆ pod slot ⊆ container body ⊆ pane.
-            child.shrink_clip_rect(slot_rect.into());
-            let widgets = self.widgets;
-            if self.resizable && !self.fill {
-                // Resizable pods get a vertical `ScrollArea` so when
-                // content exceeds the user-dragged viewport, the bar
-                // appears and rows scroll. `auto_shrink([false,
-                // false])` keeps the area filling the slot;
-                // `min_scrolled_height(0.0)` disables egui's default
-                // 64-px floor.
-                egui::ScrollArea::vertical()
-                    .id_salt(pod_id.with("mara_pod_scroll"))
-                    .auto_shrink([false, false])
-                    .min_scrolled_height(0.0)
-                    .show(&mut child, |inner| {
-                        let mut backend = crate::backend::egui::EguiUiBackend::new(inner);
-                        response = paint_widgets(widgets, &mut backend, pod_id);
+                &mut |mara| {
+                    let Some(widgets) = widgets.take() else {
+                        return;
+                    };
+                    // Clipping INTERSECTS the parent's, so a pod inside
+                    // an already-clipped container can never grow its
+                    // own clip. Hierarchy stays intact:
+                    //   widget rect ⊆ pod slot ⊆ container body ⊆ pane.
+                    mara.clipped(slot_rect, |mara| {
+                        if scrolled {
+                            // Resizable pods scroll when content exceeds
+                            // the user-dragged viewport. The zero
+                            // minimum matters: without it the host's own
+                            // floor (egui: 64 px) would inflate a pod
+                            // deliberately sized smaller.
+                            let region = crate::layout::ScrollRegion::vertical(
+                                pod_id.with("mara_pod_scroll"),
+                                [false, false],
+                                f32::INFINITY,
+                                crate::vocab::Vec2::ZERO,
+                            )
+                            .min_scrolled_extent(0.0);
+                            let mut widgets = Some(widgets);
+                            mara.scroll_region(region, &mut |mara| {
+                                if let Some(widgets) = widgets.take() {
+                                    response =
+                                        paint_widgets(widgets, mara.backend_mut(), pod_id);
+                                }
+                            });
+                        } else {
+                            // Fill pods skip the scroll region — the slot
+                            // is already exactly the size the container
+                            // computed, and embedded scrollable widgets
+                            // (node graph, code editor) own their internal
+                            // pan/zoom. Nesting a scroll region here makes
+                            // those widgets fight the bar: their reported
+                            // size oscillates as it appears / disappears,
+                            // triggering their own re-layout, which makes
+                            // the pod re-measure → loop.
+                            response = paint_widgets(widgets, mara.backend_mut(), pod_id);
+                        }
                     });
-            } else {
-                // Fill pods skip the ScrollArea — the slot is already
-                // exactly the size the container computed, and
-                // embedded scrollable widgets (node graph, code
-                // editor) own their internal pan/zoom. Nesting a
-                // ScrollArea here makes those widgets fight the bar:
-                // their reported size oscillates as the bar appears /
-                // disappears, triggering their own re-layout (e.g.
-                // graph's `initial placing` request_discard spam),
-                // which causes the pod to re-measure → loop. Plain
-                // `paint_widgets` inside the clipped `child` is
-                // exactly what fill pods want: hard clip, no
-                // outer-scroll feedback.
-                let mut backend = crate::backend::egui::EguiUiBackend::new(&mut child);
-                response = paint_widgets(widgets, &mut backend, pod_id);
-            }
+                },
+            );
         } else {
-            let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
-            response = paint_widgets(self.widgets, &mut backend, pod_id);
+            response = paint_widgets(self.widgets, mara.backend_mut(), pod_id);
         }
         response
     }

@@ -176,6 +176,16 @@ impl UiBackend for EguiUiBackend<'_> {
         self.ui.opacity()
     }
 
+    fn in_region(
+        &mut self,
+        region: crate::layout::ChildRegion,
+        body: &mut dyn FnMut(&mut dyn crate::layout::UiBackend),
+    ) {
+        let mut child = child_ui_for_region(self.ui, region);
+        let mut inner = EguiUiBackend::new(&mut child);
+        body(&mut inner);
+    }
+
     fn paint_on_z_layer(
         &mut self,
         id: vocab::Id,
@@ -769,8 +779,14 @@ pub(crate) fn scroll_area_for_region(region: ScrollRegion) -> egui::ScrollArea {
         ScrollAxis::Horizontal => egui::ScrollArea::horizontal().max_width(region.max_extent),
         ScrollAxis::Vertical => egui::ScrollArea::vertical().max_height(region.max_extent),
     };
-    area.id_salt(Into::<egui::Id>::into(region.id))
-        .auto_shrink(region.auto_shrink)
+    let area = area
+        .id_salt(Into::<egui::Id>::into(region.id))
+        .auto_shrink(region.auto_shrink);
+    match (region.axis, region.min_scrolled_extent) {
+        (_, None) => area,
+        (ScrollAxis::Vertical, Some(extent)) => area.min_scrolled_height(extent),
+        (ScrollAxis::Horizontal, Some(extent)) => area.min_scrolled_width(extent),
+    }
 }
 
 pub(crate) fn apply_scroll_region_spacing(ui: &mut egui::Ui, region: ScrollRegion) {

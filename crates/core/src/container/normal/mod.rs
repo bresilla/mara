@@ -702,7 +702,10 @@ impl Normal {
                         pod_pad_x, pod_pad_y,
                     )))
                     .show(body_ui, |inner_ui| {
-                        out.push(pod.show(inner_ui));
+                        let mut backend = crate::mui::MaraBackend::Egui(
+                            crate::backend::egui::EguiUiBackend::new(inner_ui),
+                        );
+                        out.push(pod.show(&mut crate::MaraUi::over(&mut backend, pods_accent)));
                     });
                 crate::debug::tag(
                     body_ui.ctx(),

@@ -996,6 +996,17 @@ impl crate::layout::UiBackend for MaraBackend<'_> {
         }
     }
 
+    fn in_region(
+        &mut self,
+        region: crate::layout::ChildRegion,
+        body: &mut dyn FnMut(&mut dyn crate::layout::UiBackend),
+    ) {
+        match self {
+            Self::Egui(b) => b.in_region(region, body),
+            Self::Recording(b) => b.in_region(region, body),
+        }
+    }
+
     fn paint_on_z_layer(
         &mut self,
         id: vocab::Id,
@@ -1489,6 +1500,28 @@ impl<'a> MaraUi<'a> {
         family: crate::paint::TextFamily,
     ) -> crate::paint::TextFamily {
         self.backend.available_text_family(family)
+    }
+
+    /// Run `body` in a child surface occupying `region`.
+    pub fn in_region(
+        &mut self,
+        region: crate::layout::ChildRegion,
+        body: &mut dyn FnMut(&mut MaraUi<'_>),
+    ) {
+        let accent = self.accent;
+        self.backend
+            .in_region(region, &mut |backend| body(&mut MaraUi::over(backend, accent)));
+    }
+
+    /// Run `body` inside a scrollable region.
+    pub fn scroll_region(
+        &mut self,
+        region: crate::layout::ScrollRegion,
+        body: &mut dyn FnMut(&mut MaraUi<'_>),
+    ) {
+        let accent = self.accent;
+        self.backend
+            .scroll_region(region, &mut |backend| body(&mut MaraUi::over(backend, accent)));
     }
 
     pub fn request_repaint(&self) {
@@ -2207,10 +2240,7 @@ impl<'a> MaraUi<'a> {
 
     /// Render a fully-typed [`Pod`] inline.
     pub fn pod(&mut self, pod: Pod) -> PodResponse {
-        let Some(ui) = self.egui_ui_opt() else {
-            return PodResponse::default();
-        };
-        pod.show(ui)
+        pod.show(self)
     }
 
     // ── custom drawing ───────────────────────────────────────────

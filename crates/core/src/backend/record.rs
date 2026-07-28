@@ -399,6 +399,21 @@ impl UiBackend for RecordingBackend {
         self
     }
 
+    /// Headless: the child surface is this one, scoped to the region
+    /// and restored afterwards so the parent's flow continues.
+    fn in_region(
+        &mut self,
+        region: crate::layout::ChildRegion,
+        body: &mut dyn FnMut(&mut dyn UiBackend),
+    ) {
+        let saved = (self.available, self.cursor);
+        self.available = region.rect;
+        self.cursor = region.rect.min;
+        body(self);
+        self.available = saved.0;
+        self.cursor = saved.1;
+    }
+
     fn framed(
         &mut self,
         spec: crate::style::FrameSpec,
