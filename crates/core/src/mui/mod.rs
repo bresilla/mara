@@ -33,9 +33,7 @@ use crate::widget::badge::badge_row_backend;
 use crate::widget::button::{ActionButtonResponse, button_backend, card_action_button};
 use crate::widget::chip::{chip_colored_backend, chip_fill};
 use crate::widget::color::{color_rgb, color_rgba};
-use crate::widget::context_menu::context_menu_mara;
 use crate::widget::drag_value::drag_value_backend;
-use crate::widget::dropdown::dropdown;
 use crate::widget::foldable::section_backend;
 use crate::widget::keybinding::keybinding_row_backend;
 use crate::widget::label::label_backend;
@@ -43,7 +41,6 @@ use crate::widget::progressbar::progressbar_backend;
 use crate::widget::readout::readout_backend;
 use crate::widget::select::{HybridSelectResponse, hybrid_select_row_backend, select_row_backend};
 use crate::widget::slider::slider_backend;
-use crate::widget::text_input::text_input;
 use crate::widget::toggle::{toggle_backend, toggle_track_only_backend};
 
 // ─── MaraResponse ─────────────────────────────────────────────────
@@ -1277,6 +1274,41 @@ impl crate::layout::UiBackend for MaraBackend<'_> {
             Self::Recording(b) => b.in_wrapped_row(body),
         }
     }
+    fn text_input(
+        &mut self,
+        text: &mut String,
+        placeholder: &str,
+        height: f32,
+        accent: vocab::Color32,
+    ) -> MaraResponse {
+        match self {
+            Self::Egui(b) => b.text_input(text, placeholder, height, accent),
+            Self::Recording(b) => b.text_input(text, placeholder, height, accent),
+        }
+    }
+    fn dropdown(
+        &mut self,
+        id_salt: vocab::Id,
+        selected: &mut usize,
+        options: &[&str],
+        accent: vocab::Color32,
+    ) -> MaraResponse {
+        match self {
+            Self::Egui(b) => b.dropdown(id_salt, selected, options, accent),
+            Self::Recording(b) => b.dropdown(id_salt, selected, options, accent),
+        }
+    }
+    fn context_menu(
+        &mut self,
+        response: &MaraResponse,
+        accent: vocab::Color32,
+        body: &mut dyn FnMut(&mut dyn UiBackend),
+    ) {
+        match self {
+            Self::Egui(b) => b.context_menu(response, accent, body),
+            Self::Recording(b) => b.context_menu(response, accent, body),
+        }
+    }
     fn make_painter(&self, spec: crate::layout::PaintSurfaceSpec) -> MaraPainter {
         match self {
             Self::Egui(b) => b.make_painter(spec),
@@ -1403,24 +1435,6 @@ impl<'a> MaraUi<'a> {
         self.backend
             .__internal_egui_ui_mut()
             .expect("this MaraUi operation requires the egui backend")
-    }
-
-    /// The egui `Ui` if this is the egui backend, else `None` — the
-    /// still-egui-bound widget fns use this to degrade to an inert
-    /// no-op response on headless/recording backends instead of
-    /// panicking (PLAN.md WS2). Each caller is a coupling-ratchet
-    /// escape, same as [`MaraUi::egui_ui`].
-    pub(crate) fn egui_ui_opt(&mut self) -> Option<&mut egui::Ui> {
-        self.backend.__internal_egui_ui_mut()
-    }
-
-    /// Inert zero-rect response for operations skipped on non-egui
-    /// backends: never hovered, never clicked.
-    fn noop_response() -> MaraResponse {
-        MaraResponse::__internal_synthetic(vocab::Rect::from_min_size(
-            vocab::Pos2::new(0.0, 0.0),
-            vocab::Vec2::new(0.0, 0.0),
-        ))
     }
 
     /// Internal first-party accessor — NOT part of the public API
@@ -1894,10 +1908,8 @@ impl<'a> MaraUi<'a> {
         options: &[&str],
     ) -> MaraResponse {
         let accent = self.accent;
-        let Some(ui) = self.egui_ui_opt() else {
-            return Self::noop_response();
-        };
-        dropdown(ui, id_salt, selected, options, accent)
+        self.backend
+            .dropdown(vocab::Id::new(id_salt), selected, options, accent)
     }
 
     pub fn select_row(
@@ -2291,10 +2303,8 @@ impl<'a> MaraUi<'a> {
 
     pub fn text_input(&mut self, text: &mut String, placeholder: &str) -> MaraResponse {
         let accent = self.accent;
-        let Some(ui) = self.egui_ui_opt() else {
-            return Self::noop_response();
-        };
-        text_input(ui, text, placeholder, accent)
+        self.backend
+            .text_input(text, placeholder, crate::style::UNIT, accent)
     }
 
     pub fn readout(&mut self, label: &str, value: &str) -> MaraResponse {
@@ -2400,14 +2410,11 @@ impl<'a> MaraUi<'a> {
     /// Mara-styled right-click context menu on a previous response.
     pub fn context_menu(&mut self, resp: &MaraResponse, body: impl FnOnce(&mut MaraUi<'_>)) {
         let accent = self.accent;
-        let Some(ui) = self.egui_ui_opt() else {
-            return;
-        };
-        backend::egui::with_response_for_ui(ui, resp, |raw| {
-            context_menu_mara(raw, accent, |ui| {
-                let mut backend = MaraBackend::Egui(backend::egui::EguiUiBackend::new(ui));
-                body(&mut MaraUi::over(&mut backend, accent));
-            });
+        let mut body = Some(body);
+        self.backend.context_menu(resp, accent, &mut |backend| {
+            if let Some(body) = body.take() {
+                body(&mut MaraUi::over(backend, accent));
+            }
         });
     }
 

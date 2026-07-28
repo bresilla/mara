@@ -453,6 +453,40 @@ impl UiBackend for EguiUiBackend<'_> {
         });
     }
 
+    fn text_input(
+        &mut self,
+        text: &mut String,
+        placeholder: &str,
+        height: f32,
+        accent: vocab::Color32,
+    ) -> MaraResponse {
+        crate::widget::text_input::text_input_h(self.ui, text, placeholder, accent, height)
+    }
+
+    fn dropdown(
+        &mut self,
+        id_salt: vocab::Id,
+        selected: &mut usize,
+        options: &[&str],
+        accent: vocab::Color32,
+    ) -> MaraResponse {
+        crate::widget::dropdown::dropdown(self.ui, id_salt, selected, options, accent)
+    }
+
+    fn context_menu(
+        &mut self,
+        response: &MaraResponse,
+        accent: vocab::Color32,
+        body: &mut dyn FnMut(&mut dyn UiBackend),
+    ) {
+        with_response_for_ui(self.ui, response, |raw| {
+            crate::widget::context_menu::context_menu_mara(raw, accent, |ui| {
+                let mut inner = EguiUiBackend::new(ui);
+                body(&mut inner);
+            });
+        });
+    }
+
     fn in_wrapped_row(&mut self, body: &mut dyn FnMut(&mut dyn UiBackend)) {
         self.ui.horizontal_wrapped(|child_ui| {
             let mut child = EguiUiBackend::new(child_ui);

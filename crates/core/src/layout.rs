@@ -1087,6 +1087,55 @@ pub trait UiBackend {
     /// [`UiBackend::in_child`].
     fn in_scope(&mut self, horizontal: bool, body: &mut dyn FnMut(&mut dyn UiBackend));
 
+    /// A single-line text field bound to `text`.
+    ///
+    /// Text editing is the one widget a backend cannot be talked
+    /// through primitives — it owns the caret, the selection, the IME
+    /// and the clipboard. So it is asked for whole.
+    ///
+    /// The default returns an inert response and edits nothing: a
+    /// backend with no text stack has no field to offer. Callers get a
+    /// response that reports no interaction rather than a lie.
+    fn text_input(
+        &mut self,
+        text: &mut String,
+        placeholder: &str,
+        height: f32,
+        accent: Color32,
+    ) -> MaraResponse {
+        let _ = (text, placeholder, height, accent);
+        MaraResponse::__internal_synthetic(Rect::NOTHING)
+    }
+
+    /// A dropdown over `options`, bound to `selected`.
+    ///
+    /// Same reasoning as [`text_input`](UiBackend::text_input): the
+    /// popup, its keyboard handling and its dismissal belong to the
+    /// backend. Default is inert.
+    fn dropdown(
+        &mut self,
+        id_salt: Id,
+        selected: &mut usize,
+        options: &[&str],
+        accent: Color32,
+    ) -> MaraResponse {
+        let _ = (id_salt, selected, options, accent);
+        MaraResponse::__internal_synthetic(Rect::NOTHING)
+    }
+
+    /// Attach a right-click context menu to a previous response.
+    ///
+    /// The default runs nothing — a backend with no popup layer has
+    /// nowhere to put it.
+    fn context_menu(
+        &mut self,
+        response: &MaraResponse,
+        accent: Color32,
+        body: &mut dyn FnMut(&mut dyn UiBackend),
+    ) {
+        let _ = (response, accent, body);
+    }
+
     /// Run `body` in a horizontal scope that wraps onto a new line when
     /// it runs out of width — a tag strip, a chip cloud.
     ///
@@ -1477,6 +1526,32 @@ impl<T: UiBackend + ?Sized> UiBackend for &mut T {
     }
     fn in_wrapped_row(&mut self, body: &mut dyn FnMut(&mut dyn UiBackend)) {
         (**self).in_wrapped_row(body)
+    }
+    fn text_input(
+        &mut self,
+        text: &mut String,
+        placeholder: &str,
+        height: f32,
+        accent: Color32,
+    ) -> MaraResponse {
+        (**self).text_input(text, placeholder, height, accent)
+    }
+    fn dropdown(
+        &mut self,
+        id_salt: Id,
+        selected: &mut usize,
+        options: &[&str],
+        accent: Color32,
+    ) -> MaraResponse {
+        (**self).dropdown(id_salt, selected, options, accent)
+    }
+    fn context_menu(
+        &mut self,
+        response: &MaraResponse,
+        accent: Color32,
+        body: &mut dyn FnMut(&mut dyn UiBackend),
+    ) {
+        (**self).context_menu(response, accent, body)
     }
     fn make_painter(&self, spec: PaintSurfaceSpec) -> crate::mui::MaraPainter {
         (**self).make_painter(spec)
