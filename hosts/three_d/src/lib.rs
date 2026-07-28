@@ -12,7 +12,10 @@ use mara_core::{
     MaraModule, MaraView, ModuleInlineCtx, ModuleResponse, RibbonAction, RibbonCluster, RibbonEdge,
     RibbonOverridePolicy, RibbonScope, RibbonSlot, RibbonSlotDef, RibbonSlotId, RibbonSlotItem,
     ViewCtx, ViewId, WorkspaceBar, WorkspaceBarCluster, WorkspaceBarEdge, WorkspaceCtx,
-    vocab::{Color32 as MaraColor32, Pos2 as MaraPos2, Stroke as MaraStroke, Vec2 as MaraVec2},
+    vocab::{
+        Color32 as MaraColor32, Pos2 as MaraPos2, Rect as MaraRect, Stroke as MaraStroke,
+        Vec2 as MaraVec2,
+    },
 };
 
 const WORLD_UP: Vec3 = [0.0, 1.0, 0.0];
@@ -254,7 +257,7 @@ impl PreviewCamera {
         }
     }
 
-    fn project(&self, rect: egui::Rect, point: Vec3) -> Option<(egui::Pos2, f32)> {
+    fn project(&self, rect: MaraRect, point: Vec3) -> Option<(egui::Pos2, f32)> {
         let (x, y, z) = self.camera_space(point);
         if z <= self.near {
             return None;
@@ -271,7 +274,7 @@ impl PreviewCamera {
         }
     }
 
-    fn world_per_screen_point(&self, rect: egui::Rect, depth: f32) -> f32 {
+    fn world_per_screen_point(&self, rect: MaraRect, depth: f32) -> f32 {
         let focal = 0.5 * rect.height() / (self.fov_y * 0.5).tan();
         depth / focal.max(1.0)
     }
@@ -287,7 +290,7 @@ impl PreviewCamera {
 
     fn project_line_with_near(
         &self,
-        rect: egui::Rect,
+        rect: MaraRect,
         mut a: Vec3,
         mut b: Vec3,
         near: f32,
@@ -314,7 +317,7 @@ impl PreviewCamera {
         }
     }
 
-    fn ray_to_plane_y0(&self, rect: egui::Rect, pos: egui::Pos2) -> Option<Vec3> {
+    fn ray_to_plane_y0(&self, rect: MaraRect, pos: MaraPos2) -> Option<Vec3> {
         let direction = self.ray_direction(rect, pos);
         if direction[1].abs() <= 1.0e-5 {
             return None;
@@ -327,7 +330,7 @@ impl PreviewCamera {
         }
     }
 
-    fn ray_direction(&self, rect: egui::Rect, pos: egui::Pos2) -> Vec3 {
+    fn ray_direction(&self, rect: MaraRect, pos: MaraPos2) -> Vec3 {
         let focal = 0.5 * rect.height() / (self.fov_y * 0.5).tan();
         let sx = (pos.x - rect.center().x) / focal;
         let sy = -(pos.y - rect.center().y) / focal;
@@ -495,7 +498,7 @@ impl View3d {
         )
     }
 
-    fn paint_preview(&mut self, ui: &mut egui::Ui, rect: egui::Rect, response: &egui::Response) {
+    fn paint_preview(&mut self, ui: &mut egui::Ui, rect: MaraRect, response: &egui::Response) {
         let camera = PreviewCamera::from_orbit(self.orbit, &self.scene.camera);
         let gizmo_used = self.update_gizmo_interaction(ui, rect, response, &camera);
         if !gizmo_used {
@@ -509,11 +512,10 @@ impl View3d {
             ui.ctx().request_repaint();
         }
 
-        let painter = ui.painter_at(rect);
-        let accent: MaraColor32 = mara_core::style::active_accent().into();
-        let background: MaraColor32 =
-            mara_core::style::fill_for(mara_core::style::FillRole::Pane, accent).into();
-        painter.rect_filled(rect, 0.0, background);
+        let painter = ui.painter_at(rect.into());
+        let accent = mara_core::style::active_accent();
+        let background = mara_core::style::fill_for(mara_core::style::FillRole::Pane, accent);
+        painter.rect_filled(rect.into(), 0.0, background);
         let interactive_preview = gizmo_used
             || self.gizmo_drag.is_some()
             || response.dragged()
@@ -577,7 +579,7 @@ impl View3d {
     fn collect_preview_faces(
         &self,
         faces: &mut Vec<PreviewFace>,
-        rect: egui::Rect,
+        rect: MaraRect,
         camera: &PreviewCamera,
         interactive_preview: bool,
     ) {
@@ -623,7 +625,7 @@ impl View3d {
         }
     }
 
-    fn update_selection(&mut self, ui: &egui::Ui, rect: egui::Rect, response: &egui::Response) {
+    fn update_selection(&mut self, ui: &egui::Ui, rect: MaraRect, response: &egui::Response) {
         if response.clicked_by(egui::PointerButton::Primary) {
             response.request_focus();
             let camera = PreviewCamera::from_orbit(self.orbit, &self.scene.camera);
@@ -644,7 +646,7 @@ impl View3d {
     fn update_gizmo_interaction(
         &mut self,
         ui: &egui::Ui,
-        rect: egui::Rect,
+        rect: MaraRect,
         response: &egui::Response,
         camera: &PreviewCamera,
     ) -> bool {
@@ -697,7 +699,7 @@ impl View3d {
 
     fn pick_gizmo(
         &self,
-        rect: egui::Rect,
+        rect: MaraRect,
         camera: &PreviewCamera,
         pointer: egui::Pos2,
     ) -> Option<(ObjectId, GizmoOperation, egui::Pos2, Vec3, f32, f32)> {
@@ -797,7 +799,7 @@ impl View3d {
 
     fn apply_gizmo_drag(
         &mut self,
-        rect: egui::Rect,
+        rect: MaraRect,
         camera: &PreviewCamera,
         drag: &GizmoDragState,
         pointer: egui::Pos2,
@@ -931,7 +933,7 @@ impl View3d {
     fn paint_scene_gizmos(
         &self,
         painter: &egui::Painter,
-        rect: egui::Rect,
+        rect: MaraRect,
         camera: &PreviewCamera,
     ) {
         for gizmo in &self.scene.gizmos {
@@ -945,7 +947,7 @@ impl View3d {
     fn paint_scene_gizmo(
         &self,
         painter: &egui::Painter,
-        rect: egui::Rect,
+        rect: MaraRect,
         camera: &PreviewCamera,
         gizmo: &Gizmo3d,
     ) {
@@ -1040,7 +1042,7 @@ impl View3d {
     fn paint_transform_gizmo(
         &self,
         painter: &egui::Painter,
-        rect: egui::Rect,
+        rect: MaraRect,
         camera: &PreviewCamera,
         hover_operation: Option<GizmoOperation>,
         active_operation: Option<GizmoOperation>,
@@ -1211,7 +1213,7 @@ impl View3d {
     fn paint_gizmo_arrow(
         &self,
         painter: &egui::Painter,
-        rect: egui::Rect,
+        rect: MaraRect,
         camera: &PreviewCamera,
         origin: Vec3,
         world_per_point: f32,
@@ -1276,7 +1278,7 @@ impl View3d {
     fn paint_gizmo_plane(
         &self,
         painter: &egui::Painter,
-        rect: egui::Rect,
+        rect: MaraRect,
         camera: &PreviewCamera,
         origin: Vec3,
         world_per_point: f32,
@@ -1328,7 +1330,7 @@ impl View3d {
     fn paint_gizmo_rotation_arc(
         &self,
         painter: &egui::Painter,
-        rect: egui::Rect,
+        rect: MaraRect,
         camera: &PreviewCamera,
         origin: Vec3,
         world_per_point: f32,
@@ -1400,7 +1402,7 @@ impl View3d {
     #[allow(clippy::too_many_arguments)]
     fn gizmo_axis_handle_distance(
         &self,
-        rect: egui::Rect,
+        rect: MaraRect,
         camera: &PreviewCamera,
         origin: Vec3,
         world_per_point: f32,
@@ -1435,7 +1437,7 @@ impl View3d {
 
     fn gizmo_plane_handle_distance(
         &self,
-        rect: egui::Rect,
+        rect: MaraRect,
         camera: &PreviewCamera,
         origin: Vec3,
         world_per_point: f32,
@@ -1481,7 +1483,7 @@ impl View3d {
 
     fn gizmo_rotation_arc_distance(
         &self,
-        rect: egui::Rect,
+        rect: MaraRect,
         camera: &PreviewCamera,
         origin: Vec3,
         world_per_point: f32,
@@ -1524,7 +1526,7 @@ impl View3d {
     fn paint_grid(
         &self,
         painter: &egui::Painter,
-        rect: egui::Rect,
+        rect: MaraRect,
         camera: &PreviewCamera,
         step: f32,
         accent: MaraColor32,
@@ -1650,7 +1652,7 @@ impl View3d {
     fn paint_grid_dots(
         &self,
         painter: &egui::Painter,
-        rect: egui::Rect,
+        rect: MaraRect,
         camera: &PreviewCamera,
         spacing: f32,
         min_x: i32,
@@ -1676,7 +1678,7 @@ impl View3d {
                 let Some((screen, _)) = camera.project(rect, point) else {
                     continue;
                 };
-                if !rect.expand(8.0).contains(screen) {
+                if !rect.expand(8.0).contains(screen.into()) {
                     continue;
                 }
                 let base_world_radius = spacing * GLACIAL_DOT_RADIUS_FRAC * stride as f32;
@@ -1708,7 +1710,7 @@ impl View3d {
     fn paint_grid_line(
         &self,
         painter: &egui::Painter,
-        rect: egui::Rect,
+        rect: MaraRect,
         camera: &PreviewCamera,
         a: Vec3,
         b: Vec3,
@@ -1728,7 +1730,7 @@ impl View3d {
     fn collect_mesh_faces(
         &self,
         faces: &mut Vec<PreviewFace>,
-        rect: egui::Rect,
+        rect: MaraRect,
         camera: &PreviewCamera,
         object: &Object3d,
         transform: &Transform3d,
@@ -1839,7 +1841,7 @@ impl View3d {
 
     fn pick_object(
         &self,
-        rect: egui::Rect,
+        rect: MaraRect,
         camera: &PreviewCamera,
         pos: egui::Pos2,
     ) -> Option<ObjectId> {
@@ -1867,7 +1869,7 @@ impl View3d {
 
     fn object_screen_radius(
         &self,
-        rect: egui::Rect,
+        rect: MaraRect,
         camera: &PreviewCamera,
         object: &Object3d,
     ) -> f32 {
@@ -1911,15 +1913,14 @@ impl MaraView for View3d {
         {
             self.gpu_target_format = Some(format);
         }
-        let region = ctx.screen_rect();
-        let rect: egui::Rect = region.into();
+        let rect = ctx.screen_rect();
         egui::Area::new(egui::Id::new(("mara_three_d_view", self.id)))
             .order(egui::Order::Background)
-            .fixed_pos(rect.min)
+            .fixed_pos(Into::<egui::Pos2>::into(rect.min))
             .show(ctx.__internal_egui_ctx(), |ui| {
-                ui.set_clip_rect(rect);
-                let response = ui.allocate_rect(rect, egui::Sense::click_and_drag());
-                self.paint_preview(ui, response.rect, &response);
+                ui.set_clip_rect(rect.into());
+                let response = ui.allocate_rect(rect.into(), egui::Sense::click_and_drag());
+                self.paint_preview(ui, response.rect.into(), &response);
             });
     }
 }
@@ -2113,7 +2114,7 @@ impl GpuPreviewCallback {
     fn from_faces(
         id: u64,
         target_format: wgpu::TextureFormat,
-        rect: egui::Rect,
+        rect: MaraRect,
         faces: Vec<PreviewFace>,
     ) -> Self {
         let mut vertices = Vec::with_capacity(faces.len() * 3);
@@ -2182,7 +2183,7 @@ impl GpuSceneCallback {
     fn from_geometry(
         id: u64,
         target_format: wgpu::TextureFormat,
-        rect: egui::Rect,
+        rect: MaraRect,
         camera: &PreviewCamera,
         scene: &Scene3d,
         geometry: &GpuSceneGeometryCache,
@@ -2274,7 +2275,7 @@ fn build_gpu_scene_geometry(scene: &Scene3d, signature: u64) -> GpuSceneGeometry
 
 #[cfg(feature = "gpu-preview")]
 impl GpuSceneUniform {
-    fn new(rect: egui::Rect, camera: &PreviewCamera, scene: &Scene3d) -> Self {
+    fn new(rect: MaraRect, camera: &PreviewCamera, scene: &Scene3d) -> Self {
         let aspect = rect.width().max(1.0) / rect.height().max(1.0);
         let tan_half = (camera.fov_y * 0.5).tan().max(1.0e-4);
         let far = scene.camera.far.max(camera.near + 1.0);
@@ -3254,7 +3255,7 @@ fn texture_source_hash(source: &GpuPreviewTextureSource) -> u64 {
 
 #[cfg(feature = "gpu-preview")]
 #[allow(dead_code)]
-fn point_to_viewport_ndc(rect: egui::Rect, point: egui::Pos2) -> [f32; 2] {
+fn point_to_viewport_ndc(rect: MaraRect, point: egui::Pos2) -> [f32; 2] {
     [
         ((point.x - rect.left()) / rect.width().max(1.0)) * 2.0 - 1.0,
         1.0 - ((point.y - rect.top()) / rect.height().max(1.0)) * 2.0,
@@ -3293,7 +3294,7 @@ const GPU_PREVIEW_WGSL: &str = include_str!("gpu_preview.wgsl");
 fn paint_faces_supersampled(
     ui: &egui::Ui,
     painter: &egui::Painter,
-    rect: egui::Rect,
+    rect: MaraRect,
     texture: &mut Option<egui::TextureHandle>,
     faces: Vec<PreviewFace>,
 ) {
@@ -3336,7 +3337,7 @@ fn paint_faces_supersampled(
     if let Some(texture) = texture {
         painter.image(
             texture.id(),
-            rect,
+            rect.into(),
             egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0)),
             egui::Color32::WHITE,
         );
@@ -3347,7 +3348,7 @@ fn paint_faces_supersampled(
 #[allow(dead_code)]
 fn paint_faces_gpu(
     painter: &egui::Painter,
-    rect: egui::Rect,
+    rect: MaraRect,
     callback_id: u64,
     target_format: wgpu::TextureFormat,
     faces: Vec<PreviewFace>,
@@ -3356,13 +3357,16 @@ fn paint_faces_gpu(
         return;
     }
     let callback = GpuPreviewCallback::from_faces(callback_id, target_format, rect, faces);
-    painter.add(egui_wgpu::Callback::new_paint_callback(rect, callback));
+    painter.add(egui_wgpu::Callback::new_paint_callback(
+        rect.into(),
+        callback,
+    ));
 }
 
 #[cfg(feature = "gpu-preview")]
 fn paint_scene_gpu(
     painter: &egui::Painter,
-    rect: egui::Rect,
+    rect: MaraRect,
     callback_id: u64,
     target_format: wgpu::TextureFormat,
     camera: &PreviewCamera,
@@ -3374,11 +3378,14 @@ fn paint_scene_gpu(
     if callback.vertices.is_empty() {
         return;
     }
-    painter.add(egui_wgpu::Callback::new_paint_callback(rect, callback));
+    painter.add(egui_wgpu::Callback::new_paint_callback(
+        rect.into(),
+        callback,
+    ));
 }
 
 fn rasterize_face(
-    rect: egui::Rect,
+    rect: MaraRect,
     scale: f32,
     width: usize,
     height: usize,
@@ -3543,7 +3550,7 @@ fn highlighted_width(width: f32, highlighted: bool) -> f32 {
 }
 
 fn project_screen_direction(
-    rect: egui::Rect,
+    rect: MaraRect,
     camera: &PreviewCamera,
     origin: Vec3,
     direction: Vec3,
@@ -3595,7 +3602,7 @@ fn point_in_screen_polygon(point: egui::Pos2, polygon: &[egui::Pos2]) -> bool {
 
 fn paint_projected_polyline(
     painter: &egui::Painter,
-    rect: egui::Rect,
+    rect: MaraRect,
     camera: &PreviewCamera,
     points: &[Vec3],
     closed: bool,
@@ -3644,7 +3651,7 @@ fn sampled_gizmo_ellipse(
 
 fn paint_gizmo_axis_segment(
     painter: &egui::Painter,
-    rect: egui::Rect,
+    rect: MaraRect,
     camera: &PreviewCamera,
     a: Vec3,
     b: Vec3,
@@ -3683,7 +3690,7 @@ fn quat_mul(a: Quat, b: Quat) -> Quat {
     ])
 }
 
-fn triangle_screen_is_stable(rect: egui::Rect, points: [egui::Pos2; 3]) -> bool {
+fn triangle_screen_is_stable(rect: MaraRect, points: [egui::Pos2; 3]) -> bool {
     let diag = rect.size().length().max(1.0);
     let max_edge = points[0]
         .distance(points[1])
@@ -4057,7 +4064,7 @@ fn center_ray_dot_fade(camera: &PreviewCamera, point: Vec3, spacing: f32) -> f32
 }
 
 fn clip_screen_segment(
-    rect: egui::Rect,
+    rect: MaraRect,
     a: egui::Pos2,
     b: egui::Pos2,
 ) -> Option<(egui::Pos2, egui::Pos2)> {
@@ -4105,7 +4112,7 @@ fn clip_param(p: f32, q: f32, t0: &mut f32, t1: &mut f32) -> bool {
 }
 
 fn grid_visible_bounds(
-    rect: egui::Rect,
+    rect: MaraRect,
     camera: &PreviewCamera,
     spacing: f32,
     orbit_distance: f32,
@@ -4153,7 +4160,7 @@ fn grid_visible_bounds(
                     xi as f32 / (GRID_BOUND_SAMPLES - 1) as f32,
                 )
             };
-            let screen = egui::pos2(x, y);
+            let screen = MaraPos2::new(x, y);
             if let Some(hit) = camera.ray_to_plane_y0(rect, screen) {
                 let from_eye = sub3(hit, camera.eye);
                 let distance = dot3(from_eye, from_eye).sqrt();
