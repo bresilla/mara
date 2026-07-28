@@ -2889,6 +2889,10 @@ impl mara_core::context::MaraCtx for EguiCtx {
         request_repaint_after(self, after);
     }
 
+    fn request_discard(&self, reason: &str) {
+        self.0.request_discard(reason.to_owned());
+    }
+
     fn now(&self) -> f64 {
         input_time(self)
     }

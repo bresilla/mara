@@ -96,6 +96,23 @@ pub trait MaraCtx {
     /// Schedule another frame.
     fn request_repaint(&self);
 
+    /// Discard this pass's output and run it again before presenting.
+    ///
+    /// Distinct from [`request_repaint`](MaraCtx::request_repaint),
+    /// which schedules a *future* frame: this one says the pass just
+    /// computed is not fit to show. An immediate-mode surface needs it
+    /// on the frame it first learns a size — laying out with a guess and
+    /// presenting it is a visible flash.
+    ///
+    /// `reason` is for the host's debug output only.
+    ///
+    /// The default does nothing. A host that cannot re-run a pass
+    /// presents the first one, which is the pre-existing behaviour
+    /// rather than a regression.
+    fn request_discard(&self, reason: &str) {
+        let _ = reason;
+    }
+
     /// Schedule a frame no later than `after`.
     fn request_repaint_after(&self, after: std::time::Duration);
 
