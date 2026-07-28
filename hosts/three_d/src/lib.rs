@@ -1914,6 +1914,14 @@ impl MaraView for View3d {
             self.gpu_target_format = Some(format);
         }
         let rect = ctx.screen_rect();
+        // NOT converted to `ViewCtx::body_at` (PLAN.md WS-C2.3). The
+        // body needs a raw `Ui` — `paint_preview` drives an `egui_wgpu`
+        // callback and an egui texture — and `make check` bans this file
+        // from reaching one through `MaraUi`'s internal raw hatch. Going
+        // through the seam only to reach back through that hatch would
+        // trade a direct `egui::Area` for the sealed-tier escape, which
+        // is worse by the guard's own standard. Unblocked by C2.5, which
+        // ports the GPU preview off `egui_wgpu::CallbackTrait`.
         egui::Area::new(egui::Id::new(("mara_three_d_view", self.id)))
             .order(egui::Order::Background)
             .fixed_pos(Into::<egui::Pos2>::into(rect.min))
