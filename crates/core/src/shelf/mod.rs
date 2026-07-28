@@ -699,35 +699,26 @@ pub fn __internal_show_shelves_egui<'a>(
             rect.size(),
         );
 
-        crate::backend::egui::show_area_slot(ctx, area_spec, |ui| {
-            let shelf_rect = Rect::from_min_size(ui.min_rect().min, rect.size().into());
+        // `shelf` owns its container specs, so it travels into the
+        // surface by capture rather than by borrow.
+        let mut pending = Some(shelf);
+        MaraCtx::area_slot(ctx, area_spec, &mut |mara| {
+            let Some(shelf) = pending.take() else {
+                return;
+            };
+            let shelf_rect = Rect::from_min_size(mara.min_rect().min.into(), rect.size().into());
             let rect_min: Pos2 = rect.min.into();
             let screen_offset = rect_min - shelf_rect.min;
-            // The shelf's own chrome — background, border, resize
-            // handle — is drawn through the seam. The body below still
-            // threads a raw surface into the container/pane render
-            // path, so the area itself stays backend-side until those
-            // flip; borrowing a sealed surface for the chrome keeps the
-            // raw one available for the body without an escape hatch.
             let (move_response, resize_response) = {
-                let mut backend =
-                    crate::mui::MaraBackend::Egui(crate::backend::egui::EguiUiBackend::new(ui));
-                let mut mara = crate::MaraUi::over(&mut backend, shelf.accent);
                 let move_response = mara.interact(
                     MaraRect::from(shelf_rect),
                     render_id.with("background_move"),
                     crate::layout::Sense::ClickAndDrag,
                 );
                 let paint_rect = shelf_paint_rect(shelf_edge, shelf_rect);
-                paint_shelf_background(&mut mara, paint_rect.into(), shelf.accent, &shelf_theme);
-                let resize_response = resize_shelf(
-                    &mut mara,
-                    &shelf,
-                    render_id,
-                    state,
-                    &shelf_theme,
-                    shelf_rect,
-                );
+                paint_shelf_background(mara, paint_rect.into(), shelf.accent, &shelf_theme);
+                let resize_response =
+                    resize_shelf(mara, &shelf, render_id, state, &shelf_theme, shelf_rect);
                 (move_response, resize_response)
             };
 
@@ -736,17 +727,19 @@ pub fn __internal_show_shelves_egui<'a>(
                 state.cancel_drag();
             }
 
-            render_shelf_body(ShelfBodyInput {
-                ui,
-                content_rect,
-                shelf_rect,
-                screen_offset,
-                layout,
-                shelf,
-                state,
-                tab_routing_id,
-                tab_scope: &mut tab_scope,
-            });
+            render_shelf_body(
+                mara,
+                ShelfBodyInput {
+                    content_rect,
+                    shelf_rect,
+                    screen_offset,
+                    layout,
+                    shelf,
+                    state,
+                    tab_routing_id,
+                    tab_scope: &mut tab_scope,
+                },
+            );
 
             let pointer_on_resize = resize_response
                 .interact_pointer
@@ -760,7 +753,7 @@ pub fn __internal_show_shelves_egui<'a>(
                 && !pointer_on_resize
             {
                 handle_shelf_move_drag(ShelfMoveDragInput {
-                    ctx: ui.ctx(),
+                    ctx: mara.ctx(),
                     shelf_id,
                     shelf_edge,
                     pane_id,
@@ -978,8 +971,7 @@ fn shelf_active_container_key_for(shelf_id: Id, edge: ShelfEdge) -> Id {
     shelf_render_key(shelf_id, edge).with("active_container")
 }
 
-struct ShelfBodyInput<'ui, 'state, 'scope, 'a> {
-    ui: &'ui mut egui::Ui,
+struct ShelfBodyInput<'state, 'scope, 'a> {
     content_rect: Rect,
     shelf_rect: Rect,
     screen_offset: Vec2,
@@ -990,9 +982,8 @@ struct ShelfBodyInput<'ui, 'state, 'scope, 'a> {
     tab_scope: &'scope mut pane::TabRoutingScope,
 }
 
-fn render_shelf_body(input: ShelfBodyInput<'_, '_, '_, '_>) {
+fn render_shelf_body(mara: &mut crate::MaraUi<'_>, input: ShelfBodyInput<'_, '_, '_>) {
     let ShelfBodyInput {
-        ui,
         content_rect,
         shelf_rect,
         screen_offset,
@@ -1014,12 +1005,12 @@ fn render_shelf_body(input: ShelfBodyInput<'_, '_, '_, '_>) {
     // along the wrong axis as a result.
     let horizontal_stack = !anchor.title_side().is_horizontal_strip();
     {
-        let mut memory = crate::memory::MaraMemoryCtx::new(ui.ctx());
+        let mut memory = mara.ctx().memory();
         memory.set_temp(active_pane_key(), pane_id);
         memory.set_temp(pane_id.with("mara_pane_open_elapsed"), 99.0_f32);
         memory.set_temp(pane_id.with("mara_pane_section_idx"), 0_u32);
     }
-    pane::clear_container_min_widths(ui.ctx(), pane_id);
+    pane::clear_container_min_widths(mara.ctx(), pane_id);
 
     // Body viewport — same role as the `ui` `Pane::lay_out_flex`
     // hands to the body closure. All drag plumbing (cache writes,
@@ -1028,12 +1019,23 @@ fn render_shelf_body(input: ShelfBodyInput<'_, '_, '_, '_>) {
     // all share one coordinate space.
     let child_region = shelf_body_child_region(content_rect, horizontal_stack, shelf.edge);
     let scroll_region = shelf_body_scroll_region(pane_id, content_rect, horizontal_stack);
-    crate::backend::egui::show_child_sticky_scroll_region(
-        ui,
-        child_region,
-        scroll_region,
-        |viewport| {
-            let input = crate::backend::egui::input_snapshot_for_ui(viewport);
+    // The body is a child region with a sticky scroll inside it — both
+    // now expressible through the seam, so the pair composes here
+    // rather than living behind one backend helper.
+    let mut pending = Some(shelf);
+    mara.in_region(child_region, &mut |mara| {
+        let Some(shelf) = pending.take() else {
+            return;
+        };
+        mara.set_item_spacing(crate::layout::ItemSpacingSpec::new(
+            scroll_region.item_spacing,
+        ));
+        let mut pending = Some(shelf);
+        mara.scroll_region(scroll_region, &mut |viewport| {
+            let Some(shelf) = pending.take() else {
+                return;
+            };
+            let input = viewport.input();
             pane::begin_drag_frame(viewport.ctx(), pane_id);
             pane::clear_container_dot_rects(viewport.ctx(), pane_id);
             clear_external_container_gap(viewport.ctx(), pane_id);
@@ -1121,11 +1123,8 @@ fn render_shelf_body(input: ShelfBodyInput<'_, '_, '_, '_>) {
                 .collect();
             let declared_order: Vec<Id> =
                 specs.iter().map(|spec| spec.egui_container_id()).collect();
-            let mut backend =
-                crate::mui::MaraBackend::Egui(crate::backend::egui::EguiUiBackend::new(viewport));
-            let mut mara = crate::MaraUi::over(&mut backend, shelf.accent);
             let responses = crate::pane::render_containers_with_tab_scope(
-                &mut mara,
+                viewport,
                 pane_id,
                 tab_routing_id,
                 anchor,
@@ -1179,10 +1178,7 @@ fn render_shelf_body(input: ShelfBodyInput<'_, '_, '_, '_>) {
                             entry,
                         );
                         pane::paint_ghost_gap_entry_inline(
-                            &mut crate::MaraUi::__internal_over(
-                                &mut crate::MaraUi::__internal_backend_from_raw(viewport),
-                                shelf.accent,
-                            ),
+                            viewport,
                             entry,
                             shelf.accent.into(),
                             horizontal_stack,
@@ -1358,8 +1354,8 @@ fn render_shelf_body(input: ShelfBodyInput<'_, '_, '_, '_>) {
                     pane::tab_drag::clear_drag(viewport.ctx(), pane_id.into());
                 }
             }
-        },
-    );
+        });
+    });
 }
 
 fn shelf_body_child_region(rect: Rect, horizontal_stack: bool, edge: ShelfEdge) -> ChildRegion {

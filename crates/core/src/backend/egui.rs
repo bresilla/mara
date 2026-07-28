@@ -333,7 +333,6 @@ impl UiBackend for EguiUiBackend<'_> {
         Some(self.ui)
     }
 
-
     fn load_texture(
         &mut self,
         name: &str,
@@ -852,33 +851,6 @@ pub(crate) fn show_vertical_scroll_region<R>(
         apply_scroll_region_spacing(ui, region);
         body(ui)
     })
-}
-
-pub(crate) fn show_child_sticky_scroll_region<R>(
-    ui: &mut egui::Ui,
-    child_region: ChildRegion,
-    scroll_region: ScrollRegion,
-    body: impl FnOnce(&mut egui::Ui) -> R,
-) -> egui::containers::scroll_area::ScrollAreaOutput<R> {
-    let mut child = child_ui_for_region(ui, child_region);
-    apply_scroll_region_spacing(&mut child, scroll_region);
-    let scroll_area = scroll_area_for_region(scroll_region);
-    crate::scroll::show_sticky_scroll_area(
-        &mut child,
-        sticky_scroll_axis_for_region(scroll_region),
-        scroll_area,
-        |ui| {
-            apply_scroll_region_spacing(ui, scroll_region);
-            body(ui)
-        },
-    )
-}
-
-fn sticky_scroll_axis_for_region(region: ScrollRegion) -> crate::scroll::StickyScrollAxis {
-    match region.axis {
-        ScrollAxis::Horizontal => crate::scroll::StickyScrollAxis::Horizontal,
-        ScrollAxis::Vertical => crate::scroll::StickyScrollAxis::Vertical,
-    }
 }
 
 pub(crate) fn show_container_body_slot<R>(

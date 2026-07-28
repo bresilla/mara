@@ -282,9 +282,7 @@ impl MaraModule for CanvasSurface {
                     mui.label(&format!("{} strokes", self.doc.strokes.len()));
                 });
                 self.paint_canvas(mui, MaraVec2::new(180.0, 120.0));
-                if ctx.can_enter_workspace()
-                    && mui.button("Open whiteboard workspace").clicked()
-                {
+                if ctx.can_enter_workspace() && mui.button("Open whiteboard workspace").clicked() {
                     out = ModuleResponse::enter_workspace();
                 }
             },
