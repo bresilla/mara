@@ -138,7 +138,7 @@ impl ShellBar {
     #[doc(hidden)]
     pub fn __internal_show_egui(
         &mut self,
-        ctx: &egui::Context,
+        ctx: &dyn crate::context::MaraCtx,
         open: &mut RibbonOpen,
         placement: &mut RibbonPlacement,
         drag: &mut RibbonDrag,

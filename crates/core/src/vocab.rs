@@ -811,6 +811,7 @@ impl Stroke {
     }
 }
 
+#[cfg(feature = "backend-egui-conv")]
 impl From<egui::Stroke> for Stroke {
     fn from(s: egui::Stroke) -> Self {
         Self {
@@ -820,6 +821,7 @@ impl From<egui::Stroke> for Stroke {
     }
 }
 
+#[cfg(feature = "backend-egui-conv")]
 impl From<Stroke> for egui::Stroke {
     fn from(s: Stroke) -> Self {
         egui::Stroke::new(s.width, s.color)
@@ -887,7 +889,12 @@ impl ColorImage {
         if pixels.len() != size[0] * size[1] || size[0] == 0 || size[1] == 0 {
             return Self(egui::ColorImage::filled([1, 1], egui::Color32::TRANSPARENT));
         }
-        let pixels: Vec<egui::Color32> = pixels.iter().map(|c| (*c).into()).collect();
+        // Constructed channel-wise rather than through the `From` impl:
+        // that conversion is feature-gated, and this constructor is not.
+        let pixels: Vec<egui::Color32> = pixels
+            .iter()
+            .map(|c| egui::Color32::from_rgba_premultiplied(c.r(), c.g(), c.b(), c.a()))
+            .collect();
         Self(egui::ColorImage {
             size,
             pixels,

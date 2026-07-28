@@ -152,7 +152,7 @@ impl<'a> ContainerSpec<'a> {
         );
         let mut seen = HashSet::with_capacity(tabs.len());
         assert!(
-            tabs.iter().all(|tab| seen.insert(tab.egui_id())),
+            tabs.iter().all(|tab| seen.insert(tab.id())),
             "tabbed containers require unique tab ids"
         );
         Self {

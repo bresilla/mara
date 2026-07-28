@@ -288,7 +288,7 @@ impl<'a> ViewCtx<'a> {
     /// caller to dispatch (PLAN.md Phase 3).
     pub fn show_ribbons(&self, ribbons: &[RibbonSlotDef]) -> Vec<RibbonSlotClick> {
         crate::ribbon::slot_paint::__internal_draw_view_ribbons(
-            self.egui_ctx,
+            self.ctx,
             self.region,
             self.workspace.current().id,
             self.accent,
@@ -300,9 +300,9 @@ impl<'a> ViewCtx<'a> {
     /// typed [`PaneBody`] — containers and pods only.
     pub fn show_pane<'spec>(&self, pane: Pane, body: impl FnOnce(&mut PaneBody<'_, 'spec>)) {
         let region = self.region;
-        let egui_ctx = self.egui_ctx;
-        crate::embed::__internal_with_node_region(self.ctx, region, || {
-            pane.__internal_show(egui_ctx, region, body);
+        let ctx = self.ctx;
+        crate::embed::__internal_with_node_region(ctx, region, || {
+            pane.__internal_show(ctx, region, body);
         });
     }
 
@@ -313,7 +313,7 @@ impl<'a> ViewCtx<'a> {
         shelves: Vec<ShelfDef<'_>>,
         state: &mut ShelfState,
     ) {
-        __internal_show_shelves_egui(self.egui_ctx, layout, shelves, state);
+        __internal_show_shelves_egui(self.ctx, layout, shelves, state);
     }
 
     /// Upload an image as a managed texture. Returns the retained

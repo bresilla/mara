@@ -531,7 +531,7 @@ pub const RAIL_INSET: f32 = crate::ribbon::EDGE_GAP + crate::ribbon::SIDE_BTN_SI
 /// space for ribbons on every side until we know better).
 pub(crate) fn published_ribbon_edges(ctx: &dyn crate::context::MaraCtx) -> [bool; 4] {
     ctx.memory()
-        .get_temp::<[bool; 4]>(egui::Id::new("mara_published_ribbon_edges"))
+        .get_temp::<[bool; 4]>(MaraId::new("mara_published_ribbon_edges"))
         .unwrap_or([true; 4])
 }
 

@@ -62,10 +62,6 @@ impl Tab {
     pub fn id(&self) -> MaraId {
         self.id
     }
-
-    pub(crate) fn egui_id(&self) -> egui::Id {
-        self.id.into()
-    }
 }
 
 fn tab_icon_is_present(icon: Icon<'_>) -> bool {
@@ -108,7 +104,7 @@ mod tests {
         let tab = Tab::new("tab-id", "Valid", "settings");
         let id: MaraId = tab.id();
 
-        assert_eq!(egui::Id::from(id), tab.egui_id());
+        assert_eq!(id, tab.id());
     }
 
     #[test]

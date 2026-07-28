@@ -35,8 +35,6 @@
 
 use std::hash::Hash;
 
-use egui;
-
 use crate::layout::{AreaHost, ChildRegion, CursorIcon, Layer, Sense as MaraSense, StackAlign};
 use crate::paint::PaintCmd;
 use crate::ribbon::{RibbonCluster, RibbonEdge};
@@ -652,13 +650,12 @@ fn fullscreen_minimize_button(
                     /* hovered */ resp.hovered(),
                 );
                 let glyph_col = if resp.hovered() {
-                    crate::style::contrast_text_for(accent).into()
+                    crate::style::contrast_text_for(accent)
                 } else {
-                    egui::Color32::from_rgba_unmultiplied(accent.r(), accent.g(), accent.b(), 220)
+                    MaraColor32::from_rgba_unmultiplied(accent.r(), accent.g(), accent.b(), 220)
                 };
                 if crate::icons::icon_fonts_ready()
-                    && let Some(cmd) =
-                        minimize_chip_icon_paint_cmd(rect, btn_size, glyph_col.into())
+                    && let Some(cmd) = minimize_chip_icon_paint_cmd(rect, btn_size, glyph_col)
                 {
                     mara.paint(cmd);
                 }
@@ -760,7 +757,7 @@ fn ribbon_style_chip_paint_cmds(
 ) -> [PaintCmd; 2] {
     let bg = if active {
         let blend = |a: u8, b: u8| ((a as f32) * 0.75 + (b as f32) * 0.25).round() as u8;
-        let tinted = egui::Color32::from_rgb(
+        let tinted = MaraColor32::from_rgb(
             blend(crate::style::theme().bg_raised.r(), accent.r()),
             blend(crate::style::theme().bg_raised.g(), accent.g()),
             blend(crate::style::theme().bg_raised.b(), accent.b()),
