@@ -539,8 +539,7 @@ mod tests {
 
     #[test]
     fn interactive_exclusions_win_over_resize_and_move() {
-        let raw = egui::Context::default();
-        let ctx = crate::backend::egui::EguiCtx::new(&raw);
+        let ctx = headless_ctx();
         __internal_publish_window_chrome_regions(
             &ctx,
             [Rect::from_min_max(
@@ -574,8 +573,7 @@ mod tests {
 
     #[test]
     fn host_chrome_capabilities_default_to_web_safe_disabled() {
-        let raw = egui::Context::default();
-        let ctx = crate::backend::egui::EguiCtx::new(&raw);
+        let ctx = headless_ctx();
         assert_eq!(
             __internal_window_chrome_host_capabilities(&ctx),
             WindowChromeHostCapabilities::default()
@@ -677,4 +675,15 @@ mod tests {
         assert!(!next_app_press.claimed);
         assert!(!state.claimed());
     }
+}
+
+/// A context for state-only assertions — see the note in
+/// `shelf::tests`. The recording backend is a `MaraCtx`, so tests that
+/// only exercise Mara's own bookkeeping need no backend.
+#[cfg(test)]
+fn headless_ctx() -> crate::backend::record::RecordingBackend {
+    crate::backend::record::RecordingBackend::at(crate::vocab::Rect::from_min_size(
+        crate::vocab::Pos2::ZERO,
+        crate::vocab::Vec2::new(1280.0, 800.0),
+    ))
 }

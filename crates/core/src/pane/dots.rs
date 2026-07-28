@@ -189,8 +189,7 @@ mod tests {
 
     #[test]
     fn dot_hit_rects_are_frame_local() {
-        let raw = egui::Context::default();
-        let ctx = crate::backend::egui::EguiCtx::new(&raw);
+        let ctx = headless_ctx();
         let pane_id = Id::new("pane");
         let rect = MaraRect::from_min_size(MaraPos2::new(10.0, 20.0), MaraVec2::new(30.0, 6.0));
 
@@ -203,8 +202,7 @@ mod tests {
 
     #[test]
     fn dot_hit_rects_are_scoped_per_pane() {
-        let raw = egui::Context::default();
-        let ctx = crate::backend::egui::EguiCtx::new(&raw);
+        let ctx = headless_ctx();
         let first = Id::new("first-pane");
         let second = Id::new("second-pane");
         let rect = MaraRect::from_min_size(MaraPos2::new(10.0, 20.0), MaraVec2::new(30.0, 6.0));
@@ -239,4 +237,15 @@ mod tests {
             assert_eq!(fill, MaraColor32::WHITE);
         }
     }
+}
+
+/// A context for state-only assertions — see the note in
+/// `shelf::tests`. The recording backend is a `MaraCtx`, so tests that
+/// only exercise Mara's own bookkeeping need no backend.
+#[cfg(test)]
+fn headless_ctx() -> crate::backend::record::RecordingBackend {
+    crate::backend::record::RecordingBackend::at(crate::vocab::Rect::from_min_size(
+        crate::vocab::Pos2::ZERO,
+        crate::vocab::Vec2::new(1280.0, 800.0),
+    ))
 }

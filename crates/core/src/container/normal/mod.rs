@@ -3781,14 +3781,13 @@ mod active_tab_tests {
 
     #[test]
     fn active_tab_resolution_prefers_stable_tab_id_over_stale_index() {
-        let raw = egui::Context::default();
-        let ctx = crate::backend::egui::EguiCtx::new(&raw);
+        let ctx = headless_ctx();
         let key = Id::new("active-tabs");
         let first = Id::new("first");
         let moved = Id::new("moved");
         let last = Id::new("last");
         {
-            let mut memory = crate::memory::MaraMemoryCtx::new(&ctx);
+            let mut memory = crate::context::MaraCtx::memory(&ctx);
             memory.set_persisted(key, 0usize);
             memory.set_persisted(active_tab_id_key(key), moved);
         };
@@ -3797,29 +3796,39 @@ mod active_tab_tests {
 
         assert_eq!(idx, 1);
         assert_eq!(
-            crate::memory::MaraMemoryCtx::new(&ctx).get_persisted::<usize>(key),
+            crate::context::MaraCtx::memory(&ctx).get_persisted::<usize>(key),
             Some(1)
         );
     }
 
     #[test]
     fn active_tab_resolution_clamps_index_and_repairs_active_id() {
-        let raw = egui::Context::default();
-        let ctx = crate::backend::egui::EguiCtx::new(&raw);
+        let ctx = headless_ctx();
         let key = Id::new("active-tabs");
         let only = Id::new("only");
-        crate::memory::MaraMemoryCtx::new(&ctx).set_persisted(key, 99usize);
+        crate::context::MaraCtx::memory(&ctx).set_persisted(key, 99usize);
 
         let idx = resolve_active_tab_idx(&ctx, key, &[only]);
 
         assert_eq!(idx, 0);
         assert_eq!(
-            crate::memory::MaraMemoryCtx::new(&ctx).get_persisted::<usize>(key),
+            crate::context::MaraCtx::memory(&ctx).get_persisted::<usize>(key),
             Some(0)
         );
         assert_eq!(
-            crate::memory::MaraMemoryCtx::new(&ctx).get_persisted::<Id>(active_tab_id_key(key)),
+            crate::context::MaraCtx::memory(&ctx).get_persisted::<Id>(active_tab_id_key(key)),
             Some(only)
         );
     }
+}
+
+/// A context for state-only assertions — see the note in
+/// `shelf::tests`. The recording backend is a `MaraCtx`, so tests that
+/// only exercise Mara's own bookkeeping need no backend.
+#[cfg(test)]
+fn headless_ctx() -> crate::backend::record::RecordingBackend {
+    crate::backend::record::RecordingBackend::at(crate::vocab::Rect::from_min_size(
+        crate::vocab::Pos2::ZERO,
+        crate::vocab::Vec2::new(1280.0, 800.0),
+    ))
 }

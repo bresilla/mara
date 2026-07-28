@@ -1772,8 +1772,7 @@ mod tests {
 
     #[test]
     fn published_pane_rects_are_mara_vocab_for_host_firewalls() {
-        let raw = egui::Context::default();
-        let ctx = crate::backend::egui::EguiCtx::new(&raw);
+        let ctx = headless_ctx();
         let raw = egui::Rect::from_min_max(egui::pos2(10.0, 20.0), egui::pos2(30.0, 50.0));
 
         publish_pane_rect(&ctx, raw);
@@ -1791,8 +1790,7 @@ mod tests {
 
     #[test]
     fn user_extents_sanitize_non_finite_values() {
-        let raw = egui::Context::default();
-        let ctx = crate::backend::egui::EguiCtx::new(&raw);
+        let ctx = headless_ctx();
         let pane_id = Id::new("pane");
 
         set_user_flow(&ctx, pane_id, f32::NAN);
@@ -1808,8 +1806,7 @@ mod tests {
 
     #[test]
     fn user_extents_clamp_to_safe_bounds() {
-        let raw = egui::Context::default();
-        let ctx = crate::backend::egui::EguiCtx::new(&raw);
+        let ctx = headless_ctx();
         let pane_id = Id::new("pane");
 
         set_user_flow(&ctx, pane_id, -100.0);
@@ -1825,8 +1822,7 @@ mod tests {
 
     #[test]
     fn body_extra_flow_accumulates_and_clears_per_pane() {
-        let raw = egui::Context::default();
-        let ctx = crate::backend::egui::EguiCtx::new(&raw);
+        let ctx = headless_ctx();
         let pane_id = Id::new("pane");
 
         publish_body_extra_flow(&ctx, pane_id, 6.0);
@@ -1839,8 +1835,7 @@ mod tests {
 
     #[test]
     fn body_extra_flow_sanitizes_invalid_values() {
-        let raw = egui::Context::default();
-        let ctx = crate::backend::egui::EguiCtx::new(&raw);
+        let ctx = headless_ctx();
         let pane_id = Id::new("pane");
 
         publish_body_extra_flow(&ctx, pane_id, f32::NAN);
@@ -1950,8 +1945,7 @@ mod tests {
 
     #[test]
     fn published_container_cids_are_frame_local() {
-        let raw = egui::Context::default();
-        let ctx = crate::backend::egui::EguiCtx::new(&raw);
+        let ctx = headless_ctx();
         let pane_id = Id::new("pane");
         let first = Id::new("first");
         let second = Id::new("second");
@@ -1966,8 +1960,7 @@ mod tests {
 
     #[test]
     fn published_container_cids_reject_duplicates_in_one_frame() {
-        let raw = egui::Context::default();
-        let ctx = crate::backend::egui::EguiCtx::new(&raw);
+        let ctx = headless_ctx();
         let pane_id = Id::new("pane");
         let container = Id::new("container");
 
@@ -1991,4 +1984,15 @@ mod tests {
 
         assert!(result.is_err());
     }
+}
+
+/// A context for state-only assertions — see the note in
+/// `shelf::tests`. The recording backend is a `MaraCtx`, so tests that
+/// only exercise Mara's own bookkeeping need no backend.
+#[cfg(test)]
+fn headless_ctx() -> crate::backend::record::RecordingBackend {
+    crate::backend::record::RecordingBackend::at(crate::vocab::Rect::from_min_size(
+        crate::vocab::Pos2::ZERO,
+        crate::vocab::Vec2::new(1280.0, 800.0),
+    ))
 }

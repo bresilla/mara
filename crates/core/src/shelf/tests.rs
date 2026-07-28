@@ -5,6 +5,18 @@ use crate::vocab::Color32;
 /// A second accent, distinguishable from the default in assertions.
 const OTHER_ACCENT: Color32 = Color32::from_rgb(140, 160, 250);
 
+/// A context for state-only assertions.
+///
+/// Most of these tests exercise Mara's own bookkeeping — drag state,
+/// published rects, gap flags — and need *a* `MaraCtx`, not egui's.
+/// The recording backend is one, so they run with no backend at all.
+fn headless_ctx() -> crate::backend::record::RecordingBackend {
+    crate::backend::record::RecordingBackend::at(crate::vocab::Rect::from_min_size(
+        crate::vocab::Pos2::ZERO,
+        crate::vocab::Vec2::new(1280.0, 800.0),
+    ))
+}
+
 fn test_tabs() -> Vec<Tab> {
     vec![Tab::new("test.tab", "Tab", "box")]
 }
@@ -207,8 +219,7 @@ fn container_move_target_slot_adopts_target_shelf_size() {
 
 #[test]
 fn external_container_gap_flag_is_frame_local() {
-    let raw = egui::Context::default();
-    let ctx = crate::backend::egui::EguiCtx::new(&raw);
+    let ctx = headless_ctx();
     let pane_id = Id::new("target-pane");
 
     mark_external_container_gap(&ctx, pane_id);
@@ -220,8 +231,7 @@ fn external_container_gap_flag_is_frame_local() {
 
 #[test]
 fn published_shelf_pane_info_is_cleared_before_shelf_render() {
-    let raw = egui::Context::default();
-    let ctx = crate::backend::egui::EguiCtx::new(&raw);
+    let ctx = headless_ctx();
     let info = ShelfPaneInfo {
         shelf_id: Id::new("stale-shelf"),
         pane_id: Id::new("stale-pane"),
@@ -242,8 +252,7 @@ fn published_shelf_pane_info_is_cleared_before_shelf_render() {
 
 #[test]
 fn publish_shelf_layout_sets_chrome_bounds_to_reserved_viewport() {
-    let raw = egui::Context::default();
-    let ctx = crate::backend::egui::EguiCtx::new(&raw);
+    let ctx = headless_ctx();
     let viewport = Rect::from_min_max(pos2(200.0, 0.0), pos2(900.0, 640.0));
     let layout = test_shelf_layout(
         viewport,
@@ -254,7 +263,7 @@ fn publish_shelf_layout_sets_chrome_bounds_to_reserved_viewport() {
 
     __internal_publish_shelf_layout(&ctx, layout);
 
-    let chrome = crate::memory::MaraMemoryCtx::new(&ctx)
+    let chrome = crate::context::MaraCtx::memory(&ctx)
         .get_temp::<MaraRect>(crate::ribbon::chrome::chrome_bounds_key())
         .expect("shelf layout should publish ribbon chrome bounds");
     assert_eq!(chrome, viewport.into());
@@ -271,8 +280,7 @@ fn publish_shelf_layout_sets_chrome_bounds_to_reserved_viewport() {
 
 #[test]
 fn show_shelves_publishes_hidden_shelf_presence_for_top_bar_buttons() {
-    let raw = egui::Context::default();
-    let ctx = crate::backend::egui::EguiCtx::new(&raw);
+    let ctx = headless_ctx();
     let shelf_id = Id::new("hidden-left");
     let mut state = ShelfState::default();
     state.set_edge_visible(ShelfEdge::Left, false);
@@ -367,6 +375,8 @@ fn bottom_shelf_content_is_not_lowered_for_top_ribbon() {
 
 #[test]
 fn show_shelves_sets_public_active_container_for_default_visible_container() {
+    // Drives a real frame — `show_shelves` renders, so this one
+    // needs the backend rather than a state-only context.
     let raw = egui::Context::default();
     let ctx = crate::backend::egui::EguiCtx::new(&raw);
     let shelf_id = Id::new("active-shelf");
@@ -402,6 +412,8 @@ fn show_shelves_sets_public_active_container_for_default_visible_container() {
 
 #[test]
 fn show_shelves_repairs_stale_public_active_container_from_rendered_group() {
+    // Drives a real frame — `show_shelves` renders, so this one
+    // needs the backend rather than a state-only context.
     let raw = egui::Context::default();
     let ctx = crate::backend::egui::EguiCtx::new(&raw);
     let shelf_id = Id::new("active-shelf");
@@ -444,6 +456,8 @@ fn show_shelves_repairs_stale_public_active_container_from_rendered_group() {
 
 #[test]
 fn show_shelves_clears_active_container_when_no_container_is_visible() {
+    // Drives a real frame — `show_shelves` renders, so this one
+    // needs the backend rather than a state-only context.
     let raw = egui::Context::default();
     let ctx = crate::backend::egui::EguiCtx::new(&raw);
     let shelf_id = Id::new("empty-shelf");
@@ -481,8 +495,7 @@ fn show_shelves_clears_active_container_when_no_container_is_visible() {
 
 #[test]
 fn commit_container_move_inserts_into_target_pane_order() {
-    let raw = egui::Context::default();
-    let ctx = crate::backend::egui::EguiCtx::new(&raw);
+    let ctx = headless_ctx();
     let target_pane = Id::new("target-pane");
     let source_pane = Id::new("source-pane");
     let target_shelf = Id::new("target-shelf");
@@ -600,8 +613,7 @@ fn commit_container_move_inserts_into_target_pane_order() {
 
 #[test]
 fn commit_container_move_inserts_into_bottom_target_order() {
-    let raw = egui::Context::default();
-    let ctx = crate::backend::egui::EguiCtx::new(&raw);
+    let ctx = headless_ctx();
     let target_pane = Id::new("bottom-target-pane");
     let target_shelf = Id::new("bottom-target-shelf");
     let dragged = Id::new("dragged");
@@ -663,8 +675,7 @@ fn commit_container_move_inserts_into_bottom_target_order() {
 
 #[test]
 fn commit_container_move_clamps_oversized_target_slot_to_end() {
-    let raw = egui::Context::default();
-    let ctx = crate::backend::egui::EguiCtx::new(&raw);
+    let ctx = headless_ctx();
     let target_pane = Id::new("target-pane");
     let dragged = Id::new("dragged");
     let first = Id::new("first");
@@ -713,8 +724,7 @@ fn commit_container_move_clamps_oversized_target_slot_to_end() {
 
 #[test]
 fn commit_container_move_deduplicates_existing_target_order_entry() {
-    let raw = egui::Context::default();
-    let ctx = crate::backend::egui::EguiCtx::new(&raw);
+    let ctx = headless_ctx();
     let target_pane = Id::new("target-pane");
     let dragged = Id::new("dragged");
     let first = Id::new("first");
@@ -769,8 +779,7 @@ fn commit_container_move_deduplicates_existing_target_order_entry() {
 
 #[test]
 fn commit_container_move_uses_live_target_cache_for_trailing_slot() {
-    let raw = egui::Context::default();
-    let ctx = crate::backend::egui::EguiCtx::new(&raw);
+    let ctx = headless_ctx();
     let target_pane = Id::new("target-pane");
     let dragged = Id::new("dragged");
     let first = Id::new("first");
@@ -838,8 +847,7 @@ fn commit_container_move_uses_live_target_cache_for_trailing_slot() {
 
 #[test]
 fn same_shelf_reorder_uses_live_cache_for_trailing_slot() {
-    let raw = egui::Context::default();
-    let ctx = crate::backend::egui::EguiCtx::new(&raw);
+    let ctx = headless_ctx();
     let pane_id = Id::new("shelf-pane");
     let dragged = Id::new("dragged");
     let first = Id::new("first");
@@ -897,8 +905,7 @@ fn same_shelf_reorder_uses_live_cache_for_trailing_slot() {
 
 #[test]
 fn commit_adopted_container_to_new_edge_keeps_current_shelf_owner() {
-    let raw = egui::Context::default();
-    let ctx = crate::backend::egui::EguiCtx::new(&raw);
+    let ctx = headless_ctx();
     let adopted_shelf = Id::new("adopted-shelf");
     let original_shelf = Id::new("original-shelf");
     let dragged = Id::new("dragged");
@@ -952,8 +959,7 @@ fn commit_adopted_container_to_new_edge_keeps_current_shelf_owner() {
 
 #[test]
 fn missing_published_target_clears_stale_container_move_slot() {
-    let raw = egui::Context::default();
-    let ctx = crate::backend::egui::EguiCtx::new(&raw);
+    let ctx = headless_ctx();
     let target_pane = Id::new("old-target-pane");
     let mut state = ShelfState {
         container_move: Some(ShelfContainerMoveState {
@@ -985,8 +991,7 @@ fn missing_published_target_clears_stale_container_move_slot() {
 
 #[test]
 fn published_target_clears_slot_when_cursor_left_target_shelf_rect() {
-    let raw = egui::Context::default();
-    let ctx = crate::backend::egui::EguiCtx::new(&raw);
+    let ctx = headless_ctx();
     let target_pane = Id::new("old-target-pane");
     let mut state = ShelfState {
         container_move: Some(ShelfContainerMoveState {
@@ -1032,8 +1037,7 @@ fn published_target_clears_slot_when_cursor_left_target_shelf_rect() {
 
 #[test]
 fn published_existing_shelf_target_tracks_middle_container_slot() {
-    let raw = egui::Context::default();
-    let ctx = crate::backend::egui::EguiCtx::new(&raw);
+    let ctx = headless_ctx();
     let target_shelf = Id::new("target-shelf");
     let target_pane = Id::new("target-pane");
     let dragged = Id::new("dragged");
@@ -1106,8 +1110,7 @@ fn published_existing_shelf_target_tracks_middle_container_slot() {
 
 #[test]
 fn published_existing_shelf_target_prefers_live_rendered_container_positions() {
-    let raw = egui::Context::default();
-    let ctx = crate::backend::egui::EguiCtx::new(&raw);
+    let ctx = headless_ctx();
     let target_shelf = Id::new("target-shelf");
     let target_pane = Id::new("target-pane");
     let dragged = Id::new("dragged");
@@ -1198,8 +1201,7 @@ fn published_existing_shelf_target_prefers_live_rendered_container_positions() {
 
 #[test]
 fn existing_shelf_slot_ghost_translates_local_shelf_rects_to_screen_space() {
-    let raw = egui::Context::default();
-    let ctx = crate::backend::egui::EguiCtx::new(&raw);
+    let ctx = headless_ctx();
     let target_pane = Id::new("target-pane");
     let dragged = Id::new("dragged");
     let target = Id::new("target");
@@ -1297,8 +1299,7 @@ fn container_move_target_does_not_snap_to_existing_left_shelf_from_canvas_band()
 
 #[test]
 fn shelf_target_cache_prefers_live_rects_but_keeps_dragged_geometry() {
-    let raw = egui::Context::default();
-    let ctx = crate::backend::egui::EguiCtx::new(&raw);
+    let ctx = headless_ctx();
     let pane_id = Id::new("target-pane");
     let dragged = Id::new("dragged");
     let live = Id::new("live");
@@ -1353,8 +1354,7 @@ fn shelf_target_cache_prefers_live_rects_but_keeps_dragged_geometry() {
 
 #[test]
 fn existing_shelf_slot_foreground_ghost_is_suppressed_when_inline_gap_was_marked() {
-    let raw = egui::Context::default();
-    let ctx = crate::backend::egui::EguiCtx::new(&raw);
+    let ctx = headless_ctx();
     let target_pane = Id::new("target-pane");
     let dragged = Id::new("dragged");
     let accent = Color32::from_rgb(10, 140, 220);
@@ -1414,8 +1414,7 @@ fn existing_shelf_slot_foreground_ghost_is_suppressed_when_inline_gap_was_marked
 
 #[test]
 fn published_bottom_shelf_target_tracks_horizontal_middle_slot() {
-    let raw = egui::Context::default();
-    let ctx = crate::backend::egui::EguiCtx::new(&raw);
+    let ctx = headless_ctx();
     let target_pane = Id::new("bottom-target-pane");
     let dragged = Id::new("dragged");
     let first = Id::new("first");
@@ -1648,8 +1647,7 @@ fn source_container_preview_is_suppressed_during_cross_shelf_drag() {
 
 #[test]
 fn source_shelf_gap_entry_reanchors_stale_right_shelf_rect() {
-    let raw = egui::Context::default();
-    let ctx = crate::backend::egui::EguiCtx::new(&raw);
+    let ctx = headless_ctx();
     let dragged = Id::new("dragged");
     let right_content = Rect::from_min_size(pos2(1660.0, 80.0), vec2(280.0, 820.0));
     let stale_left_rect = pane::RectEntry {
@@ -1673,8 +1671,7 @@ fn source_shelf_gap_entry_reanchors_stale_right_shelf_rect() {
 
 #[test]
 fn source_shelf_gap_entry_reanchors_stale_bottom_shelf_rect() {
-    let raw = egui::Context::default();
-    let ctx = crate::backend::egui::EguiCtx::new(&raw);
+    let ctx = headless_ctx();
     let dragged = Id::new("dragged");
     let bottom_content = Rect::from_min_size(pos2(280.0, 910.0), vec2(1320.0, 220.0));
     let stale_left_rect = pane::RectEntry {
@@ -1698,8 +1695,7 @@ fn source_shelf_gap_entry_reanchors_stale_bottom_shelf_rect() {
 
 #[test]
 fn source_shelf_snapshot_reanchors_dragged_entry_without_moving_siblings() {
-    let raw = egui::Context::default();
-    let ctx = crate::backend::egui::EguiCtx::new(&raw);
+    let ctx = headless_ctx();
     let pane_id = Id::new("right-shelf-pane");
     let dragged = Id::new("dragged");
     let sibling = Id::new("sibling");
@@ -1773,8 +1769,7 @@ fn external_container_gap_does_not_render_in_source_pane_or_source_edge() {
 
 #[test]
 fn commit_container_move_to_new_shelf_creates_detached_shelf_owner() {
-    let raw = egui::Context::default();
-    let ctx = crate::backend::egui::EguiCtx::new(&raw);
+    let ctx = headless_ctx();
     let dragged = Id::new("dragged");
     let source_shelf = Id::new("source-shelf");
     let detached_shelf = detached_shelf_id(source_shelf, dragged);
@@ -1808,8 +1803,7 @@ fn commit_container_move_to_new_shelf_creates_detached_shelf_owner() {
 
 #[test]
 fn commit_container_move_without_target_clears_stale_drag_state() {
-    let raw = egui::Context::default();
-    let ctx = crate::backend::egui::EguiCtx::new(&raw);
+    let ctx = headless_ctx();
     let dragged = Id::new("dragged");
     let source_pane = Id::new("source-pane");
     let mut state = ShelfState {
@@ -2030,8 +2024,7 @@ fn existing_shelf_container_ghost_preserves_slot_main_axis() {
 
 #[test]
 fn new_shelf_container_ghost_uses_target_shelf_content_rect() {
-    let raw = egui::Context::default();
-    let ctx = crate::backend::egui::EguiCtx::new(&raw);
+    let ctx = headless_ctx();
     let container_id = Id::new("dragged");
     let shelf_rect = Rect::from_min_size(pos2(0.0, 0.0), vec2(900.0, 180.0));
     let content_rect = shelf_rect.shrink(style::theme().shelf().padding);
@@ -2046,8 +2039,7 @@ fn new_shelf_container_ghost_uses_target_shelf_content_rect() {
 
 #[test]
 fn new_side_shelf_container_ghost_uses_target_shelf_width() {
-    let raw = egui::Context::default();
-    let ctx = crate::backend::egui::EguiCtx::new(&raw);
+    let ctx = headless_ctx();
     let container_id = Id::new("dragged");
     let shelf_rect = Rect::from_min_size(pos2(0.0, 0.0), vec2(300.0, 700.0));
     let content_rect = shelf_content_rect(ShelfEdge::Right, shelf_rect, style::theme().shelf());
@@ -2062,8 +2054,7 @@ fn new_side_shelf_container_ghost_uses_target_shelf_width() {
 
 #[test]
 fn container_move_preview_layout_reserves_new_side_shelf_for_ribbons() {
-    let raw = egui::Context::default();
-    let ctx = crate::backend::egui::EguiCtx::new(&raw);
+    let ctx = headless_ctx();
     let theme = *style::theme().shelf();
     let layout = test_shelf_layout(
         Rect::from_min_max(pos2(220.0, 0.0), pos2(1000.0, 800.0)),
@@ -2374,8 +2365,7 @@ fn container_new_bottom_shelf_ghost_respects_source_side_shelf() {
 
 #[test]
 fn container_drag_bottom_shelf_ghost_releases_empty_source_shelf() {
-    let raw = egui::Context::default();
-    let ctx = crate::backend::egui::EguiCtx::new(&raw);
+    let ctx = headless_ctx();
     let theme = *style::theme().shelf();
     let source_pane = Id::new("source-pane");
     let dragged = Id::new("dragged");
@@ -2422,8 +2412,7 @@ fn container_drag_bottom_shelf_ghost_releases_empty_source_shelf() {
 
 #[test]
 fn container_drag_bottom_shelf_ghost_releases_source_when_cache_not_ready() {
-    let raw = egui::Context::default();
-    let ctx = crate::backend::egui::EguiCtx::new(&raw);
+    let ctx = headless_ctx();
     let theme = *style::theme().shelf();
     let dragged = Id::new("dragged");
     let layout = test_shelf_layout(
@@ -2460,8 +2449,7 @@ fn container_drag_bottom_shelf_ghost_releases_source_when_cache_not_ready() {
 
 #[test]
 fn container_drag_bottom_shelf_ghost_keeps_non_empty_source_shelf_reserved() {
-    let raw = egui::Context::default();
-    let ctx = crate::backend::egui::EguiCtx::new(&raw);
+    let ctx = headless_ctx();
     let theme = *style::theme().shelf();
     let source_pane = Id::new("source-pane");
     let dragged = Id::new("dragged");
@@ -2516,8 +2504,7 @@ fn container_drag_bottom_shelf_ghost_keeps_non_empty_source_shelf_reserved() {
 
 #[test]
 fn container_drag_existing_shelf_does_not_use_full_shelf_drop_rect() {
-    let raw = egui::Context::default();
-    let ctx = crate::backend::egui::EguiCtx::new(&raw);
+    let ctx = headless_ctx();
     let theme = *style::theme().shelf();
     let source_pane = Id::new("source-pane");
     let dragged = Id::new("dragged");
@@ -2706,8 +2693,7 @@ fn canceling_shelf_move_preserves_original_edge() {
 
 #[test]
 fn shelf_move_start_rejects_container_rects() {
-    let raw = egui::Context::default();
-    let ctx = crate::backend::egui::EguiCtx::new(&raw);
+    let ctx = headless_ctx();
     let pane_id = Id::new("shelf-pane");
     let container_id = Id::new("container");
     pane::begin_drag_frame(&ctx, pane_id);
@@ -2733,8 +2719,7 @@ fn shelf_move_start_rejects_container_rects() {
 
 #[test]
 fn shelf_move_start_uses_container_frame_rect_when_available() {
-    let raw = egui::Context::default();
-    let ctx = crate::backend::egui::EguiCtx::new(&raw);
+    let ctx = headless_ctx();
     let pane_id = Id::new("shelf-pane");
     let container_id = Id::new("container");
     pane::begin_drag_frame(&ctx, pane_id);
@@ -2755,8 +2740,7 @@ fn shelf_move_start_uses_container_frame_rect_when_available() {
 
 #[test]
 fn shelf_move_start_rejects_container_dot_handles() {
-    let raw = egui::Context::default();
-    let ctx = crate::backend::egui::EguiCtx::new(&raw);
+    let ctx = headless_ctx();
     let pane_id = Id::new("shelf-pane");
     pane::clear_container_dot_rects(&ctx, pane_id);
     pane::record_container_dot_rect(
@@ -3260,8 +3244,7 @@ fn moved_shelf_cannot_collapse_into_existing_shelf_edge() {
 
 #[test]
 fn split_shelf_created_by_container_move_can_move_without_merging_with_source() {
-    let raw = egui::Context::default();
-    let ctx = crate::backend::egui::EguiCtx::new(&raw);
+    let ctx = headless_ctx();
     let source_shelf = Id::new("source-shelf");
     let kept_container = Id::new("kept-container");
     let moved_container = Id::new("moved-container");
@@ -3500,8 +3483,7 @@ fn moved_container_with_missing_owner_renders_in_existing_edge_shelf() {
 
 #[test]
 fn shelf_display_order_prefers_persisted_order_over_hashmap_iteration() {
-    let raw = egui::Context::default();
-    let ctx = crate::backend::egui::EguiCtx::new(&raw);
+    let ctx = headless_ctx();
     let pane_id = Id::new("shelf-pane");
     let first = Id::new("first");
     let second = Id::new("second");
@@ -3516,8 +3498,7 @@ fn shelf_display_order_prefers_persisted_order_over_hashmap_iteration() {
 
 #[test]
 fn active_container_fallback_uses_declared_order_not_response_map_order() {
-    let raw = egui::Context::default();
-    let ctx = crate::backend::egui::EguiCtx::new(&raw);
+    let ctx = headless_ctx();
     let pane_id = Id::new("shelf-pane");
     let first = Id::new("first");
     let second = Id::new("second");

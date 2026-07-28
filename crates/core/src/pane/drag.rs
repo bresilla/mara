@@ -17,8 +17,6 @@
 //!   rect renders at the cursor (paint-only, separate Area).
 
 use crate::vocab::Id;
-#[cfg(test)]
-use egui::Context;
 use egui::{Pos2, Rect, Vec2};
 
 use crate::layout::{AreaHost, Layer, Sense, UiBackend};
@@ -498,8 +496,7 @@ mod tests {
 
     #[test]
     fn section_order_repairs_duplicate_and_stale_persisted_ids() {
-        let raw = Context::default();
-        let ctx = crate::backend::egui::EguiCtx::new(&raw);
+        let ctx = headless_ctx();
         let pane_id = Id::new("pane");
         let first = Id::new("first");
         let second = Id::new("second");
@@ -516,8 +513,7 @@ mod tests {
 
     #[test]
     fn finalize_snapshot_carries_dragged_rect_when_render_skips_it() {
-        let raw = Context::default();
-        let ctx = crate::backend::egui::EguiCtx::new(&raw);
+        let ctx = headless_ctx();
         let pane_id = Id::new("pane");
         let dragged = Id::new("dragged");
         let still_rendered = Id::new("still-rendered");
@@ -561,8 +557,7 @@ mod tests {
 
     #[test]
     fn target_cache_prefers_live_rects_and_carries_dragged_snapshot() {
-        let raw = Context::default();
-        let ctx = crate::backend::egui::EguiCtx::new(&raw);
+        let ctx = headless_ctx();
         let pane_id = Id::new("pane");
         let dragged = Id::new("dragged");
         let live_new = Id::new("live-new");
@@ -637,4 +632,15 @@ mod tests {
             } if got == rect && stroke.color == MaraColor32::from_rgb(10, 20, 30)
         ));
     }
+}
+
+/// A context for state-only assertions — see the note in
+/// `shelf::tests`. The recording backend is a `MaraCtx`, so tests that
+/// only exercise Mara's own bookkeeping need no backend.
+#[cfg(test)]
+fn headless_ctx() -> crate::backend::record::RecordingBackend {
+    crate::backend::record::RecordingBackend::at(crate::vocab::Rect::from_min_size(
+        crate::vocab::Pos2::ZERO,
+        crate::vocab::Vec2::new(1280.0, 800.0),
+    ))
 }

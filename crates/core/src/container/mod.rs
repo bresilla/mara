@@ -264,8 +264,7 @@ mod tests {
 
     #[test]
     fn container_flow_sanitizes_non_finite_user_values() {
-        let raw = egui::Context::default();
-        let ctx = crate::backend::egui::EguiCtx::new(&raw);
+        let ctx = headless_ctx();
         let vertical = Id::new("vertical-container");
         let horizontal = Id::new("horizontal-container");
 
@@ -281,8 +280,7 @@ mod tests {
 
     #[test]
     fn container_initial_flow_ignores_non_finite_overrides() {
-        let raw = egui::Context::default();
-        let ctx = crate::backend::egui::EguiCtx::new(&raw);
+        let ctx = headless_ctx();
         let cid = Id::new("initial-flow-container");
 
         set_container_initial_flow(&ctx, cid, f32::NAN);
@@ -297,8 +295,7 @@ mod tests {
 
     #[test]
     fn intrinsic_flow_sanitizes_non_finite_measurements() {
-        let raw = egui::Context::default();
-        let ctx = crate::backend::egui::EguiCtx::new(&raw);
+        let ctx = headless_ctx();
         let cid = Id::new("intrinsic-container");
 
         record_container_intrinsic(&ctx, cid, f32::NEG_INFINITY);
@@ -308,8 +305,7 @@ mod tests {
 
     #[test]
     fn container_flow_clamps_to_orientation_bounds() {
-        let raw = egui::Context::default();
-        let ctx = crate::backend::egui::EguiCtx::new(&raw);
+        let ctx = headless_ctx();
         let vertical = Id::new("vertical-clamp-container");
         let horizontal = Id::new("horizontal-clamp-container");
 
@@ -322,4 +318,15 @@ mod tests {
             CONTAINER_HORIZONTAL_MIN_FLOW
         );
     }
+}
+
+/// A context for state-only assertions — see the note in
+/// `shelf::tests`. The recording backend is a `MaraCtx`, so tests that
+/// only exercise Mara's own bookkeeping need no backend.
+#[cfg(test)]
+fn headless_ctx() -> crate::backend::record::RecordingBackend {
+    crate::backend::record::RecordingBackend::at(crate::vocab::Rect::from_min_size(
+        crate::vocab::Pos2::ZERO,
+        crate::vocab::Vec2::new(1280.0, 800.0),
+    ))
 }

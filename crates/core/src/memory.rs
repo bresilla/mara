@@ -348,11 +348,10 @@ mod tests {
 
     #[test]
     fn memory_ctx_uses_mara_ids_for_temp_and_persisted_values() {
-        let raw = egui::Context::default();
-        let ctx = crate::backend::egui::EguiCtx::new(&raw);
+        let ctx = headless_ctx();
         let key = Id::new("memory-test");
 
-        let mut memory = MaraMemoryCtx::new(&ctx);
+        let mut memory = crate::context::MaraCtx::memory(&ctx);
         memory.set_temp(key, "frame".to_owned());
         memory.set_persisted(key.with("persisted"), 7_u32);
 
@@ -366,10 +365,9 @@ mod tests {
     /// caller falls back to a default. These pin all three.
     #[test]
     fn erased_store_keys_on_id_and_type_and_half() {
-        let raw = egui::Context::default();
-        let ctx = crate::backend::egui::EguiCtx::new(&raw);
+        let ctx = headless_ctx();
         let key = Id::new("erasure");
-        let mut memory = MaraMemoryCtx::new(&ctx);
+        let mut memory = crate::context::MaraCtx::memory(&ctx);
 
         // Type is part of the key: two types share one id without
         // clobbering each other, as the backend stores allow.
@@ -411,12 +409,14 @@ mod tests {
     /// is keyed by the host, not by the handle that reached it.
     #[test]
     fn facades_over_one_context_share_a_store() {
-        let raw = egui::Context::default();
-        let ctx = crate::backend::egui::EguiCtx::new(&raw);
+        let ctx = headless_ctx();
         let key = Id::new("shared");
 
-        MaraMemoryCtx::new(&ctx).set_temp(key, 5_u32);
-        assert_eq!(MaraMemoryCtx::new(&ctx).get_temp::<u32>(key), Some(5));
+        crate::context::MaraCtx::memory(&ctx).set_temp(key, 5_u32);
+        assert_eq!(
+            crate::context::MaraCtx::memory(&ctx).get_temp::<u32>(key),
+            Some(5)
+        );
     }
 
     #[test]
@@ -447,4 +447,15 @@ mod tests {
         assert_eq!(memory.animate_bool(key.with("a"), false, 0.25), 0.0);
         assert_eq!(memory.animate_value(key.with("v"), 3.5, 0.25), 3.5);
     }
+}
+
+/// A context for state-only assertions — see the note in
+/// `shelf::tests`. The recording backend is a `MaraCtx`, so tests that
+/// only exercise Mara's own bookkeeping need no backend.
+#[cfg(test)]
+fn headless_ctx() -> crate::backend::record::RecordingBackend {
+    crate::backend::record::RecordingBackend::at(crate::vocab::Rect::from_min_size(
+        crate::vocab::Pos2::ZERO,
+        crate::vocab::Vec2::new(1280.0, 800.0),
+    ))
 }

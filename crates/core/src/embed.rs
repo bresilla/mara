@@ -928,8 +928,7 @@ mod tests {
 
     #[test]
     fn node_region_nests_and_restores() {
-        let raw = egui::Context::default();
-        let ctx = crate::backend::egui::EguiCtx::new(&raw);
+        let ctx = headless_ctx();
         let outer = Rect::from_min_size(Pos2::new(0.0, 0.0), Vec2::new(100.0, 100.0));
         let inner = Rect::from_min_size(Pos2::new(10.0, 10.0), Vec2::new(20.0, 20.0));
 
@@ -1090,4 +1089,15 @@ mod tests {
             } if points.len() == 3 && *fill == accent && *stroke == MaraStroke::NONE
         ));
     }
+}
+
+/// A context for state-only assertions — see the note in
+/// `shelf::tests`. The recording backend is a `MaraCtx`, so tests that
+/// only exercise Mara's own bookkeeping need no backend.
+#[cfg(test)]
+fn headless_ctx() -> crate::backend::record::RecordingBackend {
+    crate::backend::record::RecordingBackend::at(crate::vocab::Rect::from_min_size(
+        crate::vocab::Pos2::ZERO,
+        crate::vocab::Vec2::new(1280.0, 800.0),
+    ))
 }

@@ -535,12 +535,11 @@ fn tab_drag_preview_paint_cmds(rect: MaraRect, accent: MaraColor32) -> [PaintCmd
 #[cfg(test)]
 mod tests {
     use super::*;
-    use egui::{Context, pos2, vec2};
+    use egui::{pos2, vec2};
 
     #[test]
     fn drag_target_ignores_source_tab_button_for_same_strip_slots() {
-        let raw = Context::default();
-        let ctx = crate::backend::egui::EguiCtx::new(&raw);
+        let ctx = headless_ctx();
         let pane_id = Id::new("pane");
         let container_id = Id::new("container");
         let first = Id::new("first");
@@ -614,8 +613,7 @@ mod tests {
 
     #[test]
     fn drag_target_ignores_source_tab_button_for_vertical_same_strip_slots() {
-        let raw = Context::default();
-        let ctx = crate::backend::egui::EguiCtx::new(&raw);
+        let ctx = headless_ctx();
         let pane_id = Id::new("pane");
         let container_id = Id::new("container");
         let first = Id::new("first");
@@ -661,8 +659,7 @@ mod tests {
 
     #[test]
     fn drag_target_keeps_foreign_strip_buttons() {
-        let raw = Context::default();
-        let ctx = crate::backend::egui::EguiCtx::new(&raw);
+        let ctx = headless_ctx();
         let pane_id = Id::new("pane");
         let source_container = Id::new("source");
         let target_container = Id::new("target");
@@ -709,8 +706,7 @@ mod tests {
 
     #[test]
     fn retain_containers_prunes_stale_tab_drop_targets() {
-        let raw = Context::default();
-        let ctx = crate::backend::egui::EguiCtx::new(&raw);
+        let ctx = headless_ctx();
         let pane_id = Id::new("pane");
         let current = Id::new("current");
         let stale = Id::new("removed");
@@ -752,8 +748,7 @@ mod tests {
 
     #[test]
     fn commit_drop_seeds_empty_target_order_from_live_tabs() {
-        let raw = Context::default();
-        let ctx = crate::backend::egui::EguiCtx::new(&raw);
+        let ctx = headless_ctx();
         let pane_id = Id::new("pane");
         let source = Id::new("source");
         let target = Id::new("target");
@@ -803,8 +798,7 @@ mod tests {
 
     #[test]
     fn route_repairs_duplicate_and_stale_persisted_tab_order() {
-        let raw = Context::default();
-        let ctx = crate::backend::egui::EguiCtx::new(&raw);
+        let ctx = headless_ctx();
         let pane_id = Id::new("pane");
         let container = Id::new("container");
         let first = Id::new("first");
@@ -831,8 +825,7 @@ mod tests {
 
     #[test]
     fn route_ignores_stale_persisted_owner_containers() {
-        let raw = Context::default();
-        let ctx = crate::backend::egui::EguiCtx::new(&raw);
+        let ctx = headless_ctx();
         let pane_id = Id::new("pane");
         let container = Id::new("container");
         let removed_container = Id::new("removed-container");
@@ -851,8 +844,7 @@ mod tests {
 
     #[test]
     fn moved_out_tabs_do_not_reappear_when_source_container_changes_pane() {
-        let raw = Context::default();
-        let ctx = crate::backend::egui::EguiCtx::new(&raw);
+        let ctx = headless_ctx();
         let first_pane = Id::new("first-pane");
         let second_pane = Id::new("second-pane");
         let source = Id::new("source-container");
@@ -877,8 +869,7 @@ mod tests {
 
     #[test]
     fn commit_drop_uses_vertical_live_target_order() {
-        let raw = Context::default();
-        let ctx = crate::backend::egui::EguiCtx::new(&raw);
+        let ctx = headless_ctx();
         let pane_id = Id::new("pane");
         let source = Id::new("source");
         let target = Id::new("target");
@@ -924,8 +915,7 @@ mod tests {
 
     #[test]
     fn commit_drop_same_container_reorders_from_live_tabs_without_duplication() {
-        let raw = Context::default();
-        let ctx = crate::backend::egui::EguiCtx::new(&raw);
+        let ctx = headless_ctx();
         let pane_id = Id::new("pane");
         let container = Id::new("container");
         let first = Id::new("first");
@@ -970,8 +960,7 @@ mod tests {
 
     #[test]
     fn commit_drop_selects_dropped_tab_in_target_container() {
-        let raw = Context::default();
-        let ctx = crate::backend::egui::EguiCtx::new(&raw);
+        let ctx = headless_ctx();
         let pane_id = Id::new("pane");
         let source = Id::new("source");
         let target = Id::new("target");
@@ -1003,9 +992,9 @@ mod tests {
         commit_drop(&ctx, pane_id, dragged, source, target, 1);
 
         let active =
-            crate::memory::MaraMemoryCtx::new(&ctx).get_persisted::<usize>(active_tab_key(target));
+            crate::context::MaraCtx::memory(&ctx).get_persisted::<usize>(active_tab_key(target));
         let active_id =
-            crate::memory::MaraMemoryCtx::new(&ctx).get_persisted::<Id>(active_tab_id_key(target));
+            crate::context::MaraCtx::memory(&ctx).get_persisted::<Id>(active_tab_id_key(target));
         assert_eq!(
             active,
             Some(1),
@@ -1020,8 +1009,7 @@ mod tests {
 
     #[test]
     fn commit_drop_same_container_selects_reordered_tab() {
-        let raw = Context::default();
-        let ctx = crate::backend::egui::EguiCtx::new(&raw);
+        let ctx = headless_ctx();
         let pane_id = Id::new("pane");
         let container = Id::new("container");
         let first = Id::new("first");
@@ -1051,10 +1039,10 @@ mod tests {
 
         commit_drop(&ctx, pane_id, dragged, container, container, 2);
 
-        let active = crate::memory::MaraMemoryCtx::new(&ctx)
-            .get_persisted::<usize>(active_tab_key(container));
-        let active_id = crate::memory::MaraMemoryCtx::new(&ctx)
-            .get_persisted::<Id>(active_tab_id_key(container));
+        let active =
+            crate::context::MaraCtx::memory(&ctx).get_persisted::<usize>(active_tab_key(container));
+        let active_id =
+            crate::context::MaraCtx::memory(&ctx).get_persisted::<Id>(active_tab_id_key(container));
         assert_eq!(
             active,
             Some(2),
@@ -1062,4 +1050,15 @@ mod tests {
         );
         assert_eq!(active_id, Some(dragged));
     }
+}
+
+/// A context for state-only assertions — see the note in
+/// `shelf::tests`. The recording backend is a `MaraCtx`, so tests that
+/// only exercise Mara's own bookkeeping need no backend.
+#[cfg(test)]
+fn headless_ctx() -> crate::backend::record::RecordingBackend {
+    crate::backend::record::RecordingBackend::at(crate::vocab::Rect::from_min_size(
+        crate::vocab::Pos2::ZERO,
+        crate::vocab::Vec2::new(1280.0, 800.0),
+    ))
 }
