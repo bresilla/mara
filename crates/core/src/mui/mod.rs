@@ -1271,6 +1271,12 @@ impl crate::layout::UiBackend for MaraBackend<'_> {
             Self::Recording(b) => b.in_scope(horizontal, body),
         }
     }
+    fn in_wrapped_row(&mut self, body: &mut dyn FnMut(&mut dyn UiBackend)) {
+        match self {
+            Self::Egui(b) => b.in_wrapped_row(body),
+            Self::Recording(b) => b.in_wrapped_row(body),
+        }
+    }
     fn make_painter(&self, spec: crate::layout::PaintSurfaceSpec) -> MaraPainter {
         match self {
             Self::Egui(b) => b.make_painter(spec),

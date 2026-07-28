@@ -658,12 +658,12 @@ fn push_unique_edge(
 /// `MaraHostCtx` instead of passing raw backend context handles around.
 #[doc(hidden)]
 pub fn __internal_show_shelves_egui<'a>(
-    ctx: &egui::Context,
+    ctx: &dyn crate::context::MaraCtx,
     layout: ShelfLayout,
     shelves: Vec<ShelfDef<'a>>,
     state: &mut ShelfState,
 ) {
-    crate::enforce::__internal_enforce_defaults(ctx);
+    ctx.enforce_defaults();
     assert_unique_shelf_ids(&shelves);
     __internal_publish_shelf_layout(ctx, layout);
     publish_shelf_presence(ctx, shelf_presence_for(&shelves, state));

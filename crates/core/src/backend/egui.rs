@@ -453,6 +453,13 @@ impl UiBackend for EguiUiBackend<'_> {
         });
     }
 
+    fn in_wrapped_row(&mut self, body: &mut dyn FnMut(&mut dyn UiBackend)) {
+        self.ui.horizontal_wrapped(|child_ui| {
+            let mut child = EguiUiBackend::new(child_ui);
+            body(&mut child);
+        });
+    }
+
     fn in_scope(&mut self, horizontal: bool, body: &mut dyn FnMut(&mut dyn UiBackend)) {
         let run = |child_ui: &mut egui::Ui| {
             let mut child = EguiUiBackend::new(child_ui);

@@ -1087,6 +1087,16 @@ pub trait UiBackend {
     /// [`UiBackend::in_child`].
     fn in_scope(&mut self, horizontal: bool, body: &mut dyn FnMut(&mut dyn UiBackend));
 
+    /// Run `body` in a horizontal scope that wraps onto a new line when
+    /// it runs out of width — a tag strip, a chip cloud.
+    ///
+    /// Distinct from [`in_scope`](UiBackend::in_scope): that one runs
+    /// off the edge. The default does not wrap, which is the honest
+    /// behaviour for a backend with no line-breaking layout.
+    fn in_wrapped_row(&mut self, body: &mut dyn FnMut(&mut dyn UiBackend)) {
+        self.in_scope(true, body);
+    }
+
     /// A [`MaraPainter`](crate::mui::MaraPainter) drawing into the
     /// surface described by `spec` (the remaining region or an explicit
     /// clip). The default records into an internal command list (its
@@ -1464,6 +1474,9 @@ impl<T: UiBackend + ?Sized> UiBackend for &mut T {
     }
     fn in_scope(&mut self, horizontal: bool, body: &mut dyn FnMut(&mut dyn UiBackend)) {
         (**self).in_scope(horizontal, body)
+    }
+    fn in_wrapped_row(&mut self, body: &mut dyn FnMut(&mut dyn UiBackend)) {
+        (**self).in_wrapped_row(body)
     }
     fn make_painter(&self, spec: PaintSurfaceSpec) -> crate::mui::MaraPainter {
         (**self).make_painter(spec)

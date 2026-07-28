@@ -19,7 +19,6 @@
 //! ```
 
 use crate::vocab::Id;
-use egui::Ui;
 
 use crate::container::SeparatorStyle;
 use crate::memory::MaraMemory;
@@ -508,7 +507,7 @@ enum WidgetSpec {
     /// exposing arbitrary egui hooks.
     Custom {
         units: usize,
-        paint: Box<dyn FnOnce(&mut Ui) + Send + Sync>,
+        paint: Box<dyn FnOnce(&mut crate::MaraUi<'_>) + Send + Sync>,
     },
 }
 
@@ -1414,9 +1413,8 @@ impl Pod {
     where
         F: FnOnce(&mut crate::widget::TreeBody) + Send + Sync + 'static,
     {
-        self.with_custom_units(units, move |ui| {
-            let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
-            let mut tb = crate::widget::TreeBody::new(&mut backend);
+        self.with_custom_units(units, move |mara| {
+            let mut tb = crate::widget::TreeBody::new(mara.backend_mut());
             body(&mut tb);
         })
     }
@@ -1430,7 +1428,7 @@ impl Pod {
     pub fn with_custom_units(
         mut self,
         units: usize,
-        paint: impl FnOnce(&mut Ui) + Send + Sync + 'static,
+        paint: impl FnOnce(&mut crate::MaraUi<'_>) + Send + Sync + 'static,
     ) -> Self {
         self.widgets.push(WidgetSpec::Custom {
             units: units.max(1),
@@ -1567,6 +1565,9 @@ fn paint_widgets(
 ) -> PodResponse {
     let mut response = PodResponse::default();
     let widget_spacing = theme().pod.widget_spacing;
+    // A custom slot paints its own content, so it gets the ambient
+    // accent rather than a widget-specific one.
+    let accent_for_custom = crate::style::active_accent();
     // Per-kind stable indices: the Nth `with_search` keeps its
     // own state key independent of any buttons / toggles /
     // progress bars declared between them.
@@ -2104,17 +2105,17 @@ fn paint_widgets(
                 }
                 WidgetSpec::Tags(cfg) => {
                     let mut clicked: Option<usize> = None;
-                    if let Some(ui) = backend.__internal_egui_ui_mut() {
-                        ui.horizontal_wrapped(|ui| {
-                            crate::backend::egui::apply_item_spacing_spec(
-                                ui,
-                                crate::layout::ItemSpacingSpec::new(crate::vocab::Vec2::new(
-                                    3.0, 3.0,
-                                )),
-                            );
+                    {
+                        backend.in_wrapped_row(&mut |backend| {
+                            backend.set_item_spacing(crate::layout::ItemSpacingSpec::new(
+                                crate::vocab::Vec2::new(3.0, 3.0),
+                            ));
                             for (i, item) in cfg.items.iter().enumerate() {
-                                let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
                                 let fill = item.fill.unwrap_or_else(|| chip_fill(cfg.accent));
+                                // `chip_colored_backend` is generic over a
+                                // sized backend; reborrow so the fat
+                                // pointer itself is what gets passed.
+                                let mut backend = &mut *backend;
                                 let resp = chip_colored_backend(
                                     &mut backend,
                                     &item.label,
@@ -2191,9 +2192,7 @@ fn paint_widgets(
                     module_idx += 1;
                 }
                 WidgetSpec::Custom { paint, .. } => {
-                    if let Some(ui) = backend.__internal_egui_ui_mut() {
-                        paint(ui);
-                    }
+                    paint(&mut crate::MaraUi::over(backend, accent_for_custom));
                 }
             }
         });

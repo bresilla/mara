@@ -290,23 +290,29 @@ impl PodCodeEditorExt for mara_core::pod::Pod {
     ) -> Self {
         let text_id: egui::Id = text_id.into().into();
         let default = default_text.into();
-        self.with_custom_units(10, move |ui| {
-            let mut text: String = ui
+        let key = mara_core::vocab::Id::from(text_id);
+        self.with_custom_units(10, move |mara| {
+            let mut text: String = mara
                 .ctx()
-                .data(|d| d.get_temp::<String>(text_id))
+                .memory()
+                .get_temp::<String>(key)
                 .unwrap_or_else(|| default.clone());
-            let avail = ui.available_size_before_wrap();
+            let avail = mara.available_rect().size();
             let accent = mara_core::style::active_accent();
-            mara_code_editor_with_opts(
-                ui,
-                text_id,
-                &mut text,
-                syntax.clone(),
-                accent,
-                avail,
-                fs_opts,
-            );
-            ui.ctx().data_mut(|d| d.insert_temp(text_id, text));
+            // The vendored editor still takes a backend surface; this
+            // crate is host tier, so it unwraps here.
+            if let Some(ui) = mara.__internal_egui_ui_mut() {
+                mara_code_editor_with_opts(
+                    ui,
+                    text_id,
+                    &mut text,
+                    syntax.clone(),
+                    accent,
+                    egui::Vec2::from(avail),
+                    fs_opts,
+                );
+            }
+            mara.ctx().memory().set_temp(key, text);
         })
     }
 }
