@@ -688,3 +688,101 @@ fn translate_event_to_sub(ev: &mut egui::Event, rect: Rect, pos_scale: f32) {
         _ => {}
     }
 }
+
+/// Characterisation tests for the pan/zoom state machine.
+///
+/// PLAN.md WS-D1.4 replaces `node_view::show` wholesale with
+/// `ViewCtx::offscreen`, and D1.1 notes the migration was unverifiable
+/// for want of a harness — this crate ships one test for 4 457 lines.
+/// Rendering cannot be characterised cheaply, but `NodeViewState` can:
+/// it is pure state, and every behaviour below is one the replacement
+/// has to reproduce or knowingly change.
+#[cfg(test)]
+mod state_characterisation {
+    use super::*;
+
+    #[test]
+    fn a_fresh_state_is_unzoomed_and_unpanned() {
+        let state = NodeViewState::new();
+        assert_eq!(state.zoom(), 1.0);
+        assert_eq!(state.pan(), Vec2::ZERO);
+    }
+
+    #[test]
+    fn pan_round_trips() {
+        let mut state = NodeViewState::new();
+        state.set_pan(Vec2::new(12.0, -30.0));
+        assert_eq!(state.pan(), Vec2::new(12.0, -30.0));
+    }
+
+    #[test]
+    fn zoom_clamps_to_the_usable_range() {
+        let mut state = NodeViewState::new();
+
+        state.set_zoom(1000.0);
+        assert_eq!(state.zoom(), 10.0, "zoom in saturates at 10x");
+
+        state.set_zoom(0.0001);
+        assert_eq!(state.zoom(), 0.1, "zoom out saturates at 0.1x");
+
+        state.set_zoom(-5.0);
+        assert_eq!(state.zoom(), 0.1, "a negative zoom is not a flip");
+    }
+
+    #[test]
+    fn adjust_zoom_is_multiplicative_and_factor_above_one_zooms_in() {
+        let mut state = NodeViewState::new();
+        state.set_zoom(2.0);
+
+        state.adjust_zoom(1.5, Vec2::ZERO);
+        assert_eq!(state.zoom(), 3.0);
+
+        state.adjust_zoom(0.5, Vec2::ZERO);
+        assert_eq!(state.zoom(), 1.5);
+    }
+
+    /// The subtle one. Clamping happens on *each* `set_zoom`, not on a
+    /// separately-tracked ideal, so an over-zoom is lost rather than
+    /// remembered: 100x clamps to 10x, and halving from there gives 5x,
+    /// not 50x. A reimplementation that keeps an unclamped accumulator
+    /// would pass every other test here and fail this one.
+    #[test]
+    fn clamping_is_not_recoverable() {
+        let mut state = NodeViewState::new();
+        state.set_zoom(100.0);
+        assert_eq!(state.zoom(), 10.0);
+
+        state.adjust_zoom(0.5, Vec2::ZERO);
+        assert_eq!(state.zoom(), 5.0, "the discarded 90x must not come back");
+    }
+
+    #[test]
+    fn repeated_zoom_out_saturates_rather_than_underflowing() {
+        let mut state = NodeViewState::new();
+        for _ in 0..50 {
+            state.adjust_zoom(0.5, Vec2::ZERO);
+        }
+        assert_eq!(state.zoom(), 0.1);
+        assert!(state.zoom() > 0.0, "zoom must never reach a degenerate 0");
+    }
+
+    #[test]
+    fn the_first_frame_gate_opens_exactly_once() {
+        let mut state = NodeViewState::new();
+        assert!(state.take_first_frame(), "first call gates setup in");
+        assert!(!state.take_first_frame());
+        assert!(!state.take_first_frame());
+    }
+
+    /// `set_zoom` moves the smoothing target too, so an external caller
+    /// (the resize-fit reset) snaps instead of animating. Observable
+    /// only through the absence of drift: nothing further changes the
+    /// zoom once set.
+    #[test]
+    fn set_zoom_snaps_rather_than_animating() {
+        let mut state = NodeViewState::new();
+        state.set_zoom(4.0);
+        assert_eq!(state.zoom(), 4.0);
+        assert_eq!(state.zoom(), 4.0, "no interpolation without a frame");
+    }
+}
