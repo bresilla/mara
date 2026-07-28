@@ -761,6 +761,16 @@ impl Color32 {
         self.0[3]
     }
 
+    /// The four premultiplied channels, `[r, g, b, a]`.
+    ///
+    /// For code that hashes or serialises a colour rather than reading
+    /// one channel — open-coding `[c.r(), c.g(), c.b(), c.a()]` at each
+    /// such site is what this replaces.
+    #[must_use]
+    pub const fn to_array(self) -> [u8; 4] {
+        self.0
+    }
+
     /// Back to straight alpha.
     #[must_use]
     pub fn to_srgba_unmultiplied(self) -> [u8; 4] {

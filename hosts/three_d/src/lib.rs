@@ -510,8 +510,8 @@ impl View3d {
         }
 
         let painter = ui.painter_at(rect);
-        let accent: egui::Color32 = mara_core::style::active_accent().into();
-        let background: egui::Color32 =
+        let accent: MaraColor32 = mara_core::style::active_accent().into();
+        let background: MaraColor32 =
             mara_core::style::fill_for(mara_core::style::FillRole::Pane, accent).into();
         painter.rect_filled(rect, 0.0, background);
         let interactive_preview = gizmo_used
@@ -921,7 +921,7 @@ impl View3d {
         }
     }
 
-    fn material_color(&self, material: MaterialId) -> egui::Color32 {
+    fn material_color(&self, material: MaterialId) -> MaraColor32 {
         self.scene.material(material).map_or_else(
             || mara_core::style::active_accent().into(),
             |material| material.base_color.into(),
@@ -1527,7 +1527,7 @@ impl View3d {
         rect: egui::Rect,
         camera: &PreviewCamera,
         step: f32,
-        accent: egui::Color32,
+        accent: MaraColor32,
     ) {
         let base_step = step.max(0.001);
         let cam_dist = self.orbit.distance.max(0.1);
@@ -1617,7 +1617,7 @@ impl View3d {
             }
             let stroke = egui::Stroke::new(
                 line.width,
-                egui::Color32::from_rgba_unmultiplied(
+                MaraColor32::from_rgba_unmultiplied(
                     grid_color.r(),
                     grid_color.g(),
                     grid_color.b(),
@@ -1657,7 +1657,7 @@ impl View3d {
         max_x: i32,
         min_z: i32,
         max_z: i32,
-        color: egui::Color32,
+        color: MaraColor32,
         fade: f32,
     ) {
         let stride = (self.orbit.distance / (spacing * 18.0)).ceil().max(1.0) as i32;
@@ -1694,7 +1694,7 @@ impl View3d {
                 painter.circle_filled(
                     screen,
                     radius,
-                    egui::Color32::from_rgba_unmultiplied(
+                    MaraColor32::from_rgba_unmultiplied(
                         color.r(),
                         color.g(),
                         color.b(),
@@ -1968,7 +1968,7 @@ struct PreviewFace {
     depths: [f32; 3],
     uvs: Option<[[f32; 2]; 3]>,
     texture: Option<Texture3d>,
-    fills: [egui::Color32; 3],
+    fills: [MaraColor32; 3],
 }
 
 #[cfg(feature = "gpu-preview")]
@@ -2009,7 +2009,7 @@ struct GpuPreviewBatch {
 struct GpuPreviewTextureSource {
     id: TextureId,
     size: [u32; 2],
-    pixels: Vec<egui::Color32>,
+    pixels: Vec<MaraColor32>,
 }
 
 #[cfg(feature = "gpu-preview")]
@@ -2301,7 +2301,7 @@ fn append_gpu_scene_mesh(
     }
     let base = scene
         .material(object.material)
-        .map_or(egui::Color32::WHITE, |material| material.base_color.into());
+        .map_or(MaraColor32::WHITE, |material| material.base_color.into());
     for triangle in &mesh.indices {
         let triangle = triangle.map(|index| index as usize);
         if triangle.iter().any(|index| *index >= mesh.vertices.len()) {
@@ -3025,7 +3025,7 @@ impl GpuPreviewResources {
         let source = GpuPreviewTextureSource {
             id: TextureId(0),
             size: [1, 1],
-            pixels: vec![egui::Color32::WHITE],
+            pixels: vec![MaraColor32::WHITE],
         };
         self.white_bind_group = Some(create_texture_bind_group(device, queue, self, &source));
     }
@@ -3228,7 +3228,7 @@ fn gpu_preview_target_size(
 }
 
 #[cfg(feature = "gpu-preview")]
-fn texture_pixels_as_bytes(pixels: &[egui::Color32], width: usize, height: usize) -> Vec<u8> {
+fn texture_pixels_as_bytes(pixels: &[MaraColor32], width: usize, height: usize) -> Vec<u8> {
     let mut bytes = vec![255_u8; width * height * 4];
     for (i, pixel) in pixels.iter().take(width * height).enumerate() {
         let offset = i * 4;
@@ -3268,7 +3268,7 @@ fn gpu_depth(depth: f32) -> f32 {
 }
 
 #[cfg(feature = "gpu-preview")]
-fn pack_color32(color: egui::Color32) -> u32 {
+fn pack_color32(color: MaraColor32) -> u32 {
     u32::from(color.r())
         | (u32::from(color.g()) << 8)
         | (u32::from(color.b()) << 16)
@@ -3304,7 +3304,7 @@ fn paint_faces_supersampled(
         .max(1);
     let width = low_width * scale;
     let height = low_height * scale;
-    let mut pixels = vec![egui::Color32::TRANSPARENT; width * height];
+    let mut pixels = vec![MaraColor32::TRANSPARENT; width * height];
     let mut depth = vec![f32::INFINITY; width * height];
     let scale = scale as f32;
 
@@ -3312,9 +3312,11 @@ fn paint_faces_supersampled(
         rasterize_face(rect, scale, width, height, &mut pixels, &mut depth, &face);
     }
 
+    // The CPU rasteriser above works in Mara vocabulary; this is the
+    // one place the pixels cross into the backend's image type.
     let image = egui::ColorImage {
         size: [width, height],
-        pixels,
+        pixels: pixels.into_iter().map(Into::into).collect(),
         source_size: egui::vec2(width as f32, height as f32),
     };
 
@@ -3380,7 +3382,7 @@ fn rasterize_face(
     scale: f32,
     width: usize,
     height: usize,
-    pixels: &mut [egui::Color32],
+    pixels: &mut [MaraColor32],
     depth: &mut [f32],
     face: &PreviewFace,
 ) {
@@ -3463,7 +3465,7 @@ fn edge_function(a: egui::Pos2, b: egui::Pos2, c: egui::Pos2) -> f32 {
     (c.x - a.x) * (b.y - a.y) - (c.y - a.y) * (b.x - a.x)
 }
 
-fn interpolate_color(colors: [egui::Color32; 3], weights: [f32; 3]) -> egui::Color32 {
+fn interpolate_color(colors: [MaraColor32; 3], weights: [f32; 3]) -> MaraColor32 {
     let channel = |values: [u8; 3]| -> u8 {
         (values[0] as f32 * weights[0]
             + values[1] as f32 * weights[1]
@@ -3471,7 +3473,7 @@ fn interpolate_color(colors: [egui::Color32; 3], weights: [f32; 3]) -> egui::Col
             .round()
             .clamp(0.0, 255.0) as u8
     };
-    egui::Color32::from_rgba_unmultiplied(
+    MaraColor32::from_rgba_unmultiplied(
         channel([colors[0].r(), colors[1].r(), colors[2].r()]),
         channel([colors[0].g(), colors[1].g(), colors[2].g()]),
         channel([colors[0].b(), colors[1].b(), colors[2].b()]),
@@ -3479,8 +3481,8 @@ fn interpolate_color(colors: [egui::Color32; 3], weights: [f32; 3]) -> egui::Col
     )
 }
 
-fn multiply_color(a: egui::Color32, b: egui::Color32) -> egui::Color32 {
-    egui::Color32::from_rgba_unmultiplied(
+fn multiply_color(a: MaraColor32, b: MaraColor32) -> MaraColor32 {
+    MaraColor32::from_rgba_unmultiplied(
         ((a.r() as u16 * b.r() as u16) / 255) as u8,
         ((a.g() as u16 * b.g() as u16) / 255) as u8,
         ((a.b() as u16 * b.b() as u16) / 255) as u8,
@@ -3492,7 +3494,7 @@ fn paint_gizmo_arrow_head(
     painter: &egui::Painter,
     base_start: egui::Pos2,
     tip: egui::Pos2,
-    color: egui::Color32,
+    color: MaraColor32,
     stroke_width: f32,
 ) {
     let screen_dir = tip - base_start;
@@ -3782,7 +3784,7 @@ fn object_world_radius(object: &Object3d) -> f32 {
             .fold(0.0_f32, |acc, value| acc.max(value.abs()))
 }
 
-fn gizmo_axis_color(axis: GizmoAxis, visibility: f32, highlighted: bool) -> egui::Color32 {
+fn gizmo_axis_color(axis: GizmoAxis, visibility: f32, highlighted: bool) -> MaraColor32 {
     let (r, g, b) = match axis {
         GizmoAxis::X => (255, 0, 125),
         GizmoAxis::Y => (0, 255, 125),
@@ -3793,19 +3795,19 @@ fn gizmo_axis_color(axis: GizmoAxis, visibility: f32, highlighted: bool) -> egui
     } else {
         GIZMO_INACTIVE_ALPHA
     };
-    let color = egui::Color32::from_rgba_unmultiplied(r, g, b, 255);
+    let color = MaraColor32::from_rgba_unmultiplied(r, g, b, 255);
     let color = if highlighted {
-        tint_color(color, egui::Color32::WHITE, 0.22)
+        tint_color(color, MaraColor32::WHITE, 0.22)
     } else {
         color
     };
     let alpha = (255.0 * alpha_base * visibility.clamp(0.0, 1.0))
         .round()
         .clamp(0.0, 255.0) as u8;
-    egui::Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), alpha)
+    MaraColor32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), alpha)
 }
 
-fn gizmo_view_color(highlighted: bool) -> egui::Color32 {
+fn gizmo_view_color(highlighted: bool) -> MaraColor32 {
     let alpha = (255.0
         * if highlighted {
             1.0
@@ -3813,7 +3815,7 @@ fn gizmo_view_color(highlighted: bool) -> egui::Color32 {
             GIZMO_INACTIVE_ALPHA
         })
     .round() as u8;
-    egui::Color32::from_rgba_unmultiplied(255, 255, 255, alpha)
+    MaraColor32::from_rgba_unmultiplied(255, 255, 255, alpha)
 }
 
 fn gizmo_arrow_visibility(camera: &PreviewCamera, origin: Vec3, direction: Vec3) -> f32 {
@@ -3897,12 +3899,8 @@ fn glacial_level_fade(cam_dist: f32, step: f32, close_falloff: f32) -> f32 {
     (-0.5 * adjusted * adjusted).exp().clamp(0.0, 1.0)
 }
 
-fn grid_tint(accent: egui::Color32) -> egui::Color32 {
-    tint_color(
-        mara_core::style::on_panel_dim().into(),
-        accent,
-        GRID_ACCENT_MIX,
-    )
+fn grid_tint(accent: MaraColor32) -> MaraColor32 {
+    tint_color(mara_core::style::on_panel_dim(), accent, GRID_ACCENT_MIX)
 }
 
 fn face_normal(points: [Vec3; 3]) -> Vec3 {
@@ -3943,7 +3941,7 @@ fn flat_shaded_mesh(vertices: &[Vec3], indices: &[[u32; 3]]) -> TriangleMesh3d {
     TriangleMesh3d::with_normals(out_v, out_i, out_n)
 }
 
-fn shade_color(base: egui::Color32, normal: Vec3, camera: &PreviewCamera) -> egui::Color32 {
+fn shade_color(base: MaraColor32, normal: Vec3, camera: &PreviewCamera) -> MaraColor32 {
     let mut normal = normalize3(normal);
     if dot3(normal, camera.forward) > 0.0 {
         normal = mul3(normal, -1.0);
@@ -3969,22 +3967,22 @@ fn shade_color(base: egui::Color32, normal: Vec3, camera: &PreviewCamera) -> egu
     let value = ((1.0 - TECH_LIGHT_CONTRAST) + diffuse * TECH_LIGHT_CONTRAST).clamp(0.42, 1.12);
     let mut color = shade_scalar(base, value.min(1.0));
     if value > 1.0 {
-        color = tint_color(color, egui::Color32::WHITE, (value - 1.0) * 0.55);
+        color = tint_color(color, MaraColor32::WHITE, (value - 1.0) * 0.55);
     }
     tint_color(
         color,
-        egui::Color32::WHITE,
+        MaraColor32::WHITE,
         (specular + rim * 0.55).clamp(0.0, 0.22),
     )
 }
 
 fn shade_vertex_color(
-    base: egui::Color32,
+    base: MaraColor32,
     vertex_colors: &[Color],
     index: usize,
     normal: Vec3,
     camera: &PreviewCamera,
-) -> egui::Color32 {
+) -> MaraColor32 {
     let base = vertex_colors
         .get(index)
         .copied()
@@ -3993,10 +3991,10 @@ fn shade_vertex_color(
 }
 
 fn vertex_color_or_base(
-    shaded_base: egui::Color32,
+    shaded_base: MaraColor32,
     vertex_colors: &[Color],
     index: usize,
-) -> egui::Color32 {
+) -> MaraColor32 {
     vertex_colors
         .get(index)
         .copied()
@@ -4005,9 +4003,9 @@ fn vertex_color_or_base(
         })
 }
 
-fn shade_scalar(base: egui::Color32, value: f32) -> egui::Color32 {
+fn shade_scalar(base: MaraColor32, value: f32) -> MaraColor32 {
     let value = value.clamp(0.0, 1.0);
-    egui::Color32::from_rgba_unmultiplied(
+    MaraColor32::from_rgba_unmultiplied(
         ((base.r() as f32) * value).round().clamp(0.0, 255.0) as u8,
         ((base.g() as f32) * value).round().clamp(0.0, 255.0) as u8,
         ((base.b() as f32) * value).round().clamp(0.0, 255.0) as u8,
@@ -4202,10 +4200,14 @@ fn grid_visible_bounds(
     ]
 }
 
-fn tint_color(a: egui::Color32, b: egui::Color32, amount: f32) -> egui::Color32 {
+/// Blend `a` toward `b` by `amount`, per channel.
+///
+/// Mara vocabulary rather than the backend's colour type (PLAN.md
+/// WS-C2.2) — it is channel arithmetic, and every caller is scene data.
+fn tint_color(a: MaraColor32, b: MaraColor32, amount: f32) -> MaraColor32 {
     let amount = amount.clamp(0.0, 1.0);
     let inv = 1.0 - amount;
-    egui::Color32::from_rgba_unmultiplied(
+    MaraColor32::from_rgba_unmultiplied(
         ((a.r() as f32) * inv + (b.r() as f32) * amount)
             .round()
             .clamp(0.0, 255.0) as u8,
