@@ -1599,3 +1599,59 @@ mod retained_texture {
         let _ = raw.end_pass();
     }
 }
+
+/// The touch-scaled sizes `mara_core::style` publishes are the ones the
+/// backend installs into egui's spacing.
+///
+/// They used to be literals in `theme.rs` only, which meant a surface
+/// that wanted to match them had to read them back out of
+/// `egui::Style` — that is how `mara_graph`'s pin sizing works, and it
+/// is why removing `&Style` there is not a substitution (PLAN.md
+/// WS-D1.3). Hoisting them into core makes one source of truth; this
+/// pins the two in agreement.
+mod touch_scaled_metrics {
+    #[test]
+    fn the_theme_installs_the_sizes_core_publishes() {
+        let raw = egui::Context::default();
+        let ctx = crate::EguiCtx::new(&raw);
+        raw.begin_pass(egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(1200.0, 800.0),
+            )),
+            ..Default::default()
+        });
+
+        mara_core::style::set_screen_metrics(&ctx);
+        crate::theme::__internal_apply_theme(
+            &raw,
+            mara_core::style::AccentColor::default(),
+            mara_core::style::GlassOpacity::default(),
+        );
+
+        let spacing = raw.global_style().spacing.clone();
+        assert_eq!(
+            spacing.interact_size.y,
+            mara_core::style::interact_row_h(),
+            "interact_size.y must come from style::interact_row_h"
+        );
+        assert_eq!(
+            spacing.icon_width,
+            mara_core::style::icon_width(),
+            "icon_width must come from style::icon_width"
+        );
+
+        let _ = raw.end_pass();
+    }
+
+    /// Both scale with touch density rather than being fixed.
+    #[test]
+    fn the_sizes_are_touch_scaled() {
+        assert!(mara_core::style::interact_row_h() > 0.0);
+        assert!(mara_core::style::icon_width() > 0.0);
+        assert!(
+            mara_core::style::interact_row_h() > mara_core::style::icon_width(),
+            "a row is taller than an icon is wide at either density"
+        );
+    }
+}

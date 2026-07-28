@@ -2243,6 +2243,25 @@ pub fn touch_density() -> bool {
     ((flags >> 8) & 0x1) != 0
 }
 
+/// Height of an interactive row, in points.
+///
+/// Larger at touch density, where a finger needs a bigger target than a
+/// cursor does. Lives here rather than in the backend's theme
+/// application so that surfaces which size themselves against it — the
+/// node graph's pins, for one — read the same number the backend
+/// installs, instead of reading it back out of the backend's style.
+#[must_use]
+pub fn interact_row_h() -> f32 {
+    if touch_density() { 30.0 } else { 20.0 }
+}
+
+/// Width of a widget icon, in points. Touch-scaled like
+/// [`interact_row_h`].
+#[must_use]
+pub fn icon_width() -> f32 {
+    if touch_density() { 18.0 } else { 14.0 }
+}
+
 /// Read the full per-frame screen metrics snapshot.
 #[must_use]
 pub fn screen_metrics() -> ScreenMetrics {

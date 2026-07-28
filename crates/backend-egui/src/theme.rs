@@ -329,13 +329,13 @@ pub fn __internal_apply_theme_to(
     style.spacing.button_padding = egui::vec2(8.0, 4.0);
     style.spacing.indent = 14.0;
     style.spacing.window_margin = egui::Margin::ZERO;
-    style.spacing.interact_size.y = 20.0;
+    style.spacing.interact_size.y = mara_core::style::interact_row_h();
     // Tight slider track. Combined with no inline `.text(...)` label
     // and no `.show_value()` suffix, this leaves enough right-cell
     // space for the slider PLUS the current value without pushing
     // the section card wider than its pinned inner width.
     style.spacing.slider_width = 90.0;
-    style.spacing.icon_width = 14.0;
+    style.spacing.icon_width = mara_core::style::icon_width();
     style.spacing.icon_spacing = 6.0;
 
     // Touch density: on handheld/touch surfaces, grow hit targets and
@@ -347,8 +347,8 @@ pub fn __internal_apply_theme_to(
     if touch_density() {
         style.spacing.item_spacing = egui::vec2(8.0, 8.0);
         style.spacing.button_padding = egui::vec2(12.0, 10.0);
-        style.spacing.interact_size.y = 30.0;
-        style.spacing.icon_width = 18.0;
+        // Both now come from `mara_core::style`, which applies the
+        // same touch-density branch — set unconditionally above.
         style.spacing.icon_spacing = 8.0;
         style.spacing.scroll.bar_width = 6.0;
         style.spacing.scroll.floating_width = 4.0;

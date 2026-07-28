@@ -631,8 +631,16 @@ impl GraphStyle {
         self.node_layout.unwrap_or_default()
     }
 
-    fn get_pin_size(&self, style: &Style) -> f32 {
-        self.pin_size.unwrap_or(style.spacing.interact_size.y * 0.6)
+    /// Pin diameter, in points.
+    ///
+    /// Reads `mara_core::style::interact_row_h` rather than the
+    /// backend's `spacing.interact_size.y` (PLAN.md WS-D1.3). Those are
+    /// the same number — the theme installs one from the other — but
+    /// going to the source keeps the **touch-density scaling**, which a
+    /// constant here would silently drop.
+    fn get_pin_size(&self) -> f32 {
+        self.pin_size
+            .unwrap_or(mara_core::style::interact_row_h() * 0.6)
     }
 
     /// Fill for a pin the caller did not colour.
@@ -668,14 +676,13 @@ impl GraphStyle {
         self.pin_placement.unwrap_or_default()
     }
 
-    fn get_wire_width(&self, style: &Style) -> f32 {
-        self.wire_width
-            .unwrap_or_else(|| self.get_pin_size(style) * 0.1)
+    fn get_wire_width(&self) -> f32 {
+        self.wire_width.unwrap_or_else(|| self.get_pin_size() * 0.1)
     }
 
-    fn get_wire_frame_size(&self, style: &Style) -> f32 {
+    fn get_wire_frame_size(&self) -> f32 {
         self.wire_frame_size
-            .unwrap_or_else(|| self.get_pin_size(style) * 3.0)
+            .unwrap_or_else(|| self.get_pin_size() * 3.0)
     }
 
     fn get_downscale_wire_frame(&self) -> bool {
@@ -712,9 +719,13 @@ impl GraphStyle {
         self.pin_inset.unwrap_or(0.0).max(0.0)
     }
 
-    fn get_header_drag_space(&self, style: &Style) -> Vec2 {
-        self.header_drag_space
-            .unwrap_or_else(|| vec2(style.spacing.icon_width, style.spacing.icon_width))
+    /// Blank space reserved in a node header for dragging.
+    ///
+    /// Touch-scaled via `mara_core::style::icon_width`, for the same
+    /// reason as [`GraphStyle::get_pin_size`].
+    fn get_header_drag_space(&self) -> Vec2 {
+        let w = mara_core::style::icon_width();
+        self.header_drag_space.unwrap_or_else(|| vec2(w, w))
     }
 
     fn get_collapsible(&self) -> bool {
@@ -1136,8 +1147,8 @@ where
         }
     }
 
-    let wire_frame_size = style.get_wire_frame_size(ui.style());
-    let wire_width = style.get_wire_width(ui.style());
+    let wire_frame_size = style.get_wire_frame_size();
+    let wire_width = style.get_wire_width();
     let wire_threshold = style.get_wire_smoothness();
 
     let wire_shape_idx = match style.get_wire_layer() {
@@ -2041,11 +2052,11 @@ where
 
     // Size of the pin.
     // Side of the square or diameter of the circle.
-    let pin_size = style.get_pin_size(ui.style()).max(0.0);
+    let pin_size = style.get_pin_size().max(0.0);
 
     let pin_placement = style.get_pin_placement();
 
-    let header_drag_space = style.get_header_drag_space(ui.style()).max(Vec2::ZERO);
+    let header_drag_space = style.get_header_drag_space().max(Vec2::ZERO);
 
     // Interact with node frame.
     let r = ui.interact(
