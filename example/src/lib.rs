@@ -5,6 +5,9 @@
 
 pub mod app;
 pub mod bevy_content;
+/// Backend-facing glue — see the module docs. The only place in the
+/// demo allowed to name egui.
+pub mod host;
 
 pub use app::DemoApp;
 

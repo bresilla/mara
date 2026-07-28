@@ -130,6 +130,10 @@ check:
 # eframe's re-export, and the android target has no eframe to re-export it.
 # The sealed-consumer proof is example/sealed (checked above), not the demo.
 	@! grep -RInE 'MaraUi::from_raw|host\.egui\(\)' example/src
+# WS-F6's exit: the demo names egui only where it is a host. `host/`
+# carries the eframe impls and the three binaries; everything else in
+# `example/src` is an ordinary sealed consumer and is checked at zero.
+	@! grep -RInE '(^|[^:a-z_])egui::' $$(ls example/src/*.rs)
 	@! grep -RInE 'ViewCtx::new[(]ctx|host[.]__internal_egui[(][)][.]clone[(][)]|bevy_view[.]show[(]host[.]__internal_egui|canvas_root_view[(]host[.]__internal_egui|fn canvas_root_view[(][[:space:]]*ctx:[[:space:]]*&egui::Context' example/src/app.rs
 	@! grep -nE '^[[:space:]]*(pub\\(crate\\)[[:space:]]+)?[A-Za-z_][A-Za-z0-9_]*:[[:space:]]*egui::Response,' crates/core/src/mui/mod.rs
 	@! grep -RIn 'MaraInput::snapshot' crates/core/src

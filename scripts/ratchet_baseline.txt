@@ -5,4 +5,4 @@ egui_files 7
 state_bypass 0
 egui_ui_fns 0
 ui_escapes 0
-demo_egui 4
+demo_egui 0

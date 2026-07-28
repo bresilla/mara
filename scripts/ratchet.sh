@@ -37,7 +37,11 @@ live_egui_files()   { grep -rln 'egui::' "$CORE" --include='*.rs' \
                               | sed 's/^[0-9]*://' \
                               | grep -qvE '^[[:space:]]*(//|\*)' && echo "$f"; \
                           done | wc -l; }
+# Host glue lives in `example/src/host/` and is *allowed* to name egui —
+# `eframe::App` is an egui-facing trait, so implementing it means naming
+# `egui::Ui`/`Context`/`Visuals` (PLAN.md WS-F6). Count everything else.
 live_demo_egui()    { grep -rn 'egui::' example/src --include='*.rs' \
+                        | grep -v '^example/src/host/' \
                         | sed 's/^[^:]*:[0-9]*://' \
                         | grep -vE '^[[:space:]]*(//|\*)' \
                         | wc -l; }

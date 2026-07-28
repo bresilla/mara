@@ -46,7 +46,6 @@ use std::io::Cursor;
 // `egui` directly (not via `eframe`) so this file compiles on Android,
 // where the app does not depend on `eframe`. `eframe::egui` is the same
 // crate re-exported, so non-Android behavior is unchanged.
-use egui;
 
 use mara::ui::{mara_core, modules::map as mara_map};
 use mara_core::LabelSpec;
@@ -2128,8 +2127,9 @@ fn map_ribbon_items(root_view: DemoRootView) -> &'static [RibbonButtonSpec] {
     }
 }
 
-/// Per-graph sharp-zoom state (secondary `egui::Context`, pan, zoom,
-/// wgpu render target). Persists across frames so the same instance
+/// Per-graph sharp-zoom state — its own rasterisation context, pan,
+/// zoom and render target, all owned by `NodeViewState` rather than by
+/// the demo. Persists across frames so the same instance
 /// reaches `mara_node_graph` every frame for the editor pane —
 /// recreating it would drop the cached wgpu texture and renderer.
 struct EditorNodeView(NodeViewState);
@@ -2340,18 +2340,13 @@ impl DemoApp {
         self.accent.0 = color;
     }
 
-    #[must_use]
-    pub fn bevy_host_scene_visible(&self) -> bool {
-        self.bevy_hosted_scene && self.root_view == DemoRootView::BevyScene
-    }
-
-    pub fn update_with_render_state(
-        &mut self,
-        ctx: &egui::Context,
-        render_state: &egui_wgpu::RenderState,
-    ) {
-        let mut host = MaraHostCtx::ui_only(ctx, Some(render_state));
-        ui_system(self, &mut host);
+    /// One frame of the demo, against a Mara host context.
+    ///
+    /// Backend-free (PLAN.md WS-F6): the eframe pass that produces the
+    /// `MaraHostCtx` lives in `crate::host`, and this is everything
+    /// after it.
+    pub(crate) fn update_frame(&mut self, host: &mut MaraHostCtx<'_>) {
+        ui_system(self, host);
 
         // Web/eframe has no mara host adapter to enforce the shell bar,
         // so the demo renders it app-side here. (On native/bevy the
@@ -2378,25 +2373,14 @@ impl DemoApp {
             }
         }
     }
-}
 
-#[cfg(not(target_os = "android"))]
-impl eframe::App for DemoApp {
-    #[cfg(target_arch = "wasm32")]
-    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
-        // The web Bevy view is a real browser canvas behind/inside
-        // Mara's transparent egui canvas. Do not clear the whole
-        // eframe canvas opaquely or it hides Bevy.
-        [0.0, 0.0, 0.0, 0.0]
+    #[must_use]
+    pub fn bevy_host_scene_visible(&self) -> bool {
+        self.bevy_hosted_scene && self.root_view == DemoRootView::BevyScene
     }
 
-    fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
-        let render_state = frame
-            .wgpu_render_state()
-            .expect("eframe must run with the wgpu backend (see example/Cargo.toml)");
-        self.update_with_render_state(ui.ctx(), render_state);
-    }
 }
+
 
 // The window-owning runner differs by platform but exposes the same
 // `WindowApp` contract: `mara::window` on desktop, `mara::android` on
