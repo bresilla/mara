@@ -1042,6 +1042,7 @@ impl<'a> MaraUi<'a> {
     /// egui-bound (stack scopes, canvas, pod, context menu, painter,
     /// the raw hatch) go through here. Each call is a coupling-ratchet
     /// escape.
+    #[cfg(feature = "backend-egui-conv")]
     pub(crate) fn egui_ui(&mut self) -> &mut egui::Ui {
         self.backend
             .__internal_egui_ui_mut()
@@ -1052,6 +1053,7 @@ impl<'a> MaraUi<'a> {
     /// and not semver-stable. First-party Mara module crates
     /// (canvas, image, map, …) use this for backend adapter work
     /// while ordinary app code stays on typed Mara APIs.
+    #[cfg(feature = "backend-egui-conv")]
     #[doc(hidden)]
     #[must_use]
     pub fn __internal_raw_ui(&mut self) -> &mut egui::Ui {
@@ -1232,6 +1234,7 @@ impl<'a> MaraUi<'a> {
     /// backend that is not the widget one.
     ///
     /// Goes away with WS-G, when those renderers move behind the seam.
+    #[cfg(feature = "backend-egui-conv")]
     #[doc(hidden)]
     #[must_use]
     pub fn __internal_egui_ui_mut(&mut self) -> Option<&mut egui::Ui> {

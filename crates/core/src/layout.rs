@@ -946,6 +946,13 @@ pub trait UiBackend {
     /// `None` by default so non-egui backends need not implement it.
     /// First-party hook — hidden and `__internal_` like every other
     /// seal escape; consumer code must never reach a raw `egui::Ui`.
+    ///
+    /// Gated on `backend-egui-conv`, the same way the vocab
+    /// conversions are and for the same reason: the escape names a
+    /// backend type, so it must vanish from the trait in a build that
+    /// has no backend. With the feature off this method does not
+    /// exist, and `UiBackend` names no egui type at all.
+    #[cfg(feature = "backend-egui-conv")]
     #[doc(hidden)]
     fn __internal_egui_ui_mut(&mut self) -> Option<&mut egui::Ui> {
         None
@@ -1517,6 +1524,7 @@ impl<T: UiBackend + ?Sized> UiBackend for &mut T {
     fn is_rect_visible(&self, rect: Rect) -> bool {
         (**self).is_rect_visible(rect)
     }
+    #[cfg(feature = "backend-egui-conv")]
     fn __internal_egui_ui_mut(&mut self) -> Option<&mut egui::Ui> {
         (**self).__internal_egui_ui_mut()
     }
