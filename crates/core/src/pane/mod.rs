@@ -976,9 +976,8 @@ impl Pane {
         // when containers fold; we capture its real rendered rect
         // below so the handles track the painted edge instead of
         // the (always-expanded) Area bounds.
-        let pane_rect_mara = placement.rect;
-        let pane_rect: egui::Rect = pane_rect_mara.into();
-        let outer_size_egui: egui::Vec2 = outer_size.into();
+        let pane_rect = placement.rect;
+        let pane_rect_mara = pane_rect;
         // Capture fields needed AFTER `self` is moved into the Area's
         // body closure (which moves `self` into `lay_out_flex`).
         let pane_id = self.id;
@@ -993,7 +992,7 @@ impl Pane {
         // pane) follows the Frame as it shrinks / grows with the
         // open / fold animation. Cross handles also benefit when
         // span-axis is animating.
-        let painted_rect = std::cell::Cell::new(pane_rect);
+        let painted_rect = std::cell::Cell::new(MaraRect::from(pane_rect));
         // Hierarchical clip rect — taken from the PREVIOUS frame's
         // painted rect (persisted via ctx data) unioned with this
         // frame's `pane_rect`. Reasons:
@@ -1021,66 +1020,76 @@ impl Pane {
             .unwrap_or(pane_rect_mara);
         let pane_clip_rect = pane_rect_mara.union(last_painted_rect);
 
-        crate::backend::egui::area_for_host(AreaHost::new(area_id.into(), pane_pos, self.order))
-            // `Order::Background` keeps the pane's drop shadow
-            // BELOW the ribbon buttons — buttons paint over any
-            // shadow bleed. Removes the need for a tight clip_rect
-            // (which was slicing the title strip on the rail-side
-            // edge by a couple of pixels).
-            .movable(false)
-            .interactable(true)
-            .fade_in(false)
-            .default_size(outer_size_egui)
-            .show(ctx, |outer_ui| {
-                // egui's Area constrains its content_ui.max_rect to
-                // `state.size` from the PREVIOUS frame. During
-                // animation that prev value is smaller than this
-                // frame's `outer_size`, so anything that uses
-                // `available_size` (e.g. `allocate_ui_with_layout`)
-                // would clamp content too small and clip it.
-                // Workaround: bypass `outer_ui` and create a child
-                // with EXPLICIT `max_rect = pane_rect`, then
-                // `allocate_rect` on the parent so its `min_rect`
-                // reaches `pane_rect` and `state.size` (next frame)
-                // matches our computed value.
-                // Same rect as the outer `pane_rect`; recompute here
-                // from `outer_ui.cursor()` so the inside of the
-                // closure doesn't depend on the outer capture order.
-                let pane_rect = egui::Rect::from_min_size(outer_ui.cursor().min, outer_size_egui);
-                // Use the title-at-end layout DIRECTLY on the outer
-                // child_ui — not via a `with_layout(bottom_up)` inside
-                // a top_down parent. egui tracks `min_rect` by union
-                // with the parent's initial cursor (top-left for
-                // top_down). When the title strip lands at the far
-                // edge (Bottom/Right rails) and the body folds to 0,
-                // the allocated strip sits at the bottom/right of
-                // `pane_rect`. Union-ed with the parent's top-left
-                // cursor, the resulting min_rect spans the FULL pane
-                // height/width — and the Frame paints across the
-                // whole pane instead of shrinking. Pushing the
-                // bottom_up/right_to_left layout one level up so the
-                // child_ui's cursor starts at the anchor edge keeps
-                // min_rect tight to the strip.
-                let title_at_end = title_side.is_at_end();
-                let direction = if horizontal_strip {
-                    if title_at_end {
-                        crate::layout::StackDirection::BottomUp
-                    } else {
-                        crate::layout::StackDirection::TopDown
-                    }
-                } else if title_at_end {
-                    crate::layout::StackDirection::RightToLeft
+        // The background layer keeps the pane's drop shadow BELOW the
+        // ribbon buttons — buttons paint over any shadow bleed, which
+        // removes the need for a tight clip that was slicing the title
+        // strip on the rail-side edge. `no_fade_in` because the pane
+        // runs its own staggered open animation; `default_size` because
+        // without it the surface sizes from the PREVIOUS frame's
+        // content, which lags this frame's while the open animation is
+        // still growing, clamping and clipping anything laid out
+        // against the available size.
+        let host = AreaHost::new(area_id, pane_pos, self.order)
+            .no_fade_in()
+            .default_size(outer_size);
+        // `self` and `body` are move-only, so they travel into the
+        // surface through a capture rather than a borrow.
+        let mut pending = Some((self, body));
+        MaraCtx::area(ctx, host, &mut |outer_mara| {
+            let Some((me, body)) = pending.take() else {
+                return;
+            };
+            // egui's Area constrains its content_ui.max_rect to
+            // `state.size` from the PREVIOUS frame. During
+            // animation that prev value is smaller than this
+            // frame's `outer_size`, so anything that uses
+            // `available_size` (e.g. `allocate_ui_with_layout`)
+            // would clamp content too small and clip it.
+            // Workaround: bypass `outer_ui` and create a child
+            // with EXPLICIT `max_rect = pane_rect`, then
+            // `allocate_rect` on the parent so its `min_rect`
+            // reaches `pane_rect` and `state.size` (next frame)
+            // matches our computed value.
+            // Same rect as the outer `pane_rect`; recompute here
+            // from `outer_ui.cursor()` so the inside of the
+            // closure doesn't depend on the outer capture order.
+            let pane_rect = MaraRect::from_min_size(outer_mara.cursor(), outer_size);
+            // Use the title-at-end layout DIRECTLY on the outer
+            // child_ui — not via a `with_layout(bottom_up)` inside
+            // a top_down parent. egui tracks `min_rect` by union
+            // with the parent's initial cursor (top-left for
+            // top_down). When the title strip lands at the far
+            // edge (Bottom/Right rails) and the body folds to 0,
+            // the allocated strip sits at the bottom/right of
+            // `pane_rect`. Union-ed with the parent's top-left
+            // cursor, the resulting min_rect spans the FULL pane
+            // height/width — and the Frame paints across the
+            // whole pane instead of shrinking. Pushing the
+            // bottom_up/right_to_left layout one level up so the
+            // child_ui's cursor starts at the anchor edge keeps
+            // min_rect tight to the strip.
+            let title_at_end = title_side.is_at_end();
+            let direction = if horizontal_strip {
+                if title_at_end {
+                    crate::layout::StackDirection::BottomUp
                 } else {
-                    crate::layout::StackDirection::LeftToRight
+                    crate::layout::StackDirection::TopDown
+                }
+            } else if title_at_end {
+                crate::layout::StackDirection::RightToLeft
+            } else {
+                crate::layout::StackDirection::LeftToRight
+            };
+            let region = crate::layout::ChildRegion::new(
+                pane_rect,
+                direction,
+                crate::layout::StackAlign::Min,
+            );
+            let mut pending_body = Some((me, body));
+            outer_mara.in_region(region, &mut |mara| {
+                let Some((me, body)) = pending_body.take() else {
+                    return;
                 };
-                let mut child_ui = crate::backend::egui::child_ui_for_region(
-                    outer_ui,
-                    crate::layout::ChildRegion::new(
-                        pane_rect.into(),
-                        direction,
-                        crate::layout::StackAlign::Min,
-                    ),
-                );
                 // ── Hierarchical clip invariant (root) ──
                 //
                 // The pane Area is created at `Order::Background` with
@@ -1097,97 +1106,92 @@ impl Pane {
                 // `set_clip_rect` so we INTERSECT with whatever egui
                 // set on the Area — `set_` can grow the clip and is
                 // footgunny per egui docs.
-                child_ui.shrink_clip_rect(pane_clip_rect.into());
-                {
-                    let ui = &mut child_ui;
+                // Clipping INTERSECTS the parent's, anchoring the top
+                // of the hierarchy: every descendant then has
+                // `clip ⊆ pane_clip_rect` automatically, so a pod whose
+                // content overflows cannot paint past the pane's
+                // painted bounds.
+                mara.clipped(pane_clip_rect, |mara| {
                     let theme = style::theme();
-                    let fill: Color32 = if theme.pane.fill_visible {
-                        style::fill_for(style::FillRole::Pane, pane_accent).into()
+                    let fill = if theme.pane.fill_visible {
+                        style::fill_for(style::FillRole::Pane, pane_accent)
                     } else {
-                        Color32::TRANSPARENT
+                        MaraColor32::TRANSPARENT
                     };
-                    let shadow = egui::epaint::Shadow {
+                    let spec = crate::style::FrameSpec::new(
+                        fill,
+                        style::stroke_for(style::StrokeRole::WidgetBorder, pane_accent),
+                        style::radius_for(style::RadiusRole::Pane),
+                        crate::style::MarginSpec::symmetric(
+                            PANE_INNER_MARGIN as i8,
+                            PANE_INNER_MARGIN as i8,
+                        ),
+                    )
+                    .with_shadow(crate::style::FrameShadowSpec {
                         offset: [0, theme.pane.shadow_y],
                         blur: theme.pane.shadow_blur,
                         spread: 0,
-                        color: Color32::from_black_alpha(115),
-                    };
-                    let frame_response = egui::Frame {
-                        inner_margin: egui::Margin::same(PANE_INNER_MARGIN as i8),
-                        outer_margin: egui::Margin::ZERO,
-                        fill,
-                        stroke: style::stroke_for(style::StrokeRole::WidgetBorder, pane_accent)
-                            .into(),
-                        corner_radius: style::radius_for(style::RadiusRole::Pane).into(),
-                        shadow,
-                    }
-                    .show(ui, |ui| {
-                        let mut backend = crate::mui::MaraBackend::Egui(
-                            crate::backend::egui::EguiUiBackend::new(ui),
-                        );
-                        self.lay_out_flex(&mut crate::MaraUi::over(&mut backend, pane_accent), body);
+                        color: MaraColor32::from_black_alpha(115),
                     });
-                    // The Frame's response.rect IS the painted outer
-                    // rect (= content_min_rect + frame margins). Use it
-                    // to position the resize handles below — they sit
-                    // exactly on the painted edge, even when fold
-                    // animation has shrunk the frame.
-                    painted_rect.set(frame_response.response.rect);
-                    // Persist this frame's actual painted rect so next
-                    // frame's `pane_clip_rect` (= pane_rect ∪
-                    // last_painted_rect) accurately bounds the body —
-                    // critical for the first frame after content grows,
-                    // where `pane_rect` lags by one frame and would
-                    // otherwise slice the body's far edge.
-                    crate::memory::MaraMemoryCtx::new(outer_ui.ctx())
-                        .set_temp(clip_key, MaraRect::from(frame_response.response.rect));
-                }
-                // Publish this pane's painted rect to the global
-                // ctx-data list so host integrations (e.g.
-                // `bevy_mara::EguiInputAbsorbPlugin`) can ask
-                // "is the cursor over any mara pane?" without
-                // going through egui's quirky `layer_id_at`.
-                maybe_reset_published_pane_rects(outer_ui.ctx());
-                publish_pane_rect(outer_ui.ctx(), MaraRect::from(painted_rect.get()));
-                // Custom debug inspector — paint the pane's frame
-                // rect with a `Pane[<title>]` label when the user
-                // toggles the inspector and hovers inside.
-                crate::debug::tag(
-                    outer_ui.ctx(),
-                    painted_rect.get(),
-                    format!("Pane[{}]", pane_title_dbg),
-                );
-                let _ = outer_ui.allocate_rect(pane_rect, egui::Sense::hover());
-
-                // ── Resize handles (in-Area) ──
-                //
-                // Registered directly on the pane's own `outer_ui`
-                // (`Order::Background`) instead of a separate Area.
-                // Within a single layer, egui's hit-test prefers
-                // LATER-registered widgets — so these `interact`
-                // calls (added after the Frame's title widgets)
-                // win for clicks at the handle rects, while clicks
-                // at non-handle positions fall through to the
-                // earlier-registered title widgets and trigger the
-                // fold toggle as expected. Putting the handles in a
-                // separate `Order::Middle` Area broke this on
-                // corner-anchored panes whose Area state collapsed
-                // to a degenerate clip.
-                if pane_resize.flow || pane_resize.span {
-                    let mut backend = crate::mui::MaraBackend::Egui(
-                        crate::backend::egui::EguiUiBackend::new(outer_ui),
-                    );
-                    let mut mara = crate::MaraUi::over(&mut backend, pane_accent);
-                    paint_resize_handles_inline(
-                        &mut mara,
-                        pane_id,
-                        pane_accent.into(),
-                        pane_anchor,
-                        pane_resize,
-                        painted_rect.get().into(),
-                    );
-                }
+                    // The frame's rect IS the painted outer rect
+                    // (content min_rect + margins). The resize handles
+                    // sit exactly on that painted edge, even when the
+                    // fold animation has shrunk it.
+                    let (frame_rect, ()) = mara.framed_with(spec, |mara| {
+                        me.lay_out_flex(mara, body);
+                    });
+                    painted_rect.set(frame_rect);
+                    // Persist it so next frame's `pane_clip_rect`
+                    // (= pane_rect ∪ last_painted_rect) still bounds the
+                    // body on the first frame after content grows, where
+                    // `pane_rect` lags and would slice the far edge.
+                    mara.ctx().memory().set_temp(clip_key, frame_rect);
+                });
             });
+            // Publish this pane's painted rect to the global
+            // ctx-data list so host integrations (e.g.
+            // `bevy_mara::EguiInputAbsorbPlugin`) can ask
+            // "is the cursor over any mara pane?" without
+            // going through egui's quirky `layer_id_at`.
+            maybe_reset_published_pane_rects(outer_mara.ctx());
+            publish_pane_rect(outer_mara.ctx(), painted_rect.get());
+            // Custom debug inspector — paint the pane's frame
+            // rect with a `Pane[<title>]` label when the user
+            // toggles the inspector and hovers inside.
+            crate::debug::tag(
+                outer_mara.ctx(),
+                painted_rect.get().into(),
+                format!("Pane[{}]", pane_title_dbg),
+            );
+            // Claim the pane's full rect on the parent so the surface
+            // reports the size we computed rather than the content's.
+            let _ = outer_mara.reserve_rect(pane_rect, crate::layout::Sense::Hover);
+
+            // ── Resize handles (in-Area) ──
+            //
+            // Registered directly on the pane's own `outer_ui`
+            // (`Order::Background`) instead of a separate Area.
+            // Within a single layer, egui's hit-test prefers
+            // LATER-registered widgets — so these `interact`
+            // calls (added after the Frame's title widgets)
+            // win for clicks at the handle rects, while clicks
+            // at non-handle positions fall through to the
+            // earlier-registered title widgets and trigger the
+            // fold toggle as expected. Putting the handles in a
+            // separate `Order::Middle` Area broke this on
+            // corner-anchored panes whose Area state collapsed
+            // to a degenerate clip.
+            if pane_resize.flow || pane_resize.span {
+                paint_resize_handles_inline(
+                    outer_mara,
+                    pane_id,
+                    pane_accent.into(),
+                    pane_anchor,
+                    pane_resize,
+                    painted_rect.get(),
+                );
+            }
+        });
     }
 
     /// Inner flex layout: split the pane Ui into a fixed-thickness
@@ -1227,7 +1231,9 @@ impl Pane {
         // with the Area's clipped rect. Falling back to the raw
         // `user_span` (or `PANE_OUTER_SPAN`) only matters on the
         // first frame before `show` has published.
-        let span_outer = mara.ctx().memory()
+        let span_outer = mara
+            .ctx()
+            .memory()
             .get_temp::<f32>(id.with("mara_pane_effective_span"))
             .unwrap_or_else(|| {
                 if resize.span {
@@ -1460,7 +1466,9 @@ impl Pane {
             }
         };
 
-        let body_scroll_enabled = mara.ctx().memory()
+        let body_scroll_enabled = mara
+            .ctx()
+            .memory()
             .get_temp::<bool>(id.with("mara_pane_body_scroll_enabled"))
             .unwrap_or(false);
         if body_scroll_enabled {
