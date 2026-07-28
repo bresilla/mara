@@ -951,14 +951,6 @@ pub trait UiBackend {
         None
     }
 
-    /// Shared reference to the concrete `egui::Ui`, if this is the egui
-    /// backend. See [`UiBackend::__internal_egui_ui_mut`]. First-party
-    /// hook — hidden like every other seal escape.
-    #[doc(hidden)]
-    fn __internal_egui_ui_ref(&self) -> Option<&egui::Ui> {
-        None
-    }
-
     /// Run `body` in a child region inset by `inset_left` px from the
     /// current region's left edge (an indent). Content flows inside the
     /// child; afterwards the parent's layout continues below it. This
@@ -1424,9 +1416,6 @@ impl<T: UiBackend + ?Sized> UiBackend for &mut T {
     }
     fn __internal_egui_ui_mut(&mut self) -> Option<&mut egui::Ui> {
         (**self).__internal_egui_ui_mut()
-    }
-    fn __internal_egui_ui_ref(&self) -> Option<&egui::Ui> {
-        (**self).__internal_egui_ui_ref()
     }
     fn load_texture(
         &mut self,

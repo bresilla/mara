@@ -88,6 +88,12 @@ check:
 		$$(ls -d crates/modules/*/Cargo.toml | grep -vE 'modules/graph/')
 	@! grep -RInE '\begui[_-]?[a-z]*::|\bwgpu::' \
 		$$(ls -d crates/modules/*/src | grep -vE 'modules/graph/')
+# Naming `egui::` is not the only way to reach it. `mara_canvas` held a
+# raw `egui::Ui` through `__internal_raw_ui()` and called `ui.group` /
+# `ui.label` on it — the token never appeared, so the grep above was
+# blind to it. Ban the accessors themselves in the sealed tier.
+	@! grep -RInE '__internal_raw_ui|__internal_egui_ui_mut|__internal_backend_from_raw' \
+		$$(ls -d crates/modules/*/src | grep -vE 'modules/graph/')
 	@! grep -n 'raw-egui' example/Cargo.toml
 	@! grep -n 'raw-egui' crates/core/Cargo.toml mara/Cargo.toml
 	@! grep -RInE 'cfg[(]feature[[:space:]]*=[[:space:]]*"raw-egui"|^[[:space:]]*pub[[:space:]]+use[[:space:]]+egui([:;]|$$)|^[[:space:]]*pub[[:space:]]+fn[[:space:]]+(from_raw|raw_ui_mut|raw|egui|egui_ctx)[(]' crates/core/src mara/src

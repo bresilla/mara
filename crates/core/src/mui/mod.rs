@@ -1175,12 +1175,6 @@ impl crate::layout::UiBackend for MaraBackend<'_> {
             Self::Recording(b) => b.__internal_egui_ui_mut(),
         }
     }
-    fn __internal_egui_ui_ref(&self) -> Option<&egui::Ui> {
-        match self {
-            Self::Egui(b) => b.__internal_egui_ui_ref(),
-            Self::Recording(b) => b.__internal_egui_ui_ref(),
-        }
-    }
     fn load_texture(
         &mut self,
         name: &str,

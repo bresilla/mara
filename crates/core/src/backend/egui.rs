@@ -333,9 +333,6 @@ impl UiBackend for EguiUiBackend<'_> {
         Some(self.ui)
     }
 
-    fn __internal_egui_ui_ref(&self) -> Option<&egui::Ui> {
-        Some(self.ui)
-    }
 
     fn load_texture(
         &mut self,
