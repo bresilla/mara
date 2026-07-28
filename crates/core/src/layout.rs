@@ -82,6 +82,21 @@ pub struct AreaHost {
     /// global accent, so the node's accent would apply to everything it
     /// drew *except* its own body, which is the one part it owns.
     pub accent: Option<crate::vocab::Color32>,
+    /// Whether the user can drag this surface around.
+    pub movable: bool,
+    /// Whether the surface fades in when it first appears.
+    ///
+    /// A pane suppresses this: it runs its own staggered open
+    /// animation, and a second fade on top reads as a stutter.
+    pub fade_in: bool,
+    /// Size the surface starts at before its content has been
+    /// measured, when the caller already knows it.
+    ///
+    /// A surface with no default is sized from the previous frame's
+    /// content — which is *smaller* than this frame's while an open
+    /// animation is still growing, so anything laying out against the
+    /// available size gets clamped and clipped.
+    pub default_size: Option<Vec2>,
 }
 
 impl AreaHost {
@@ -94,7 +109,33 @@ impl AreaHost {
             interactable: true,
             bring_to_top: false,
             accent: None,
+            movable: false,
+            fade_in: true,
+            default_size: None,
         }
+    }
+
+    /// Let the user drag this surface around.
+    #[must_use]
+    pub const fn movable(mut self) -> Self {
+        self.movable = true;
+        self
+    }
+
+    /// Suppress the host's appear-fade — for a surface that animates
+    /// its own opening.
+    #[must_use]
+    pub const fn no_fade_in(mut self) -> Self {
+        self.fade_in = false;
+        self
+    }
+
+    /// Start the surface at `size` rather than deriving it from the
+    /// previous frame's content.
+    #[must_use]
+    pub const fn default_size(mut self, size: Vec2) -> Self {
+        self.default_size = Some(size);
+        self
     }
 
     /// Paint this surface with `accent` rather than the process-wide one.
@@ -1172,6 +1213,32 @@ pub trait UiBackend {
         body: &mut dyn FnMut(&mut dyn UiBackend),
     ) -> f32;
 
+    /// Reserve the pane title strip and return its rect.
+    ///
+    /// A fixed-thickness slot at one edge; the body gets what is left.
+    /// `spec` carries the thickness and axis, so this is a reservation
+    /// rather than a layout decision.
+    fn reserve_title_slot(&mut self, spec: PaneFlexSpec) -> Rect {
+        self.reserve_space(spec.title_size())
+    }
+
+    /// Constrain this surface to the pane's cross-axis extent and
+    /// apply its item spacing.
+    fn apply_flex_spec(&mut self, spec: PaneFlexSpec) {
+        let _ = spec;
+    }
+
+    /// Run `body` inside the pane's scrollable body slot.
+    ///
+    /// Required rather than defaulted for the same reason as
+    /// [`body_slot`](UiBackend::body_slot): `Self` is unsized behind
+    /// the trait object this stays callable through.
+    fn pane_body_slot(
+        &mut self,
+        spec: PaneBodyScrollSpec,
+        body: &mut dyn FnMut(&mut dyn UiBackend),
+    );
+
     /// Set the spacing this surface leaves between successive items.
     fn set_item_spacing(&mut self, spec: ItemSpacingSpec) {
         let _ = spec;
@@ -1246,6 +1313,19 @@ impl<T: UiBackend + ?Sized> UiBackend for &mut T {
     }
     fn set_item_spacing(&mut self, spec: ItemSpacingSpec) {
         (**self).set_item_spacing(spec)
+    }
+    fn reserve_title_slot(&mut self, spec: PaneFlexSpec) -> Rect {
+        (**self).reserve_title_slot(spec)
+    }
+    fn apply_flex_spec(&mut self, spec: PaneFlexSpec) {
+        (**self).apply_flex_spec(spec)
+    }
+    fn pane_body_slot(
+        &mut self,
+        spec: PaneBodyScrollSpec,
+        body: &mut dyn FnMut(&mut dyn UiBackend),
+    ) {
+        (**self).pane_body_slot(spec, body)
     }
     fn set_opacity(&mut self, opacity: f32) {
         (**self).set_opacity(opacity)

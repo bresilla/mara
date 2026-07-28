@@ -399,6 +399,16 @@ impl UiBackend for RecordingBackend {
         self
     }
 
+    /// Headless: the pane body slot is the surface itself — nothing
+    /// scrolls, so content lays out in place.
+    fn pane_body_slot(
+        &mut self,
+        _spec: crate::layout::PaneBodyScrollSpec,
+        body: &mut dyn FnMut(&mut dyn UiBackend),
+    ) {
+        body(self);
+    }
+
     /// Headless: the body slot is the surface itself. Nothing scrolls,
     /// so content lays out in place and its height is what the cursor
     /// advanced by.

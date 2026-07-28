@@ -78,9 +78,6 @@ fn paint_pip(
 ///    (`pane_show_title_divider`).
 pub(crate) fn paint_pane_title(
     ui: &mut crate::MaraUi<'_>,
-    // Theme animation state lives on the context, which a surface does
-    // not vend; pass it rather than widen `UiBackend` for one caller.
-    ctx: &dyn crate::context::MaraCtx,
     rect: Rect,
     id: Id,
     title: &str,
@@ -131,6 +128,7 @@ pub(crate) fn paint_pane_title(
     // Compute the scramble id up-front (always — even when
     // `scramble_titles` is off) so the chromatic-aberration helper
     // below can ask whether the cipher is currently running.
+    let ctx = ui.ctx();
     let session_id = id.with("pane2_title_session");
     let session = style::appearance_session(ctx, session_id);
     let scramble_id = session_id.with(session);

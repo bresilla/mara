@@ -1028,6 +1028,31 @@ impl crate::layout::UiBackend for MaraBackend<'_> {
         }
     }
 
+    fn reserve_title_slot(&mut self, spec: crate::layout::PaneFlexSpec) -> vocab::Rect {
+        match self {
+            Self::Egui(b) => b.reserve_title_slot(spec),
+            Self::Recording(b) => b.reserve_title_slot(spec),
+        }
+    }
+
+    fn apply_flex_spec(&mut self, spec: crate::layout::PaneFlexSpec) {
+        match self {
+            Self::Egui(b) => b.apply_flex_spec(spec),
+            Self::Recording(b) => b.apply_flex_spec(spec),
+        }
+    }
+
+    fn pane_body_slot(
+        &mut self,
+        spec: crate::layout::PaneBodyScrollSpec,
+        body: &mut dyn FnMut(&mut dyn crate::layout::UiBackend),
+    ) {
+        match self {
+            Self::Egui(b) => b.pane_body_slot(spec, body),
+            Self::Recording(b) => b.pane_body_slot(spec, body),
+        }
+    }
+
     fn set_opacity(&mut self, opacity: f32) {
         match self {
             Self::Egui(b) => b.set_opacity(opacity),
@@ -1595,6 +1620,28 @@ impl<'a> MaraUi<'a> {
         sense: crate::layout::Sense,
     ) -> MaraResponse {
         self.backend.reserve_rect(rect.into(), sense)
+    }
+
+    /// Reserve the pane title strip, returning its rect.
+    pub fn reserve_title_slot(&mut self, spec: crate::layout::PaneFlexSpec) -> vocab::Rect {
+        self.backend.reserve_title_slot(spec)
+    }
+
+    /// Constrain this surface to the pane's cross-axis extent.
+    pub fn apply_flex_spec(&mut self, spec: crate::layout::PaneFlexSpec) {
+        self.backend.apply_flex_spec(spec);
+    }
+
+    /// Run `body` inside the pane's scrollable body slot.
+    pub fn pane_body_slot(
+        &mut self,
+        spec: crate::layout::PaneBodyScrollSpec,
+        body: &mut dyn FnMut(&mut MaraUi<'_>),
+    ) {
+        let accent = self.accent;
+        self.backend.pane_body_slot(spec, &mut |backend| {
+            body(&mut MaraUi::over(backend, accent))
+        });
     }
 
     /// Set the spacing this surface leaves between successive items.

@@ -198,6 +198,25 @@ impl UiBackend for EguiUiBackend<'_> {
         apply_item_spacing_spec(self.ui, spec);
     }
 
+    fn reserve_title_slot(&mut self, spec: PaneFlexSpec) -> vocab::Rect {
+        reserve_pane_title_slot(self.ui, spec)
+    }
+
+    fn apply_flex_spec(&mut self, spec: PaneFlexSpec) {
+        apply_pane_flex_spec(self.ui, spec);
+    }
+
+    fn pane_body_slot(
+        &mut self,
+        spec: PaneBodyScrollSpec,
+        body: &mut dyn FnMut(&mut dyn crate::layout::UiBackend),
+    ) {
+        show_pane_body_scroll_slot(self.ui, spec, |ui| {
+            let mut inner = EguiUiBackend::new(ui);
+            body(&mut inner);
+        });
+    }
+
     fn set_opacity(&mut self, opacity: f32) {
         self.ui.set_opacity(opacity);
     }
@@ -727,10 +746,16 @@ pub(crate) fn egui_order_for_layer(layer: Layer) -> egui::Order {
 }
 
 pub(crate) fn area_for_host(host: AreaHost) -> egui::Area {
-    egui::Area::new(host.id.into())
+    let area = egui::Area::new(host.id.into())
         .order(egui_order_for_layer(host.layer))
         .fixed_pos(Into::<egui::Pos2>::into(host.pos))
         .interactable(host.interactable)
+        .movable(host.movable)
+        .fade_in(host.fade_in);
+    match host.default_size {
+        Some(size) => area.default_size(Into::<egui::Vec2>::into(size)),
+        None => area,
+    }
 }
 
 pub(crate) fn show_area_for_host<R>(

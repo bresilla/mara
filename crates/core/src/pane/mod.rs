@@ -1122,7 +1122,10 @@ impl Pane {
                         shadow,
                     }
                     .show(ui, |ui| {
-                        self.lay_out_flex(ui, body);
+                        let mut backend = crate::mui::MaraBackend::Egui(
+                            crate::backend::egui::EguiUiBackend::new(ui),
+                        );
+                        self.lay_out_flex(&mut crate::MaraUi::over(&mut backend, pane_accent), body);
                     });
                     // The Frame's response.rect IS the painted outer
                     // rect (= content_min_rect + frame margins). Use it
@@ -1198,7 +1201,11 @@ impl Pane {
     /// pane is exactly tall/wide enough to fit the title strip plus
     /// whatever the body closure allocates. Empty body → pane is
     /// just the strip.
-    fn lay_out_flex<'spec>(self, ui: &mut egui::Ui, body: impl FnOnce(&mut PaneBody<'_, 'spec>)) {
+    fn lay_out_flex<'spec>(
+        self,
+        mara: &mut crate::MaraUi<'_>,
+        body: impl FnOnce(&mut PaneBody<'_, 'spec>),
+    ) {
         let Pane {
             id,
             title,
@@ -1220,11 +1227,11 @@ impl Pane {
         // with the Area's clipped rect. Falling back to the raw
         // `user_span` (or `PANE_OUTER_SPAN`) only matters on the
         // first frame before `show` has published.
-        let span_outer = crate::memory::MaraMemoryCtx::new(ui.ctx())
+        let span_outer = mara.ctx().memory()
             .get_temp::<f32>(id.with("mara_pane_effective_span"))
             .unwrap_or_else(|| {
                 if resize.span {
-                    user_span(ui.ctx(), id)
+                    user_span(mara.ctx(), id)
                 } else {
                     PANE_OUTER_SPAN
                 }
@@ -1239,22 +1246,17 @@ impl Pane {
         );
 
         // Plain-egui layout (no flex). Cross axis is locked via
-        // `set_max_*` so `ui.available_*` is stable for child
-        // widgets; flow axis is content-driven by `body(ui)`. Title
+        // `set_max_*` so `mara.available_*` is stable for child
+        // widgets; flow axis is content-driven by `body(mara)`. Title
         // strip and body are placed in the natural reading order
         // dictated by `title_at_end` (decided by internal pane rendering when
         // building the outer child_ui's layout).
         let title_text = title.clone();
-        let paint_title_strip = |ui: &mut egui::Ui| {
-            let alloc_rect: egui::Rect =
-                crate::backend::egui::reserve_pane_title_slot(ui, flex_spec).into();
+        let paint_title_strip = |mara: &mut crate::MaraUi<'_>| {
+            let alloc_rect = mara.reserve_title_slot(flex_spec);
             {
-                let ctx = ui.ctx().clone();
-                let mut raw = crate::MaraUi::__internal_backend_from_raw(ui);
-                let mut mara = crate::MaraUi::__internal_over(&mut raw, accent);
                 title::paint_pane_title(
-                    &mut mara,
-                    &ctx,
+                    mara,
                     alloc_rect.into(),
                     id,
                     &title_text,
@@ -1270,13 +1272,13 @@ impl Pane {
         // edge — see the comment there for why we *don't* rewrap in
         // a `with_layout(bottom_up)` here. We just clamp the cross
         // axis and zero the item-spacing.
-        crate::backend::egui::apply_pane_flex_spec(ui, flex_spec);
+        mara.apply_flex_spec(flex_spec);
         // SAME order in both directions: title FIRST (lands at the
         // anchor edge thanks to the layout direction), body SECOND
         // (fills outward). Reversed layouts handle visual placement
         // automatically — `bottom_up` puts first-allocated at the
         // BOTTOM, `right_to_left` at the RIGHT, etc.
-        paint_title_strip(ui);
+        paint_title_strip(mara);
         // Extra breathing space between the pane title strip and the
         // FIRST container. The container's own
         // `section_outer_margin_flow_title` already gives a small gap
@@ -1287,11 +1289,7 @@ impl Pane {
         // (no other paint runs between title and body) and leaves
         // every subsequent container's stacking gap unchanged.
         if flex_spec.body_gap > 0.0 {
-            crate::MaraUi::__internal_over(
-                &mut crate::MaraUi::__internal_backend_from_raw(ui),
-                accent,
-            )
-            .add_space(crate::layout::SpaceSpec::vertical(flex_spec.body_gap));
+            mara.add_space(crate::layout::SpaceSpec::vertical(flex_spec.body_gap));
         }
         let mut body = Some(body);
         let mut render_body = |mara: &mut crate::MaraUi<'_>| {
@@ -1462,7 +1460,7 @@ impl Pane {
             }
         };
 
-        let body_scroll_enabled = crate::memory::MaraMemoryCtx::new(ui.ctx())
+        let body_scroll_enabled = mara.ctx().memory()
             .get_temp::<bool>(id.with("mara_pane_body_scroll_enabled"))
             .unwrap_or(false);
         if body_scroll_enabled {
@@ -1471,15 +1469,9 @@ impl Pane {
                 horizontal_strip,
                 span_inner,
             );
-            crate::backend::egui::show_pane_body_scroll_slot(ui, spec, |ui| {
-                let mut backend =
-                    crate::mui::MaraBackend::Egui(crate::backend::egui::EguiUiBackend::new(ui));
-                render_body(&mut crate::MaraUi::over(&mut backend, accent));
-            });
+            mara.pane_body_slot(spec, &mut |mara| render_body(mara));
         } else {
-            let mut backend =
-                crate::mui::MaraBackend::Egui(crate::backend::egui::EguiUiBackend::new(ui));
-            render_body(&mut crate::MaraUi::over(&mut backend, accent));
+            render_body(mara);
         }
     }
 }
