@@ -9,7 +9,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::context::MaraCtx;
 use crate::vocab::Id;
-use egui::{Pos2, Rect, Vec2, pos2, vec2};
+use crate::vocab::{Pos2, Rect, Vec2, pos2, vec2};
 
 use crate::container::Tab;
 use crate::layout::{

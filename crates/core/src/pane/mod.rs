@@ -1786,7 +1786,7 @@ mod tests {
     #[test]
     fn published_pane_rects_are_mara_vocab_for_host_firewalls() {
         let ctx = headless_ctx();
-        let raw = egui::Rect::from_min_max(egui::pos2(10.0, 20.0), egui::pos2(30.0, 50.0));
+        let raw = MaraRect::from_min_max(MaraPos2::new(10.0, 20.0), MaraPos2::new(30.0, 50.0));
 
         publish_pane_rect(&ctx, raw);
         assert_eq!(
@@ -1988,7 +1988,7 @@ mod tests {
     fn pane_titles_must_be_visible() {
         let result = std::panic::catch_unwind(|| {
             let _ = Pane::new(
-                egui::Id::new("blank-pane-title"),
+                MaraId::new("blank-pane-title"),
                 " ",
                 PaneAnchor::TopRail(RailZone::Middle),
                 MaraColor32::WHITE,

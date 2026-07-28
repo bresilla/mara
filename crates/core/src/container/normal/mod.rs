@@ -18,7 +18,7 @@
 
 use crate::memory::MaraAnim;
 use crate::vocab::Id;
-use egui::Rect;
+use crate::vocab::Rect;
 
 use super::body::Body;
 use crate::icons::Icon;

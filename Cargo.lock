@@ -3678,16 +3678,12 @@ dependencies = [
  "ahash",
  "bevy",
  "egui",
- "egui-scale",
- "egui-wgpu",
- "egui_extras",
  "iconflow",
  "mara_backend_egui",
  "mara_gpu",
  "pastel",
  "serde",
  "serde_json",
- "wgpu",
 ]
 
 [[package]]

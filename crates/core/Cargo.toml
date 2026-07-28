@@ -13,21 +13,22 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-egui = { workspace = true, default-features = false, features = ["default_fonts"] }
+# Optional, and pulled in only by `backend-egui-conv`. `mara_core` names
+# no egui type outside that feature's conversion impls — the backend
+# lives in `mara_backend_egui`. Keeping the *dependency* optional too is
+# what makes `cargo tree -p mara_core --no-default-features` show no egui
+# edge at all, rather than an unused one.
+egui = { workspace = true, default-features = false, features = [
+    "default_fonts",
+], optional = true }
 # Ids hash with the backend's algorithm and seeds so the two agree —
 # verified by `e4_id_hash_matches_the_backend`.
 ahash = { version = "0.8", default-features = false, features = ["std"] }
 serde = { version = "1", features = ["derive"], optional = true }
-egui-scale = "0.4"
-# SVG rasterisation for `PaintCmd::Svg`. This is the ONLY thing Mara
-# needs from `egui_extras`, hence `default-features = false` plus the
-# single `svg` feature (which pulls `resvg`). Before this, `PaintCmd::Svg`
-# was public API that silently drew nothing on every host — no rasteriser
-# existed anywhere in the workspace. Behind the `svg` feature so consumers
-# who never draw SVG can drop the `resvg` build cost.
-egui_extras = { version = "0.34", default-features = false, features = [
-    "svg",
-], optional = true }
+# `PaintCmd::Svg` rasterises in `mara_backend_egui`, which owns the
+# `egui_extras` dependency. Core keeps the feature as a pass-through so a
+# consumer still enables SVG once, on `mara_core`.
+
 # Filled Fluent UI System Icons — used by `icons.rs` + `ribbon::paint`.
 iconflow = { version = "1.0", default-features = false, features = ["pack-fluentui"] }
 # Lab-space colour manipulation — `style.rs` uses it to adapt
@@ -37,8 +38,6 @@ pastel = { version = "0.12", default-features = false }
 # renderer to rasterise a subtree into its own texture. Optional so a
 # UI-only build stays GPU-free.
 mara_gpu = { workspace = true, optional = true }
-egui-wgpu = { workspace = true, optional = true }
-wgpu = { workspace = true, optional = true }
 # Optional Bevy integration. When OFF, the crate compiles as a
 # pure-egui crate. When ON, `AccentColor` / `GlassOpacity` /
 # ribbon resources derive `bevy::Resource`.
@@ -53,24 +52,24 @@ default = ["svg", "backend-egui-conv"]
 # Rasterise `PaintCmd::Svg`. Off means SVG paint commands draw nothing
 # (the pre-0.4.2 behaviour), which is a real saving: `resvg` is a large
 # dependency and most apps never draw an SVG.
-svg = ["dep:egui_extras"]
+svg = []
 # Serialize the plain-data spec types (`FrameSpec`, `MarginSpec`,
 # `FrameShadowSpec`) and the vocab newtypes they contain, so a module
 # can persist a sealed style without naming a backend type. Pulls
 # `egui/serde` because the newtypes wrap egui types today.
-serde = ["dep:serde", "egui/serde"]
+serde = ["dep:serde", "egui?/serde"]
 # `From`/`Into` between vocab types and the egui types they mirror.
 # On today (the workspace has one backend); the point of the flag is
 # that a vocab type compiles WITHOUT it, which is the WS-G1 split
 # criterion. Conversions must live here rather than in the backend
 # crate: there both types would be foreign and the orphan rule forbids
 # the impl.
-backend-egui-conv = []
+backend-egui-conv = ["dep:egui"]
 # `ViewCtx::offscreen` — render a sealed UI body into its own texture at
 # an independent scale. Off by default: it pulls wgpu, and only surfaces
 # that need scale-independent rasterisation (node graphs, thumbnails)
 # use it.
-gpu = ["dep:mara_gpu", "dep:egui-wgpu", "dep:wgpu"]
+gpu = ["dep:mara_gpu"]
 # Enables `#[derive(bevy::Resource)]` + `bevy::SystemSet` on state
 # types so they slot into a Bevy app as resources without wrappers.
 bevy = ["dep:bevy"]

@@ -43,7 +43,7 @@
 
 use crate::memory::MaraMemory;
 use crate::vocab::Id;
-use egui::Rect;
+use crate::vocab::Rect;
 
 const ENABLED_KEY: &str = "mara_debug_inspector_enabled";
 const BEST_KEY: &str = "mara_debug_inspector_best";

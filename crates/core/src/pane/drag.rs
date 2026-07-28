@@ -17,7 +17,7 @@
 //!   rect renders at the cursor (paint-only, separate Area).
 
 use crate::vocab::Id;
-use egui::{Pos2, Rect, Vec2};
+use crate::vocab::{Pos2, Rect, Vec2};
 
 use crate::layout::{AreaHost, Layer, Sense, UiBackend};
 use crate::paint::PaintCmd;
@@ -431,15 +431,15 @@ mod tests {
         let cache = [
             entry(
                 "first",
-                Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(80.0, 40.0)),
+                Rect::from_min_size(crate::vocab::pos2(0.0, 0.0), crate::vocab::vec2(80.0, 40.0)),
             ),
             entry(
                 "dragged",
-                Rect::from_min_size(egui::pos2(0.0, 50.0), egui::vec2(80.0, 40.0)),
+                Rect::from_min_size(crate::vocab::pos2(0.0, 50.0), crate::vocab::vec2(80.0, 40.0)),
             ),
             entry(
                 "second",
-                Rect::from_min_size(egui::pos2(0.0, 100.0), egui::vec2(80.0, 40.0)),
+                Rect::from_min_size(crate::vocab::pos2(0.0, 100.0), crate::vocab::vec2(80.0, 40.0)),
             ),
         ];
 
@@ -454,15 +454,15 @@ mod tests {
         let cache = [
             entry(
                 "first",
-                Rect::from_min_size(egui::pos2(0.0, 100.0), egui::vec2(80.0, 40.0)),
+                Rect::from_min_size(crate::vocab::pos2(0.0, 100.0), crate::vocab::vec2(80.0, 40.0)),
             ),
             entry(
                 "dragged",
-                Rect::from_min_size(egui::pos2(0.0, 50.0), egui::vec2(80.0, 40.0)),
+                Rect::from_min_size(crate::vocab::pos2(0.0, 50.0), crate::vocab::vec2(80.0, 40.0)),
             ),
             entry(
                 "second",
-                Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(80.0, 40.0)),
+                Rect::from_min_size(crate::vocab::pos2(0.0, 0.0), crate::vocab::vec2(80.0, 40.0)),
             ),
         ];
 
@@ -477,15 +477,15 @@ mod tests {
         let cache = [
             entry(
                 "first",
-                Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(40.0, 80.0)),
+                Rect::from_min_size(crate::vocab::pos2(0.0, 0.0), crate::vocab::vec2(40.0, 80.0)),
             ),
             entry(
                 "dragged",
-                Rect::from_min_size(egui::pos2(50.0, 0.0), egui::vec2(40.0, 80.0)),
+                Rect::from_min_size(crate::vocab::pos2(50.0, 0.0), crate::vocab::vec2(40.0, 80.0)),
             ),
             entry(
                 "second",
-                Rect::from_min_size(egui::pos2(100.0, 0.0), egui::vec2(40.0, 80.0)),
+                Rect::from_min_size(crate::vocab::pos2(100.0, 0.0), crate::vocab::vec2(40.0, 80.0)),
             ),
         ];
 
@@ -517,7 +517,7 @@ mod tests {
         let pane_id = Id::new("pane");
         let dragged = Id::new("dragged");
         let still_rendered = Id::new("still-rendered");
-        let dragged_rect = Rect::from_min_size(egui::pos2(10.0, 20.0), egui::vec2(90.0, 60.0));
+        let dragged_rect = Rect::from_min_size(crate::vocab::pos2(10.0, 20.0), crate::vocab::vec2(90.0, 60.0));
 
         set_snapshot(
             &ctx,
@@ -533,7 +533,7 @@ mod tests {
             pane_id,
             DragState {
                 item: Some(dragged),
-                cursor: Some(egui::pos2(30.0, 40.0)),
+                cursor: Some(crate::vocab::pos2(30.0, 40.0)),
             },
         );
         begin_frame(&ctx, pane_id);
@@ -541,7 +541,7 @@ mod tests {
             &ctx,
             pane_id,
             still_rendered,
-            Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(10.0, 10.0)),
+            Rect::from_min_size(crate::vocab::pos2(0.0, 0.0), crate::vocab::vec2(10.0, 10.0)),
         );
 
         finalize_snapshot(&ctx, pane_id);
@@ -562,7 +562,7 @@ mod tests {
         let dragged = Id::new("dragged");
         let live_new = Id::new("live-new");
         let stale = Id::new("stale");
-        let dragged_rect = Rect::from_min_size(egui::pos2(10.0, 20.0), egui::vec2(90.0, 60.0));
+        let dragged_rect = Rect::from_min_size(crate::vocab::pos2(10.0, 20.0), crate::vocab::vec2(90.0, 60.0));
 
         set_snapshot(
             &ctx,
@@ -575,7 +575,7 @@ mod tests {
                 },
                 RectEntry {
                     id: stale,
-                    rect: Rect::from_min_size(egui::pos2(100.0, 100.0), egui::vec2(20.0, 20.0)),
+                    rect: Rect::from_min_size(crate::vocab::pos2(100.0, 100.0), crate::vocab::vec2(20.0, 20.0)),
                     frame: None,
                 },
             ],
@@ -585,7 +585,7 @@ mod tests {
             pane_id,
             DragState {
                 item: Some(dragged),
-                cursor: Some(egui::pos2(30.0, 40.0)),
+                cursor: Some(crate::vocab::pos2(30.0, 40.0)),
             },
         );
         begin_frame(&ctx, pane_id);
@@ -593,7 +593,7 @@ mod tests {
             &ctx,
             pane_id,
             live_new,
-            Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(10.0, 10.0)),
+            Rect::from_min_size(crate::vocab::pos2(0.0, 0.0), crate::vocab::vec2(10.0, 10.0)),
         );
 
         let target = target_cache(&ctx, pane_id);

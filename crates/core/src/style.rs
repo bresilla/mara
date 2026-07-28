@@ -2677,6 +2677,7 @@ impl MarginSpec {
     }
 }
 
+#[cfg(feature = "backend-egui-conv")]
 impl From<MarginSpec> for egui::Margin {
     fn from(margin: MarginSpec) -> Self {
         egui::Margin {

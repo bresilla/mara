@@ -1490,3 +1490,35 @@ mod shelf {
         );
     }
 }
+
+mod icons {
+
+    #[test]
+    fn iconflow_families_keep_proportional_fallbacks() {
+        let mut fonts = egui::FontDefinitions::default();
+        let proportional = fonts
+            .families
+            .get(&egui::FontFamily::Proportional)
+            .cloned()
+            .expect("egui default fonts should expose a proportional fallback chain");
+
+        crate::theme::install_iconflow_fonts(&mut fonts);
+
+        let (_, family) = mara_core::icons::icon_glyph("search").expect("search icon should be bundled");
+        let icon_family = egui::FontFamily::Name(family.into());
+        let icon_chain = fonts
+            .families
+            .get(&icon_family)
+            .expect("install_iconflow_fonts should bind the icon family");
+
+        assert!(
+            icon_chain.len() > 1,
+            "icon families need normal text fallback fonts so replacement glyph lookup cannot warn or fail"
+        );
+        assert_eq!(
+            &icon_chain[1..],
+            proportional.as_slice(),
+            "icon font should be first, followed by the normal proportional fallback chain"
+        );
+    }
+}

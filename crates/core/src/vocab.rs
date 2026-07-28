@@ -153,12 +153,14 @@ impl std::ops::SubAssign for Vec2 {
     }
 }
 
+#[cfg(feature = "backend-egui-conv")]
 impl From<egui::Vec2> for Vec2 {
     fn from(v: egui::Vec2) -> Self {
         Self { x: v.x, y: v.y }
     }
 }
 
+#[cfg(feature = "backend-egui-conv")]
 impl From<Vec2> for egui::Vec2 {
     fn from(v: Vec2) -> Self {
         egui::vec2(v.x, v.y)
@@ -244,12 +246,14 @@ impl std::ops::SubAssign<Vec2> for Pos2 {
     }
 }
 
+#[cfg(feature = "backend-egui-conv")]
 impl From<egui::Pos2> for Pos2 {
     fn from(p: egui::Pos2) -> Self {
         Self { x: p.x, y: p.y }
     }
 }
 
+#[cfg(feature = "backend-egui-conv")]
 impl From<Pos2> for egui::Pos2 {
     fn from(p: Pos2) -> Self {
         egui::pos2(p.x, p.y)
@@ -371,6 +375,13 @@ impl Rect {
     #[must_use]
     pub fn width(&self) -> f32 {
         self.max.x - self.min.x
+    }
+
+    /// Width times height. Negative extents give a negative area, so
+    /// callers comparing two rects still order them consistently.
+    #[must_use]
+    pub fn area(&self) -> f32 {
+        self.width() * self.height()
     }
 
     #[must_use]
@@ -512,6 +523,7 @@ impl Default for Rect {
     }
 }
 
+#[cfg(feature = "backend-egui-conv")]
 impl From<egui::Rect> for Rect {
     fn from(r: egui::Rect) -> Self {
         Self {
@@ -521,6 +533,7 @@ impl From<egui::Rect> for Rect {
     }
 }
 
+#[cfg(feature = "backend-egui-conv")]
 impl From<Rect> for egui::Rect {
     fn from(r: Rect) -> Self {
         egui::Rect::from_min_max(r.min.into(), r.max.into())
@@ -828,53 +841,127 @@ impl From<Stroke> for egui::Stroke {
     }
 }
 
+/// Which texture to sample when painting an image command.
+///
+/// Plain data rather than a backend newtype: a `TextureId` crosses the
+/// seam in both directions — Mara hands one to a painter, a host hands
+/// one back from its own renderer — so neither side may need the
+/// other's type to name it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct TextureId(egui::TextureId);
+pub enum TextureId {
+    /// Allocated by the backend's own texture manager.
+    Managed(u64),
+    /// Registered by the host from its own renderer.
+    User(u64),
+}
 
+#[cfg(feature = "backend-egui-conv")]
 impl From<egui::TextureId> for TextureId {
     fn from(id: egui::TextureId) -> Self {
-        Self(id)
+        match id {
+            egui::TextureId::Managed(n) => Self::Managed(n),
+            egui::TextureId::User(n) => Self::User(n),
+        }
     }
 }
 
+#[cfg(feature = "backend-egui-conv")]
 impl From<TextureId> for egui::TextureId {
     fn from(id: TextureId) -> Self {
-        id.0
+        match id {
+            TextureId::Managed(n) => Self::Managed(n),
+            TextureId::User(n) => Self::User(n),
+        }
     }
 }
 
+/// A retained texture, owned for as long as the handle lives.
+///
+/// The id and size are plain data, but the retention is not: dropping
+/// the last clone has to free the texture in whichever backend uploaded
+/// it. So the backend's own handle rides along erased — Mara never
+/// names its type, and never needs to, because the only thing Mara does
+/// with it is keep it alive.
 #[derive(Clone)]
-pub struct TextureHandle(egui::TextureHandle);
+pub struct TextureHandle {
+    id: TextureId,
+    size: [usize; 2],
+    retained: std::sync::Arc<dyn std::any::Any + Send + Sync>,
+}
 
 impl TextureHandle {
+    /// Build a handle from a backend's retained texture.
+    ///
+    /// `retained` is dropped when the last clone of this handle is —
+    /// pass the backend handle whose `Drop` frees the texture.
+    #[must_use]
+    pub fn new(
+        id: TextureId,
+        size: [usize; 2],
+        retained: std::sync::Arc<dyn std::any::Any + Send + Sync>,
+    ) -> Self {
+        Self { id, size, retained }
+    }
+
     /// Id for painting this texture with
     /// [`crate::MaraPainter::image`].
     #[must_use]
     pub fn id(&self) -> TextureId {
-        self.0.id().into()
+        self.id
     }
 
     /// Size in pixels.
     #[must_use]
     pub fn size(&self) -> [usize; 2] {
-        self.0.size()
+        self.size
+    }
+
+    /// The backend handle this was built from, if it is of type `T`.
+    ///
+    /// The one way back to the backend's own handle — used by the
+    /// backend itself, and by hosts that registered the texture.
+    #[must_use]
+    pub fn retained<T: std::any::Any + Send + Sync>(&self) -> Option<&T> {
+        self.retained.downcast_ref::<T>()
     }
 }
 
+impl std::fmt::Debug for TextureHandle {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TextureHandle")
+            .field("id", &self.id)
+            .field("size", &self.size)
+            .finish_non_exhaustive()
+    }
+}
+
+#[cfg(feature = "backend-egui-conv")]
 impl From<egui::TextureHandle> for TextureHandle {
     fn from(handle: egui::TextureHandle) -> Self {
-        Self(handle)
+        Self::new(
+            handle.id().into(),
+            handle.size(),
+            std::sync::Arc::new(handle),
+        )
     }
 }
 
+#[cfg(feature = "backend-egui-conv")]
 impl From<TextureHandle> for egui::TextureHandle {
     fn from(handle: TextureHandle) -> Self {
-        handle.0
+        handle
+            .retained::<egui::TextureHandle>()
+            .expect("a TextureHandle built by this backend retains an egui handle")
+            .clone()
     }
 }
 
+/// An RGBA image in row-major order, ready to upload as a texture.
 #[derive(Clone, Debug)]
-pub struct ColorImage(pub(crate) egui::ColorImage);
+pub struct ColorImage {
+    size: [usize; 2],
+    pixels: Vec<Color32>,
+}
 
 impl ColorImage {
     /// Build an image from sRGB pixels in row-major order.
@@ -887,31 +974,49 @@ impl ColorImage {
     #[must_use]
     pub fn from_rgba_pixels(size: [usize; 2], pixels: &[Color32]) -> Self {
         if pixels.len() != size[0] * size[1] || size[0] == 0 || size[1] == 0 {
-            return Self(egui::ColorImage::filled([1, 1], egui::Color32::TRANSPARENT));
+            return Self {
+                size: [1, 1],
+                pixels: vec![Color32::TRANSPARENT],
+            };
         }
-        // Constructed channel-wise rather than through the `From` impl:
-        // that conversion is feature-gated, and this constructor is not.
-        let pixels: Vec<egui::Color32> = pixels
-            .iter()
-            .map(|c| egui::Color32::from_rgba_premultiplied(c.r(), c.g(), c.b(), c.a()))
-            .collect();
-        Self(egui::ColorImage {
+        Self {
             size,
-            pixels,
-            source_size: egui::vec2(size[0] as f32, size[1] as f32),
-        })
+            pixels: pixels.to_vec(),
+        }
+    }
+
+    /// Width and height in pixels.
+    #[must_use]
+    pub fn size(&self) -> [usize; 2] {
+        self.size
+    }
+
+    /// The pixels, row-major.
+    #[must_use]
+    pub fn pixels(&self) -> &[Color32] {
+        &self.pixels
     }
 }
 
+#[cfg(feature = "backend-egui-conv")]
 impl From<egui::ColorImage> for ColorImage {
     fn from(image: egui::ColorImage) -> Self {
-        Self(image)
+        Self {
+            size: image.size,
+            pixels: image.pixels.into_iter().map(Into::into).collect(),
+        }
     }
 }
 
+#[cfg(feature = "backend-egui-conv")]
 impl From<ColorImage> for egui::ColorImage {
     fn from(image: ColorImage) -> Self {
-        image.0
+        let [w, h] = image.size;
+        Self {
+            size: image.size,
+            pixels: image.pixels.into_iter().map(Into::into).collect(),
+            source_size: egui::vec2(w as f32, h as f32),
+        }
     }
 }
 
@@ -1110,42 +1215,93 @@ impl From<f32> for CornerRadius {
     }
 }
 
+/// How a texture is sampled when it is drawn at a size other than its
+/// own.
+///
+/// Two named filters rather than a full sampler description: those are
+/// the only ones any surface in the workspace asks for, and a backend
+/// that needs more can widen this additively.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
-pub struct TextureOptions(egui::TextureOptions);
+pub enum TextureOptions {
+    /// Nearest-neighbour — crisp pixels, for icons and pixel art.
+    Nearest,
+    /// Bilinear — smooth, for photographs and generated imagery.
+    #[default]
+    Linear,
+}
 
 impl TextureOptions {
-    pub const NEAREST: Self = Self(egui::TextureOptions::NEAREST);
-    pub const LINEAR: Self = Self(egui::TextureOptions::LINEAR);
+    pub const NEAREST: Self = Self::Nearest;
+    pub const LINEAR: Self = Self::Linear;
 }
 
+#[cfg(feature = "backend-egui-conv")]
 impl From<egui::TextureOptions> for TextureOptions {
     fn from(options: egui::TextureOptions) -> Self {
-        Self(options)
+        match options.magnification {
+            egui::TextureFilter::Nearest => Self::Nearest,
+            egui::TextureFilter::Linear => Self::Linear,
+        }
     }
 }
 
+#[cfg(feature = "backend-egui-conv")]
 impl From<TextureOptions> for egui::TextureOptions {
     fn from(options: TextureOptions) -> Self {
-        options.0
+        match options {
+            TextureOptions::Nearest => Self::NEAREST,
+            TextureOptions::Linear => Self::LINEAR,
+        }
     }
 }
 
+/// Linear interpolation across `range` at `t`, unclamped.
+///
+/// Written as `(1 - t) * start + t * end` rather than
+/// `start + t * (end - start)` so it matches the backend's rounding
+/// bit for bit — the two forms differ in the last ulp.
+#[must_use]
+fn lerp_f64(range: std::ops::RangeInclusive<f64>, t: f64) -> f64 {
+    (1.0 - t) * *range.start() + t * *range.end()
+}
+
+/// Map `x` from one range onto another, extrapolating outside `from`.
 #[must_use]
 pub fn remap(
     x: f64,
     from: std::ops::RangeInclusive<f64>,
     to: std::ops::RangeInclusive<f64>,
 ) -> f64 {
-    egui::remap(x, from, to)
+    debug_assert!(
+        from.start() != from.end(),
+        "from.start() and from.end() should not be equal"
+    );
+    let t = (x - *from.start()) / (*from.end() - *from.start());
+    lerp_f64(to, t)
 }
 
+/// [`remap`], clamped so the result always lands inside `to`.
 #[must_use]
 pub fn remap_clamp(
     x: f64,
     from: std::ops::RangeInclusive<f64>,
     to: std::ops::RangeInclusive<f64>,
 ) -> f64 {
-    egui::remap_clamp(x, from, to)
+    if from.end() < from.start() {
+        return remap_clamp(x, *from.end()..=*from.start(), *to.end()..=*to.start());
+    }
+    if x <= *from.start() {
+        *to.start()
+    } else if *from.end() <= x {
+        *to.end()
+    } else {
+        debug_assert!(
+            from.start() != from.end(),
+            "from.start() and from.end() should not be equal"
+        );
+        let t = (x - *from.start()) / (*from.end() - *from.start());
+        if 1.0 <= t { *to.end() } else { lerp_f64(to, t) }
+    }
 }
 
 #[cfg(test)]
@@ -1175,6 +1331,35 @@ mod tests {
         }
     }
 
+    /// `remap`/`remap_clamp` are reimplemented rather than delegated,
+    /// for the same reason as `gamma_multiply` above: they drive
+    /// animation curves, so a last-ulp difference shows up as a
+    /// one-frame jitter that no reviewer would spot.
+    #[cfg(feature = "backend-egui-conv")]
+    #[test]
+    fn remapped_values_match_the_backend() {
+        let cases = [
+            (0.5, 0.0..=1.0, 0.0..=100.0),
+            (-3.0, 0.0..=1.0, 10.0..=20.0),
+            (7.0, 0.0..=1.0, 10.0..=20.0),
+            (0.37, 1.0..=0.0, 4.0..=9.0),
+            (250.0, 100.0..=300.0, -1.0..=1.0),
+        ];
+        for (x, from, to) in cases {
+            assert_eq!(
+                remap(x, from.clone(), to.clone()),
+                egui::remap(x, from.clone(), to.clone()),
+                "remap({x}, {from:?}, {to:?}) diverged"
+            );
+            assert_eq!(
+                remap_clamp(x, from.clone(), to.clone()),
+                egui::remap_clamp(x, from.clone(), to.clone()),
+                "remap_clamp({x}, {from:?}, {to:?}) diverged"
+            );
+        }
+    }
+
+    #[cfg(feature = "backend-egui-conv")]
     #[test]
     fn texture_options_are_mara_owned_constants() {
         assert_eq!(

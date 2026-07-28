@@ -937,7 +937,7 @@ pub fn paint(ctx: &egui::Context) {
     let p = ctx.debug_painter();
     let outline = egui::Color32::from_rgb(255, 80, 80);
     p.rect_stroke(
-        best.rect,
+        best.rect.into(),
         0.0,
         egui::Stroke::new(2.0, outline),
         egui::StrokeKind::Inside,

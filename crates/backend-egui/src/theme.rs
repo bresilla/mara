@@ -23,7 +23,7 @@ use std::sync::atomic::{AtomicU8, Ordering};
 ///   `FontFamily::Name(...)` so the pane / section title sites can
 ///   paint with a heavier face independently of the body.
 /// * Every iconflow Fluent UI variant under its own named family
-///   (`mara_core::icons::install_iconflow_fonts`).
+///   (`install_iconflow_fonts`).
 ///
 /// Called from the internal theme hook whenever either weight changes;
 /// the dedup atomics keep the cost to a single `ctx.set_fonts` per change.
@@ -59,7 +59,7 @@ pub fn __internal_install_fonts(ctx: &egui::Context, body: FontWeight, title: Fo
         .or_default()
         .insert(0, title.name().into());
 
-    mara_core::icons::install_iconflow_fonts(&mut fonts);
+    install_iconflow_fonts(&mut fonts);
     ctx.set_fonts(fonts);
     // Do NOT flip the ready flags here — `ctx.set_fonts` queues the
     // new `FontDefinitions` for the NEXT pass, so any paint that
@@ -534,5 +534,35 @@ pub fn __internal_view_ctx<'a>(
         workspace,
         accent: accent.into(),
         content_avoidance,
+    }
+}
+
+use iconflow::fonts;
+use std::sync::Arc;
+
+/// Pull every iconflow font into `FontDefinitions` and register
+/// each as a named family so `FontFamily::Name(family)` resolves to
+/// the right glyph table. Called from [].
+///
+/// Lives here rather than in  because
+///  is an egui type — core owns the glyph lookup
+/// (), the backend owns binding it to a font family.
+pub fn install_iconflow_fonts(fonts_def: &mut egui::FontDefinitions) {
+    let fallback_fonts = fonts_def
+        .families
+        .get(&egui::FontFamily::Proportional)
+        .cloned()
+        .unwrap_or_default();
+    for asset in fonts() {
+        let key = asset.family.to_string();
+        fonts_def.font_data.insert(
+            key.clone(),
+            Arc::new(egui::FontData::from_static(asset.bytes)),
+        );
+        let mut family_fonts = vec![key];
+        family_fonts.extend(fallback_fonts.iter().cloned());
+        fonts_def
+            .families
+            .insert(egui::FontFamily::Name(asset.family.into()), family_fonts);
     }
 }

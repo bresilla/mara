@@ -17,7 +17,6 @@
 //! once at theme-apply time and register each `(family, bytes)` pair
 //! as `egui::FontFamily::Name(family)`.
 
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::{
@@ -27,8 +26,7 @@ use crate::{
         Vec2 as MaraVec2,
     },
 };
-use egui;
-use iconflow::{IconRef, Pack, Size, Style, fonts, try_icon};
+use iconflow::{IconRef, Pack, Size, Style, try_icon};
 
 /// `true` once `ctx.set_fonts(...)` has installed the iconflow font
 /// families in egui — set from Mara's internal style font installer
@@ -49,30 +47,6 @@ fn fonts_ready() -> bool {
 
 pub(crate) fn icon_fonts_ready() -> bool {
     fonts_ready()
-}
-
-/// Pull every iconflow font into `FontDefinitions` and register
-/// each as a named family so `FontFamily::Name(family)` resolves to
-/// the right glyph table. Called from Mara's internal style font installer.
-#[doc(hidden)]
-pub fn install_iconflow_fonts(fonts_def: &mut egui::FontDefinitions) {
-    let fallback_fonts = fonts_def
-        .families
-        .get(&egui::FontFamily::Proportional)
-        .cloned()
-        .unwrap_or_default();
-    for asset in fonts() {
-        let key = asset.family.to_string();
-        fonts_def.font_data.insert(
-            key.clone(),
-            Arc::new(egui::FontData::from_static(asset.bytes)),
-        );
-        let mut family_fonts = vec![key];
-        family_fonts.extend(fallback_fonts.iter().cloned());
-        fonts_def
-            .families
-            .insert(egui::FontFamily::Name(asset.family.into()), family_fonts);
-    }
 }
 
 /// Source for a section / widget icon — either a bundled Fluent
@@ -110,17 +84,11 @@ impl<'a> From<&'a str> for Icon<'a> {
 #[must_use]
 pub fn is_icon_payload(payload: &str) -> bool {
     let trimmed = payload.trim_start();
-    trimmed.starts_with("<svg") || trimmed.starts_with("<?xml") || icon(payload).is_some()
+    trimmed.starts_with("<svg") || trimmed.starts_with("<?xml") || icon_glyph(payload).is_some()
 }
 
 /// Look up a filled Fluent UI System Icon by name. Returns the
 /// glyph character + the font family to render it in. Returns
-/// `None` when the icon isn't in the bundled set — caller should
-/// fall back gracefully.
-pub(crate) fn icon(name: &str) -> Option<(char, egui::FontFamily)> {
-    let (glyph, family) = icon_glyph(name)?;
-    Some((glyph, egui::FontFamily::Name(family.into())))
-}
 
 /// Look up a filled Fluent UI System Icon as backend-neutral paint
 /// data: glyph character plus the named icon font family.
@@ -170,33 +138,6 @@ pub(crate) fn icon_paint_cmd(
 mod tests {
     use super::*;
 
-    #[test]
-    fn iconflow_families_keep_proportional_fallbacks() {
-        let mut fonts = egui::FontDefinitions::default();
-        let proportional = fonts
-            .families
-            .get(&egui::FontFamily::Proportional)
-            .cloned()
-            .expect("egui default fonts should expose a proportional fallback chain");
-
-        install_iconflow_fonts(&mut fonts);
-
-        let (_, icon_family) = icon("search").expect("search icon should be bundled");
-        let icon_chain = fonts
-            .families
-            .get(&icon_family)
-            .expect("install_iconflow_fonts should bind the icon family");
-
-        assert!(
-            icon_chain.len() > 1,
-            "icon families need normal text fallback fonts so replacement glyph lookup cannot warn or fail"
-        );
-        assert_eq!(
-            &icon_chain[1..],
-            proportional.as_slice(),
-            "icon font should be first, followed by the normal proportional fallback chain"
-        );
-    }
 
     #[test]
     fn icon_payload_validation_does_not_depend_on_runtime_font_install() {

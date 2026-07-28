@@ -239,7 +239,7 @@ mod tests {
         let (mut stack, accent) = module_workspace_ctx();
         let mut ctx = WorkspaceCtx::new(&mut stack, accent);
         let wrong_scope = RibbonSlotDef::new(
-            egui::Id::new("wrong.ribbon"),
+            crate::vocab::Id::new("wrong.ribbon"),
             RibbonScope::View(crate::ViewId::new("canvas")),
             RibbonEdge::Top,
             RibbonCluster::Middle,
@@ -257,7 +257,7 @@ mod tests {
     fn workspace_ctx_rejects_duplicate_ribbon_ids() {
         let (mut stack, accent) = module_workspace_ctx();
         let mut ctx = WorkspaceCtx::new(&mut stack, accent);
-        let ribbon_id = egui::Id::new("duplicate.ribbon");
+        let ribbon_id = crate::vocab::Id::new("duplicate.ribbon");
         let first = RibbonSlotDef::new(
             ribbon_id,
             RibbonScope::WorkspaceLevel(ctx.level.id),
@@ -286,7 +286,7 @@ mod tests {
         let (mut stack, accent) = module_workspace_ctx();
         let mut ctx = WorkspaceCtx::new(&mut stack, accent);
         let ribbon = RibbonSlotDef::new(
-            egui::Id::new("level.ribbon"),
+            crate::vocab::Id::new("level.ribbon"),
             RibbonScope::WorkspaceLevel(ctx.level.id),
             RibbonEdge::Top,
             RibbonCluster::Middle,

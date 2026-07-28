@@ -74,6 +74,12 @@ check:
 # Check the optional-GPU crate both ways.
 	@$(CARGO) check -p mara_3d
 	@$(CARGO) check -p mara_3d --features gpu-preview
+# PLAN.md's goal, asserted rather than greped: with the conversion feature
+# off, `mara_core` must have no egui edge at all. This is what makes
+# `mara_backend_egui` the one crate that names the backend — a stray
+# `use egui::` in core would reintroduce the dependency and fail here.
+	@$(CARGO) check -p mara_core --no-default-features --features svg
+	@! $(CARGO) tree -p mara_core --no-default-features --features svg -e normal | grep -q egui
 	@./scripts/ratchet.sh
 # ── Sealed tier (PLAN.md decision F1) ────────────────────────────────
 # `crates/modules/*` is the sealed tier: a crate there names NO backend

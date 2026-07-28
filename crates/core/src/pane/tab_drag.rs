@@ -10,7 +10,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::vocab::Id;
-use egui::{Pos2, Rect};
+use crate::vocab::{Pos2, Rect};
 
 use crate::icons::Icon;
 use crate::layout::{AreaHost, Layer};
@@ -535,7 +535,7 @@ fn tab_drag_preview_paint_cmds(rect: MaraRect, accent: MaraColor32) -> [PaintCmd
 #[cfg(test)]
 mod tests {
     use super::*;
-    use egui::{pos2, vec2};
+    use crate::vocab::{pos2, vec2};
 
     #[test]
     fn drag_target_ignores_source_tab_button_for_same_strip_slots() {
