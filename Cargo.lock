@@ -3724,6 +3724,7 @@ dependencies = [
  "egui-wgpu",
  "mara_backend_egui",
  "mara_core",
+ "mara_gpu",
  "serde",
  "slab",
  "smallvec",

@@ -11,6 +11,7 @@ repository.workspace = true
 # `mara` facade — so this crate can finally speak Mara vocab directly
 # instead of duplicating a geometry type. PLAN.md WS-D1.
 mara_core = { workspace = true }
+mara_gpu = { workspace = true }
 # The vendored renderer hands a backend surface to its own drawing
 # code, so it names the backend crate directly.
 mara_backend_egui = { workspace = true }

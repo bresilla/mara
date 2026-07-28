@@ -281,6 +281,19 @@ pub trait NodeViewBackend {
     /// (internally `Arc`-counted), so callers return clones.
     fn wgpu(&self) -> (wgpu::Device, wgpu::Queue);
 
+    /// The host's opaque GPU handle, when it has one.
+    ///
+    /// `None` by default. A host that already owns a
+    /// [`MaraRenderState`](mara_gpu::MaraRenderState) — every
+    /// egui-wgpu host does — should return it, because that is the
+    /// handle `MaraCtx::render_offscreen` needs and the one thing
+    /// `wgpu()` + `target_format()` cannot be reassembled into
+    /// (PLAN.md WS-D1.4). Supplying it is what lets a graph move off
+    /// `node_view`'s bespoke offscreen path onto the seam's.
+    fn gpu(&self) -> Option<mara_gpu::MaraRenderState<'_>> {
+        None
+    }
+
     /// The texture format the PARENT egui renderer outputs to —
     /// the offscreen target uses the same format so colours match
     /// when the texture is drawn as `egui::Image` in the parent UI.

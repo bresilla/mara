@@ -822,3 +822,39 @@ mod view_module_bridge_tests {
         assert_eq!(mara_core::MaraModule::icon(&surface), "node_tree");
     }
 }
+
+/// Compile-time proof that a graph can render through the seam's
+/// offscreen path.
+///
+/// PLAN.md WS-D1.4 replaces `node_view.rs` with `ViewCtx::offscreen`.
+/// That was blocked by a type mismatch, not effort: the graph renders
+/// from a `ContainerSpec::raw_internal` closure holding a `MaraUi`,
+/// while `render_offscreen` wants a `MaraRenderState` — and
+/// `NodeViewBackend` exposed only `(Device, Queue)` + `TextureFormat`,
+/// which cannot be reassembled into one.
+///
+/// `NodeViewBackend::gpu()` closes that. This function is never called;
+/// it exists so the reachability is checked by the compiler on every
+/// build, rather than rediscovered when someone attempts the swap.
+#[cfg(feature = "gpu")]
+#[allow(dead_code)]
+fn _offscreen_path_is_reachable<T, V: NodeViewer<T>>(
+    mara: &mut mara_core::MaraUi<'_>,
+    backend: &dyn NodeViewBackend,
+    graph: &mut Graph<T>,
+    viewer: &mut V,
+) {
+    let Some(gpu) = backend.gpu() else { return };
+    let _ = mara_core::context::MaraCtx::render_offscreen(
+        mara.ctx(),
+        gpu,
+        MaraId::new("graph.offscreen"),
+        MaraVec2::new(320.0, 240.0),
+        1.0,
+        mara_core::style::active_accent(),
+        Default::default(),
+        &mut |sub| {
+            let _ = GraphWidget::new().show(graph, viewer, sub);
+        },
+    );
+}

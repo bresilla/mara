@@ -748,6 +748,13 @@ impl<'a> EframeNodeViewBackend<'a> {
 
 #[cfg(feature = "graph")]
 impl<'a> mara_graph::node_view::NodeViewBackend for EframeNodeViewBackend<'a> {
+    /// This host was *built* from a `MaraRenderState`, so handing one
+    /// back costs nothing and is what lets the graph use the seam's
+    /// offscreen path (PLAN.md WS-D1.4).
+    fn gpu(&self) -> Option<mara_gpu::MaraRenderState<'_>> {
+        Some(mara_gpu::MaraRenderState::__internal_new(self.render_state))
+    }
+
     fn wgpu(&self) -> (wgpu::Device, wgpu::Queue) {
         (
             self.render_state.device.clone(),
