@@ -94,9 +94,18 @@ fn render_styled(graph: &mut Graph<DemoNode>, style: mara_graph::GraphStyle) -> 
         });
 
         egui::CentralPanel::default().show(&ctx, |ui| {
-            let _ = GraphWidget::new()
-                .style(style.clone())
-                .show(graph, &mut MinimalViewer, ui);
+            // `GraphWidget::show` takes a `MaraUi` now (WS-D1.4); the
+            // fixture wraps the raw one the panel hands it.
+            let mut backend = mara_backend_egui::EguiUiBackend::new(ui);
+            MaraUi::__internal_over_backend_ret(
+                &mut backend,
+                mara_core::style::active_accent(),
+                |mara| {
+                    let _ = GraphWidget::new()
+                        .style(style.clone())
+                        .show(graph, &mut MinimalViewer, mara);
+                },
+            );
         });
 
         let output = ctx.end_pass();

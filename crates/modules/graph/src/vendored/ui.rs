@@ -997,16 +997,35 @@ impl GraphWidget {
         self.id.unwrap_or_else(|| ui_id.with(self.id_salt))
     }
 
-    /// Render [`Graph`] using given viewer and style into the [`Ui`].
+    /// Render [`Graph`] using the given viewer and style.
     ///
-    /// Returns the graph area's interaction, in Mara vocabulary — a
-    /// caller never has to name a backend response type to ask whether
-    /// the canvas was clicked or dragged.
+    /// Takes a [`MaraUi`] and returns a [`MaraResponse`], so a caller
+    /// never names a backend type to host a graph or to ask whether the
+    /// canvas was clicked (PLAN.md WS-D1.4). This is what lets a graph
+    /// live inside `ViewCtx::offscreen`, whose body is handed a
+    /// `MaraUi`.
+    ///
+    /// The renderer *behind* this signature still works on a raw `Ui` —
+    /// 52 call sites, tracked in PLAN.md's mapping table — so it unwraps
+    /// once here. `mara_graph` is the one crate exempted from the
+    /// sealed-tier ban on that hatch, which is what makes the unwrap
+    /// legal rather than a leak.
+    ///
+    /// Panics on a non-egui backend, as the renderer requires one until
+    /// that table is worked through.
+    ///
+    /// [`MaraUi`]: mara_core::MaraUi
     #[inline]
-    pub fn show<T, V>(&self, graph: &mut Graph<T>, viewer: &mut V, ui: &mut Ui) -> MaraResponse
+    pub fn show<T, V>(
+        &self,
+        graph: &mut Graph<T>,
+        viewer: &mut V,
+        mara: &mut mara_core::MaraUi<'_>,
+    ) -> MaraResponse
     where
         V: NodeViewer<T>,
     {
+        let ui = mara.__internal_raw_ui();
         let graph_id = self.get_id(ui.id());
 
         show_graph(

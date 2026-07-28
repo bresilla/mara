@@ -459,11 +459,20 @@ pub fn mara_node_graph_with_opts<T, V: NodeViewer<T>>(
                     );
                 },
                 |sub_ui| {
-                    GraphWidget::new()
-                        .id(id_for_graph.into())
-                        .style(mara_node_graph_style(accent))
-                        .min_size(size_egui.into())
-                        .show(graph, viewer, sub_ui);
+                    // The vendored renderer still needs a backend
+                    // surface inside; the *widget* no longer does.
+                    let mut backend = mara_backend_egui::EguiUiBackend::new(sub_ui);
+                    mara_core::MaraUi::__internal_over_backend_ret(
+                        &mut backend,
+                        accent,
+                        |mara| {
+                            GraphWidget::new()
+                                .id(id_for_graph.into())
+                                .style(mara_node_graph_style(accent))
+                                .min_size(size_egui.into())
+                                .show(graph, viewer, mara);
+                        },
+                    );
                 },
             );
         },
@@ -625,13 +634,13 @@ impl<T, V> GraphSurface<T, V>
 where
     V: NodeViewer<T>,
 {
-    fn show_graph(&mut self, ui: &mut egui::Ui) {
-        let size = ui.available_size_before_wrap();
+    fn show_graph(&mut self, mara: &mut mara_core::MaraUi<'_>) {
+        let size = mara.available_rect().size();
         GraphWidget::new()
             .id(self.id.into())
             .style(mara_node_graph_style(mara_core::style::active_accent()))
             .min_size(size.into())
-            .show(&mut self.graph, &mut self.viewer, ui);
+            .show(&mut self.graph, &mut self.viewer, mara);
     }
 
     fn toolbar(&self, scope: mara_core::RibbonScope) -> mara_core::RibbonSlotDef {
@@ -684,12 +693,9 @@ where
     }
 
     fn show(&mut self, ctx: &mut mara_core::ViewCtx<'_>) {
-        #[allow(deprecated)]
-        {
-            egui::CentralPanel::default().show(ctx.__internal_egui_ctx(), |ui| {
-                self.show_graph(ui);
-            });
-        }
+        // Through the seam now that `GraphWidget::show` takes a
+        // `MaraUi` (PLAN.md WS-D1.4) — no hand-built `CentralPanel`.
+        ctx.body(|mara| self.show_graph(mara));
     }
 }
 
@@ -714,27 +720,33 @@ where
         mui: &mut mara_core::mui::MaraUi<'_>,
         ctx: mara_core::ModuleInlineCtx<'_>,
     ) -> mara_core::ModuleResponse {
-        let ui = mui.__internal_raw_ui();
-        ui.group(|ui| {
-            ui.horizontal(|ui| {
-                ui.label(format!("Graph: {}", self.title));
-            });
-            self.show_graph(ui);
-            if ctx.can_enter_workspace()
-                && ui
-                    .button(
-                        mara_core::style::theme()
-                            .modules
-                            .inline_workspace_button_label,
-                    )
-                    .clicked()
-            {
-                mara_core::ModuleResponse::enter_workspace()
-            } else {
-                mara_core::ModuleResponse::none()
-            }
-        })
-        .inner
+        // Entirely through `MaraUi` now: the graph widget takes one,
+        // so the raw-surface unwrap this used to need is gone.
+        let mut response = mara_core::ModuleResponse::none();
+        let title = self.title.clone();
+        let can_enter = ctx.can_enter_workspace();
+        mui.framed(
+            mara_core::style::frame_for(
+                mara_core::style::FrameRole::Section,
+                mara_core::style::active_accent(),
+            ),
+            |mara| {
+                mara.label(&format!("Graph: {title}"));
+                self.show_graph(mara);
+                if can_enter
+                    && mara
+                        .button(
+                            mara_core::style::theme()
+                                .modules
+                                .inline_workspace_button_label,
+                        )
+                        .clicked
+                {
+                    response = mara_core::ModuleResponse::enter_workspace();
+                }
+            },
+        );
+        response
     }
 
     fn workspace(&mut self, ws: &mut mara_core::WorkspaceCtx<'_>) {
