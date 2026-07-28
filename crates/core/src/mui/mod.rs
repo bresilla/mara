@@ -460,23 +460,137 @@ pub enum MaraKey {
 
 // ─── MaraPainter ──────────────────────────────────────────────────
 
-#[derive(Clone)]
-enum MaraPainterSink {
-    Egui(egui::Painter),
-    /// Records draw commands instead of rasterising — used by non-egui
-    /// backends and tests.
-    Commands {
-        commands: Rc<RefCell<PaintList>>,
-        clip: vocab::Rect,
-    },
+/// Where a [`MaraPainter`] sends what it draws.
+///
+/// A backend either rasterises the command now or records it for
+/// later; both look the same from the painter's side. Object-safe so
+/// the painter can hold one without naming which.
+pub trait PainterSink {
+    /// The rect drawing is clipped to.
+    fn clip_rect(&self) -> vocab::Rect;
+
+    /// A sink clipped to `rect`, intersected with the current clip so
+    /// clips only ever shrink.
+    fn with_clip(&self, rect: vocab::Rect) -> Box<dyn PainterSink>;
+
+    /// Rasterise or record one command.
+    fn render(&self, cmd: PaintCmd);
+
+    /// Render a text command, returning the rect it occupied.
+    fn render_text(&self, cmd: PaintCmd) -> vocab::Rect;
+
+    /// Laid-out size of `text`, without drawing it.
+    fn measure_text(&self, text: &str, size: f32, mono: bool) -> vocab::Vec2;
+
+    /// Laid-out size of `runs` measured together — per-run widths do
+    /// not sum to the laid-out width once spacing and kerning apply.
+    fn measure_text_runs(&self, runs: &[crate::paint::TextRun]) -> vocab::Vec2;
+
+    /// Commands recorded so far. Empty for a rasterising sink.
+    fn recorded(&self) -> Vec<PaintCmd> {
+        Vec::new()
+    }
+
+    /// Clone behind the box — `MaraPainter` is `Clone`, and a trait
+    /// object cannot derive it.
+    fn boxed_clone(&self) -> Box<dyn PainterSink>;
 }
 
-impl MaraPainterSink {
+/// Rasterising sink over the backend's painter.
+struct EguiSink(egui::Painter);
+
+impl PainterSink for EguiSink {
+    fn boxed_clone(&self) -> Box<dyn PainterSink> {
+        Box::new(Self(self.0.clone()))
+    }
+
     fn clip_rect(&self) -> vocab::Rect {
-        match self {
-            Self::Egui(painter) => backend::egui::painter_clip_rect(painter),
-            Self::Commands { clip, .. } => *clip,
-        }
+        backend::egui::painter_clip_rect(&self.0)
+    }
+
+    fn with_clip(&self, rect: vocab::Rect) -> Box<dyn PainterSink> {
+        Box::new(Self(backend::egui::painter_with_clip(&self.0, rect)))
+    }
+
+    fn render(&self, cmd: PaintCmd) {
+        backend::egui::render_paint_cmd(&self.0, cmd);
+    }
+
+    fn render_text(&self, cmd: PaintCmd) -> vocab::Rect {
+        backend::egui::render_text_cmd(&self.0, cmd)
+    }
+
+    fn measure_text(&self, text: &str, size: f32, mono: bool) -> vocab::Vec2 {
+        backend::egui::measure_text_for_spec(
+            &self.0,
+            &crate::layout::TextMeasureSpec::new(text, size, mono),
+        )
+    }
+
+    fn measure_text_runs(&self, runs: &[crate::paint::TextRun]) -> vocab::Vec2 {
+        backend::egui::measure_text_runs_for_painter(&self.0, runs)
+    }
+}
+
+/// Command-recording sink — used by non-egui backends and tests.
+struct CommandSink {
+    commands: Rc<RefCell<PaintList>>,
+    clip: vocab::Rect,
+}
+
+impl PainterSink for CommandSink {
+    fn boxed_clone(&self) -> Box<dyn PainterSink> {
+        Box::new(Self {
+            commands: Rc::clone(&self.commands),
+            clip: self.clip,
+        })
+    }
+
+    fn clip_rect(&self) -> vocab::Rect {
+        self.clip
+    }
+
+    fn with_clip(&self, rect: vocab::Rect) -> Box<dyn PainterSink> {
+        Box::new(Self {
+            commands: Rc::clone(&self.commands),
+            clip: self.clip.intersect(rect),
+        })
+    }
+
+    fn render(&self, cmd: PaintCmd) {
+        self.commands.borrow_mut().push(PaintCmd::Clip {
+            rect: self.clip,
+            children: vec![cmd],
+        });
+    }
+
+    fn render_text(&self, cmd: PaintCmd) -> vocab::Rect {
+        let rect = match &cmd {
+            PaintCmd::Text { pos, .. }
+            | PaintCmd::TextWithFamily { pos, .. }
+            | PaintCmd::TextRuns { pos, .. } => vocab::Rect::from_min_size(*pos, vocab::Vec2::ZERO),
+            _ => vocab::Rect::NOTHING,
+        };
+        self.render(cmd);
+        rect
+    }
+
+    fn measure_text(&self, text: &str, size: f32, _mono: bool) -> vocab::Vec2 {
+        // Deterministic stand-in: no font atlas headless, so width is
+        // derived from the character count. Matches what the recording
+        // painter has always reported.
+        vocab::Vec2::new(text.chars().count() as f32 * size * 0.5, size)
+    }
+
+    fn measure_text_runs(&self, runs: &[crate::paint::TextRun]) -> vocab::Vec2 {
+        runs.iter().fold(vocab::Vec2::ZERO, |acc, run| {
+            let one = self.measure_text(&run.text, run.size, false);
+            vocab::Vec2::new(acc.x + one.x + run.leading_space, acc.y.max(one.y))
+        })
+    }
+
+    fn recorded(&self) -> Vec<PaintCmd> {
+        self.commands.borrow().commands().to_vec()
     }
 }
 
@@ -489,15 +603,22 @@ impl MaraPainterSink {
 /// method speaks [`crate::vocab`] data types only. Text always
 /// renders in the theme's font families, so custom drawing cannot
 /// drift away from Mara's typography.
-#[derive(Clone)]
 pub struct MaraPainter {
-    sink: MaraPainterSink,
+    sink: Box<dyn PainterSink>,
+}
+
+impl Clone for MaraPainter {
+    fn clone(&self) -> Self {
+        Self {
+            sink: self.sink.boxed_clone(),
+        }
+    }
 }
 
 impl MaraPainter {
     pub(crate) fn new(painter: egui::Painter) -> Self {
         Self {
-            sink: MaraPainterSink::Egui(painter),
+            sink: Box::new(EguiSink(painter)),
         }
     }
 
@@ -518,10 +639,10 @@ impl MaraPainter {
     /// isn't rasterised, so it's discarded) and by tests.
     pub(crate) fn recording(clip: impl Into<vocab::Rect>) -> Self {
         Self {
-            sink: MaraPainterSink::Commands {
+            sink: Box::new(CommandSink {
                 commands: Rc::new(RefCell::new(PaintList::new())),
                 clip: clip.into(),
-            },
+            }),
         }
     }
 
@@ -540,10 +661,7 @@ impl MaraPainter {
     #[doc(hidden)]
     #[must_use]
     pub fn __internal_recorded_commands(&self) -> Vec<PaintCmd> {
-        match &self.sink {
-            MaraPainterSink::Egui(_) => Vec::new(),
-            MaraPainterSink::Commands { commands, .. } => commands.borrow().commands().to_vec(),
-        }
+        self.sink.recorded()
     }
 
     /// The rect drawing is clipped to.
@@ -557,16 +675,8 @@ impl MaraPainter {
     #[must_use]
     pub fn with_clip(&self, rect: impl Into<vocab::Rect>) -> MaraPainter {
         let rect = rect.into();
-        match &self.sink {
-            MaraPainterSink::Egui(painter) => {
-                MaraPainter::new(backend::egui::painter_with_clip(painter, rect))
-            }
-            MaraPainterSink::Commands { commands, clip } => MaraPainter {
-                sink: MaraPainterSink::Commands {
-                    commands: Rc::clone(commands),
-                    clip: clip.intersect(rect),
-                },
-            },
+        MaraPainter {
+            sink: self.sink.with_clip(rect),
         }
     }
 
@@ -843,28 +953,12 @@ impl MaraPainter {
     /// laid-out width once spacing and kerning apply.
     #[must_use]
     pub fn measure_text_runs(&self, runs: &[crate::paint::TextRun]) -> vocab::Vec2 {
-        match &self.sink {
-            MaraPainterSink::Egui(painter) => {
-                backend::egui::measure_text_runs_for_painter(painter, runs)
-            }
-            MaraPainterSink::Commands { .. } => runs.iter().fold(vocab::Vec2::ZERO, |acc, run| {
-                let one = self.measure_text(&run.text, run.size, false);
-                vocab::Vec2::new(acc.x + one.x + run.leading_space, acc.y.max(one.y))
-            }),
-        }
+        self.sink.measure_text_runs(runs)
     }
 
     #[must_use]
     pub fn measure_text(&self, text: &str, size: f32, mono: bool) -> vocab::Vec2 {
-        match &self.sink {
-            MaraPainterSink::Egui(painter) => backend::egui::measure_text_for_spec(
-                painter,
-                &crate::layout::TextMeasureSpec::new(text, size, mono),
-            ),
-            MaraPainterSink::Commands { .. } => {
-                vocab::Vec2::new(text.chars().count() as f32 * size * 0.5, size)
-            }
-        }
+        self.sink.measure_text(text, size, mono)
     }
 
     /// Render a Mara paint command through the current backend.
@@ -873,33 +967,11 @@ impl MaraPainter {
     /// becomes the seam where commands are buffered or sent to a
     /// non-egui renderer.
     pub fn paint_cmd(&self, cmd: PaintCmd) {
-        match &self.sink {
-            MaraPainterSink::Egui(painter) => backend::egui::render_paint_cmd(painter, cmd),
-            MaraPainterSink::Commands { commands, clip } => {
-                commands.borrow_mut().push(PaintCmd::Clip {
-                    rect: *clip,
-                    children: vec![cmd],
-                });
-            }
-        }
+        self.sink.render(cmd);
     }
 
     fn paint_text_cmd(&self, cmd: PaintCmd) -> vocab::Rect {
-        match &self.sink {
-            MaraPainterSink::Egui(painter) => backend::egui::render_text_cmd(painter, cmd),
-            MaraPainterSink::Commands { .. } => {
-                let rect = match &cmd {
-                    PaintCmd::Text { pos, .. }
-                    | PaintCmd::TextWithFamily { pos, .. }
-                    | PaintCmd::TextRuns { pos, .. } => {
-                        vocab::Rect::from_min_size(*pos, vocab::Vec2::ZERO)
-                    }
-                    _ => vocab::Rect::NOTHING,
-                };
-                self.paint_cmd(cmd);
-                rect
-            }
-        }
+        self.sink.render_text(cmd)
     }
 }
 
