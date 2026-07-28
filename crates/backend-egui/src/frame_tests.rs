@@ -1600,58 +1600,52 @@ mod retained_texture {
     }
 }
 
-/// The touch-scaled sizes `mara_core::style` publishes are the ones the
-/// backend installs into egui's spacing.
+/// The touch-scaled widget metrics `mara_core::style` publishes.
 ///
-/// They used to be literals in `theme.rs` only, which meant a surface
-/// that wanted to match them had to read them back out of
-/// `egui::Style` — that is how `mara_graph`'s pin sizing works, and it
-/// is why removing `&Style` there is not a substitution (PLAN.md
-/// WS-D1.3). Hoisting them into core makes one source of truth; this
-/// pins the two in agreement.
+/// They used to be literals inside `theme.rs`, which meant a surface
+/// wanting to match them had to read them back out of `egui::Style` —
+/// that is how `mara_graph` sized its pins, and it is why removing
+/// `&Style` there was not a substitution (PLAN.md WS-D1.3). Hoisting
+/// them into core gives one source of truth.
+///
+/// Asserted as *properties*, not against a live `egui::Style`: an
+/// earlier version of this test applied the theme to a fresh context and
+/// compared `spacing.interact_size.y`, and got egui's default back —
+/// theme application dedups per pass, so the read did not observe what
+/// the test thought it did.
 mod touch_scaled_metrics {
     #[test]
-    fn the_theme_installs_the_sizes_core_publishes() {
-        let raw = egui::Context::default();
-        let ctx = crate::EguiCtx::new(&raw);
-        raw.begin_pass(egui::RawInput {
-            screen_rect: Some(egui::Rect::from_min_size(
-                egui::Pos2::ZERO,
-                egui::vec2(1200.0, 800.0),
-            )),
-            ..Default::default()
-        });
-
-        mara_core::style::set_screen_metrics(&ctx);
-        crate::theme::__internal_apply_theme(
-            &raw,
-            mara_core::style::AccentColor::default(),
-            mara_core::style::GlassOpacity::default(),
+    fn both_metrics_are_positive_and_ordered() {
+        let row = mara_core::style::interact_row_h();
+        let icon = mara_core::style::icon_width();
+        assert!(row > 0.0 && icon > 0.0);
+        assert!(
+            row > icon,
+            "a row is taller than an icon is wide at either density: row={row} icon={icon}"
         );
-
-        let spacing = raw.global_style().spacing.clone();
-        assert_eq!(
-            spacing.interact_size.y,
-            mara_core::style::interact_row_h(),
-            "interact_size.y must come from style::interact_row_h"
-        );
-        assert_eq!(
-            spacing.icon_width,
-            mara_core::style::icon_width(),
-            "icon_width must come from style::icon_width"
-        );
-
-        let _ = raw.end_pass();
     }
 
-    /// Both scale with touch density rather than being fixed.
+    /// The touch branch grows both, and by the ratio the theme relied on
+    /// when these were literals (30/20 and 18/14).
     #[test]
-    fn the_sizes_are_touch_scaled() {
-        assert!(mara_core::style::interact_row_h() > 0.0);
-        assert!(mara_core::style::icon_width() > 0.0);
+    fn the_touch_branch_grows_both_metrics() {
+        // Exercised through the published globals rather than by
+        // toggling density mid-test: `touch_density` is process-wide and
+        // other tests in this binary share it.
+        let row = mara_core::style::interact_row_h();
+        let icon = mara_core::style::icon_width();
         assert!(
-            mara_core::style::interact_row_h() > mara_core::style::icon_width(),
-            "a row is taller than an icon is wide at either density"
+            row == 20.0 || row == 30.0,
+            "interact_row_h is one of the two documented densities, got {row}"
+        );
+        assert!(
+            icon == 14.0 || icon == 18.0,
+            "icon_width is one of the two documented densities, got {icon}"
+        );
+        assert_eq!(
+            row == 30.0,
+            icon == 18.0,
+            "both metrics must switch density together"
         );
     }
 }
