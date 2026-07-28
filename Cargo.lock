@@ -3646,6 +3646,7 @@ dependencies = [
  "crossbeam-channel",
  "egui",
  "egui-wgpu",
+ "mara_backend_egui",
  "mara_core",
  "mara_gpu",
  "wgpu",

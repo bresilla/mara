@@ -8,6 +8,8 @@
 
 use std::time::Duration;
 
+use mara_backend_egui::EguiCtx;
+use mara_core::context::MaraCtx;
 use mara_core::{ViewCtx, vocab::Color32 as MaraColor32};
 
 use crate::{BevyEmbeddedView, BevyViewportInput, BevyViewportWgpuResources};
@@ -211,7 +213,7 @@ impl MaraBevyViewport {
                         egui::Sense::click_and_drag(),
                     );
                     let ppp = ui.ctx().pixels_per_point();
-                    let now = ui.ctx().input(|i| i.time);
+                    let now = MaraCtx::now(&EguiCtx::new(ui.ctx()));
                     let target_pixels = internal_render_pixels(rect.size(), ppp);
                     if self.resize_target_pixels != target_pixels {
                         self.resize_target_pixels = target_pixels;
@@ -242,24 +244,28 @@ impl MaraBevyViewport {
                     // UI clicks into the Bevy camera/picker below.
                     let viewport_hovered = response.hovered();
                     let pointer_pos = if viewport_hovered || self.primary_drag_active {
-                        ui.ctx().input(|i| i.pointer.interact_pos())
+                        MaraCtx::input(&EguiCtx::new(ui.ctx()))
+                            .interact_pointer
+                            .map(Into::into)
                     } else {
                         response.hover_pos()
                     };
-                    let (primary_down, primary_pressed, middle_down, middle_pressed, scroll_delta) =
-                        ui.ctx().input(|i| {
-                            (
-                                i.pointer.primary_down(),
-                                i.pointer.button_pressed(egui::PointerButton::Primary),
-                                i.pointer.middle_down(),
-                                i.pointer.button_pressed(egui::PointerButton::Middle),
-                                if viewport_hovered {
-                                    i.smooth_scroll_delta.y / 120.0
-                                } else {
-                                    0.0
-                                },
-                            )
-                        });
+                    // Through `MaraInput` rather than a raw egui input
+                    // closure — every flag this used to hand-roll now
+                    // exists on the seam (PLAN.md WS-C1.3). The `/120.0`
+                    // stays explicit: `MaraInput::scroll_delta` is the
+                    // raw smooth delta in points, and this viewport wants
+                    // wheel *notches*.
+                    let seam_input = MaraCtx::input(&EguiCtx::new(ui.ctx()));
+                    let primary_down = seam_input.primary_down;
+                    let primary_pressed = seam_input.primary_pressed;
+                    let middle_down = seam_input.middle_down;
+                    let middle_pressed = seam_input.middle_pressed;
+                    let scroll_delta = if viewport_hovered {
+                        seam_input.scroll_delta.y / 120.0
+                    } else {
+                        0.0
+                    };
                     let viewport_drag_started =
                         viewport_hovered && (primary_pressed || middle_pressed);
                     if viewport_drag_started {
@@ -319,6 +325,9 @@ impl MaraBevyViewport {
                     let input_active = viewport_dragged
                         || primary_clicked
                         || response.hovered() && viewport_input.scroll_delta.abs() > f32::EPSILON
+                        // Still raw: `MaraInput` has no `any_down`, and
+                        // composing it from primary/secondary/middle would
+                        // silently drop egui's Extra1/Extra2 buttons.
                         || response.hovered() && ui.ctx().input(|i| i.pointer.any_down());
                     let target_size = [pixels[0] as usize, pixels[1] as usize];
                     let native_texture_needs_committed_frame =
@@ -356,6 +365,10 @@ impl MaraBevyViewport {
 
                     if should_render {
                         self.last_render_time = now;
+                        // Still raw: `MaraCtx::dt()` is egui's
+                        // *unstable* dt. This is a render-pacing value
+                        // and wants the smoothed one, so substituting
+                        // would change behaviour rather than relocate it.
                         let dt = ui.ctx().input(|i| i.stable_dt);
                         let render_attempts = 1;
                         for attempt in 0..render_attempts {
