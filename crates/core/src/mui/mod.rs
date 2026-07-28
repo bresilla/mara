@@ -1011,27 +1011,25 @@ impl<'a> MaraUi<'a> {
         }
     }
 
-    /// The concrete egui `Ui` behind this surface. Panics on a
-    /// non-egui backend — the shrinking set of operations still
-    /// egui-bound (stack scopes, canvas, pod, context menu, painter,
-    /// the raw hatch) go through here. Each call is a coupling-ratchet
-    /// escape.
-    #[cfg(feature = "backend-egui-conv")]
-    pub(crate) fn egui_ui(&mut self) -> &mut egui::Ui {
-        self.backend
-            .__internal_egui_ui_mut()
-            .expect("this MaraUi operation requires the egui backend")
-    }
-
     /// Internal first-party accessor — NOT part of the public API
-    /// and not semver-stable. First-party Mara module crates
-    /// (canvas, image, map, …) use this for backend adapter work
-    /// while ordinary app code stays on typed Mara APIs.
+    /// and not semver-stable. Panics on a non-egui backend.
+    ///
+    /// This is the last raw-surface escape in `mara_core`. Everything
+    /// that used to route through a `pub(crate) egui_ui()` — stack
+    /// scopes, canvas, pod, context menu, painter — now goes through
+    /// `UiBackend`, so the intermediary is gone and this hatch is the
+    /// only caller of `__internal_egui_ui_mut` here.
+    ///
+    /// Its two remaining consumers are `mara::extras::{code, graph}`,
+    /// host tier, pending WS-D. The sealed tier is banned from calling
+    /// it by name in `make check`.
     #[cfg(feature = "backend-egui-conv")]
     #[doc(hidden)]
     #[must_use]
     pub fn __internal_raw_ui(&mut self) -> &mut egui::Ui {
-        self.egui_ui()
+        self.backend
+            .__internal_egui_ui_mut()
+            .expect("this MaraUi operation requires the egui backend")
     }
 
     /// Internal first-party backend handle — NOT part of the public
