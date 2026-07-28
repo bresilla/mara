@@ -1512,7 +1512,7 @@ impl Pod {
                     .min_scrolled_height(0.0)
                     .show(&mut child, |inner| {
                         let mut backend = crate::backend::egui::EguiUiBackend::new(inner);
-                        paint_widgets(widgets, &mut backend, &mut response, pod_id);
+                        response = paint_widgets(widgets, &mut backend, pod_id);
                     });
             } else {
                 // Fill pods skip the ScrollArea — the slot is already
@@ -1528,11 +1528,11 @@ impl Pod {
                 // exactly what fill pods want: hard clip, no
                 // outer-scroll feedback.
                 let mut backend = crate::backend::egui::EguiUiBackend::new(&mut child);
-                paint_widgets(widgets, &mut backend, &mut response, pod_id);
+                response = paint_widgets(widgets, &mut backend, pod_id);
             }
         } else {
             let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
-            paint_widgets(self.widgets, &mut backend, &mut response, pod_id);
+            response = paint_widgets(self.widgets, &mut backend, pod_id);
         }
         response
     }
@@ -1547,12 +1547,20 @@ pub const POD_WIDGET_SPACING: f32 = 4.0;
 /// into `response`. Shared between [`Pod::show`]'s plain (parent ui)
 /// and resizable (clipped child + ScrollArea) paths so the per-widget
 /// rendering logic lives in exactly one place.
+/// Paint every widget in `widgets`, returning the responses they
+/// produced.
+///
+/// Returns rather than accumulating through `&mut`: the pod body runs
+/// inside nested `&mut dyn FnMut` scopes (child region, clip, scroll),
+/// and a mutable borrow captured across all of them cannot be made to
+/// work. `widgets` stays owned — [`WidgetSpec::Custom`] carries a
+/// move-only closure, so it cannot be borrowed.
 fn paint_widgets(
     widgets: Vec<WidgetSpec>,
     backend: &mut dyn crate::layout::UiBackend,
-    response: &mut PodResponse,
     pod_id: Id,
-) {
+) -> PodResponse {
+    let mut response = PodResponse::default();
     let widget_spacing = theme().pod.widget_spacing;
     // Per-kind stable indices: the Nth `with_search` keeps its
     // own state key independent of any buttons / toggles /
@@ -2185,6 +2193,7 @@ fn paint_widgets(
             }
         });
     }
+    response
 }
 
 #[cfg(test)]
@@ -2471,13 +2480,7 @@ mod tests {
                 value: "ready".into(),
             }),
         ];
-        let mut response = PodResponse::default();
-        paint_widgets(
-            widgets,
-            &mut backend,
-            &mut response,
-            Id::new("headless_pod"),
-        );
+        let response = paint_widgets(widgets, &mut backend, Id::new("headless_pod"));
 
         assert!(
             !backend.paints.is_empty(),
