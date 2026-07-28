@@ -18,7 +18,7 @@
 
 use crate::memory::MaraAnim;
 use crate::vocab::Id;
-use egui::{Color32, Rect};
+use egui::Rect;
 
 use super::body::Body;
 use crate::icons::Icon;
@@ -1950,9 +1950,9 @@ fn paint_folder_tabs(
     let icon_size = theme.tabs.folder_icon_size;
     let tab_radius = theme.tabs.folder_active_radius;
     let game_glyph_col = if theme.is_light {
-        Color32::BLACK
+        MaraColor32::BLACK
     } else {
-        Color32::WHITE
+        MaraColor32::WHITE
     };
     let inactive_base = match theme.tabs.inactive_glyph_color {
         style::TabInactiveGlyphColor::TextSecondary => theme.text_secondary.into(),
@@ -2466,7 +2466,7 @@ fn paint_icon_or_svg(
     align: crate::vocab::Align2,
     icon: Icon<'_>,
     size: f32,
-    color: Color32,
+    color: MaraColor32,
 ) {
     match icon {
         Icon::Name(name) => {
@@ -2576,7 +2576,7 @@ fn paint_title(
     let container_theme = theme.container;
     let title_side = anchor.title_side();
     let filled = theme.title_strip_filled;
-    let title_col: Color32 = if filled {
+    let title_col: MaraColor32 = if filled {
         style::contrast_text_for(accent).into()
     } else {
         style::section_title_color(accent).into()
@@ -2900,7 +2900,7 @@ fn paint_floating_icon(
     mara: &mut crate::MaraUi<'_>,
     strip_rect: MaraRect,
     anchor: PaneAnchor,
-    title_col: Color32,
+    title_col: MaraColor32,
     openness: f32,
     icon_src: Icon<'_>,
 ) {
@@ -3253,8 +3253,12 @@ fn paint_corner_ticks(
         bracket_accent.b(),
         255,
     );
-    let contrast_col =
-        Color32::from_rgba_unmultiplied(contrast_col.r(), contrast_col.g(), contrast_col.b(), 255);
+    let contrast_col = MaraColor32::from_rgba_unmultiplied(
+        contrast_col.r(),
+        contrast_col.g(),
+        contrast_col.b(),
+        255,
+    );
     // Body-side bracket colour LERPS from contrast (folded) to
     // accent (unfolded). Folded → all four corners paint in the
     // contrast colour (the "other" colour against the accent panel).
@@ -3263,7 +3267,7 @@ fn paint_corner_ticks(
     // accent banner regardless of fold state, so contrast is the
     // only readable choice there).
     let lerp_u8 = |a: u8, b: u8, t: f32| ((a as f32) * (1.0 - t) + (b as f32) * t).round() as u8;
-    let body_side_col = Color32::from_rgba_unmultiplied(
+    let body_side_col = MaraColor32::from_rgba_unmultiplied(
         lerp_u8(contrast_col.r(), accent_col.r(), openness),
         lerp_u8(contrast_col.g(), accent_col.g(), openness),
         lerp_u8(contrast_col.b(), accent_col.b(), openness),

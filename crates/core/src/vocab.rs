@@ -694,6 +694,30 @@ impl Color32 {
         Self([r, g, b, a])
     }
 
+    /// Scale every channel by `factor`, in gamma space.
+    ///
+    /// Fades a colour toward transparent *and* darker together, which
+    /// is what reads as "dimmed" for premultiplied colours — scaling
+    /// alpha alone would leave the colour at full brightness over a
+    /// dark background.
+    ///
+    /// Rounds half-up per channel, matching the backend byte-for-byte;
+    /// `dimmed_colours_match_the_backend` pins that.
+    #[must_use]
+    pub fn gamma_multiply(self, factor: f32) -> Self {
+        debug_assert!(
+            0.0 <= factor && factor.is_finite(),
+            "factor should be finite and non-negative, but was {factor}"
+        );
+        let Self([r, g, b, a]) = self;
+        Self([
+            (f32::from(r) * factor + 0.5) as u8,
+            (f32::from(g) * factor + 0.5) as u8,
+            (f32::from(b) * factor + 0.5) as u8,
+            (f32::from(a) * factor + 0.5) as u8,
+        ])
+    }
+
     #[must_use]
     pub const fn from_gray(gray: u8) -> Self {
         Self([gray, gray, gray, 255])
@@ -1120,6 +1144,29 @@ pub fn remap_clamp(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Mara reimplements `gamma_multiply` rather than delegating, so
+    /// the arithmetic has to agree with the backend exactly — a
+    /// half-up rounding difference would shift dimmed glyphs by one
+    /// channel step, which is invisible in review and visible on
+    /// screen.
+    #[cfg(feature = "backend-egui-conv")]
+    #[test]
+    fn dimmed_colours_match_the_backend() {
+        for factor in [0.0_f32, 0.13, 0.5, 0.78, 1.0, 2.0] {
+            for channels in [[0, 0, 0, 0], [255, 255, 255, 255], [7, 91, 200, 133]] {
+                let [r, g, b, a] = channels;
+                let ours = Color32::from_rgba_premultiplied(r, g, b, a).gamma_multiply(factor);
+                let theirs =
+                    egui::Color32::from_rgba_premultiplied(r, g, b, a).gamma_multiply(factor);
+                assert_eq!(
+                    ours,
+                    Color32::from(theirs),
+                    "gamma_multiply({factor}) diverged on {channels:?}"
+                );
+            }
+        }
+    }
 
     #[test]
     fn texture_options_are_mara_owned_constants() {

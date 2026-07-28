@@ -40,7 +40,6 @@ pub(crate) use drag::{ghost_gap_suppressed, set_ghost_gap_suppressed, set_snapsh
 use crate::context::MaraCtx;
 use crate::memory::MaraAnim;
 use crate::vocab::Id;
-use egui::Color32;
 
 use crate::layout::{AreaHost, PaneBodyScrollSpec, PaneFlexSpec};
 use crate::style;
@@ -983,7 +982,7 @@ impl Pane {
         let pane_id = self.id;
         let pane_anchor = self.anchor;
         let pane_resize = self.resize;
-        let pane_accent: Color32 = self.accent.into();
+        let pane_accent: MaraColor32 = self.accent.into();
         let pane_title_dbg = self.title.clone();
         // Slot for the Frame's actual rendered rect. The pane Area
         // closure writes this after `Frame::show` returns; the
@@ -1218,7 +1217,7 @@ impl Pane {
             resize,
             order: _,
         } = self;
-        let accent: Color32 = accent.into();
+        let accent: MaraColor32 = accent.into();
         let title_side = anchor.title_side();
         let horizontal_strip = title_side.is_horizontal_strip();
 
@@ -1979,7 +1978,7 @@ mod tests {
                 egui::Id::new("blank-pane-title"),
                 " ",
                 PaneAnchor::TopRail(RailZone::Middle),
-                Color32::WHITE,
+                MaraColor32::WHITE,
             );
         });
 
