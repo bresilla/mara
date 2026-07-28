@@ -597,7 +597,7 @@ pub fn __internal_apply_theme(ctx: &egui::Context, accent: AccentColor, opacity:
     } else {
         accent_raw
     };
-    set_raw_accent(accent_raw);
+    set_raw_accent(accent_raw.into());
     let body_w = font_weight();
     let title_w = title_weight();
     let body_u8 = body_w.as_u8();
@@ -650,9 +650,9 @@ pub fn __internal_apply_theme(ctx: &egui::Context, accent: AccentColor, opacity:
     // visuals — every paint site downstream (titles, borders,
     // glass-alpha helpers) reads from these atomics rather than
     // re-deriving from `theme()`.
-    set_raw_accent(accent_raw);
+    set_raw_accent(accent_raw.into());
     set_glass_opacity(opacity.0);
-    set_active_accent(accent_col);
+    set_active_accent(accent_col.into());
     __internal_apply_theme_to(ctx, accent, opacity);
 }
 
@@ -1031,7 +1031,7 @@ pub fn fg_dim() -> MaraColor32 {
 /// appearance gets a clean animation cycle instead of replaying
 /// the previous session's locked-in state.
 pub(crate) fn appearance_session(ctx: &dyn crate::context::MaraCtx, id: impl Into<MaraId>) -> u64 {
-    let id: egui::Id = id.into().into();
+    let id: MaraId = id.into();
     let key_seen = id.with("mara_last_seen_pass");
     let key_sess = id.with("mara_session_count");
     let now = ctx.pass_nr();
@@ -1077,7 +1077,7 @@ pub(crate) fn scramble_text(
     current: &str,
     active: bool,
 ) -> String {
-    let id: egui::Id = id.into().into();
+    let id: MaraId = id.into();
     /// Staggered delay between adjacent characters' lock times.
     /// `0.07` was the earlier default, but with `Pane`'s
     /// per-section staggered fade-in landing the last container at
@@ -1205,7 +1205,7 @@ pub(crate) fn glitch_text(
     id: impl Into<MaraId>,
     base: &str,
 ) -> String {
-    let id: egui::Id = id.into().into();
+    let id: MaraId = id.into();
     const GLITCH_DUR: f64 = 0.18;
 
     // Collect non-whitespace character indices — those are the only
@@ -1284,7 +1284,7 @@ pub(crate) fn chromatic_aberration_offset(
     ctx: &dyn crate::context::MaraCtx,
     id: impl Into<MaraId>,
 ) -> f32 {
-    let id: egui::Id = id.into().into();
+    let id: MaraId = id.into();
     /// Total split duration, peak in the middle.
     const DUR: f64 = 0.28;
     /// Maximum pixel offset of each ghost from the centre, ALONG the
@@ -2688,13 +2688,13 @@ static ACTIVE_ACCENT: core::sync::atomic::AtomicU32 =
 /// the user actually picked, regardless of `Theme::pastel_accent`.
 static RAW_ACCENT: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0xE6E6E8FF);
 
-fn set_active_accent(c: egui::Color32) {
+fn set_active_accent(c: MaraColor32) {
     let p =
         ((c.r() as u32) << 24) | ((c.g() as u32) << 16) | ((c.b() as u32) << 8) | (c.a() as u32);
     ACTIVE_ACCENT.store(p, Ordering::Relaxed);
 }
 
-fn set_raw_accent(c: egui::Color32) {
+fn set_raw_accent(c: MaraColor32) {
     let p =
         ((c.r() as u32) << 24) | ((c.g() as u32) << 16) | ((c.b() as u32) << 8) | (c.a() as u32);
     RAW_ACCENT.store(p, Ordering::Relaxed);
@@ -2707,7 +2707,7 @@ fn set_raw_accent(c: egui::Color32) {
 /// that don't thread accent through their signatures.
 pub fn active_accent() -> MaraColor32 {
     let p = ACTIVE_ACCENT.load(Ordering::Relaxed);
-    egui::Color32::from_rgba_premultiplied(
+    MaraColor32::from_rgba_premultiplied(
         ((p >> 24) & 0xff) as u8,
         ((p >> 16) & 0xff) as u8,
         ((p >> 8) & 0xff) as u8,
@@ -2721,7 +2721,7 @@ pub fn active_accent() -> MaraColor32 {
 /// of [`active_accent`] when you don't want the pastel pull.
 pub fn raw_accent() -> MaraColor32 {
     let p = RAW_ACCENT.load(Ordering::Relaxed);
-    egui::Color32::from_rgba_premultiplied(
+    MaraColor32::from_rgba_premultiplied(
         ((p >> 24) & 0xff) as u8,
         ((p >> 16) & 0xff) as u8,
         ((p >> 8) & 0xff) as u8,
@@ -3377,7 +3377,7 @@ pub fn adapt_accent_to_mode(accent: impl Into<MaraColor32>, is_light: bool) -> M
     let new_s = (hsl.s * 1.12).min(1.0);
     let adjusted = PastelColor::from_hsla(hsl.h, new_s, new_l, 1.0);
     let rgba = adjusted.to_rgba();
-    egui::Color32::from_rgb(rgba.r, rgba.g, rgba.b).into()
+    MaraColor32::from_rgb(rgba.r, rgba.g, rgba.b)
 }
 
 /// Linear RGB blend of two colours by `t` in `[0, 1]`. Internal
