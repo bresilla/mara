@@ -355,14 +355,16 @@ pub fn mara_node_graph_with_opts<T, V: NodeViewer<T>>(
     // target size so the secondary egui context renders at the
     // exact pixel dimensions of whichever surface owns the pane
     // this frame.
+    let mut surface = mara_core::MaraUi::__internal_backend_from_raw(ui);
+    let mut mara = mara_core::MaraUi::__internal_over(&mut surface, accent);
     mara_core::embed::__internal_maximizable_with_opts_egui(
-        ui,
+        &mut mara,
         id_for_graph_base,
         accent,
         desired_size,
         fs_opts,
-        |inner_ui| {
-            let size: MaraVec2 = inner_ui.available_size().into();
+        |mara| {
+            let size: MaraVec2 = mara.available_rect().size();
             let size_egui: egui::Vec2 = size.into();
             // Sub-context theme bridge — `mara_graph::show_with_anchor`
             // is theme-neutral, so we install fonts + apply the active
@@ -382,9 +384,7 @@ pub fn mara_node_graph_with_opts<T, V: NodeViewer<T>>(
                 mara_core::style::glass_opacity(),
             );
 
-            let parent_ctx = inner_ui.ctx().clone();
-            let mut memory =
-                mara_core::memory::MaraMemoryCtx::__internal_from_backend_ctx(&parent_ctx);
+            let mut memory = mara.ctx().memory();
             let mut version: u32 = memory.get_temp(version_id).unwrap_or(0);
             let last_sz: Option<MaraVec2> = memory.get_temp::<MaraVec2>(last_sz_id);
             let settle_left: u32 = memory.get_temp::<u32>(settle_id).unwrap_or(0);
@@ -413,7 +413,7 @@ pub fn mara_node_graph_with_opts<T, V: NodeViewer<T>>(
                 memory.set_temp::<MaraVec2>(last_sz_id, size);
                 memory.set_temp::<u32>(settle_id, new_settle);
                 if should_bump || new_settle > 0 {
-                    parent_ctx.request_repaint();
+                    mara.request_repaint();
                 }
             }
             // On a real resize (maximise / restore / pane drag),
@@ -430,6 +430,11 @@ pub fn mara_node_graph_with_opts<T, V: NodeViewer<T>>(
             // fit because the saved GraphStateData lookup misses.
             let id_for_graph = id_for_graph_base.with(version);
 
+            // The vendored graph renderer still takes a backend
+            // surface; this crate is host tier, so it unwraps here.
+            let Some(inner_ui) = mara.__internal_egui_ui_mut() else {
+                return;
+            };
             mara_graph::show_with_anchor(
                 inner_ui,
                 state,

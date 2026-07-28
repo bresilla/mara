@@ -6,8 +6,8 @@
 //! module provides exactly that, in a widget-agnostic form:
 //!
 //! ```ignore
-//! __internal_maximizable_egui(ui, "my_widget", accent, mara::ui::vocab::Vec2::new(w, 300.0), |ui| {
-//!     // Render your widget into this inner `ui` — it's either
+//! __internal_maximizable_egui(mara, "my_widget", accent, mara::mara::vocab::Vec2::new(w, 300.0), |mara| {
+//!     // Render your widget into this inner `mara` — it's either
 //!     // the inline rect the caller wanted, or a full-window
 //!     // overlay depending on the maximise state.
 //! });
@@ -37,9 +37,7 @@ use std::hash::Hash;
 
 use egui;
 
-use crate::layout::{
-    AreaHost, ChildRegion, CursorIcon, Layer, Sense as MaraSense, StackAlign, UiBackend,
-};
+use crate::layout::{AreaHost, ChildRegion, CursorIcon, Layer, Sense as MaraSense, StackAlign};
 use crate::paint::PaintCmd;
 use crate::ribbon::{RibbonCluster, RibbonEdge};
 use crate::style::{
@@ -217,14 +215,14 @@ pub fn __internal_restore_fullscreen(ctx: &dyn crate::context::MaraCtx) -> bool 
 /// widgets that embed it (graph/code extras), never directly.
 #[doc(hidden)]
 pub fn __internal_maximizable_egui(
-    ui: &mut egui::Ui,
+    mara: &mut crate::MaraUi<'_>,
     id_salt: impl Hash + Copy,
     accent: impl Into<MaraColor32>,
     min_size: impl Into<MaraVec2>,
-    body: impl FnOnce(&mut egui::Ui),
+    body: impl FnOnce(&mut crate::MaraUi<'_>),
 ) {
     __internal_maximizable_with_opts_egui(
-        ui,
+        mara,
         id_salt,
         accent,
         min_size,
@@ -239,31 +237,35 @@ pub fn __internal_maximizable_egui(
 /// the bottom-left corner instead of the top-right.
 #[doc(hidden)]
 pub fn __internal_maximizable_with_opts_egui(
-    ui: &mut egui::Ui,
+    mara: &mut crate::MaraUi<'_>,
     id_salt: impl Hash + Copy,
     accent: impl Into<MaraColor32>,
     min_size: impl Into<MaraVec2>,
     opts: OverlayOpts,
-    body: impl FnOnce(&mut egui::Ui),
+    body: impl FnOnce(&mut crate::MaraUi<'_>),
 ) {
     let accent = accent.into();
     let min_size = min_size.into();
     // Maximise state keyed purely on the caller's `id_salt` — no
-    // `ui.id()` mixed in — so the host can reconstruct the same
+    // `mara.id()` mixed in — so the host can reconstruct the same
     // key from the outside via [`is_maximized`] and route Ctrl+K
     // / context-sensitive logic based on "is THIS widget
     // currently full-window?".
     let max_id = maximize_state_key(id_salt);
     let max_key: crate::vocab::Id = max_id.into();
-    let mut maximized: bool = crate::memory::MaraMemoryCtx::new(ui.ctx())
+    let mut maximized: bool = mara
+        .ctx()
+        .memory()
         .get_temp::<bool>(max_key)
         .unwrap_or(false);
-    let pending_restore = crate::memory::MaraMemoryCtx::new(ui.ctx())
+    let pending_restore = mara
+        .ctx()
+        .memory()
         .get_temp::<MaraId>(pending_restore_fullscreen_key())
         == Some(max_id);
     if pending_restore {
         maximized = false;
-        let mut memory = crate::memory::MaraMemoryCtx::new(ui.ctx());
+        let mut memory = mara.ctx().memory();
         memory.set_temp::<bool>(max_key, false);
         memory.remove_temp::<MaraId>(pending_restore_fullscreen_key());
         memory.remove_temp::<(u64, MaraId)>(maximize_global_key());
@@ -279,15 +281,14 @@ pub fn __internal_maximizable_with_opts_egui(
     // inline-in-a-pane widgets would still paint on top of the
     // overlay.
     let global_key = maximize_global_key();
-    let pass_nr = ui.ctx().cumulative_pass_nr();
-    let stored_global: Option<(u64, MaraId)> =
-        crate::memory::MaraMemoryCtx::new(ui.ctx()).get_temp(global_key);
+    let pass_nr = mara.ctx().pass_nr();
+    let stored_global: Option<(u64, MaraId)> = mara.ctx().memory().get_temp(global_key);
     let some_other_maximized = match stored_global {
         Some((f, id)) => (f == pass_nr || f + 1 == pass_nr) && id != max_id,
         None => false,
     };
     if maximized {
-        crate::memory::MaraMemoryCtx::new(ui.ctx()).set_temp(global_key, (pass_nr, max_id));
+        mara.ctx().memory().set_temp(global_key, (pass_nr, max_id));
     }
 
     let overlay = crate::style::theme().overlay;
@@ -297,11 +298,9 @@ pub fn __internal_maximizable_with_opts_egui(
         // section / pane keep their footprint while the widget is
         // detached into the overlay.
         {
-            let mut raw = crate::MaraUi::__internal_backend_from_raw(ui);
-            let mut mara = crate::MaraUi::__internal_over(&mut raw, accent);
             let rect = mara.allocate(min_size, MaraSense::Hover).rect;
             if mara.is_rect_visible(rect) {
-                paint_maximize_placeholder(&mut mara, rect, overlay.placeholder_text);
+                paint_maximize_placeholder(mara, rect, overlay.placeholder_text);
             }
         }
 
@@ -316,16 +315,14 @@ pub fn __internal_maximizable_with_opts_egui(
         // later-registered Areas at the same Order on top of
         // earlier ones). Frame has NO corner radius / stroke /
         // inner margin so the overlay covers edge-to-edge.
-        let ctx = ui.ctx().clone();
         // Fullscreen within the current view node's region (a cell), or
         // the whole window when no node is scoping (the root / host).
-        let screen = current_node_region(&ctx)
-            .unwrap_or_else(|| crate::context::MaraCtx::content_rect(&ctx));
+        let screen = current_node_region(mara.ctx()).unwrap_or_else(|| mara.ctx().content_rect());
         let content = opts.content_avoidance.apply_to_rect(screen);
         crate::context::MaraCtx::area(
-            &ctx,
+            mara.ctx(),
             AreaHost::new(
-                crate::vocab::Id::from(ui.id()).with(("mara_maximize_overlay", id_salt)),
+                mara.id().with(("mara_maximize_overlay", id_salt)),
                 screen.min,
                 Layer::Foreground,
             ),
@@ -339,18 +336,20 @@ pub fn __internal_maximizable_with_opts_egui(
                 let _ = mara.allocate(screen.size(), MaraSense::Hover);
             },
         );
-        crate::backend::egui::show_area_for_host(
-            &ctx,
+        let mut pending = Some(body);
+        crate::context::MaraCtx::area(
+            mara.ctx(),
             AreaHost::new(
-                ui.id()
-                    .with(("mara_maximize_overlay_content", id_salt))
-                    .into(),
+                mara.id().with(("mara_maximize_overlay_content", id_salt)),
                 content.min,
                 Layer::Foreground,
             ),
-            |ui| {
-                crate::backend::egui::constrain_ui_to_rect(ui, content);
-                body(ui);
+            &mut |mara| {
+                let Some(body) = pending.take() else {
+                    return;
+                };
+                mara.constrain_to(content);
+                body(mara);
             },
         );
         // Minimize button — a draggable ribbon-styled chip. The
@@ -359,12 +358,14 @@ pub fn __internal_maximizable_with_opts_egui(
         // points, and that choice persists in ctx data across
         // frames. Painted in its OWN `Order::Tooltip` Area so it
         // sits on top of the `Foreground` overlay above.
-        let suppress_minimize_chip: bool = crate::memory::MaraMemoryCtx::new(&ctx)
+        let suppress_minimize_chip: bool = mara
+            .ctx()
+            .memory()
             .get_temp(suppress_fullscreen_minimize_chip_key())
             .unwrap_or(false);
         if !suppress_minimize_chip
             && fullscreen_minimize_button(
-                &ctx,
+                mara.ctx(),
                 screen,
                 opts,
                 overlay.fullscreen_button_size,
@@ -382,30 +383,28 @@ pub fn __internal_maximizable_with_opts_egui(
         // maximised), so the affordance is consistent regardless of
         // mode and lives *inside* the widget's canvas — section
         // headers no longer reserve any actions slot.
-        let desired = MaraVec2::new(ui.available_width().max(min_size.x), min_size.y);
-        let rect = {
-            let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
-            backend.allocate(desired, MaraSense::Hover).rect
-        };
-        let mut child = crate::backend::egui::child_ui_for_region(
-            ui,
-            ChildRegion::top_down(rect, StackAlign::Min),
-        );
-        body(&mut child);
+        let desired = MaraVec2::new(mara.available_rect().width().max(min_size.x), min_size.y);
+        let rect = mara.allocate(desired, MaraSense::Hover).rect;
+        let mut pending = Some(body);
+        mara.in_region(ChildRegion::top_down(rect, StackAlign::Min), &mut |mara| {
+            if let Some(body) = pending.take() {
+                body(mara);
+            }
+        });
 
         // Suppress the chip while another widget is full-window —
         // its overlay covers the screen and our `Order::Tooltip` chip
         // would otherwise paint on top of nothing.
         if !some_other_maximized {
             let chip_pos = inline_chip_pos(rect, overlay.inline_chip_size, overlay.inline_chip_pad);
-            if max_button_overlay(ui.ctx(), chip_pos, false, accent, id_salt).clicked() {
+            if max_button_overlay(mara.ctx(), chip_pos, false, accent, id_salt).clicked() {
                 toggle = true;
             }
         }
     }
 
     if toggle {
-        crate::memory::MaraMemoryCtx::new(ui.ctx()).set_temp::<bool>(max_key, !maximized);
+        mara.ctx().memory().set_temp::<bool>(max_key, !maximized);
     }
 }
 
@@ -455,8 +454,8 @@ fn inline_chip_pos(body_rect: MaraRect, chip_size: f32, pad: f32) -> MaraPos2 {
     MaraPos2::new(body_rect.max.x - chip_size - pad, body_rect.min.y + pad)
 }
 
-fn paint_maximize_placeholder(ui: &mut crate::MaraUi<'_>, rect: MaraRect, text: &str) {
-    ui.paint(maximize_placeholder_text_cmd(
+fn paint_maximize_placeholder(mara: &mut crate::MaraUi<'_>, rect: MaraRect, text: &str) {
+    mara.paint(maximize_placeholder_text_cmd(
         rect,
         text,
         crate::style::on_section_dim(),
@@ -742,14 +741,14 @@ fn nearest_anchor(
 /// tiers and active / hover transitions — keeps the chip in the
 /// ribbon button family.
 fn paint_ribbon_style_chip(
-    ui: &mut crate::MaraUi<'_>,
+    mara: &mut crate::MaraUi<'_>,
     rect: MaraRect,
     accent: impl Into<MaraColor32>,
     active: bool,
     hovered: bool,
 ) {
     for cmd in ribbon_style_chip_paint_cmds(rect, accent.into(), active, hovered) {
-        ui.paint(cmd);
+        mara.paint(cmd);
     }
 }
 
@@ -800,14 +799,14 @@ fn ribbon_style_chip_paint_cmds(
 /// chip's centre, arrowheads at each end. `inward = false` heads
 /// point OUT (maximise); `inward = true` heads point IN (restore).
 fn paint_fullscreen_arrows(
-    ui: &mut crate::MaraUi<'_>,
+    mara: &mut crate::MaraUi<'_>,
     rect: MaraRect,
     accent: impl Into<MaraColor32>,
     inward: bool,
     hovered: bool,
 ) {
     for cmd in fullscreen_arrow_paint_cmds(rect, accent.into(), inward, hovered) {
-        ui.paint(cmd);
+        mara.paint(cmd);
     }
 }
 

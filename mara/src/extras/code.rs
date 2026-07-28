@@ -96,23 +96,25 @@ pub fn mara_code_editor_with_opts(
     let accent = accent.into();
     let min_size = min_size.into();
     let accent_egui = mara_core::backend::egui::color32_for_backend(accent);
+    let mut backend = mara_core::MaraUi::__internal_backend_from_raw(ui);
+    let mut mara = mara_core::MaraUi::__internal_over(&mut backend, accent);
     mara_core::embed::__internal_maximizable_with_opts_egui(
-        ui,
+        &mut mara,
         id_salt,
         accent,
         min_size,
         fs_opts,
-        |ui| {
+        |mara| {
             let code = mara_core::style::theme().code;
             let line_h = code.font_size * code.line_height_factor;
-            let rows = ((ui.available_height() / line_h).floor() as usize).max(code.min_rows);
+            let rows =
+                ((mara.available_rect().height() / line_h).floor() as usize).max(code.min_rows);
             let editor = CodeEditor::default()
                 .with_syntax(syntax)
                 .with_theme(mara_code_theme(accent_egui))
                 .with_fontsize(code.font_size)
                 .with_rows(rows);
-            let mut backend = mara_core::backend::egui::EguiUiBackend::new(ui);
-            show_code_text_area(&mut backend, id_salt, &editor, text, accent);
+            show_code_text_area(mara.backend_mut(), id_salt, &editor, text, accent);
         },
     );
 }
