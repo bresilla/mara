@@ -423,82 +423,8 @@ pub fn dispatch_app_shell_action(
     Ok(dispatch_ribbon_action(action, router)?)
 }
 
-/// Minimal root render entry point.
-///
-/// This calls the active L0 view only when the active workspace stack
-/// is at root. L1+ module workspace rendering will layer onto this
-/// once modules can register workspace renderers.
-/// Internal egui render hook for the current app-shell implementation.
-///
-/// Public app/host code should prefer resolving shell data and routing
-/// rendering through a Mara host facade. This remains public only as a
-/// hidden first-party adapter while egui is the sole concrete backend.
-#[doc(hidden)]
-pub fn __internal_show_app_shell_egui(
-    egui_ctx: &egui::Context,
-    router: &mut ViewRouter,
-    permanent_ribbons: &[RibbonSlotDef],
-    accent: impl Into<Color32>,
-) -> Result<AppShellResolution, AppShellError> {
-    let accent = accent.into();
-    let resolved = resolve_app_shell_ribbons(router, permanent_ribbons)?;
-    let depth = router.active_workspace()?.depth();
-    if depth == 0 {
-        let entry = router.active_entry_mut()?;
-        let content_avoidance = entry.view.content_avoidance();
-        let mut ctx =
-            ViewCtx::__internal_new(egui_ctx, &mut entry.workspace, accent, content_avoidance);
-        entry.view.show(&mut ctx);
-    }
-    Ok(resolved)
-}
 
-/// Resolve, paint, and dispatch slot-based app-shell ribbons, then
-/// render the active L0 view when the active stack is at root.
-/// Internal egui render hook for API-enforced shell chrome.
-#[doc(hidden)]
-pub fn __internal_show_app_shell_chrome_with_slot_ribbons_egui(
-    egui_ctx: &egui::Context,
-    router: &mut ViewRouter,
-    chrome: &AppShellChrome,
-    accent: impl Into<Color32>,
-) -> Result<(AppShellResolution, Vec<RibbonActionResult>), AppShellError> {
-    let accent = accent.into();
-    let permanent_ribbons = chrome.permanent_ribbon_defs();
-    __internal_show_app_shell_with_slot_ribbons_egui(egui_ctx, router, &permanent_ribbons, accent)
-}
 
-/// Internal egui render hook for resolved slot-ribbon shell chrome.
-#[doc(hidden)]
-pub fn __internal_show_app_shell_with_slot_ribbons_egui(
-    egui_ctx: &egui::Context,
-    router: &mut ViewRouter,
-    permanent_ribbons: &[RibbonSlotDef],
-    accent: impl Into<Color32>,
-) -> Result<(AppShellResolution, Vec<RibbonActionResult>), AppShellError> {
-    let accent = accent.into();
-    let resolved = resolve_app_shell_ribbons(router, permanent_ribbons)?;
-    let clicks = __internal_draw_slot_ribbons_egui(
-        &crate::backend::egui::EguiCtx::new(egui_ctx),
-        accent,
-        &resolved.as_slot_ribbons(),
-    );
-    let mut results = Vec::with_capacity(clicks.len());
-    for click in clicks {
-        results.push(dispatch_app_shell_action(router, click.action)?);
-    }
-
-    let depth = router.active_workspace()?.depth();
-    if depth == 0 {
-        let entry = router.active_entry_mut()?;
-        let content_avoidance = entry.view.content_avoidance();
-        let mut ctx =
-            ViewCtx::__internal_new(egui_ctx, &mut entry.workspace, accent, content_avoidance);
-        entry.view.show(&mut ctx);
-    }
-
-    Ok((resolved, results))
-}
 
 /// Resolve, paint, dispatch, and render either the active L0 view or
 /// the active L1+ module workspace through a host-supplied renderer.
