@@ -1134,7 +1134,7 @@ where
     );
 
     if graph_resp.changed() {
-        ui.ctx().request_repaint();
+        mara_core::context::MaraCtx::request_repaint(&seam);
     }
 
     // Inform viewer about current transform.
@@ -1437,7 +1437,7 @@ where
     if drag_released {
         let new_wires = graph_state.take_new_wires();
         if new_wires.is_some() {
-            ui.ctx().request_repaint();
+            mara_core::context::MaraCtx::request_repaint(&seam);
         }
         match (new_wires, pin_hovered) {
             (Some(NewWires::In(in_pins)), Some(AnyPin::Out(out_pin))) => {
@@ -1604,7 +1604,7 @@ where
     if let Some((node, delta)) = node_moved
         && graph.nodes.contains(node.0)
     {
-        ui.ctx().request_repaint();
+        mara_core::context::MaraCtx::request_repaint(&seam);
         if graph_state.selected_nodes().contains(&node) {
             for node in graph_state.selected_nodes() {
                 let node = &mut graph.nodes[node.0];
