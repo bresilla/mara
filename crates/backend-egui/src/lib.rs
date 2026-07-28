@@ -2562,7 +2562,7 @@ mod offscreen {
     /// Translate [`OffscreenInput`] into the event stream the sub-context
     /// expects. Buttons become press/release pairs around the pointer
     /// position, which is what an immediate-mode context needs to see.
-    fn offscreen_events(input: &OffscreenInput) -> Vec<egui::Event> {
+    pub(super) fn offscreen_events(input: &OffscreenInput) -> Vec<egui::Event> {
         let mut events = Vec::new();
         let Some(pointer) = input.pointer else {
             events.push(egui::Event::PointerGone);
@@ -2590,6 +2590,25 @@ mod offscreen {
                     modifiers,
                 });
             }
+        }
+        if input.pointer_delta != vocab::Vec2::ZERO {
+            events.push(egui::Event::MouseMoved(egui::vec2(
+                input.pointer_delta.x,
+                input.pointer_delta.y,
+            )));
+        }
+        if let Some(touch) = input.touch {
+            events.push(egui::Event::Touch {
+                device_id: egui::TouchDeviceId(0),
+                id: egui::TouchId(touch.id),
+                phase: if touch.down {
+                    egui::TouchPhase::Move
+                } else {
+                    egui::TouchPhase::End
+                },
+                pos: egui::pos2(touch.pos.x, touch.pos.y),
+                force: None,
+            });
         }
         if input.scroll_delta != vocab::Vec2::ZERO {
             events.push(egui::Event::MouseWheel {
@@ -2662,6 +2681,95 @@ mod offscreen {
 #[cfg(feature = "gpu")]
 #[cfg(feature = "gpu")]
 pub(crate) use offscreen::render_offscreen;
+
+/// Parity between the offscreen surface's synthesised events and what
+/// `mara_graph::node_view` forwards by hand.
+///
+/// PLAN.md WS-D1.4 replaces `node_view.rs` with `ViewCtx::offscreen`.
+/// That is only safe if the offscreen path can express the same input,
+/// and it could not: `Touch` and `MouseMoved` had no representation in
+/// `OffscreenInput`, so the swap would have silently dropped touch —
+/// which matters, the workspace ships an Android runner.
+#[cfg(all(test, feature = "gpu"))]
+mod offscreen_input_parity {
+    use mara_core::context::{OffscreenInput, OffscreenTouch};
+    use mara_core::vocab::{Pos2, Vec2};
+
+    fn kinds(input: &OffscreenInput) -> Vec<&'static str> {
+        super::offscreen::offscreen_events(input)
+            .iter()
+            .map(|e| match e {
+                egui::Event::PointerMoved(_) => "PointerMoved",
+                egui::Event::PointerGone => "PointerGone",
+                egui::Event::PointerButton { .. } => "PointerButton",
+                egui::Event::MouseWheel { .. } => "MouseWheel",
+                egui::Event::MouseMoved(_) => "MouseMoved",
+                egui::Event::Touch { .. } => "Touch",
+                _ => "other",
+            })
+            .collect()
+    }
+
+    /// The six kinds `node_view.rs` forwards are all reachable.
+    #[test]
+    fn every_event_kind_node_view_forwards_is_expressible() {
+        let full = OffscreenInput {
+            pointer: Some(Pos2::new(10.0, 20.0)),
+            primary_down: true,
+            secondary_down: false,
+            middle_down: false,
+            scroll_delta: Vec2::new(0.0, 3.0),
+            pointer_delta: Vec2::new(1.0, -2.0),
+            touch: Some(OffscreenTouch {
+                pos: Pos2::new(10.0, 20.0),
+                down: true,
+                id: 7,
+            }),
+            modifiers_shift: false,
+            modifiers_ctrl: false,
+            modifiers_alt: false,
+        };
+        let kinds = kinds(&full);
+        for expected in [
+            "PointerMoved",
+            "PointerButton",
+            "MouseWheel",
+            "MouseMoved",
+            "Touch",
+        ] {
+            assert!(
+                kinds.contains(&expected),
+                "{expected} must be reachable; got {kinds:?}"
+            );
+        }
+    }
+
+    /// An absent pointer still reports `PointerGone`, and nothing else —
+    /// a surface must not see a click it never received.
+    #[test]
+    fn an_absent_pointer_reports_only_gone() {
+        let away = OffscreenInput {
+            pointer: None,
+            primary_down: true,
+            ..Default::default()
+        };
+        assert_eq!(kinds(&away), vec!["PointerGone"]);
+    }
+
+    /// Quiet input synthesises no spurious motion.
+    #[test]
+    fn a_still_pointer_emits_no_motion_events() {
+        let still = OffscreenInput {
+            pointer: Some(Pos2::new(1.0, 1.0)),
+            ..Default::default()
+        };
+        let kinds = kinds(&still);
+        assert!(!kinds.contains(&"MouseMoved"), "got {kinds:?}");
+        assert!(!kinds.contains(&"MouseWheel"), "got {kinds:?}");
+        assert!(!kinds.contains(&"Touch"), "got {kinds:?}");
+    }
+}
+
 
 // ─── The context seam (PLAN.md WS-E3) ─────────────────────────────
 //

@@ -46,9 +46,34 @@ pub struct OffscreenInput {
     pub secondary_down: bool,
     pub middle_down: bool,
     pub scroll_delta: crate::vocab::Vec2,
+    /// Pointer movement since the previous frame, in surface-local
+    /// points.
+    ///
+    /// Distinct from `pointer`: a surface that steers a camera reads the
+    /// *delta*, and reconstructing it by differencing positions across
+    /// frames loses the first frame of every drag.
+    pub pointer_delta: crate::vocab::Vec2,
+    /// Active touch, if the host is forwarding one.
+    ///
+    /// Separate from `pointer` because a touch is not a mouse: it has no
+    /// hover state, and a host that synthesises a pointer from it loses
+    /// multi-touch gestures. `None` on a mouse-driven host.
+    pub touch: Option<OffscreenTouch>,
     pub modifiers_shift: bool,
     pub modifiers_ctrl: bool,
     pub modifiers_alt: bool,
+}
+
+/// One touch point forwarded into an offscreen surface.
+#[cfg(feature = "gpu")]
+#[derive(Clone, Copy, Debug)]
+pub struct OffscreenTouch {
+    /// Position in surface-local points.
+    pub pos: crate::vocab::Pos2,
+    /// Whether the finger is currently down.
+    pub down: bool,
+    /// Distinguishes simultaneous touches within one gesture.
+    pub id: u64,
 }
 
 /// Frame-level state a surface needs without naming a backend.

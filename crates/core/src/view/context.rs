@@ -377,6 +377,12 @@ impl<'a> ViewCtx<'a> {
             secondary_down: snapshot.secondary_down,
             middle_down: snapshot.middle_down,
             scroll_delta: snapshot.scroll_delta,
+            pointer_delta: snapshot.pointer_delta,
+            // `MaraInput` carries no touch yet — a host that forwards
+            // one sets this itself. Left `None` rather than synthesised
+            // from the pointer: a fake touch is worse than no touch,
+            // because gesture code cannot tell it from a real one.
+            touch: None,
             modifiers_shift: snapshot.modifiers_shift,
             modifiers_ctrl: snapshot.modifiers_ctrl,
             modifiers_alt: snapshot.modifiers_alt,
