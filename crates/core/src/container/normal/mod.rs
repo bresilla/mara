@@ -18,7 +18,7 @@
 
 use crate::memory::MaraAnim;
 use crate::vocab::Id;
-use egui::{Color32, Frame, Rect, Ui};
+use egui::{Color32, Rect};
 
 use super::body::Body;
 use crate::icons::Icon;
@@ -249,7 +249,7 @@ impl Normal {
     /// `IntoIterator<Item = Pod>`.
     pub(crate) fn show(
         self,
-        ui: &mut Ui,
+        mara: &mut crate::MaraUi<'_>,
         pods: impl IntoIterator<Item = crate::pod::Pod>,
     ) -> Vec<crate::pod::PodResponse> {
         // Push a per-container `id` salt so every widget the
@@ -262,7 +262,14 @@ impl Normal {
         // across containers, and any widget inside would trip
         // egui's "id reused" check_for_id_clash on every frame.
         let pane_id = self.pane_id;
-        ui.push_id(pane_id, |ui| self.show_inner(ui, pods)).inner
+        let mut pending = Some((self, pods));
+        let mut out = Vec::new();
+        mara.in_id_scope(pane_id, &mut |mara| {
+            if let Some((me, pods)) = pending.take() {
+                out = me.show_inner(mara, pods);
+            }
+        });
+        out
     }
 
     /// Render the container as a tabbed panel: folder-tabs project
@@ -290,21 +297,31 @@ impl Normal {
     /// active tab; full strip support per anchor will land later.
     pub(crate) fn show_tabs(
         self,
-        ui: &mut Ui,
+        mara: &mut crate::MaraUi<'_>,
         tabs: Vec<super::Tab>,
     ) -> Vec<crate::pod::PodResponse> {
         if tabs.is_empty() {
             return Vec::new();
         }
         let pane_id = self.pane_id;
-        ui.push_id(pane_id, |ui| self.show_inner_tabbed(ui, tabs))
-            .inner
+        let mut pending = Some((self, tabs));
+        let mut out = Vec::new();
+        mara.in_id_scope(pane_id, &mut |mara| {
+            if let Some((me, tabs)) = pending.take() {
+                out = me.show_inner_tabbed(mara, tabs);
+            }
+        });
+        out
     }
 
-    fn show_inner_tabbed(self, ui: &mut Ui, tabs: Vec<super::Tab>) -> Vec<crate::pod::PodResponse> {
+    fn show_inner_tabbed(
+        self,
+        mara: &mut crate::MaraUi<'_>,
+        tabs: Vec<super::Tab>,
+    ) -> Vec<crate::pod::PodResponse> {
         let tab_theme = style::theme().tabs;
         if matches!(tab_theme.layout, style::TabLayout::TitleRowSegmented) {
-            return self.show_inner_tabbed_title_row(ui, tabs);
+            return self.show_inner_tabbed_title_row(mara, tabs);
         }
 
         let mut tabs = tabs;
@@ -331,7 +348,7 @@ impl Normal {
             tabs.iter().map(|t| (t.title.clone(), t.icon)).collect();
         let tab_ids: Vec<Id> = tabs.iter().map(|t| t.id()).collect();
         let active_idx_key = self.pane_id.with("mara_normal_active_tab");
-        let active_idx = resolve_active_tab_idx(ui.ctx(), active_idx_key, &tab_ids);
+        let active_idx = resolve_active_tab_idx(mara.ctx(), active_idx_key, &tab_ids);
         let active_pods = std::mem::take(&mut tabs[active_idx].pods);
         let active_title = tab_meta[active_idx].0.clone();
         let active_icon = tab_meta[active_idx].1;
@@ -383,16 +400,28 @@ impl Normal {
         // body inner padding here makes left/right shelf containers
         // visibly off-centre (right shelves look shifted left and
         // left shelves look shifted right).
-        let avail = crate::backend::egui::ui_available_rect(ui);
+        let avail = mara.available_rect();
         let strip_outer_inset = tabbed_strip_outer_inset(tab_theme, &theme_now);
         let container_max_rect =
             tabbed_container_max_rect(avail, strip_side, strip_thickness, strip_outer_inset);
-        crate::memory::MaraMemoryCtx::new(ui.ctx())
+        mara.ctx()
+            .memory()
             .remove_temp::<MaraRect>(pane::active_container_frame_rect_key());
-        let mut child =
-            crate::backend::egui::child_ui_with_current_layout_for_rect(ui, container_max_rect);
-        let out = me.show(&mut child, active_pods);
-        if pane::active_drag(ui.ctx())
+        // The active tab's body renders into the container's own max
+        // rect, keeping the parent's layout direction.
+        let region = crate::layout::ChildRegion::new(
+            container_max_rect.into(),
+            mara.stack_direction(),
+            crate::layout::StackAlign::Min,
+        );
+        let mut pending = Some((me, active_pods));
+        let mut out = Vec::new();
+        mara.in_region(region, &mut |mara| {
+            if let Some((me, pods)) = pending.take() {
+                out = me.show(mara, pods);
+            }
+        });
+        if pane::active_drag(mara.ctx())
             .and_then(|(_, state)| state.item)
             .map(|dragged| dragged == pane_id)
             .unwrap_or(false)
@@ -403,12 +432,12 @@ impl Normal {
         // cannot read a stale one.
         let used = {
             let key = pane::active_container_frame_rect_key();
-            let mut memory = crate::memory::MaraMemoryCtx::new(ui.ctx());
+            let mut memory = mara.ctx().memory();
             let rect = memory.get_temp::<MaraRect>(key);
             memory.remove_temp::<MaraRect>(key);
             rect
         }
-        .map_or_else(|| child.min_rect(), egui::Rect::from);
+        .unwrap_or(container_max_rect.into());
 
         // Place the strip ALIGNED to where the container actually
         // rendered. `used` already accounts for parent layout
@@ -425,11 +454,8 @@ impl Normal {
             title_offset,
         );
         {
-            let mut backend =
-                crate::mui::MaraBackend::Egui(crate::backend::egui::EguiUiBackend::new(ui));
-            let mut mara = crate::MaraUi::over(&mut backend, accent);
             paint_folder_tabs(
-                &mut mara,
+                mara,
                 strip_rect,
                 &tab_meta,
                 &tab_ids,
@@ -450,7 +476,8 @@ impl Normal {
         // which works for any layout direction (TopDown advances
         // downward, BottomUp upward, etc.).
         let union_rect = strip_rect.union(used.into());
-        crate::memory::MaraMemoryCtx::new(ui.ctx())
+        mara.ctx()
+            .memory()
             .set_temp::<MaraRect>(pane::active_tabbed_container_rect_key(), union_rect);
         // Overwrite the drag snapshot entry: `me.show()` already
         // pushed the body-only frame rect to the parent pane's
@@ -467,29 +494,24 @@ impl Normal {
         // carry the dragged container's PREV-frame rect forward
         // exactly when no push happens. A wrong push here would
         // overwrite the carry-forward with garbage.
-        let dragging_self = pane::active_drag(ui.ctx())
+        let dragging_self = pane::active_drag(mara.ctx())
             .and_then(|(_, s)| s.item)
             .map(|item| item == pane_id)
             .unwrap_or(false);
         if !dragging_self
             && let Some(parent_pane_id) =
-                crate::memory::MaraMemoryCtx::new(ui.ctx()).get_temp::<Id>(pane::active_pane_key())
+                mara.ctx().memory().get_temp::<Id>(pane::active_pane_key())
         {
             pane::push_rect_with_frame(
-                ui.ctx(),
+                mara.ctx(),
                 parent_pane_id.into(),
                 pane_id,
                 union_rect.into(),
-                Some(used),
+                Some(used.into()),
             );
         }
         if reserve_tab_strip_in_parent {
-            let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
-            crate::layout::UiBackend::reserve_rect(
-                &mut backend,
-                union_rect,
-                crate::layout::Sense::Hover,
-            );
+            mara.reserve_rect(union_rect, crate::layout::Sense::Hover);
         }
         out
     }
@@ -502,7 +524,7 @@ impl Normal {
     /// strip). Body still renders normally underneath.
     fn show_inner_tabbed_title_row(
         self,
-        ui: &mut Ui,
+        mara: &mut crate::MaraUi<'_>,
         mut tabs: Vec<super::Tab>,
     ) -> Vec<crate::pod::PodResponse> {
         // Lock the body flow to the tallest tab so switching tabs
@@ -513,7 +535,7 @@ impl Normal {
             tabs.iter().map(|t| (t.title.clone(), t.icon)).collect();
         let tab_ids: Vec<Id> = tabs.iter().map(|t| t.id()).collect();
         let active_idx_key = self.pane_id.with("mara_normal_active_tab");
-        let active_idx = resolve_active_tab_idx(ui.ctx(), active_idx_key, &tab_ids);
+        let active_idx = resolve_active_tab_idx(mara.ctx(), active_idx_key, &tab_ids);
         let active_pods = std::mem::take(&mut tabs[active_idx].pods);
 
         // Render the container with NO title text and NO floating
@@ -535,12 +557,14 @@ impl Normal {
             min_body_flow: Some(self.min_body_flow.unwrap_or(0.0).max(max_tab_body_h)),
             ..self
         };
-        let out = me.show(ui, active_pods);
+        let out = me.show(mara, active_pods);
 
         // Read the title rect that `paint_title` stashed during
         // render. If absent (folded container or first frame), skip
         // the tab paint — there's nothing to overlay on.
-        let title_rect: Option<MaraRect> = crate::memory::MaraMemoryCtx::new(ui.ctx())
+        let title_rect: Option<MaraRect> = mara
+            .ctx()
+            .memory()
             .get_temp(pane_id.with("mara_normal_title_rect"));
         let Some(title_rect) = title_rect else {
             return out;
@@ -554,11 +578,8 @@ impl Normal {
         let title_rect = top_tab_title_rect(title_rect.into(), inner_x, inner_y);
 
         {
-            let mut backend =
-                crate::mui::MaraBackend::Egui(crate::backend::egui::EguiUiBackend::new(ui));
-            let mut mara = crate::MaraUi::over(&mut backend, accent);
             paint_top_tabs(
-                &mut mara,
+                mara,
                 title_rect.into(),
                 &tab_meta,
                 &tab_ids,
@@ -573,7 +594,7 @@ impl Normal {
 
     fn show_inner(
         self,
-        ui: &mut Ui,
+        mara: &mut crate::MaraUi<'_>,
         pods: impl IntoIterator<Item = crate::pod::Pod>,
     ) -> Vec<crate::pod::PodResponse> {
         let container_theme = style::theme().container;
@@ -633,18 +654,18 @@ impl Normal {
         let intrinsic_floor_key = self.pane_id.with("mara_container_intrinsic_natural_floor");
         if fill_pod_idx.is_some() {
             {
-                let mut memory = crate::memory::MaraMemoryCtx::new(ui.ctx());
+                let mut memory = mara.ctx().memory();
                 memory.set_temp::<f32>(intrinsic_override_key, body_flow_floor);
                 memory.remove_temp::<f32>(intrinsic_floor_key);
             }
         } else {
             {
-                let mut memory = crate::memory::MaraMemoryCtx::new(ui.ctx());
+                let mut memory = mara.ctx().memory();
                 memory.remove_temp::<f32>(intrinsic_override_key);
                 memory.set_temp::<f32>(intrinsic_floor_key, body_flow_floor);
             }
         }
-        self.show_with_body(ui, |body_ui| {
+        self.show_with_body(mara, |body_ui| {
             // Compute the fill pod's height NOW that we're inside
             // the container body and know its available_height.
             // Stash it in ctx data so `Pod::show` picks it up when
@@ -672,7 +693,9 @@ impl Normal {
                 let body_avail = body_ui.available_height();
                 let fill_h =
                     (body_avail - others_h - pod_chrome_each).max(style::theme().pod.min_widget_h);
-                crate::memory::MaraMemoryCtx::new(body_ui.ctx())
+                body_ui
+                    .ctx()
+                    .memory()
                     .set_temp(crate::pod::Pod::forced_height_key(fill_id), fill_h);
             }
             for (i, pod) in pods.into_iter().enumerate() {
@@ -697,21 +720,18 @@ impl Normal {
                     // there's nothing to divide it from.
                     crate::container::SeparatorStyle::None
                 };
-                let frame_resp = Frame::new()
-                    .inner_margin(egui::Margin::from(style::MarginSpec::symmetric(
-                        pod_pad_x, pod_pad_y,
-                    )))
-                    .show(body_ui, |inner_ui| {
-                        let mut backend = crate::mui::MaraBackend::Egui(
-                            crate::backend::egui::EguiUiBackend::new(inner_ui),
-                        );
-                        out.push(pod.show(&mut crate::MaraUi::over(&mut backend, pods_accent)));
-                    });
-                crate::debug::tag(
-                    body_ui.ctx(),
-                    frame_resp.response.rect,
-                    format!("Pod[{:?}]", pod_id),
+                let (pod_rect, ()) = body_ui.framed_with(
+                    crate::style::FrameSpec::new(
+                        MaraColor32::TRANSPARENT,
+                        MaraStroke::NONE,
+                        MaraCornerRadius::ZERO,
+                        style::MarginSpec::symmetric(pod_pad_x, pod_pad_y),
+                    ),
+                    |mara| {
+                        out.push(pod.show(mara));
+                    },
                 );
+                crate::debug::tag(body_ui.ctx(), pod_rect.into(), format!("Pod[{:?}]", pod_id));
                 if separator_after != crate::container::SeparatorStyle::None {
                     let sep_rect_before = body_ui.cursor();
                     let resizable_handle = pod_is_resizable
@@ -723,10 +743,7 @@ impl Normal {
                         // tracks the pod's bottom edge (each
                         // widget grows by delta/N).
                         let resp = crate::container::paint_separator_resize(
-                            &mut crate::MaraUi::__internal_over(
-                                &mut crate::MaraUi::__internal_backend_from_raw(body_ui),
-                                pods_accent,
-                            ),
+                            body_ui,
                             separator_after,
                             // Inter-pod separators are always
                             // horizontal — the body forces a
@@ -747,22 +764,20 @@ impl Normal {
                             // rather than scaling individual
                             // widgets.
                             let key = crate::pod::Pod::widget_height_key(pod_id);
-                            let cur = crate::memory::MaraMemoryCtx::new(body_ui.ctx())
+                            let cur = body_ui
+                                .ctx()
+                                .memory()
                                 .get_persisted::<f32>(key)
                                 .unwrap_or(crate::style::UNIT);
                             let new = (cur + resp.drag_delta.y).clamp(
                                 style::theme().pod.min_widget_h,
                                 style::theme().pod.max_widget_h,
                             );
-                            crate::memory::MaraMemoryCtx::new(body_ui.ctx())
-                                .set_persisted(key, new);
+                            body_ui.ctx().memory().set_persisted(key, new);
                         }
                     } else {
                         crate::container::paint_separator(
-                            &mut crate::MaraUi::__internal_over(
-                                &mut crate::MaraUi::__internal_backend_from_raw(body_ui),
-                                pods_accent,
-                            ),
+                            body_ui,
                             separator_after,
                             crate::container::SeparatorOrient::Horizontal,
                         );
@@ -772,8 +787,11 @@ impl Normal {
                     // so the user can see which boundary owns
                     // which style. Use the cursor delta since the
                     // separator paint functions don't return rects.
-                    let strip_rect =
-                        separator_debug_rect(sep_rect_before.into(), sep_rect_after.into());
+                    let strip_rect = separator_debug_rect(
+                        sep_rect_before,
+                        sep_rect_after,
+                        body_ui.available_rect().right(),
+                    );
                     crate::debug::tag(
                         body_ui.ctx(),
                         strip_rect.into(),
@@ -793,12 +811,27 @@ impl Normal {
     /// regular call sites should still go through
     /// [`Normal::show`] with [`crate::pod::Pod`] entries so the
     /// pod separator / fill / resize plumbing stays wired.
-    pub(crate) fn show_raw(self, ui: &mut Ui, body: impl FnOnce(&mut Ui)) {
+    pub(crate) fn show_raw(
+        self,
+        mara: &mut crate::MaraUi<'_>,
+        body: impl FnOnce(&mut crate::MaraUi<'_>),
+    ) {
         let pane_id = self.pane_id;
-        ui.push_id(pane_id, |ui| self.show_with_body(ui, body));
+        // The body owns its closure, so it is handed into the id scope
+        // through a capture rather than borrowed.
+        let mut pending = Some((self, body));
+        mara.in_id_scope(pane_id, &mut |mara| {
+            if let Some((me, body)) = pending.take() {
+                me.show_with_body(mara, body);
+            }
+        });
     }
 
-    fn show_with_body(self, ui: &mut Ui, body: impl FnOnce(&mut Ui)) {
+    fn show_with_body(
+        self,
+        mara: &mut crate::MaraUi<'_>,
+        body: impl FnOnce(&mut crate::MaraUi<'_>),
+    ) {
         // Register this container's MIN WIDTH with the parent pane
         // so the pane's resize handles can refuse to shrink the
         // pane below the union of its containers' bounds. Keyed
@@ -808,7 +841,9 @@ impl Normal {
         // First-frame fallback: if no active pane is set yet,
         // register against the container's own pane_id so the
         // entry isn't lost.
-        let parent_pane_id: Id = crate::memory::MaraMemoryCtx::new(ui.ctx())
+        let parent_pane_id: Id = mara
+            .ctx()
+            .memory()
             .get_temp(pane::active_pane_key())
             .unwrap_or(self.pane_id);
         let min_w = self
@@ -816,7 +851,7 @@ impl Normal {
             .unwrap_or_else(|| style::theme().container.default_min_width);
         {
             let key = parent_pane_id.with("mara_pane_container_min_widths");
-            let mut memory = crate::memory::MaraMemoryCtx::new(ui.ctx());
+            let mut memory = mara.ctx().memory();
             let mut acc: Vec<f32> = memory.get_temp(key).unwrap_or_default();
             acc.push(min_w);
             memory.set_temp(key, acc);
@@ -828,7 +863,7 @@ impl Normal {
         // (called from both this Normal AND the parent Pane's
         // auto-flow sum) sees the same target.
         if let Some(initial) = self.initial_flow {
-            crate::container::set_container_initial_flow(ui.ctx(), self.pane_id, initial);
+            crate::container::set_container_initial_flow(mara.ctx(), self.pane_id, initial);
         }
 
         let title_side = self.anchor.title_side();
@@ -850,7 +885,7 @@ impl Normal {
         //                 outer_margin both sides) for every container,
         // computed at the current `openness` so the floor naturally
         // shrinks to title-only when all containers are folded.
-        let openness_for_min = pane::body_openness(ui.ctx(), self.pane_id);
+        let openness_for_min = pane::body_openness(mara.ctx(), self.pane_id);
         let pad_for_min = style::section_padding();
         let pad_flow_for_min = if horizontal_strip {
             (pad_for_min.top as f32) + (pad_for_min.bottom as f32)
@@ -872,7 +907,7 @@ impl Normal {
             + stroke_for_min;
         {
             let key = parent_pane_id.with("mara_pane_container_min_flows");
-            let mut memory = crate::memory::MaraMemoryCtx::new(ui.ctx());
+            let mut memory = mara.ctx().memory();
             let mut acc: Vec<f32> = memory.get_temp(key).unwrap_or_default();
             acc.push(min_flow);
             memory.set_temp(key, acc);
@@ -917,7 +952,7 @@ impl Normal {
         // capped at `CONTAINER_DEFAULT_*`. Subtract the Frame
         // chrome on each side so the inner content slot fits
         // inside the painted Frame.
-        let outer_avail = ui.available_size();
+        let outer_avail = mara.available_rect().size();
         let span_inner = if horizontal_strip {
             (outer_avail.x - pad_w - outer_w - stroke_w).max(0.0)
         } else {
@@ -934,7 +969,7 @@ impl Normal {
         let title_size = title_slot_size(horizontal_strip, span_inner, title_thickness);
 
         // Shared body recipe — applies the span-axis clamp so child
-        // widgets see a stable `ui.available_*` regardless of the
+        // widgets see a stable `mara.available_*` regardless of the
         // surrounding layout's measurement passes.
         let body_cfg = Body::new(horizontal_strip, span_inner);
 
@@ -950,7 +985,7 @@ impl Normal {
         let banner_filled = style::theme().title_strip_filled && !self.suppress_banner;
 
         // Open state + animation are stored on the parent pane's
-        // id (NOT `ui.id()`) so pane rendering and `Normal::show`
+        // id (NOT `mara.id()`) so pane rendering and `Normal::show`
         // both compute the SAME `openness` from the same
         // `animate_bool` call within a frame. That synchronises the
         // pane's outer size and the container's body slot — no
@@ -960,7 +995,7 @@ impl Normal {
         // read sees the same answer.
         let open: bool = {
             let key = pane_id.with("body_open");
-            let mut memory = crate::memory::MaraMemoryCtx::new(ui.ctx());
+            let mut memory = mara.ctx().memory();
             match memory.get_persisted::<bool>(key) {
                 Some(open) => open,
                 None => {
@@ -969,7 +1004,7 @@ impl Normal {
                 }
             }
         };
-        let openness = pane::body_openness(ui.ctx(), pane_id);
+        let openness = pane::body_openness(mara.ctx(), pane_id);
         // Body's full flow-axis size when fully open. Used as the
         // child UI's `max_rect` extent so widgets ALWAYS render at
         // their natural size; only the clip mask animates.
@@ -986,12 +1021,12 @@ impl Normal {
             // Persisted per-container flow takes precedence over
             // the static fallback. Returns
             // `CONTAINER_DEFAULT_FLOW` clamped on first read.
-            crate::container::container_flow(ui.ctx(), pane_id, horizontal_strip)
+            crate::container::container_flow(mara.ctx(), pane_id, horizontal_strip)
         });
         // Publish this container's cid to the parent pane so
         // pane rendering can sum each container's LIVE persisted
         // flow when it auto-sizes (`PaneResize::flow` off).
-        pane::publish_container_cid(ui.ctx(), parent_pane_id, pane_id);
+        pane::publish_container_cid(mara.ctx(), parent_pane_id, pane_id);
         // Body slot size LERPS with `openness` to match Pane's
         // lerp (both compute openness from the SAME `animate_bool`
         // call, so they animate in lockstep — no anchor drift).
@@ -1016,7 +1051,7 @@ impl Normal {
             let stagger = STAGGER_BASE * scale;
             let fade = FADE_BASE * scale;
             {
-                let mut memory = crate::memory::MaraMemoryCtx::new(ui.ctx());
+                let mut memory = mara.ctx().memory();
                 let pane2_id: Id = memory
                     .get_temp::<Id>(pane::active_pane_key())
                     .unwrap_or(pane_id);
@@ -1033,9 +1068,9 @@ impl Normal {
                 raw * raw * (3.0 - 2.0 * raw) // smoothstep
             }
         };
-        let prev_opacity = ui.opacity();
+        let prev_opacity = mara.opacity();
         if stagger_opacity < 1.0 {
-            ui.multiply_opacity(stagger_opacity);
+            mara.multiply_opacity(stagger_opacity);
         }
 
         // Drag-lift: if this container IS the one being dragged,
@@ -1043,13 +1078,13 @@ impl Normal {
         // containers below collapse upward to fill the gap, and
         // the floating preview painted by `Pane`'s finalize
         // shows what's being held.
-        let active = pane::active_drag(ui.ctx());
+        let active = pane::active_drag(mara.ctx());
         let is_dragging_self = active
             .and_then(|(_, s)| s.item)
             .map(|id| id == pane_id)
             .unwrap_or(false);
         if is_dragging_self {
-            ui.set_opacity(prev_opacity);
+            mara.set_opacity(prev_opacity);
             return;
         }
 
@@ -1060,129 +1095,105 @@ impl Normal {
         // along the stack axis so the drop slot is visible.
         if let Some((parent_pane_id, drag_state)) = active
             && let (Some(dragged_id), Some(cursor)) = (drag_state.item, drag_state.cursor)
-            && !pane::ghost_gap_suppressed(ui.ctx(), parent_pane_id)
+            && !pane::ghost_gap_suppressed(mara.ctx(), parent_pane_id)
         {
-            let snap = pane::snapshot(ui.ctx(), parent_pane_id);
+            let snap = pane::snapshot(mara.ctx(), parent_pane_id);
             let horizontal_stack = !title_side.is_horizontal_strip();
             let cursor_axis = if horizontal_stack { cursor.x } else { cursor.y };
             let target_idx = pane::compute_target(&snap, dragged_id, cursor_axis, horizontal_stack);
-            let cur_idx = pane::current_cache(ui.ctx(), parent_pane_id).len();
+            let cur_idx = pane::current_cache(mara.ctx(), parent_pane_id).len();
             if cur_idx == target_idx
                 && let Some(entry) = pane::dragged_entry(&snap, dragged_id)
             {
-                pane::paint_ghost_gap_entry_inline(
-                    &mut crate::MaraUi::__internal_over(
-                        &mut crate::MaraUi::__internal_backend_from_raw(ui),
-                        accent,
-                    ),
-                    entry,
-                    accent.into(),
-                    horizontal_stack,
-                );
+                pane::paint_ghost_gap_entry_inline(mara, entry, accent.into(), horizontal_stack);
             }
         }
 
         let frame = self.theme_frame();
-        let frame_response = frame.show(ui, |ui| {
-            crate::backend::egui::show_with_deferred_paint_cmd_slots(
-                ui,
-                usize::from(banner_filled),
-                |ui| {
-                    // ── Manual layout (no flex) ──
-                    // egui's `CollapsingState` recipe: title is allocated at
-                    // its exact size, the body is rendered at FULL size into
-                    // a clipped child UI, and only the VISIBLE portion is
-                    // allocated to the parent ui (`force_set_min_rect` /
-                    // `allocate_rect`). So:
-                    //   • body's content widgets keep their natural
-                    //     `available_*` width — no per-frame text_input
-                    //     shrinking,
-                    //   • the parent's min_rect lerps smoothly with
-                    //     `openness`, which animates the container chrome
-                    //     and the parent pane's `fixed_pos` together,
-                    //   • no flex item state changes, no `request_discard`
-                    //     storm, no PERF WARNING overlay.
-                    // Inherit the parent's layout direction directly into
-                    // the Frame's content_ui — DON'T create a child with a
-                    // forced `top_down`. Frame computes its outer rect from
-                    // `content_ui.min_rect()`, so the inner allocations
-                    // determine where the Frame lands inside the pane body.
-                    // Forcing `top_down` made the container always appear
-                    // at the TOP of available area (since cursor starts at
-                    // max_rect.min for top_down), which in a `bottom_up`
-                    // pane parent left every container at the FAR edge from
-                    // the rail instead of stacking against the title strip.
-                    // Inheriting the parent layout makes:
-                    //   • TopDown    → first allocation at top  (TopRail).
-                    //   • BottomUp   → first allocation at bottom (BottomRail).
-                    //   • LeftToRight→ first allocation at left  (LeftRail).
-                    //   • RightToLeft→ first allocation at right (RightRail).
-                    // Always render TITLE first then BODY: layout direction
-                    // does the visual placement work, no `if title_at_end`
-                    // swap needed at this level.
-                    crate::backend::egui::apply_item_spacing_spec(
-                        ui,
-                        crate::layout::ItemSpacingSpec::zero(),
-                    );
+        let (frame_rect, ()) = mara.framed_with(frame, |mara| {
+            // The GAME banner paints UNDER the chrome laid out below it,
+            // so its slot is reserved first and filled once the geometry
+            // that decides the banner rect is known.
+            let banner_slot = banner_filled.then(|| mara.reserve_paint_slot());
+            {
+                // ── Manual layout (no flex) ──
+                // egui's `CollapsingState` recipe: title is allocated at
+                // its exact size, the body is rendered at FULL size into
+                // a clipped child UI, and only the VISIBLE portion is
+                // allocated to the parent mara (`force_set_min_rect` /
+                // `allocate_rect`). So:
+                //   • body's content widgets keep their natural
+                //     `available_*` width — no per-frame text_input
+                //     shrinking,
+                //   • the parent's min_rect lerps smoothly with
+                //     `openness`, which animates the container chrome
+                //     and the parent pane's `fixed_pos` together,
+                //   • no flex item state changes, no `request_discard`
+                //     storm, no PERF WARNING overlay.
+                // Inherit the parent's layout direction directly into
+                // the Frame's content_ui — DON'T create a child with a
+                // forced `top_down`. Frame computes its outer rect from
+                // `content_mara.min_rect()`, so the inner allocations
+                // determine where the Frame lands inside the pane body.
+                // Forcing `top_down` made the container always appear
+                // at the TOP of available area (since cursor starts at
+                // max_rect.min for top_down), which in a `bottom_up`
+                // pane parent left every container at the FAR edge from
+                // the rail instead of stacking against the title strip.
+                // Inheriting the parent layout makes:
+                //   • TopDown    → first allocation at top  (TopRail).
+                //   • BottomUp   → first allocation at bottom (BottomRail).
+                //   • LeftToRight→ first allocation at left  (LeftRail).
+                //   • RightToLeft→ first allocation at right (RightRail).
+                // Always render TITLE first then BODY: layout direction
+                // does the visual placement work, no `if title_at_end`
+                // swap needed at this level.
+                mara.set_item_spacing(crate::layout::ItemSpacingSpec::zero());
 
-                    let render_title = |ui: &mut Ui| {
-                        // Title strip is also the drag handle: `click_and_drag`
-                        // sense reports both — `clicked()` toggles the body
-                        // open state, `drag_started()` lifts this container
-                        // for reorder via the parent pane's drag machine.
-                        let resp = {
-                            let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
-                            crate::layout::UiBackend::allocate(
-                                &mut backend,
-                                title_size,
-                                crate::layout::Sense::ClickAndDrag,
-                            )
-                        };
-                        let rect: Rect = resp.rect.into();
-                        if resp.hovered() {
-                            crate::backend::egui::set_cursor_icon_for_ui(
-                                ui,
-                                crate::layout::CursorIcon::PointingHand,
-                            );
-                        }
-                        if resp.clicked() {
-                            pane::toggle_body(ui.ctx(), pane_id);
-                        }
-                        if resp.drag_started()
-                            && let Some(active_pane_id) =
-                                crate::memory::MaraMemoryCtx::new(ui.ctx())
-                                    .get_temp::<Id>(pane::active_pane_key())
-                        {
-                            pane::set_drag(
-                                ui.ctx(),
-                                active_pane_id,
-                                pane::DragState {
-                                    item: Some(pane_id),
-                                    cursor: crate::backend::egui::pointer_interact_pos(ui.ctx())
-                                        .map(Into::into),
-                                },
-                            );
-                        }
-                        {
-                            let mut backend = crate::mui::MaraBackend::Egui(
-                                crate::backend::egui::EguiUiBackend::new(ui),
-                            );
-                            let mut mara = crate::MaraUi::over(&mut backend, accent);
-                            paint_title(
-                                &mut mara,
-                                rect.into(),
-                                &title_text,
-                                anchor,
-                                accent,
-                                open,
-                                openness,
-                                icon,
-                                pane_id,
-                            );
-                        }
-                    };
+                let render_title = |mara: &mut crate::MaraUi<'_>| {
+                    // Title strip is also the drag handle: `click_and_drag`
+                    // sense reports both — `clicked()` toggles the body
+                    // open state, `drag_started()` lifts this container
+                    // for reorder via the parent pane's drag machine.
+                    let resp = { mara.allocate(title_size, crate::layout::Sense::ClickAndDrag) };
+                    let rect: Rect = resp.rect.into();
+                    if resp.hovered() {
+                        mara.set_cursor_icon(crate::layout::CursorIcon::PointingHand);
+                    }
+                    if resp.clicked() {
+                        pane::toggle_body(mara.ctx(), pane_id);
+                    }
+                    if resp.drag_started()
+                        && let Some(active_pane_id) =
+                            mara.ctx().memory().get_temp::<Id>(pane::active_pane_key())
+                    {
+                        pane::set_drag(
+                            mara.ctx(),
+                            active_pane_id,
+                            pane::DragState {
+                                item: Some(pane_id),
+                                cursor: mara.input().interact_pointer.map(Into::into),
+                            },
+                        );
+                    }
+                    {
+                        paint_title(
+                            mara,
+                            rect.into(),
+                            &title_text,
+                            anchor,
+                            accent,
+                            open,
+                            openness,
+                            icon,
+                            pane_id,
+                        );
+                    }
+                };
 
-                    let render_body = |ui: &mut Ui, body: Box<dyn FnOnce(&mut Ui)>| {
+                let render_body =
+                    |mara: &mut crate::MaraUi<'_>,
+                     body: Box<dyn FnOnce(&mut crate::MaraUi<'_>)>| {
                         if !body_visible || full_body_flow <= 0.0 {
                             return;
                         }
@@ -1195,13 +1206,7 @@ impl Normal {
                         // `allocate_space` respects the parent's layout
                         // direction, so `visible_rect` lands at the correct
                         // edge (bottom for BottomUp, right for RightToLeft).
-                        let visible_rect = {
-                            let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
-                            crate::layout::UiBackend::reserve_space(
-                                &mut backend,
-                                body_slots.visible,
-                            )
-                        };
+                        let visible_rect = { mara.reserve_space(body_slots.visible) };
                         let visible_rect: MaraRect = visible_rect;
                         // `full_rect` extends the visible slot to the full
                         // body size in the layout direction (so body
@@ -1210,7 +1215,7 @@ impl Normal {
                         // `full_rect`'s FAR edge to `visible_rect`'s far
                         // edge — the body grows AWAY from the title strip
                         // direction.
-                        let body_direction = crate::backend::egui::stack_direction_for_ui(ui);
+                        let body_direction = mara.stack_direction();
                         let full_rect =
                             body_full_rect(visible_rect, body_slots.full, body_direction);
                         // Body's child layout matches parent direction so
@@ -1221,24 +1226,39 @@ impl Normal {
                             body_direction,
                             crate::layout::StackAlign::Min,
                         );
-                        let mut child = crate::backend::egui::child_ui_for_region(ui, body_region);
-                        let parent_clip = ui.clip_rect();
-                        child.set_clip_rect(parent_clip.intersect(visible_rect.into()));
-                        // Inner top-pad on the title-facing edge of the
-                        // body (theme-driven). Allocated FIRST in the body
-                        // layout so the cursor advances past it before the
-                        // user's body callback runs — pushes the first
-                        // widget away from the title strip without changing
-                        // the title's own thickness or the inter-container
-                        // gap. PRO = 0 (no-op); GAME ≈ 8.
                         let body_top_pad = style::theme().section_body_inner_top_pad;
-                        if body_top_pad > 0.0 {
-                            crate::backend::egui::add_space_for_spec(
-                                &mut child,
-                                crate::layout::SpaceSpec::vertical(body_top_pad),
-                            );
-                        }
-                        let (_, content_h) = body_cfg.paint(&mut child, body);
+                        // `body` owns its closure, so it is handed inward
+                        // one scope at a time rather than borrowed.
+                        let mut body = Some(body);
+                        let mut content_h = 0.0;
+                        mara.in_region(body_region, &mut |mara| {
+                            let Some(body) = body.take() else {
+                                return;
+                            };
+                            // Clipping INTERSECTS the parent's, so the body
+                            // can never grow its own clip past the
+                            // container's visible extent.
+                            mara.clipped(visible_rect, |mara| {
+                                // Inner top-pad on the title-facing edge of
+                                // the body (theme-driven). Allocated FIRST
+                                // so the cursor advances past it before the
+                                // user's callback runs — pushes the first
+                                // widget away from the title strip without
+                                // changing the title's own thickness or the
+                                // inter-container gap. PRO = 0; GAME ≈ 8.
+                                if body_top_pad > 0.0 {
+                                    mara.add_space(crate::layout::SpaceSpec::vertical(
+                                        body_top_pad,
+                                    ));
+                                }
+                                let mut body = Some(body);
+                                content_h = body_cfg.paint(mara, &mut |mara| {
+                                    if let Some(body) = body.take() {
+                                        body(mara);
+                                    }
+                                });
+                            });
+                        });
                         // Record the body's intrinsic content height so
                         // next frame's `container_flow` auto-fit path can
                         // size the container. Two cases:
@@ -1255,7 +1275,7 @@ impl Normal {
                         //   widgets (color picker, etc.) still grow the
                         //   container.
                         let recorded_h = {
-                            let memory = crate::memory::MaraMemoryCtx::new(child.ctx());
+                            let memory = mara.ctx().memory();
                             match memory.get_temp::<f32>(
                                 pane_id.with("mara_container_intrinsic_natural_override"),
                             ) {
@@ -1271,82 +1291,74 @@ impl Normal {
                             }
                         };
                         crate::container::record_container_intrinsic(
-                            child.ctx(),
+                            mara.ctx(),
                             pane_id,
                             recorded_h + body_top_pad,
                         );
                     };
 
-                    // ALWAYS title FIRST, body SECOND. Layout direction
-                    // (inherited from pane parent) handles which edge the
-                    // title lands at.
-                    render_title(ui);
-                    if total_gap > 0.0 {
-                        crate::backend::egui::add_space_for_spec(
-                            ui,
-                            crate::layout::SpaceSpec::vertical(total_gap),
-                        );
-                    }
-                    let body_box: Box<dyn FnOnce(&mut Ui)> = Box::new(body);
-                    render_body(ui, body_box);
+                // ALWAYS title FIRST, body SECOND. Layout direction
+                // (inherited from pane parent) handles which edge the
+                // title lands at.
+                render_title(mara);
+                if total_gap > 0.0 {
+                    mara.add_space(crate::layout::SpaceSpec::vertical(total_gap));
+                }
+                let body_box: Box<dyn FnOnce(&mut crate::MaraUi<'_>)> = Box::new(body);
+                render_body(mara, body_box);
 
-                    // After flex is laid out, paint the GAME banner into
-                    // the deferred shape index. Banner extends from the
-                    // frame's painted edge (= ui.min_rect() expanded by
-                    // section_padding) through the title strip and into
-                    // half the flex gap. Equivalent to `foldable.rs`'s
-                    // banner trick — the painted accent zone covers the
-                    // title slot AND the inner_margin around it.
-                    let banner_cmd = if banner_filled {
-                        let pad = style::section_padding();
-                        let banner = title_banner_rect(
-                            ui.min_rect().into(),
-                            pad,
-                            title_side,
-                            title_thickness,
-                            container_theme.title_body_gap_half,
-                            open,
-                        );
-                        Some(PaintCmd::RectFilled {
-                            rect: banner,
-                            corner: MaraCornerRadius::ZERO,
-                            fill: accent.into(),
-                        })
-                    } else {
-                        None
-                    };
+                // After flex is laid out, paint the GAME banner into
+                // the deferred shape index. Banner extends from the
+                // frame's painted edge (= mara.min_rect() expanded by
+                // section_padding) through the title strip and into
+                // half the flex gap. Equivalent to `foldable.rs`'s
+                // banner trick — the painted accent zone covers the
+                // title slot AND the inner_margin around it.
+                let banner_cmd = if banner_filled {
+                    let pad = style::section_padding();
+                    let banner = title_banner_rect(
+                        mara.min_rect().into(),
+                        pad,
+                        title_side,
+                        title_thickness,
+                        container_theme.title_body_gap_half,
+                        open,
+                    );
+                    Some(PaintCmd::RectFilled {
+                        rect: banner,
+                        corner: MaraCornerRadius::ZERO,
+                        fill: accent.into(),
+                    })
+                } else {
+                    None
+                };
 
-                    // Corner ticks (GAME): L-shaped marks at each corner of
-                    // the container's outer rect, with a slow breathing
-                    // pulse. PRO has `section_corner_ticks = 0` so this is
-                    // a no-op there.
-                    let used_outer =
-                        rect_expanded_by_margin(ui.min_rect().into(), style::section_padding());
-                    {
-                        let mut backend = crate::mui::MaraBackend::Egui(
-                            crate::backend::egui::EguiUiBackend::new(ui),
-                        );
-                        let mut mara = crate::MaraUi::over(&mut backend, accent);
-                        paint_corner_ticks(
-                            &mut mara,
-                            used_outer.into(),
-                            accent,
-                            title_side,
-                            openness,
-                            pane_id,
-                        );
-                    }
-                    ((), banner_cmd)
-                },
-            );
+                // Corner ticks (GAME): L-shaped marks at each corner of
+                // the container's outer rect, with a slow breathing
+                // pulse. PRO has `section_corner_ticks = 0` so this is
+                // a no-op there.
+                let used_outer = rect_expanded_by_margin(mara.min_rect(), style::section_padding());
+                {
+                    paint_corner_ticks(
+                        mara,
+                        used_outer.into(),
+                        accent,
+                        title_side,
+                        openness,
+                        pane_id,
+                    );
+                }
+                if let Some(slot) = banner_slot {
+                    mara.fill_paint_slot(slot, banner_cmd.into_iter().next());
+                }
+            }
         });
-        // Restore the parent ui's opacity so subsequent containers
+        // Restore the parent mara's opacity so subsequent containers
         // in the same body callback start from a clean baseline.
-        ui.set_opacity(prev_opacity);
-        crate::memory::MaraMemoryCtx::new(ui.ctx()).set_temp(
-            pane::active_container_frame_rect_key(),
-            MaraRect::from(frame_response.response.rect),
-        );
+        mara.set_opacity(prev_opacity);
+        mara.ctx()
+            .memory()
+            .set_temp(pane::active_container_frame_rect_key(), frame_rect);
 
         // Publish the rendered Frame's outer rect to the parent
         // pane's per-frame cache. `Pane`'s finalize builds next
@@ -1358,19 +1370,19 @@ impl Normal {
             // next container inherit this one's rect.
             let published_rect = {
                 let key = pane::active_tabbed_container_rect_key();
-                let mut memory = crate::memory::MaraMemoryCtx::new(ui.ctx());
+                let mut memory = mara.ctx().memory();
                 let rect = memory.get_temp::<MaraRect>(key);
                 memory.remove_temp::<MaraRect>(key);
                 rect
             }
-            .map_or(frame_response.response.rect, egui::Rect::from);
-            pane::push_rect(ui.ctx(), active_pane_id, pane_id, published_rect);
+            .unwrap_or(frame_rect);
+            pane::push_rect(mara.ctx(), active_pane_id, pane_id, published_rect.into());
         }
         // Custom debug inspector — outline the container's full
         // painted Frame rect with a `Normal[<title>]` label.
         crate::debug::tag(
-            ui.ctx(),
-            frame_response.response.rect,
+            mara.ctx(),
+            frame_rect.into(),
             format!("Normal[{}]", title_text),
         );
     }
@@ -1387,7 +1399,7 @@ impl Normal {
     ///     inter-container gap.
     ///   • span-axis sides — breathing space against the pane's
     ///     left/right (or top/bottom for vertical-strip) chrome.
-    fn theme_frame(&self) -> Frame {
+    fn theme_frame(&self) -> style::FrameSpec {
         let theme = style::theme();
         let title_side = self.anchor.title_side();
         let main_title = theme.section_outer_margin_flow_title;
@@ -1447,21 +1459,22 @@ impl Normal {
                 }
             }
         }
-        if style::section_show_frame() {
-            Frame::new()
-                .fill(style::fill_for(style::FillRole::Section, self.accent).into())
-                .corner_radius(corners)
-                .stroke(style::stroke_for(
-                    style::StrokeRole::SectionBorder,
-                    self.accent,
-                ))
-                .inner_margin(style::section_padding())
-                .outer_margin(outer)
+        let spec = if style::section_show_frame() {
+            style::FrameSpec::new(
+                style::fill_for(style::FillRole::Section, self.accent),
+                style::stroke_for(style::StrokeRole::SectionBorder, self.accent),
+                corners.into(),
+                style::section_padding(),
+            )
         } else {
-            Frame::new()
-                .inner_margin(style::section_padding())
-                .outer_margin(outer)
-        }
+            style::FrameSpec::new(
+                MaraColor32::TRANSPARENT,
+                MaraStroke::NONE,
+                MaraCornerRadius::ZERO,
+                style::section_padding(),
+            )
+        };
+        spec.with_outer_margin(outer)
     }
 }
 
@@ -1535,8 +1548,14 @@ fn top_tab_title_rect(title_rect: MaraRect, inner_x: f32, inner_y: f32) -> MaraR
     )
 }
 
-fn separator_debug_rect(before: MaraRect, after: MaraRect) -> MaraRect {
-    MaraRect::from_min_max(before.min, MaraPos2::new(before.right(), after.top()))
+/// The strip a separator occupied, from the layout cursor before and
+/// after it ran.
+///
+/// Takes cursor *positions* plus the surface's right edge: a sealed
+/// surface reports its cursor as a point, where the backend's own
+/// reports a rect. Debug-inspector geometry only.
+fn separator_debug_rect(before: MaraPos2, after: MaraPos2, right: f32) -> MaraRect {
+    MaraRect::from_min_max(before, MaraPos2::new(right, after.y))
 }
 
 fn rect_expanded_by_margin(rect: MaraRect, margin: style::MarginSpec) -> MaraRect {
@@ -3473,10 +3492,12 @@ mod active_tab_tests {
 
     #[test]
     fn separator_debug_rect_uses_cursor_delta_as_mara_geometry() {
-        let before = MaraRect::from_min_max(MaraPos2::new(15.0, 30.0), MaraPos2::new(115.0, 42.0));
-        let after = MaraRect::from_min_max(MaraPos2::new(15.0, 48.0), MaraPos2::new(115.0, 60.0));
+        // Cursor positions before and after the separator ran, plus
+        // the surface's right edge — the shape a sealed surface reports.
+        let before = MaraPos2::new(15.0, 30.0);
+        let after = MaraPos2::new(15.0, 48.0);
 
-        let strip = separator_debug_rect(before, after);
+        let strip = separator_debug_rect(before, after, 115.0);
 
         assert_eq!(
             strip,

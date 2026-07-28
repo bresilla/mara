@@ -17,8 +17,6 @@
 //!    scroll axis is always vertical too — there's no case where
 //!    a horizontal scrollbar would help reach hidden pod content.
 
-use egui::Ui;
-
 use crate::layout::ContainerBodySpec;
 
 #[derive(Copy, Clone, Debug)]
@@ -83,9 +81,15 @@ impl Body {
     /// regardless — the body's main axis is always Y because we
     /// force `top_down`. `max_flow` is still available for callers
     /// that need to bound the body's perpendicular extent.
-    pub(crate) fn paint<R>(&self, ui: &mut Ui, body: impl FnOnce(&mut Ui) -> R) -> (R, f32) {
-        crate::backend::egui::show_container_body_slot(
-            ui,
+    /// Returns the body's intrinsic content height. The closure's own
+    /// value is not threaded back: the one caller discards it, and the
+    /// object-safe body shape cannot be generic over a return type.
+    pub(crate) fn paint(
+        &self,
+        mara: &mut crate::MaraUi<'_>,
+        body: &mut dyn FnMut(&mut crate::MaraUi<'_>),
+    ) -> f32 {
+        mara.body_slot(
             ContainerBodySpec::new(
                 self.horizontal_strip,
                 self.span_inner,

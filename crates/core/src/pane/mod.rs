@@ -1294,22 +1294,22 @@ impl Pane {
             .add_space(crate::layout::SpaceSpec::vertical(flex_spec.body_gap));
         }
         let mut body = Some(body);
-        let mut render_body = |ui: &mut egui::Ui| {
+        let mut render_body = |mara: &mut crate::MaraUi<'_>| {
             // Reset per-frame drag bookkeeping (current cache + section
             // idx counter). Snapshot from prev frame stays available
             // for size lookups.
-            drag::begin_frame(ui.ctx(), id);
-            dots::clear_container_dot_rects(ui.ctx(), id);
+            drag::begin_frame(mara.ctx(), id);
+            dots::clear_container_dot_rects(mara.ctx(), id);
 
             // Update cursor BEFORE body runs so `Normal::show`'s
             // target_idx computation sees this frame's cursor.
-            let pre_body_drag = drag::state(ui.ctx(), id);
+            let pre_body_drag = drag::state(mara.ctx(), id);
             if let (Some(item), Some(pos)) = (
                 pre_body_drag.item,
-                MaraCtx::input(ui.ctx()).interact_pointer.map(Into::into),
+                MaraCtx::input(mara.ctx()).interact_pointer.map(Into::into),
             ) {
                 drag::set_drag(
-                    ui.ctx(),
+                    mara.ctx(),
                     id,
                     drag::DragState {
                         item: Some(item),
@@ -1322,8 +1322,13 @@ impl Pane {
             // user closure only sees the typed API, never the raw Ui.
             // After the closure returns, `PaneBody::finish` dispatches
             // the accumulated container specs through `render_containers`.
-            tab_drag::begin_frame(ui.ctx(), id.into());
-            let mut pane_body = PaneBody::new(ui, id, anchor, accent);
+            tab_drag::begin_frame(mara.ctx(), id.into());
+            let mut pane_body = PaneBody::new(
+                crate::MaraUi::over(mara.backend_mut(), accent),
+                id,
+                anchor,
+                accent,
+            );
             let body = body
                 .take()
                 .expect("pane body renderer must only be called once");
@@ -1341,13 +1346,13 @@ impl Pane {
             // container (target == total non-dragged), paint the ghost
             // gap inline at the end of the body layout. The inline gaps
             // inside `Normal::show` handle every other position.
-            let drag_state = drag::state(ui.ctx(), id);
+            let drag_state = drag::state(mara.ctx(), id);
             if let Some(dragged_id) = drag_state.item
-                && !drag::ghost_gap_suppressed(ui.ctx(), id)
+                && !drag::ghost_gap_suppressed(mara.ctx(), id)
             {
-                let snap = drag::target_cache(ui.ctx(), id);
-                let total = drag::current_cache(ui.ctx(), id).len();
-                let cursor = MaraCtx::input(ui.ctx())
+                let snap = drag::target_cache(mara.ctx(), id);
+                let total = drag::current_cache(mara.ctx(), id).len();
+                let cursor = MaraCtx::input(mara.ctx())
                     .interact_pointer
                     .map(Into::into)
                     .or(drag_state.cursor);
@@ -1359,10 +1364,7 @@ impl Pane {
                         && let Some(entry) = drag::dragged_entry(&snap, dragged_id)
                     {
                         drag::paint_ghost_gap_entry_inline(
-                            &mut crate::MaraUi::__internal_over(
-                                &mut crate::MaraUi::__internal_backend_from_raw(ui),
-                                accent,
-                            ),
+                            mara,
                             entry,
                             accent.into(),
                             horizontal_stack,
@@ -1375,43 +1377,39 @@ impl Pane {
             //
             // current cache (this frame's renders) + dragged entry
             // carried forward from prev snapshot.
-            drag::finalize_snapshot(ui.ctx(), id);
+            drag::finalize_snapshot(mara.ctx(), id);
 
             // ── Floating preview + cursor + release commit ──
             if let Some(dragged_id) = drag_state.item {
-                let snap = drag::target_cache(ui.ctx(), id);
-                let cursor = MaraCtx::input(ui.ctx())
+                let snap = drag::target_cache(mara.ctx(), id);
+                let cursor = MaraCtx::input(mara.ctx())
                     .interact_pointer
                     .map(Into::into)
                     .or(drag_state.cursor);
                 if let Some(c) = cursor {
-                    drag::paint_drag_preview(ui.ctx(), id, &snap, dragged_id, c, accent.into());
-                    crate::MaraUi::__internal_over(
-                        &mut crate::MaraUi::__internal_backend_from_raw(ui),
-                        accent,
-                    )
-                    .set_cursor_icon(crate::layout::CursorIcon::Grabbing);
+                    drag::paint_drag_preview(mara.ctx(), id, &snap, dragged_id, c, accent.into());
+                    mara.set_cursor_icon(crate::layout::CursorIcon::Grabbing);
                 }
 
-                if MaraCtx::input(ui.ctx()).any_released {
+                if MaraCtx::input(mara.ctx()).any_released {
                     if let Some(c) = cursor {
                         let cursor_axis = if horizontal_stack { c.x } else { c.y };
                         let target_idx =
                             drag::compute_target(&snap, dragged_id, cursor_axis, horizontal_stack);
                         let defaults: Vec<Id> = snap.iter().map(|e| e.id).collect();
-                        let mut order = drag::section_order_for(ui.ctx(), id, &defaults);
+                        let mut order = drag::section_order_for(mara.ctx(), id, &defaults);
                         order.retain(|cid| *cid != dragged_id);
                         let clamped = target_idx.min(order.len());
                         order.insert(clamped, dragged_id);
-                        drag::set_section_order(ui.ctx(), id, order);
+                        drag::set_section_order(mara.ctx(), id, order);
                     }
-                    drag::clear_drag(ui.ctx(), id);
+                    drag::clear_drag(mara.ctx(), id);
                 }
             }
 
             // ── Tab drag: preview + commit-on-release ──
-            if let Some(tab_drag_state) = tab_drag::drag_state(ui.ctx(), id.into()) {
-                let cursor = MaraCtx::input(ui.ctx())
+            if let Some(tab_drag_state) = tab_drag::drag_state(mara.ctx(), id.into()) {
+                let cursor = MaraCtx::input(mara.ctx())
                     .pointer
                     .map(Into::into)
                     .or(tab_drag_state.cursor);
@@ -1419,7 +1417,7 @@ impl Pane {
                     // Persist the cursor pos so next frame can paint at
                     // the right spot even if egui drops the input.
                     tab_drag::set_drag(
-                        ui.ctx(),
+                        mara.ctx(),
                         id.into(),
                         tab_drag::TabDragState {
                             cursor: Some(c),
@@ -1431,7 +1429,7 @@ impl Pane {
                     // blank accent card while crossing containers.
                     let preview_size = MaraVec2::new(28.0, 28.0);
                     tab_drag::paint_drag_preview(
-                        ui.ctx(),
+                        mara.ctx(),
                         id.into(),
                         preview_size,
                         c,
@@ -1439,23 +1437,19 @@ impl Pane {
                         "",
                         tab_drag_state.icon,
                     );
-                    crate::MaraUi::__internal_over(
-                        &mut crate::MaraUi::__internal_backend_from_raw(ui),
-                        accent,
-                    )
-                    .set_cursor_icon(crate::layout::CursorIcon::Grabbing);
+                    mara.set_cursor_icon(crate::layout::CursorIcon::Grabbing);
                 }
-                if MaraCtx::input(ui.ctx()).any_released {
+                if MaraCtx::input(mara.ctx()).any_released {
                     if let Some(c) = cursor
                         && let Some((tgt_cid, slot)) = tab_drag::find_drop_target_for_drag(
-                            ui.ctx(),
+                            mara.ctx(),
                             id.into(),
                             c,
                             tab_drag_state,
                         )
                     {
                         tab_drag::commit_drop(
-                            ui.ctx(),
+                            mara.ctx(),
                             id.into(),
                             tab_drag_state.tab_id,
                             tab_drag_state.source_container,
@@ -1463,7 +1457,7 @@ impl Pane {
                             slot,
                         );
                     }
-                    tab_drag::clear_drag(ui.ctx(), id.into());
+                    tab_drag::clear_drag(mara.ctx(), id.into());
                 }
             }
         };
@@ -1472,19 +1466,20 @@ impl Pane {
             .get_temp::<bool>(id.with("mara_pane_body_scroll_enabled"))
             .unwrap_or(false);
         if body_scroll_enabled {
-            crate::backend::egui::show_pane_body_scroll_slot(
-                ui,
-                PaneBodyScrollSpec::new(
-                    MaraId::from(id.with("mara_pane_body_scroll")),
-                    horizontal_strip,
-                    span_inner,
-                ),
-                |ui| {
-                    render_body(ui);
-                },
+            let spec = PaneBodyScrollSpec::new(
+                MaraId::from(id.with("mara_pane_body_scroll")),
+                horizontal_strip,
+                span_inner,
             );
+            crate::backend::egui::show_pane_body_scroll_slot(ui, spec, |ui| {
+                let mut backend =
+                    crate::mui::MaraBackend::Egui(crate::backend::egui::EguiUiBackend::new(ui));
+                render_body(&mut crate::MaraUi::over(&mut backend, accent));
+            });
         } else {
-            render_body(ui);
+            let mut backend =
+                crate::mui::MaraBackend::Egui(crate::backend::egui::EguiUiBackend::new(ui));
+            render_body(&mut crate::MaraUi::over(&mut backend, accent));
         }
     }
 }

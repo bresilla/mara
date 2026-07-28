@@ -399,6 +399,19 @@ impl UiBackend for RecordingBackend {
         self
     }
 
+    /// Headless: the body slot is the surface itself. Nothing scrolls,
+    /// so content lays out in place and its height is what the cursor
+    /// advanced by.
+    fn body_slot(
+        &mut self,
+        _spec: crate::layout::ContainerBodySpec,
+        body: &mut dyn FnMut(&mut dyn UiBackend),
+    ) -> f32 {
+        let start = self.cursor.y;
+        body(self);
+        (self.cursor.y - start).max(0.0)
+    }
+
     /// Headless: the child surface is this one, scoped to the region
     /// and restored afterwards so the parent's flow continues.
     fn in_region(

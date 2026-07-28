@@ -1007,6 +1007,52 @@ impl crate::layout::UiBackend for MaraBackend<'_> {
         }
     }
 
+    fn min_rect(&self) -> vocab::Rect {
+        match self {
+            Self::Egui(b) => b.min_rect(),
+            Self::Recording(b) => b.min_rect(),
+        }
+    }
+
+    fn stack_direction(&self) -> crate::layout::StackDirection {
+        match self {
+            Self::Egui(b) => b.stack_direction(),
+            Self::Recording(b) => b.stack_direction(),
+        }
+    }
+
+    fn set_item_spacing(&mut self, spec: crate::layout::ItemSpacingSpec) {
+        match self {
+            Self::Egui(b) => b.set_item_spacing(spec),
+            Self::Recording(b) => b.set_item_spacing(spec),
+        }
+    }
+
+    fn set_opacity(&mut self, opacity: f32) {
+        match self {
+            Self::Egui(b) => b.set_opacity(opacity),
+            Self::Recording(b) => b.set_opacity(opacity),
+        }
+    }
+
+    fn multiply_opacity(&mut self, factor: f32) {
+        match self {
+            Self::Egui(b) => b.multiply_opacity(factor),
+            Self::Recording(b) => b.multiply_opacity(factor),
+        }
+    }
+
+    fn body_slot(
+        &mut self,
+        spec: crate::layout::ContainerBodySpec,
+        body: &mut dyn FnMut(&mut dyn crate::layout::UiBackend),
+    ) -> f32 {
+        match self {
+            Self::Egui(b) => b.body_slot(spec, body),
+            Self::Recording(b) => b.body_slot(spec, body),
+        }
+    }
+
     fn paint_on_z_layer(
         &mut self,
         id: vocab::Id,
@@ -1509,8 +1555,94 @@ impl<'a> MaraUi<'a> {
         body: &mut dyn FnMut(&mut MaraUi<'_>),
     ) {
         let accent = self.accent;
-        self.backend
-            .in_region(region, &mut |backend| body(&mut MaraUi::over(backend, accent)));
+        self.backend.in_region(region, &mut |backend| {
+            body(&mut MaraUi::over(backend, accent))
+        });
+    }
+
+    /// The rect this surface has actually used so far — what chrome
+    /// frames, as opposed to what layout may still fill.
+    #[must_use]
+    pub fn min_rect(&self) -> vocab::Rect {
+        self.backend.min_rect()
+    }
+
+    /// Claim `size` from the layout without registering a widget,
+    /// returning the rect it occupies.
+    pub fn reserve_space(&mut self, size: impl Into<vocab::Vec2>) -> vocab::Rect {
+        self.backend.reserve_space(size.into())
+    }
+
+    /// The backend surface behind this one, when there is one.
+    ///
+    /// First-party host escape. Host-tier code (`mara/`, `hosts/`) may
+    /// name the backend by design, and integrations that borrow
+    /// non-`'static` state — the node graph, the code editor — still
+    /// hand a raw surface to their own renderer. Returns `None` on any
+    /// backend that is not the widget one.
+    ///
+    /// Goes away with WS-G, when those renderers move behind the seam.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn __internal_egui_ui_mut(&mut self) -> Option<&mut egui::Ui> {
+        self.backend.__internal_egui_ui_mut()
+    }
+
+    /// Claim `rect` from the layout and register interaction on it.
+    pub fn reserve_rect(
+        &mut self,
+        rect: impl Into<vocab::Rect>,
+        sense: crate::layout::Sense,
+    ) -> MaraResponse {
+        self.backend.reserve_rect(rect.into(), sense)
+    }
+
+    /// Set the spacing this surface leaves between successive items.
+    pub fn set_item_spacing(&mut self, spec: crate::layout::ItemSpacingSpec) {
+        self.backend.set_item_spacing(spec);
+    }
+
+    /// Which way this surface's layout flows.
+    #[must_use]
+    pub fn stack_direction(&self) -> crate::layout::StackDirection {
+        self.backend.stack_direction()
+    }
+
+    /// Set this surface's paint opacity, 0.0..=1.0.
+    pub fn set_opacity(&mut self, opacity: f32) {
+        self.backend.set_opacity(opacity);
+    }
+
+    /// Scale this surface's opacity by `factor`, compounding with any
+    /// group fade already in effect.
+    pub fn multiply_opacity(&mut self, factor: f32) {
+        self.backend.multiply_opacity(factor);
+    }
+
+    /// Run `body` inside the container body slot, returning the body's
+    /// intrinsic content height.
+    pub fn body_slot(
+        &mut self,
+        spec: crate::layout::ContainerBodySpec,
+        body: &mut dyn FnMut(&mut MaraUi<'_>),
+    ) -> f32 {
+        let accent = self.accent;
+        self.backend.body_slot(spec, &mut |backend| {
+            body(&mut MaraUi::over(backend, accent))
+        })
+    }
+
+    /// Run `body` under an extra id salt, so repeated structures do not
+    /// collide on widget ids.
+    pub fn in_id_scope(
+        &mut self,
+        salt: impl Into<vocab::Id>,
+        body: &mut dyn FnMut(&mut MaraUi<'_>),
+    ) {
+        let accent = self.accent;
+        self.backend.in_id_scope(salt.into(), &mut |backend| {
+            body(&mut MaraUi::over(backend, accent))
+        });
     }
 
     /// Run `body` inside a scrollable region.
@@ -1520,8 +1652,9 @@ impl<'a> MaraUi<'a> {
         body: &mut dyn FnMut(&mut MaraUi<'_>),
     ) {
         let accent = self.accent;
-        self.backend
-            .scroll_region(region, &mut |backend| body(&mut MaraUi::over(backend, accent)));
+        self.backend.scroll_region(region, &mut |backend| {
+            body(&mut MaraUi::over(backend, accent))
+        });
     }
 
     pub fn request_repaint(&self) {

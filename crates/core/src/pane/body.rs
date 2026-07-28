@@ -19,7 +19,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::vocab::Id;
-use egui::{Color32, Ui};
+use egui::Color32;
 
 use crate::container::{Normal, SeparatorOrient, Tab, container_flow, set_container_flow};
 use crate::pod::{Pod, PodResponse};
@@ -53,7 +53,7 @@ pub struct ContainerSpec<'a> {
 pub(crate) enum SpecBody<'a> {
     Pods(Vec<Pod>),
     Tabs(Vec<Tab>),
-    Raw(Box<dyn FnOnce(&mut Ui) + 'a>),
+    Raw(Box<dyn FnOnce(&mut crate::MaraUi<'_>) + 'a>),
 }
 
 /// Shared tab payload/routing scope for one logical workspace.
@@ -175,7 +175,7 @@ impl<'a> ContainerSpec<'a> {
         body: F,
     ) -> Self
     where
-        F: FnOnce(&mut Ui) + 'a,
+        F: FnOnce(&mut crate::MaraUi<'_>) + 'a,
     {
         let title = title.into();
         assert_container_title(&title);
@@ -225,7 +225,7 @@ fn assert_container_icon(icon: &'static str) {
 /// order returned by [`section_order_for`] (so the user's
 /// drag-reorder persists across frames), not in call order.
 pub struct PaneBody<'ui, 'spec> {
-    ui: &'ui mut Ui,
+    ui: crate::MaraUi<'ui>,
     pane_id: Id,
     anchor: PaneAnchor,
     accent: Color32,
@@ -233,7 +233,12 @@ pub struct PaneBody<'ui, 'spec> {
 }
 
 impl<'ui, 'spec> PaneBody<'ui, 'spec> {
-    pub(crate) fn new(ui: &'ui mut Ui, pane_id: Id, anchor: PaneAnchor, accent: Color32) -> Self {
+    pub(crate) fn new(
+        ui: crate::MaraUi<'ui>,
+        pane_id: Id,
+        anchor: PaneAnchor,
+        accent: Color32,
+    ) -> Self {
         Self {
             ui,
             pane_id,
@@ -276,7 +281,7 @@ impl<'ui, 'spec> PaneBody<'ui, 'spec> {
     #[must_use]
     pub fn temp_string(&self, id: impl Into<MaraId>) -> Option<String> {
         let id: Id = id.into().into();
-        crate::memory::MaraMemoryCtx::new(self.ui.ctx()).get_temp::<String>(id)
+        self.ui.ctx().memory().get_temp::<String>(id)
     }
 
     /// Append a normal container (single body, pod list).
@@ -333,7 +338,7 @@ impl<'ui, 'spec> PaneBody<'ui, 'spec> {
 
     fn render_raw(&mut self) -> HashMap<Id, Vec<PodResponse>> {
         let specs = std::mem::take(&mut self.pending);
-        render_containers(self.ui, self.pane_id, self.anchor, self.accent, specs)
+        render_containers(&mut self.ui, self.pane_id, self.anchor, self.accent, specs)
     }
 
     /// Crate-internal: drain any remaining containers and return
@@ -356,7 +361,7 @@ impl<'ui, 'spec> PaneBody<'ui, 'spec> {
 ///   [`set_container_flow`]; folded containers ignore drag so the
 ///   user can't silently grow / shrink an invisible region.
 pub(crate) fn render_containers<'a>(
-    body_ui: &mut Ui,
+    body_ui: &mut crate::MaraUi<'_>,
     pane_id: Id,
     anchor: PaneAnchor,
     accent: Color32,
@@ -378,7 +383,7 @@ pub(crate) fn render_containers<'a>(
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn render_containers_with_tab_scope<'a>(
-    body_ui: &mut Ui,
+    body_ui: &mut crate::MaraUi<'_>,
     pane_id: Id,
     tab_routing_id: Id,
     anchor: PaneAnchor,
@@ -465,13 +470,10 @@ pub(crate) fn render_containers_with_tab_scope<'a>(
             if dragging_self {
                 continue;
             }
-            let dot_resp = {
-                let ctx = body_ui.ctx().clone();
-                let mut raw = crate::MaraUi::__internal_backend_from_raw(body_ui);
-                let mut mara = crate::MaraUi::__internal_over(&mut raw, accent);
-                paint_container_dots(&mut mara, &ctx, dots_orient, cid, accent)
-            };
-            let body_open: bool = crate::memory::MaraMemoryCtx::new(body_ui.ctx())
+            let dot_resp = paint_container_dots(body_ui, dots_orient, cid, accent);
+            let body_open: bool = body_ui
+                .ctx()
+                .memory()
                 .get_persisted::<bool>(cid.with("body_open"))
                 .unwrap_or(true);
             if dot_resp.dragged() && body_open {
@@ -519,13 +521,10 @@ pub(crate) fn render_containers_with_tab_scope<'a>(
             continue;
         }
 
-        let dot_resp = {
-            let ctx = body_ui.ctx().clone();
-            let mut raw = crate::MaraUi::__internal_backend_from_raw(body_ui);
-            let mut mara = crate::MaraUi::__internal_over(&mut raw, accent);
-            paint_container_dots(&mut mara, &ctx, dots_orient, cid, accent)
-        };
-        let body_open: bool = crate::memory::MaraMemoryCtx::new(body_ui.ctx())
+        let dot_resp = paint_container_dots(body_ui, dots_orient, cid, accent);
+        let body_open: bool = body_ui
+            .ctx()
+            .memory()
             .get_persisted::<bool>(cid.with("body_open"))
             .unwrap_or(true);
         if dot_resp.dragged() && body_open {
@@ -650,8 +649,11 @@ mod tests {
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             egui::CentralPanel::default().show(&ctx, |ui| {
                 crate::memory::MaraMemoryCtx::new(ui.ctx()).set_temp(active_pane_key(), pane_id);
+                let mut backend =
+                    crate::mui::MaraBackend::Egui(crate::backend::egui::EguiUiBackend::new(ui));
+                let mut mara = crate::MaraUi::over(&mut backend, crate::vocab::Color32::WHITE);
                 let _ = render_containers(
-                    ui,
+                    &mut mara,
                     pane_id,
                     PaneAnchor::LeftRail(RailZone::Middle),
                     Color32::from_rgb(120, 160, 220),
@@ -694,8 +696,11 @@ mod tests {
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             egui::CentralPanel::default().show(&ctx, |ui| {
                 crate::memory::MaraMemoryCtx::new(ui.ctx()).set_temp(active_pane_key(), pane_id);
+                let mut backend =
+                    crate::mui::MaraBackend::Egui(crate::backend::egui::EguiUiBackend::new(ui));
+                let mut mara = crate::MaraUi::over(&mut backend, crate::vocab::Color32::WHITE);
                 let _ = render_containers(
-                    ui,
+                    &mut mara,
                     pane_id,
                     PaneAnchor::LeftRail(RailZone::Middle),
                     Color32::from_rgb(120, 160, 220),
@@ -728,8 +733,11 @@ mod tests {
         });
         egui::CentralPanel::default().show(&ctx, |ui| {
             crate::memory::MaraMemoryCtx::new(ui.ctx()).set_temp(active_pane_key(), pane_id);
+            let mut backend =
+                crate::mui::MaraBackend::Egui(crate::backend::egui::EguiUiBackend::new(ui));
+            let mut mara = crate::MaraUi::over(&mut backend, crate::vocab::Color32::WHITE);
             let responses = render_containers(
-                ui,
+                &mut mara,
                 pane_id,
                 PaneAnchor::LeftRail(RailZone::Middle),
                 Color32::from_rgb(120, 160, 220),
@@ -826,8 +834,11 @@ mod tests {
         });
         egui::CentralPanel::default().show(&ctx, |ui| {
             crate::memory::MaraMemoryCtx::new(ui.ctx()).set_temp(active_pane_key(), target_pane);
+            let mut backend =
+                crate::mui::MaraBackend::Egui(crate::backend::egui::EguiUiBackend::new(ui));
+            let mut mara = crate::MaraUi::over(&mut backend, crate::vocab::Color32::WHITE);
             let responses = render_containers_with_tab_scope(
-                ui,
+                &mut mara,
                 target_pane,
                 routing_id,
                 PaneAnchor::LeftRail(RailZone::Middle),

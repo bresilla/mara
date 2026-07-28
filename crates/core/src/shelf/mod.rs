@@ -1121,8 +1121,11 @@ fn render_shelf_body(input: ShelfBodyInput<'_, '_, '_, '_>) {
                 .collect();
             let declared_order: Vec<Id> =
                 specs.iter().map(|spec| spec.egui_container_id()).collect();
+            let mut backend =
+                crate::mui::MaraBackend::Egui(crate::backend::egui::EguiUiBackend::new(viewport));
+            let mut mara = crate::MaraUi::over(&mut backend, shelf.accent);
             let responses = crate::pane::render_containers_with_tab_scope(
-                viewport,
+                &mut mara,
                 pane_id,
                 tab_routing_id,
                 anchor,

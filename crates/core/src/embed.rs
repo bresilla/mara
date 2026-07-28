@@ -587,15 +587,13 @@ fn fullscreen_minimize_button(
     // Persisted user-chosen anchor (set on drag-release). When
     // empty, fall back to the caller-supplied `opts`.
     let anchor_key = crate::vocab::Id::new("mara_maximize_chip_anchor").with(id_salt);
-    let stored: Option<(RibbonEdge, RibbonCluster)> =
-        ctx.memory().get_temp(anchor_key);
+    let stored: Option<(RibbonEdge, RibbonCluster)> = ctx.memory().get_temp(anchor_key);
     let active_anchor = stored.unwrap_or((opts.minimize_edge, opts.minimize_cluster));
     // While the user is mid-drag, override the chip position with
     // the cursor (so the chip follows the pointer) — keyed by the
     // SAME id so the value clears on release.
     let drag_pos_key = crate::vocab::Id::new("mara_maximize_chip_drag_pos").with(id_salt);
-    let drag_cursor: Option<MaraPos2> =
-        ctx.memory().get_temp(drag_pos_key);
+    let drag_cursor: Option<MaraPos2> = ctx.memory().get_temp(drag_pos_key);
     let chip_pos: MaraPos2 = if let Some(c) = drag_cursor {
         MaraPos2::new(c.x - btn_size * 0.5, c.y - btn_size * 0.5)
     } else {
@@ -657,12 +655,7 @@ fn fullscreen_minimize_button(
                 let glyph_col = if resp.hovered() {
                     crate::style::contrast_text_for(accent).into()
                 } else {
-                    egui::Color32::from_rgba_unmultiplied(
-                        accent.r(),
-                        accent.g(),
-                        accent.b(),
-                        220,
-                    )
+                    egui::Color32::from_rgba_unmultiplied(accent.r(), accent.g(), accent.b(), 220)
                 };
                 if crate::icons::icon_fonts_ready()
                     && let Some(cmd) =
@@ -781,11 +774,7 @@ fn ribbon_style_chip_paint_cmds(
             glass_alpha_window(),
         )
     } else {
-        glass_fill(
-            crate::style::theme().bg_panel,
-            accent,
-            glass_alpha_window(),
-        )
+        glass_fill(crate::style::theme().bg_panel, accent, glass_alpha_window())
     };
     let stroke = if active {
         MaraStroke::new(crate::style::theme().stroke.border_width, accent)

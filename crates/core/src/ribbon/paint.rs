@@ -3,7 +3,6 @@
 //! static ribbons and the drag-aware layout both route here so the
 //! pixel-level look stays identical whichever path the caller took.
 
-
 use crate::paint::PaintCmd;
 use crate::style::{
     BG_1_PANEL, BG_2_RAISED, BORDER_SUBTLE, RadiusRole, StrokeRole, glass_alpha_card,

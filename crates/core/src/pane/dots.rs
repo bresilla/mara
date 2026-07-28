@@ -60,15 +60,13 @@ const DOTS_ALPHA: u8 = 160;
 /// glyph for the orientation.
 pub(crate) fn paint_container_dots(
     ui: &mut crate::MaraUi<'_>,
-    // Pane bookkeeping lives on the context, which a surface does not
-    // vend; pass it rather than widen `UiBackend` for one caller.
-    ctx: &dyn crate::context::MaraCtx,
     orient: SeparatorOrient,
     id_salt: impl Hash,
     accent: impl Into<MaraColor32>,
 ) -> MaraResponse {
     let accent = accent.into();
     let rect = allocate_strip(ui, orient);
+    let ctx = ui.ctx();
     // Register the strip's flow-axis size with the active pane so
     // pane auto-flow accounting includes this handle in
     // the pane's outer height. Without this, the pane would be

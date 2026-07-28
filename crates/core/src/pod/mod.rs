@@ -739,15 +739,13 @@ impl Pod {
     /// the search slot within `pod_id` — `0` for the first
     /// `with_search`, `1` for the second, etc.
     pub fn search_query(
-        ctx: &egui::Context,
+        ctx: &dyn crate::context::MaraCtx,
         pod_id: impl Into<MaraId>,
         search_idx: usize,
     ) -> String {
         let pod_id: Id = pod_id.into().into();
         let key = pod_id.with(("mara_pod_search_buf", search_idx));
-        crate::memory::MaraMemoryCtx::new(ctx)
-            .get_temp::<String>(key)
-            .unwrap_or_default()
+        ctx.memory().get_temp::<String>(key).unwrap_or_default()
     }
 
     /// Ctx-data key the container writes the fill pod's computed
@@ -1461,7 +1459,8 @@ impl Pod {
             // so the pod still renders.
             let key: Id = Self::forced_height_key(pod_id).into();
             Some(
-                mara.ctx().memory()
+                mara.ctx()
+                    .memory()
                     .get_temp::<f32>(key)
                     .unwrap_or_else(|| self.natural_h())
                     .max(theme().pod.min_widget_h),
@@ -1470,7 +1469,8 @@ impl Pod {
             let natural_h = self.natural_h();
             let key: Id = Self::widget_height_key(pod_id).into();
             Some(
-                mara.ctx().memory()
+                mara.ctx()
+                    .memory()
                     .get_persisted::<f32>(key)
                     .unwrap_or(natural_h)
                     .clamp(theme().pod.min_widget_h, theme().pod.max_widget_h),
@@ -1518,8 +1518,7 @@ impl Pod {
                             let mut widgets = Some(widgets);
                             mara.scroll_region(region, &mut |mara| {
                                 if let Some(widgets) = widgets.take() {
-                                    response =
-                                        paint_widgets(widgets, mara.backend_mut(), pod_id);
+                                    response = paint_widgets(widgets, mara.backend_mut(), pod_id);
                                 }
                             });
                         } else {

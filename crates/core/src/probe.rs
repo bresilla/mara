@@ -194,4 +194,3 @@ mod tests {
         assert!(format(&[]).contains("nothing recorded"));
     }
 }
-

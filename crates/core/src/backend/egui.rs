@@ -186,6 +186,38 @@ impl UiBackend for EguiUiBackend<'_> {
         body(&mut inner);
     }
 
+    fn min_rect(&self) -> vocab::Rect {
+        self.ui.min_rect().into()
+    }
+
+    fn stack_direction(&self) -> StackDirection {
+        stack_direction_for_ui(self.ui)
+    }
+
+    fn set_item_spacing(&mut self, spec: ItemSpacingSpec) {
+        apply_item_spacing_spec(self.ui, spec);
+    }
+
+    fn set_opacity(&mut self, opacity: f32) {
+        self.ui.set_opacity(opacity);
+    }
+
+    fn multiply_opacity(&mut self, factor: f32) {
+        self.ui.multiply_opacity(factor);
+    }
+
+    fn body_slot(
+        &mut self,
+        spec: ContainerBodySpec,
+        body: &mut dyn FnMut(&mut dyn crate::layout::UiBackend),
+    ) -> f32 {
+        let (_, height) = show_container_body_slot(self.ui, spec, |ui| {
+            let mut inner = EguiUiBackend::new(ui);
+            body(&mut inner);
+        });
+        height
+    }
+
     fn paint_on_z_layer(
         &mut self,
         id: vocab::Id,
@@ -670,10 +702,6 @@ pub(crate) fn context_pixels_per_point(ctx: &egui::Context) -> f32 {
 
 pub(crate) fn unstable_dt(ctx: &egui::Context) -> f32 {
     ctx.input(|input| input.unstable_dt).max(0.0)
-}
-
-pub(crate) fn pointer_interact_pos(ctx: &egui::Context) -> Option<vocab::Pos2> {
-    ctx.pointer_interact_pos().map(Into::into)
 }
 
 pub(crate) fn viewport_maximized(ctx: &egui::Context) -> bool {
@@ -1215,17 +1243,6 @@ pub(crate) fn child_ui_for_region(ui: &mut egui::Ui, region: ChildRegion) -> egu
         egui::UiBuilder::new()
             .max_rect(region.rect.into())
             .layout(egui_layout_for_child_region(region)),
-    )
-}
-
-pub(crate) fn child_ui_with_current_layout_for_rect(
-    ui: &mut egui::Ui,
-    rect: vocab::Rect,
-) -> egui::Ui {
-    ui.new_child(
-        egui::UiBuilder::new()
-            .max_rect(rect.into())
-            .layout(*ui.layout()),
     )
 }
 

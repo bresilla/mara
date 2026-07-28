@@ -534,7 +534,13 @@ impl<'ui, 'spec> PaneBodyNodeGraphExt<'spec> for mara_core::pane::PaneBody<'ui, 
             id,
             title,
             icon,
-            move |inner_ui| {
+            move |mara| {
+                // The vendored graph renderer still takes a backend
+                // surface. This crate is host tier, so unwrapping here
+                // keeps the escape out of `mara_core` entirely.
+                let Some(inner_ui) = mara.__internal_egui_ui_mut() else {
+                    return;
+                };
                 let avail = inner_ui.available_size_before_wrap();
                 let accent = mara_core::style::active_accent();
                 mara_node_graph(inner_ui, state, backend, graph, viewer, accent, avail);

@@ -1135,6 +1135,56 @@ pub trait UiBackend {
     /// the seam.
     fn in_region(&mut self, region: ChildRegion, body: &mut dyn FnMut(&mut dyn UiBackend));
 
+    /// The rect this surface has actually used so far.
+    ///
+    /// Distinct from [`available_rect`](UiBackend::available_rect):
+    /// available is what the surface *may* fill, this is what it has
+    /// filled. Chrome that frames its own content — a container border,
+    /// corner ticks — needs the latter.
+    fn min_rect(&self) -> Rect {
+        self.available_rect()
+    }
+
+    /// Set this surface's paint opacity, 0.0..=1.0.
+    fn set_opacity(&mut self, opacity: f32) {
+        let _ = opacity;
+    }
+
+    /// Scale this surface's opacity by `factor`, compounding with the
+    /// group fade it already inherits rather than replacing it.
+    fn multiply_opacity(&mut self, factor: f32) {
+        let _ = factor;
+    }
+
+    /// Lay out the container body slot and run `body` inside it.
+    ///
+    /// The slot owns the scroll viewport, so the machinery — sizing,
+    /// hidden bars, trailing pad — stays behind this call. Returns the
+    /// body's intrinsic content height, which the container needs next
+    /// frame to auto-fit.
+    ///
+    /// Required rather than defaulted: the obvious default (run `body`
+    /// inline) cannot be written here, because `Self` is unsized behind
+    /// the trait object this stays callable through.
+    fn body_slot(
+        &mut self,
+        spec: ContainerBodySpec,
+        body: &mut dyn FnMut(&mut dyn UiBackend),
+    ) -> f32;
+
+    /// Set the spacing this surface leaves between successive items.
+    fn set_item_spacing(&mut self, spec: ItemSpacingSpec) {
+        let _ = spec;
+    }
+
+    /// Which way this surface's layout flows.
+    ///
+    /// A container's body grows *away* from its title strip, so the
+    /// body has to know which edge the parent anchored against.
+    fn stack_direction(&self) -> StackDirection {
+        StackDirection::TopDown
+    }
+
     /// This surface's paint opacity, 0.0..=1.0.
     ///
     /// Surfaces fade in as a group, and painters that animate need to
@@ -1187,6 +1237,28 @@ impl<T: UiBackend + ?Sized> UiBackend for &mut T {
     }
     fn in_region(&mut self, region: ChildRegion, body: &mut dyn FnMut(&mut dyn UiBackend)) {
         (**self).in_region(region, body)
+    }
+    fn min_rect(&self) -> Rect {
+        (**self).min_rect()
+    }
+    fn stack_direction(&self) -> StackDirection {
+        (**self).stack_direction()
+    }
+    fn set_item_spacing(&mut self, spec: ItemSpacingSpec) {
+        (**self).set_item_spacing(spec)
+    }
+    fn set_opacity(&mut self, opacity: f32) {
+        (**self).set_opacity(opacity)
+    }
+    fn multiply_opacity(&mut self, factor: f32) {
+        (**self).multiply_opacity(factor)
+    }
+    fn body_slot(
+        &mut self,
+        spec: ContainerBodySpec,
+        body: &mut dyn FnMut(&mut dyn UiBackend),
+    ) -> f32 {
+        (**self).body_slot(spec, body)
     }
     fn paint_on_z_layer(&mut self, id: Id, tier: u16, rect: Rect, opacity: f32, cmd: PaintCmd) {
         (**self).paint_on_z_layer(id, tier, rect, opacity, cmd)
