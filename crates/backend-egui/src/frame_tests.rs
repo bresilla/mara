@@ -1649,3 +1649,49 @@ mod touch_scaled_metrics {
         );
     }
 }
+
+/// `mara_core::style::theme_accent` reproduces the adapted accent that
+/// `__internal_apply_theme` paints with.
+///
+/// The two are separate code paths — the theme derives it from its
+/// `accent` parameter, core derives it from the raw accent that same
+/// call published. They can only stay in agreement because
+/// `set_raw_accent` runs first (`theme.rs:138`, before the selection
+/// visuals at `:278`). This pins that ordering: reverse it and the
+/// selection colours silently come from the *previous* frame's accent.
+mod theme_accent_agreement {
+    #[test]
+    fn core_reproduces_the_accent_the_theme_adapts() {
+        let raw = egui::Context::default();
+        for accent in [
+            mara_core::vocab::Color32::from_rgb(0, 0, 0),
+            mara_core::vocab::Color32::from_rgb(255, 255, 255),
+            mara_core::vocab::Color32::from_rgb(64, 160, 255),
+        ] {
+            crate::theme::__internal_apply_theme(
+                &raw,
+                mara_core::style::AccentColor(accent),
+                mara_core::style::GlassOpacity::default(),
+            );
+
+            let from_core = mara_core::style::theme_accent();
+            let expected = if mara_core::style::theme().pastel_accent {
+                mara_core::style::adapt_accent_to_mode(
+                    accent,
+                    mara_core::style::theme().is_light,
+                )
+            } else {
+                accent
+            };
+            assert_eq!(
+                from_core, expected,
+                "theme_accent must match the theme's own adaptation for {accent:?}"
+            );
+            assert_eq!(
+                mara_core::style::selection_stroke().color,
+                from_core,
+                "the selection outline is the adapted accent"
+            );
+        }
+    }
+}

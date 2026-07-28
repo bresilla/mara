@@ -345,7 +345,6 @@ pub trait NodeViewer<T> {
         background: Option<&BackgroundPattern>,
         viewport: &Rect,
         graph_style: &GraphStyle,
-        style: &Style,
         painter: &Painter,
         graph: &Graph<T>,
     ) {
@@ -356,7 +355,7 @@ pub trait NodeViewer<T> {
             // (WS-D1.3); the surrounding renderer is not yet, so the
             // stroke resolves and the painter wraps here, at the seam
             // that shrinks as the rest of the port lands.
-            let stroke = graph_style.get_bg_pattern_stroke(style);
+            let stroke = graph_style.get_bg_pattern_stroke();
             background.draw(
                 &(*viewport).into(),
                 mara_core::vocab::Stroke::new(

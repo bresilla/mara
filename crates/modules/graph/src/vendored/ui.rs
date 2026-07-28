@@ -4,7 +4,7 @@ use std::{collections::HashMap, hash::Hash};
 
 use egui::{
     Align, CornerRadius, Id, LayerId, Layout, Margin, Modifiers, PointerButton, Scene, Sense,
-    StrokeKind, Style, Ui, UiBuilder, UiKind, UiStackInfo,
+    StrokeKind, Ui, UiBuilder, UiKind, UiStackInfo,
     collapsing_header::paint_default_icon,
     emath::{GuiRounding, TSTransform},
     response::Flags,
@@ -737,9 +737,20 @@ impl GraphStyle {
             .unwrap_or_else(|| frame_for(FrameRole::Canvas, accent))
     }
 
-    fn get_bg_pattern_stroke(&self, style: &Style) -> Stroke {
-        self.bg_pattern_stroke
-            .unwrap_or_else(|| style.visuals.widgets.noninteractive.bg_stroke.into())
+    /// Stroke for the canvas background pattern.
+    ///
+    /// The backend's `widgets.noninteractive.bg_stroke` is
+    /// `(theme().stroke.border_width, widget_border(accent))`; this
+    /// reads those two directly (PLAN.md WS-D1.3). Mara's own graph
+    /// style sets `bg_pattern_stroke` explicitly, so this branch is only
+    /// reached by standalone use of the vendored crate.
+    fn get_bg_pattern_stroke(&self) -> Stroke {
+        self.bg_pattern_stroke.unwrap_or_else(|| {
+            Stroke::new(
+                mara_core::style::theme().stroke.border_width,
+                mara_core::style::widget_border(mara_core::style::theme_accent()),
+            )
+        })
     }
 
     fn get_min_scale(&self) -> f32 {
@@ -769,36 +780,38 @@ impl GraphStyle {
         self.centering.unwrap_or(true)
     }
 
-    fn get_select_stroke(&self, style: &Style) -> Stroke {
+    /// Outline of the selection marquee.
+    ///
+    /// Reads `mara_core::style::selection_stroke` rather than the
+    /// backend's `visuals.selection` (PLAN.md WS-D1.3); the theme
+    /// installs one from the other, so this is the same colour taken at
+    /// its source. The half-alpha keeps the original appearance.
+    fn get_select_stroke(&self) -> Stroke {
         self.select_stoke.unwrap_or_else(|| {
-            Stroke::new(
-                style.visuals.selection.stroke.width,
-                style
-                    .visuals
-                    .selection
-                    .stroke
-                    .color
-                    .gamma_multiply(0.5)
-                    .into(),
-            )
+            let s = mara_core::style::selection_stroke();
+            Stroke::new(s.width, s.color.gamma_multiply(0.5))
         })
     }
 
-    fn get_select_fill(&self, style: &Style) -> Color32 {
+    /// Fill of the selection marquee. See
+    /// [`GraphStyle::get_select_stroke`].
+    fn get_select_fill(&self) -> Color32 {
         self.select_fill
-            .unwrap_or_else(|| style.visuals.selection.bg_fill.gamma_multiply(0.3).into())
+            .unwrap_or_else(|| mara_core::style::selection_fill().gamma_multiply(0.3))
     }
 
     fn get_select_rect_contained(&self) -> bool {
         self.select_rect_contained.unwrap_or(false)
     }
 
-    fn get_select_style(&self, style: &Style) -> SelectionStyle {
+    fn get_select_style(&self) -> SelectionStyle {
         self.select_style.unwrap_or_else(|| SelectionStyle {
-            margin: style.spacing.window_margin,
-            rounding: style.visuals.window_corner_radius,
-            fill: self.get_select_fill(style),
-            stroke: self.get_select_stroke(style),
+            // `window_margin` is `Margin::ZERO` in Mara's theme, and the
+            // corner radius is the shape theme's window role.
+            margin: Margin::ZERO,
+            rounding: mara_core::style::radius_for(mara_core::style::RadiusRole::Popup).into(),
+            fill: self.get_select_fill(),
+            stroke: self.get_select_stroke(),
         })
     }
 
@@ -1116,7 +1129,6 @@ where
         style.bg_pattern.as_ref(),
         &viewport.into(),
         &style,
-        ui.style(),
         ui.painter(),
         graph,
     );
@@ -1358,8 +1370,8 @@ where
         ui.painter().rect(
             select_rect,
             0.0,
-            style.get_select_fill(ui.style()),
-            style.get_select_stroke(ui.style()),
+            style.get_select_fill(),
+            style.get_select_stroke(),
             StrokeKind::Inside,
         );
     }
@@ -2037,7 +2049,7 @@ where
     );
 
     if graph_state.selected_nodes().contains(&node) {
-        let select_style = style.get_select_style(ui.style());
+        let select_style = style.get_select_style();
 
         let select_rect = node_frame_rect + select_style.margin;
 

@@ -272,8 +272,11 @@ pub fn __internal_apply_theme_to(
     // the accent is applied. `Linear` blends the coverage straight, so
     // the AA edge is a single 1-px transition between text and bg.
     visuals.text_options.alpha_from_coverage = egui::epaint::AlphaFromCoverage::Linear;
-    visuals.selection.bg_fill = tinted_surface(accent_col.into()).into();
-    visuals.selection.stroke = egui::Stroke::new(stroke_w.max(1.0), accent_col);
+    // From `mara_core::style` rather than computed here, so a surface
+    // drawing its own selection reads the same values instead of
+    // recovering them from `egui::Style` (PLAN.md WS-D1.3).
+    visuals.selection.bg_fill = mara_core::style::selection_fill().into();
+    visuals.selection.stroke = mara_core::style::selection_stroke().into();
     visuals.hyperlink_color = accent_col;
 
     let r = egui::CornerRadius::same(th.shape.radius_widget);

@@ -2243,6 +2243,36 @@ pub fn touch_density() -> bool {
     ((flags >> 8) & 0x1) != 0
 }
 
+/// Fill behind selected content.
+///
+/// The backend installs this into its own selection visuals, and
+/// surfaces that draw their own selection — a node graph's marquee, for
+/// one — read it from here rather than back out of the backend's style.
+/// Same reasoning as [`interact_row_h`].
+#[must_use]
+pub fn selection_fill() -> MaraColor32 {
+    tinted_surface(theme_accent())
+}
+
+/// Outline around selected content.
+#[must_use]
+pub fn selection_stroke() -> MaraStroke {
+    MaraStroke::new(theme().stroke.border_width.max(1.0), theme_accent())
+}
+
+/// The accent after mode adaptation — what the theme actually paints
+/// with, as opposed to the raw accent the app supplied.
+#[must_use]
+pub fn theme_accent() -> MaraColor32 {
+    let th = theme();
+    let raw = raw_accent();
+    if th.pastel_accent {
+        adapt_accent_to_mode(raw, th.is_light)
+    } else {
+        raw
+    }
+}
+
 /// Height of an interactive row, in points.
 ///
 /// Larger at touch density, where a finger needs a bigger target than a
