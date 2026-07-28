@@ -7,15 +7,13 @@
 //! paint the resolved items.
 
 use crate::{
-    WorkspaceCtx,
     ribbon::{
-        __internal_draw_slot_ribbons_egui, ResolvedSlotRibbon, RibbonAction, RibbonActionError,
-        RibbonActionResult, RibbonOverrideLayer, RibbonScope, RibbonSlotDef, RibbonSlotItem,
-        dispatch_ribbon_action, resolve_slot_items, restore_workspace_slot_override,
-        slot::validate_ribbon_slot_def,
+        ResolvedSlotRibbon, RibbonAction, RibbonActionError, RibbonActionResult,
+        RibbonOverrideLayer, RibbonScope, RibbonSlotDef, RibbonSlotItem, dispatch_ribbon_action,
+        resolve_slot_items, restore_workspace_slot_override, slot::validate_ribbon_slot_def,
     },
-    view::{ViewCtx, ViewRouter, ViewRouterError},
-    vocab::{Color32, Id as MaraId},
+    view::{ViewRouter, ViewRouterError},
+    vocab::Id as MaraId,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -421,66 +419,4 @@ pub fn dispatch_app_shell_action(
     action: RibbonAction,
 ) -> Result<RibbonActionResult, AppShellError> {
     Ok(dispatch_ribbon_action(action, router)?)
-}
-
-/// Resolve, paint, dispatch, and render either the active L0 view or
-/// the active L1+ module workspace through a host-supplied renderer.
-///
-/// The app shell does not own module instances, so the host maps
-/// `WorkspaceCtx::level.owner` / module ids to the concrete active
-/// module and calls its `workspace`/body renderer inside
-/// `render_workspace`. Any ribbons or override layers added to the
-/// [`WorkspaceCtx`] are then folded into the slot-resolution pass
-/// before painting permanent/view/workspace chrome.
-/// Internal egui render hook for shell chrome plus host-supplied
-/// workspace rendering.
-#[doc(hidden)]
-pub fn __internal_show_app_shell_with_workspace_renderer_egui<F>(
-    egui_ctx: &egui::Context,
-    router: &mut ViewRouter,
-    permanent_ribbons: &[RibbonSlotDef],
-    accent: impl Into<Color32>,
-    render_workspace: F,
-) -> Result<(AppShellResolution, Vec<RibbonActionResult>), AppShellError>
-where
-    F: FnOnce(&egui::Context, &mut WorkspaceCtx<'_>),
-{
-    let accent = accent.into();
-    let depth = router.active_workspace()?.depth();
-    let mut workspace_ribbons = Vec::new();
-    let mut workspace_layers = Vec::new();
-
-    if depth > 0 {
-        let entry = router.active_entry_mut()?;
-        let mut workspace_ctx = WorkspaceCtx::new(&mut entry.workspace, accent);
-        render_workspace(egui_ctx, &mut workspace_ctx);
-        workspace_ribbons.extend_from_slice(workspace_ctx.ribbons());
-        workspace_layers.extend_from_slice(workspace_ctx.ribbon_overrides());
-    }
-
-    let resolved = resolve_app_shell_ribbons_with_workspace_chrome(
-        router,
-        permanent_ribbons,
-        &workspace_ribbons,
-        &workspace_layers,
-    )?;
-    let clicks = __internal_draw_slot_ribbons_egui(
-        &crate::backend::egui::EguiCtx::new(egui_ctx),
-        accent,
-        &resolved.as_slot_ribbons(),
-    );
-    let mut results = Vec::with_capacity(clicks.len());
-    for click in clicks {
-        results.push(dispatch_app_shell_action(router, click.action)?);
-    }
-
-    if depth == 0 {
-        let entry = router.active_entry_mut()?;
-        let content_avoidance = entry.view.content_avoidance();
-        let mut ctx =
-            ViewCtx::__internal_new(egui_ctx, &mut entry.workspace, accent, content_avoidance);
-        entry.view.show(&mut ctx);
-    }
-
-    Ok((resolved, results))
 }
