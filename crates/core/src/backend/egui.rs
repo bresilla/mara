@@ -473,6 +473,29 @@ impl UiBackend for EguiUiBackend<'_> {
         crate::widget::dropdown::dropdown(self.ui, id_salt, selected, options, accent)
     }
 
+    fn text_edit_at(
+        &mut self,
+        text: &mut String,
+        spec: TextEditSpec,
+        focus_when_unfocused: bool,
+    ) -> MaraResponse {
+        show_text_edit_with_focus_policy(self.ui, text, spec, focus_when_unfocused)
+    }
+
+    fn frame_host(
+        &mut self,
+        spec: FrameHostSpec,
+        body: &mut dyn FnMut(&mut dyn crate::layout::UiBackend),
+    ) -> vocab::Rect {
+        show_frame_for_spec(self.ui, spec, |ui| {
+            let mut inner = EguiUiBackend::new(ui);
+            body(&mut inner);
+        })
+        .response
+        .rect
+        .into()
+    }
+
     fn context_menu(
         &mut self,
         response: &MaraResponse,
@@ -653,15 +676,6 @@ pub(crate) fn egui_pointer_button(button: vocab::PointerButton) -> egui::Pointer
 
 pub(crate) fn consume_key(ctx: &egui::Context, key: MaraKey) -> bool {
     ctx.input_mut(|input| input.consume_key(egui::Modifiers::NONE, egui_key(key)))
-}
-
-pub(crate) fn consume_keys<const N: usize>(
-    ctx: &egui::Context,
-    keys: [MaraKey; N],
-) -> Vec<MaraKey> {
-    keys.into_iter()
-        .filter(|key| consume_key(ctx, *key))
-        .collect()
 }
 
 // ─── Layout pose probe ──────────────────────────────────────────────
@@ -1179,24 +1193,6 @@ pub(crate) fn show_frame_for_spec<R>(
             ui.set_width(spec.content_width);
             body(ui)
         })
-}
-
-pub(crate) fn show_with_deferred_paint_cmd_slots<R, C>(
-    ui: &mut egui::Ui,
-    slot_count: usize,
-    body: impl FnOnce(&mut egui::Ui) -> (R, C),
-) -> R
-where
-    C: IntoIterator<Item = PaintCmd>,
-{
-    let slots: Vec<_> = (0..slot_count)
-        .map(|_| ui.painter().add(egui::Shape::Noop))
-        .collect();
-    let (output, commands) = body(ui);
-    for (slot, cmd) in slots.into_iter().zip(commands) {
-        ui.painter().set(slot, shape_from_paint_cmd(cmd));
-    }
-    output
 }
 
 pub(crate) fn render_paint_cmd_on_z_layer(
@@ -2598,6 +2594,13 @@ impl crate::context::MaraCtx for egui::Context {
 
     fn window_rect(&self) -> vocab::Rect {
         self.viewport_rect().into()
+    }
+
+    fn consume_keys(&self, keys: &[MaraKey]) -> Vec<MaraKey> {
+        keys.iter()
+            .copied()
+            .filter(|k| consume_key(self, *k))
+            .collect()
     }
 
     fn viewport_maximized(&self) -> bool {

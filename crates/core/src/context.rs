@@ -170,6 +170,19 @@ pub trait MaraCtx {
         self.content_rect()
     }
 
+    /// Take any of `keys` that were pressed this frame, consuming them
+    /// so nothing downstream sees them.
+    ///
+    /// A modal surface — a command palette — has to swallow Escape and
+    /// the arrows before the app's own shortcuts run, which is a
+    /// frame-level claim rather than a surface-level one.
+    ///
+    /// The default consumes nothing.
+    fn consume_keys(&self, keys: &[crate::mui::MaraKey]) -> Vec<crate::mui::MaraKey> {
+        let _ = keys;
+        Vec::new()
+    }
+
     /// Whether the host window is maximized.
     ///
     /// Window chrome draws a different glyph for maximize and restore,

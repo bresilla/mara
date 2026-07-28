@@ -1107,6 +1107,37 @@ pub trait UiBackend {
         MaraResponse::__internal_synthetic(Rect::NOTHING)
     }
 
+    /// A text field placed and styled by `spec`, optionally grabbing
+    /// focus when nothing else holds it.
+    ///
+    /// Distinct from [`text_input`](UiBackend::text_input): that one
+    /// lays itself out inline, this one is positioned by the caller and
+    /// can claim focus — what a command palette needs on the frame it
+    /// opens. Default is inert.
+    fn text_edit_at(
+        &mut self,
+        text: &mut String,
+        spec: TextEditSpec,
+        focus_when_unfocused: bool,
+    ) -> MaraResponse {
+        let _ = (text, spec, focus_when_unfocused);
+        MaraResponse::__internal_synthetic(Rect::NOTHING)
+    }
+
+    /// Run `body` inside a width-constrained, margin-inset host frame,
+    /// returning the rect it occupied.
+    ///
+    /// The palette window's shape: an outer width the surface is
+    /// clamped to, a narrower content column, and margins around it.
+    /// Distinct from [`framed`](UiBackend::framed), which paints a
+    /// styled frame — this one only shapes the box.
+    ///
+    /// Required rather than defaulted: the obvious default (run `body`
+    /// inline) cannot be written here, because `Self` is unsized behind
+    /// the trait object this stays callable through.
+    fn frame_host(&mut self, spec: FrameHostSpec, body: &mut dyn FnMut(&mut dyn UiBackend))
+    -> Rect;
+
     /// A dropdown over `options`, bound to `selected`.
     ///
     /// Same reasoning as [`text_input`](UiBackend::text_input): the
@@ -1544,6 +1575,21 @@ impl<T: UiBackend + ?Sized> UiBackend for &mut T {
         accent: Color32,
     ) -> MaraResponse {
         (**self).dropdown(id_salt, selected, options, accent)
+    }
+    fn text_edit_at(
+        &mut self,
+        text: &mut String,
+        spec: TextEditSpec,
+        focus_when_unfocused: bool,
+    ) -> MaraResponse {
+        (**self).text_edit_at(text, spec, focus_when_unfocused)
+    }
+    fn frame_host(
+        &mut self,
+        spec: FrameHostSpec,
+        body: &mut dyn FnMut(&mut dyn UiBackend),
+    ) -> Rect {
+        (**self).frame_host(spec, body)
     }
     fn context_menu(
         &mut self,

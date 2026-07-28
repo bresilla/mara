@@ -21,8 +21,6 @@
 
 use std::collections::HashSet;
 
-use egui;
-
 use crate::{
     layout::{
         AreaHost, FrameHostSpec, Layer, ScrollRegion, Sense as MaraSense, SpaceSpec,
@@ -139,12 +137,12 @@ struct PaletteFrameColors {
 /// instead of passing raw backend context handles around.
 #[doc(hidden)]
 pub fn __internal_command_palette_egui(
-    ctx: &egui::Context,
+    ctx: &dyn crate::context::MaraCtx,
     state: &mut CommandPaletteState,
     items: &[PaletteItem],
     accent: impl Into<MaraColor32>,
 ) -> Option<&'static str> {
-    crate::enforce::__internal_enforce_defaults(ctx);
+    ctx.enforce_defaults();
     let accent = accent.into();
     validate_palette_items(items);
     if !state.open {
@@ -168,11 +166,8 @@ pub fn __internal_command_palette_egui(
     // Keyboard input — Up / Down / Enter / Escape. Consumed
     // before the palette body draws so the text field doesn't
     // swallow them.
-    if apply_palette_consumed_keys(
-        state,
-        filtered.len(),
-        crate::backend::egui::consume_keys(ctx, PALETTE_NAV_KEYS),
-    ) == PaletteKeyOutcome::PickSelected
+    if apply_palette_consumed_keys(state, filtered.len(), ctx.consume_keys(&PALETTE_NAV_KEYS))
+        == PaletteKeyOutcome::PickSelected
     {
         picked = Some(filtered[state.selected].id);
     }
@@ -182,11 +177,10 @@ pub fn __internal_command_palette_egui(
     // `Order::Foreground` places it above panes, below the
     // palette itself (which we paint at `Tooltip`).
     let scrim_host = palette_scrim_area_host(screen);
-    let scrim_clicked = crate::backend::egui::show_area_for_host(ctx, scrim_host, |ui| {
-        paint_palette_scrim(ui, screen.size())
-    })
-    .inner
-    .clicked();
+    let mut scrim_clicked = false;
+    ctx.area(scrim_host, &mut |mara| {
+        scrim_clicked = paint_palette_scrim(mara, screen.size()).clicked();
+    });
     if scrim_clicked {
         state.open = false;
     }
@@ -207,12 +201,16 @@ pub fn __internal_command_palette_egui(
     let items_sig = items_fingerprint(items);
     let layout = palette_frame_layout(screen);
     let window_host = palette_window_area_host(items_sig, layout);
-    crate::backend::egui::show_area_for_host(ctx, window_host, |ui| {
+    ctx.area(window_host, &mut |mara| {
         let frame_colors = palette_frame_colors(accent);
         let frame_stroke_width = crate::style::theme().border_width;
         let frame_spec = palette_frame_host_spec(layout);
-        let frame_inner = crate::backend::egui::show_with_deferred_paint_cmd_slots(ui, 3, |ui| {
-            let frame_inner = crate::backend::egui::show_frame_for_spec(ui, frame_spec, |ui| {
+        // The frame chrome paints UNDER the content laid out inside it,
+        // so its slots are reserved first and filled once the frame's
+        // rect is known.
+        let chrome_slots: Vec<_> = (0..3).map(|_| mara.reserve_paint_slot()).collect();
+        let frame_rect = {
+            let frame_rect = mara.frame_host(frame_spec, &mut |mara| {
                 // Search input — themes that filled the section
                 // title strip with accent (GAME) get the same
                 // treatment here: full accent background, contrast
@@ -220,7 +218,7 @@ pub fn __internal_command_palette_egui(
                 // back to the original raised glass fill.
                 let search_colors = palette_search_colors(accent);
                 let text_region = paint_palette_search_chrome(
-                    ui,
+                    mara,
                     search_colors.fill,
                     widget_border(accent),
                     24.0,
@@ -230,15 +228,10 @@ pub fn __internal_command_palette_egui(
                     search_colors.text,
                     search_colors.hint,
                 );
-                let edit_response = crate::backend::egui::show_text_edit_with_focus_policy(
-                    ui,
-                    &mut state.query,
-                    text_spec,
-                    true,
-                );
+                let edit_response = mara.text_edit_at(&mut state.query, text_spec, true);
                 apply_palette_text_edit(state, edit_response.changed());
 
-                crate::backend::egui::add_space_for_spec(ui, palette_input_results_gap_spec());
+                mara.add_space(palette_input_results_gap_spec());
 
                 // Dashed separator between the input and the result
                 // list — matches the row-separator language used
@@ -251,22 +244,22 @@ pub fn __internal_command_palette_egui(
                     // the previous `.max(60)` alpha floor and the
                     // raw `border_subtle` lookup; both were the
                     // pre-unification fallback path.
-                    paint_palette_dash_separator(ui, separator);
-                    crate::backend::egui::add_space_for_spec(ui, palette_input_results_gap_spec());
+                    paint_palette_dash_separator(mara, separator);
+                    mara.add_space(palette_input_results_gap_spec());
                 }
 
                 // Results list.
                 let results_region = palette_results_region(items_sig, layout);
-                crate::backend::egui::show_vertical_scroll_region(ui, results_region, |ui| {
+                mara.scroll_region(results_region, &mut |mara| {
                     if filtered.is_empty() {
-                        paint_no_matches_row(ui);
+                        paint_no_matches_row(mara);
                     }
                     // Use kit-shared `outline_base` so the
                     // inter-item rule matches every other row
                     // separator across the kit.
                     let row_separator = palette_separator_spec();
                     for (i, it) in filtered.iter().enumerate() {
-                        if paint_row(ui, it, i == state.selected, accent).clicked() {
+                        if paint_row(mara, it, i == state.selected, accent).clicked() {
                             picked = Some(it.id);
                         }
                         // Dashed inter-item rule — only in themes
@@ -276,19 +269,24 @@ pub fn __internal_command_palette_egui(
                         if let Some(separator) =
                             palette_inter_row_separator_spec(row_separator, i, filtered.len())
                         {
-                            paint_palette_dash_separator(ui, separator);
+                            paint_palette_dash_separator(mara, separator);
                         }
                     }
                 });
             });
-            let frame_cmds = palette_frame_chrome_paint_cmds(
-                frame_inner.response.rect.into(),
+            frame_rect
+        };
+        for (slot, cmd) in chrome_slots
+            .into_iter()
+            .zip(palette_frame_chrome_paint_cmds(
+                frame_rect,
                 frame_spec.corner,
                 frame_colors.fill,
                 Stroke::new(frame_stroke_width, frame_colors.stroke),
-            );
-            (frame_inner, frame_cmds)
-        });
+            ))
+        {
+            mara.fill_paint_slot(slot, Some(cmd));
+        }
 
         // L-bracket corner ticks at the palette's four corners,
         // matching the section-header language. Theme-gated via
@@ -296,10 +294,10 @@ pub fn __internal_command_palette_egui(
         // is a no-op there.
         let tick_len = crate::style::theme().section_corner_ticks;
         let inset = crate::style::theme().section_corner_ticks_inset;
-        let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
+        let mut backend = mara.backend_mut();
         palette_corner_ticks_backend(
             &mut backend,
-            frame_inner.response.rect.into(),
+            frame_rect,
             tick_len,
             inset,
             MaraColor32::from_rgba_unmultiplied(accent.r(), accent.g(), accent.b(), 220),
@@ -547,22 +545,22 @@ fn palette_frame_chrome_paint_cmds(
 /// right. Selected row gets an accent-tinted fill so keyboard
 /// navigation is visible.
 fn paint_row(
-    ui: &mut egui::Ui,
+    mara: &mut crate::MaraUi<'_>,
     item: &PaletteItem,
     selected: bool,
     accent: MaraColor32,
 ) -> MaraResponse {
-    let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
+    let mut backend = mara.backend_mut();
     palette_row_backend(&mut backend, item, selected, accent)
 }
 
-fn paint_no_matches_row(ui: &mut egui::Ui) -> MaraResponse {
-    let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
+fn paint_no_matches_row(mara: &mut crate::MaraUi<'_>) -> MaraResponse {
+    let mut backend = mara.backend_mut();
     palette_no_matches_backend(&mut backend)
 }
 
-fn paint_palette_scrim(ui: &mut egui::Ui, size: Vec2) -> MaraResponse {
-    let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
+fn paint_palette_scrim(mara: &mut crate::MaraUi<'_>, size: Vec2) -> MaraResponse {
+    let mut backend = mara.backend_mut();
     palette_scrim_backend(&mut backend, size)
 }
 
@@ -574,12 +572,12 @@ fn palette_scrim_backend(backend: &mut impl UiBackend, size: Vec2) -> MaraRespon
 }
 
 fn paint_palette_search_chrome(
-    ui: &mut egui::Ui,
+    mara: &mut crate::MaraUi<'_>,
     fill: MaraColor32,
     border: MaraColor32,
     height: f32,
 ) -> TextEditRegion {
-    let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
+    let mut backend = mara.backend_mut();
     palette_search_chrome_backend(&mut backend, fill, border, height)
 }
 
@@ -735,8 +733,11 @@ fn palette_corner_ticks_backend(
     line(Pos2::new(rx, by - tick_len), Pos2::new(rx, by));
 }
 
-fn paint_palette_dash_separator(ui: &mut egui::Ui, spec: PaletteSeparatorSpec) -> MaraResponse {
-    let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
+fn paint_palette_dash_separator(
+    mara: &mut crate::MaraUi<'_>,
+    spec: PaletteSeparatorSpec,
+) -> MaraResponse {
+    let mut backend = mara.backend_mut();
     palette_dash_separator_backend(&mut backend, spec)
 }
 

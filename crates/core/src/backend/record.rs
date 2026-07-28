@@ -399,6 +399,17 @@ impl UiBackend for RecordingBackend {
         self
     }
 
+    /// Headless: the host frame is the surface itself, so `body` lays
+    /// out in place and the rect used is what it advanced through.
+    fn frame_host(
+        &mut self,
+        _spec: crate::layout::FrameHostSpec,
+        body: &mut dyn FnMut(&mut dyn UiBackend),
+    ) -> Rect {
+        body(self);
+        self.min_rect()
+    }
+
     /// Headless: the pane body slot is the surface itself — nothing
     /// scrolls, so content lays out in place.
     fn pane_body_slot(

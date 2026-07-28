@@ -1298,6 +1298,27 @@ impl crate::layout::UiBackend for MaraBackend<'_> {
             Self::Recording(b) => b.dropdown(id_salt, selected, options, accent),
         }
     }
+    fn text_edit_at(
+        &mut self,
+        text: &mut String,
+        spec: crate::layout::TextEditSpec,
+        focus_when_unfocused: bool,
+    ) -> MaraResponse {
+        match self {
+            Self::Egui(b) => b.text_edit_at(text, spec, focus_when_unfocused),
+            Self::Recording(b) => b.text_edit_at(text, spec, focus_when_unfocused),
+        }
+    }
+    fn frame_host(
+        &mut self,
+        spec: crate::layout::FrameHostSpec,
+        body: &mut dyn FnMut(&mut dyn UiBackend),
+    ) -> vocab::Rect {
+        match self {
+            Self::Egui(b) => b.frame_host(spec, body),
+            Self::Recording(b) => b.frame_host(spec, body),
+        }
+    }
     fn context_menu(
         &mut self,
         response: &MaraResponse,
@@ -1704,6 +1725,30 @@ impl<'a> MaraUi<'a> {
         self.backend.in_id_scope(salt.into(), &mut |backend| {
             body(&mut MaraUi::over(backend, accent))
         });
+    }
+
+    /// A text field placed by `spec`, optionally claiming focus when
+    /// nothing else holds it.
+    pub fn text_edit_at(
+        &mut self,
+        text: &mut String,
+        spec: crate::layout::TextEditSpec,
+        focus_when_unfocused: bool,
+    ) -> MaraResponse {
+        self.backend.text_edit_at(text, spec, focus_when_unfocused)
+    }
+
+    /// Run `body` inside a width-constrained host frame, returning the
+    /// rect it occupied.
+    pub fn frame_host(
+        &mut self,
+        spec: crate::layout::FrameHostSpec,
+        body: &mut dyn FnMut(&mut MaraUi<'_>),
+    ) -> vocab::Rect {
+        let accent = self.accent;
+        self.backend.frame_host(spec, &mut |backend| {
+            body(&mut MaraUi::over(backend, accent))
+        })
     }
 
     /// Run `body` inside a scrollable region.
