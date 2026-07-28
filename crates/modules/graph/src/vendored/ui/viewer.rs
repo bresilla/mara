@@ -363,7 +363,7 @@ pub trait NodeViewer<T> {
                     stroke.width,
                     mara_core::vocab::Color32::from(stroke.color),
                 ),
-                &mara_core::MaraPainter::__internal_from_egui(painter.clone()),
+                &mara_core::backend::egui::__internal_painter_from_egui(painter.clone()),
             );
         }
     }

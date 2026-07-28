@@ -423,9 +423,6 @@ pub fn dispatch_app_shell_action(
     Ok(dispatch_ribbon_action(action, router)?)
 }
 
-
-
-
 /// Resolve, paint, dispatch, and render either the active L0 view or
 /// the active L1+ module workspace through a host-supplied renderer.
 ///

@@ -1039,7 +1039,7 @@ where
 
     if style.get_crisp_magnified_text() {
         style.scale(max_scale);
-        let mut raw = mara_core::MaraUi::__internal_backend_from_raw(&mut ui);
+        let mut raw = mara_core::backend::egui::__internal_backend_from_raw(&mut ui);
         mara_core::MaraUi::__internal_over(&mut raw, mara_core::vocab::Color32::WHITE)
             .scale_style(max_scale);
 
@@ -1621,7 +1621,7 @@ where
             // Show input content
             let node_pin = {
                 let accent = mara_core::style::active_accent();
-                let mut raw = mara_core::MaraUi::__internal_backend_from_raw(pin_ui);
+                let mut raw = mara_core::backend::egui::__internal_backend_from_raw(pin_ui);
                 let mut mui = mara_core::MaraUi::__internal_over(&mut raw, accent);
                 viewer.show_input(in_pin, &mut mui, graph)
             };
@@ -1697,7 +1697,7 @@ where
                 style,
                 pin_ui.style(),
                 visual_pin_rect.into(),
-                &mara_core::MaraPainter::__internal_from_egui(pin_ui.painter().clone()),
+                &mara_core::backend::egui::__internal_painter_from_egui(pin_ui.painter().clone()),
             );
 
             input_positions.insert(
@@ -1796,7 +1796,7 @@ where
             // Show output content
             let node_pin = {
                 let accent = mara_core::style::active_accent();
-                let mut raw = mara_core::MaraUi::__internal_backend_from_raw(pin_ui);
+                let mut raw = mara_core::backend::egui::__internal_backend_from_raw(pin_ui);
                 let mut mui = mara_core::MaraUi::__internal_over(&mut raw, accent);
                 viewer.show_output(out_pin, &mut mui, graph)
             };
@@ -1872,7 +1872,7 @@ where
                 style,
                 pin_ui.style(),
                 visual_pin_rect.into(),
-                &mara_core::MaraPainter::__internal_from_egui(pin_ui.painter().clone()),
+                &mara_core::backend::egui::__internal_painter_from_egui(pin_ui.painter().clone()),
             );
 
             output_positions.insert(
@@ -2872,7 +2872,7 @@ const fn graph_style_is_send_sync() {
 /// separable; the helper disappears when the render path ports.
 fn with_mara_ui<R>(ui: &mut Ui, body: impl for<'a> FnOnce(&mut mara_core::MaraUi<'a>) -> R) -> R {
     let accent = mara_core::style::active_accent();
-    let mut raw = mara_core::MaraUi::__internal_backend_from_raw(ui);
+    let mut raw = mara_core::backend::egui::__internal_backend_from_raw(ui);
     let mut mara = mara_core::MaraUi::__internal_over(&mut raw, accent);
     body(&mut mara)
 }

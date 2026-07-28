@@ -43,15 +43,16 @@
 
 use crate::memory::MaraMemory;
 use crate::vocab::Id;
-use egui::{Color32, FontId, Rect, Stroke, StrokeKind};
+use egui::Rect;
 
 const ENABLED_KEY: &str = "mara_debug_inspector_enabled";
 const BEST_KEY: &str = "mara_debug_inspector_best";
 
 #[derive(Clone)]
-struct Best {
-    rect: Rect,
-    label: String,
+#[doc(hidden)]
+pub struct Best {
+    pub rect: Rect,
+    pub label: String,
 }
 
 impl Default for Best {
@@ -67,7 +68,8 @@ fn enabled_id() -> Id {
     Id::new(ENABLED_KEY)
 }
 
-fn best_id() -> Id {
+#[doc(hidden)]
+pub fn best_id() -> Id {
     Id::new(BEST_KEY)
 }
 
@@ -164,61 +166,4 @@ pub fn tag_backend(
             },
         );
     }
-}
-
-/// Paint the deepest tag from this frame and clear the slot. Call
-/// once at the END of the top-level UI callback. No-op when the
-/// inspector is off, or when no tag captured the cursor this frame.
-pub fn paint(ctx: &egui::Context) {
-    let seam = crate::backend::egui::EguiCtx::new(ctx);
-    if !is_enabled(&seam) {
-        return;
-    }
-    let mut memory = crate::context::MaraCtx::memory(&seam);
-    let best: Option<Best> = memory.get_temp::<Best>(best_id());
-    memory.remove_temp::<Best>(best_id());
-    let Some(best) = best else {
-        return;
-    };
-    let p = ctx.debug_painter();
-    let outline = Color32::from_rgb(255, 80, 80);
-    p.rect_stroke(
-        best.rect,
-        0.0,
-        Stroke::new(2.0, outline),
-        StrokeKind::Inside,
-    );
-
-    // Label chip — placed OUTSIDE the highlighted rect so it
-    // doesn't cover the widget's actual content (text input,
-    // title text, etc.). Default position is just above the rect's
-    // top edge; if the rect is near the top of the viewport and
-    // there's no room above, fall through to just below the rect's
-    // bottom edge.
-    let font = FontId::monospace(11.0);
-    let galley = p.layout_no_wrap(best.label.clone(), font, Color32::WHITE);
-    let pad = egui::vec2(5.0, 2.0);
-    let chip_size = galley.size() + pad * 2.0;
-    let viewport = ctx.content_rect();
-    let above_y = best.rect.min.y - chip_size.y - 4.0;
-    let below_y = best.rect.max.y + 4.0;
-    let chip_top_y = if above_y >= viewport.min.y + 2.0 {
-        above_y
-    } else {
-        below_y
-    };
-    let chip_origin = egui::pos2(best.rect.min.x, chip_top_y);
-    let chip_rect = Rect::from_min_size(chip_origin, chip_size);
-    p.rect_filled(
-        chip_rect,
-        2.0,
-        Color32::from_rgba_unmultiplied(0, 0, 0, 220),
-    );
-    p.rect_stroke(
-        chip_rect,
-        2.0,
-        Stroke::new(1.0, outline),
-        StrokeKind::Inside,
-    );
-    p.galley(chip_origin + pad, galley, Color32::WHITE);
 }

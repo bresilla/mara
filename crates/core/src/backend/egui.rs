@@ -886,7 +886,85 @@ pub(crate) fn show_area_for_host<R>(
 /// area-registered painter keeps its registration slot (first-seen
 /// order), letting later-opened areas (panes) stack above it.
 /// Rasterising sink over the backend's painter.
-pub(crate) struct EguiSink(pub(crate) egui::Painter);
+/// A [`MaraPainter`](crate::mui::MaraPainter) over a backend painter.
+///
+/// First-party hook for incremental renderer ports, where a converted
+/// leaf draws through `MaraPainter` while its caller still holds the
+/// backend's own painter.
+#[doc(hidden)]
+#[must_use]
+pub fn __internal_painter_from_egui(painter: egui::Painter) -> crate::mui::MaraPainter {
+    crate::mui::MaraPainter::from_sink(Box::new(EguiSink(painter)))
+}
+
+/// An owned backend handle over `ui`, for host plugins that own the
+/// egui pass and lend the surface to `MaraUi::__internal_over`.
+#[doc(hidden)]
+#[must_use]
+pub fn __internal_backend_from_raw(ui: &mut egui::Ui) -> crate::mui::MaraRawBackend<'_> {
+    crate::mui::MaraRawBackend::__internal_from_boxed(Box::new(EguiUiBackend::new(ui)))
+}
+
+/// Paint the deepest tag from this frame and clear the slot. Call
+/// once at the END of the top-level UI callback. No-op when the
+/// inspector is off, or when no tag captured the cursor this frame.
+pub fn paint(ctx: &egui::Context) {
+    let seam = crate::backend::egui::EguiCtx::new(ctx);
+    if !crate::debug::is_enabled(&seam) {
+        return;
+    }
+    let mut memory = crate::context::MaraCtx::memory(&seam);
+    let best: Option<crate::debug::Best> =
+        memory.get_temp::<crate::debug::Best>(crate::debug::best_id());
+    memory.remove_temp::<crate::debug::Best>(crate::debug::best_id());
+    let Some(best) = best else {
+        return;
+    };
+    let p = ctx.debug_painter();
+    let outline = egui::Color32::from_rgb(255, 80, 80);
+    p.rect_stroke(
+        best.rect,
+        0.0,
+        egui::Stroke::new(2.0, outline),
+        egui::StrokeKind::Inside,
+    );
+
+    // Label chip — placed OUTSIDE the highlighted rect so it
+    // doesn't cover the widget's actual content (text input,
+    // title text, etc.). Default position is just above the rect's
+    // top edge; if the rect is near the top of the viewport and
+    // there's no room above, fall through to just below the rect's
+    // bottom edge.
+    let font = egui::FontId::monospace(11.0);
+    let galley = p.layout_no_wrap(best.label.clone(), font, egui::Color32::WHITE);
+    let pad = egui::vec2(5.0, 2.0);
+    let chip_size = galley.size() + pad * 2.0;
+    let viewport = ctx.content_rect();
+    let above_y = best.rect.min.y - chip_size.y - 4.0;
+    let below_y = best.rect.max.y + 4.0;
+    let chip_top_y = if above_y >= viewport.min.y + 2.0 {
+        above_y
+    } else {
+        below_y
+    };
+    let chip_origin = egui::pos2(best.rect.min.x, chip_top_y);
+    let chip_rect = egui::Rect::from_min_size(chip_origin, chip_size);
+    p.rect_filled(
+        chip_rect,
+        2.0,
+        egui::Color32::from_rgba_unmultiplied(0, 0, 0, 220),
+    );
+    p.rect_stroke(
+        chip_rect,
+        2.0,
+        egui::Stroke::new(1.0, outline),
+        egui::StrokeKind::Inside,
+    );
+    p.galley(chip_origin + pad, galley, egui::Color32::WHITE);
+}
+
+#[doc(hidden)]
+pub struct EguiSink(#[doc(hidden)] pub egui::Painter);
 
 impl crate::mui::PainterSink for EguiSink {
     fn boxed_clone(&self) -> Box<dyn crate::mui::PainterSink> {
@@ -1523,6 +1601,18 @@ fn arc_polyline(
             egui::pos2(c.x + r.x * t.cos(), c.y + r.y * t.sin())
         })
         .collect()
+}
+
+/// Internal egui adapter for first-party crates that have already
+/// lowered drawing semantics into Mara [`PaintCmd`] values but still
+/// need to render through the current egui backend.
+///
+/// This is not app-facing API; future backends should consume
+/// `PaintCmd` directly through their own renderer.
+#[cfg(feature = "backend-egui-conv")]
+#[doc(hidden)]
+pub fn __internal_render_paint_cmd_egui(painter: &egui::Painter, cmd: PaintCmd) {
+    render_paint_cmd(painter, cmd);
 }
 
 pub(crate) fn render_paint_cmd(painter: &egui::Painter, cmd: PaintCmd) {

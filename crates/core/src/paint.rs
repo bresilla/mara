@@ -201,18 +201,6 @@ impl PaintList {
     }
 }
 
-/// Internal egui adapter for first-party crates that have already
-/// lowered drawing semantics into Mara [`PaintCmd`] values but still
-/// need to render through the current egui backend.
-///
-/// This is not app-facing API; future backends should consume
-/// `PaintCmd` directly through their own renderer.
-#[cfg(feature = "backend-egui-conv")]
-#[doc(hidden)]
-pub fn __internal_render_paint_cmd_egui(painter: &egui::Painter, cmd: PaintCmd) {
-    crate::backend::egui::render_paint_cmd(painter, cmd);
-}
-
 #[cfg(feature = "backend-egui-conv")]
 #[doc(hidden)]
 pub fn __internal_render_paint_cmd_egui_ui(ui: &mut egui::Ui, cmd: PaintCmd) {

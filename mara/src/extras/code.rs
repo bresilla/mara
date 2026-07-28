@@ -96,7 +96,7 @@ pub fn mara_code_editor_with_opts(
     let accent = accent.into();
     let min_size = min_size.into();
     let accent_egui = mara_core::backend::egui::color32_for_backend(accent);
-    let mut backend = mara_core::MaraUi::__internal_backend_from_raw(ui);
+    let mut backend = mara_core::backend::egui::__internal_backend_from_raw(ui);
     let mut mara = mara_core::MaraUi::__internal_over(&mut backend, accent);
     mara_core::embed::__internal_maximizable_with_opts_egui(
         &mut mara,

@@ -23,7 +23,6 @@
 
 use std::{cell::RefCell, ops::RangeInclusive, rc::Rc};
 
-use crate::backend;
 use crate::layout::{PaintSurfaceSpec, Sense as MaraSense, SpaceSpec, UiBackend};
 use crate::paint::{PaintCmd, PaintList};
 use crate::pod::{Pod, PodResponse};
@@ -584,7 +583,8 @@ impl MaraPainter {
     ///
     /// The backend supplies the sink; `MaraPainter` never names a
     /// backend painter type.
-    pub(crate) fn from_sink(sink: Box<dyn PainterSink>) -> Self {
+    #[doc(hidden)]
+    pub fn from_sink(sink: Box<dyn PainterSink>) -> Self {
         Self { sink }
     }
 
@@ -594,12 +594,6 @@ impl MaraPainter {
     /// ported leaf draws through `MaraPainter` while its still-unported
     /// caller holds the backend's painter. Doc-hidden; the seam shrinks
     /// to nothing as the port completes.
-    #[cfg(feature = "backend-egui-conv")]
-    #[doc(hidden)]
-    #[must_use]
-    pub fn __internal_from_egui(painter: egui::Painter) -> Self {
-        Self::from_sink(Box::new(crate::backend::egui::EguiSink(painter)))
-    }
 
     /// A painter that records into an internal command list rather than
     /// an egui painter — used by non-egui backends (their painter output
@@ -950,6 +944,16 @@ impl MaraPainter {
 #[doc(hidden)]
 pub struct MaraRawBackend<'a>(pub(crate) Box<dyn UiBackend + 'a>);
 
+impl<'a> MaraRawBackend<'a> {
+    /// Wrap an owned backend. The backend crate builds one of these
+    /// from its own surface type; `mara_core` never names it.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn __internal_from_boxed(backend: Box<dyn UiBackend + 'a>) -> Self {
+        Self(backend)
+    }
+}
+
 impl MaraRawBackend<'static> {
     /// Headless-test harness: a raw backend over a fresh recording
     /// backend spanning `rect`. Lend it to [`MaraUi::__internal_over`]
@@ -1032,11 +1036,6 @@ impl<'a> MaraUi<'a> {
     /// (e.g. `bevy_mara`) create one from their `egui::Ui`, then lend
     /// it to [`MaraUi::__internal_over`]. Two steps because `MaraUi`
     /// now *borrows* its backend (ADR 0002), so the caller must own it.
-    #[doc(hidden)]
-    #[must_use]
-    pub fn __internal_backend_from_raw(ui: &'a mut egui::Ui) -> MaraRawBackend<'a> {
-        MaraRawBackend(Box::new(backend::egui::EguiUiBackend::new(ui)))
-    }
 
     /// Headless-test harness: drive the sealed surface over any
     /// backend — in practice the recording one — so a widget's

@@ -222,7 +222,7 @@ fn f3_svg_paint_command_reaches_a_rasteriser() {
     let mut resolved = false;
     for _ in 0..64 {
         let _ = ctx.run_ui(Default::default(), |ui| {
-            mara_core::paint::__internal_render_paint_cmd_egui(
+            mara_core::backend::egui::__internal_render_paint_cmd_egui(
                 ui.painter(),
                 PaintCmd::Svg {
                     svg: MARKER.to_owned(),

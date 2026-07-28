@@ -355,7 +355,7 @@ pub fn mara_node_graph_with_opts<T, V: NodeViewer<T>>(
     // target size so the secondary egui context renders at the
     // exact pixel dimensions of whichever surface owns the pane
     // this frame.
-    let mut surface = mara_core::MaraUi::__internal_backend_from_raw(ui);
+    let mut surface = mara_core::backend::egui::__internal_backend_from_raw(ui);
     let mut mara = mara_core::MaraUi::__internal_over(&mut surface, accent);
     mara_core::embed::__internal_maximizable_with_opts_egui(
         &mut mara,
