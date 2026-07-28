@@ -2273,6 +2273,21 @@ pub fn theme_accent() -> MaraColor32 {
     }
 }
 
+/// Gap between consecutive items in a flow, in points.
+///
+/// Touch-scaled like [`interact_row_h`]. Published here so a surface
+/// laying out its own rows — the node graph's ports, for one — spaces
+/// them the same as Mara's widgets, without reading the spacing back out
+/// of the backend's style.
+#[must_use]
+pub fn item_spacing() -> crate::vocab::Vec2 {
+    if touch_density() {
+        crate::vocab::Vec2::new(8.0, 8.0)
+    } else {
+        crate::vocab::Vec2::new(6.0, 3.0)
+    }
+}
+
 /// Height of an interactive row, in points.
 ///
 /// Larger at touch density, where a finger needs a bigger target than a

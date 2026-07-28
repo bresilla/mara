@@ -902,6 +902,16 @@ struct PinResponse {
     wire_style: WireStyle,
 }
 
+/// Mara's item spacing, in the vendored code's `Vec2`.
+///
+/// The graph laid out against `ui.spacing().item_spacing`, which is what
+/// `mara_core::style::item_spacing` publishes and the theme installs
+/// (PLAN.md WS-D1.3). Reading the source keeps the touch-density
+/// scaling that a constant here would drop.
+fn mara_item_spacing() -> Vec2 {
+    mara_core::style::item_spacing().into()
+}
+
 /// Widget to display [`Graph`] graph in [`Ui`].
 #[derive(Clone, Copy, Debug)]
 pub struct GraphWidget {
@@ -2212,7 +2222,7 @@ where
                 node_rect.min.y
                     + node_state.header_height()
                     + header_frame.total_margin().bottomf()
-                    + ui.spacing().item_spacing.y
+                    + mara_item_spacing().y
                     - node_state.payload_offset(openness),
             )
             .into(),
@@ -2308,7 +2318,7 @@ where
                 node_state.set_output_heights(new_output_heights);
 
                 new_pins_size = vec2(
-                    inputs_size.x + outputs_size.x + ui.spacing().item_spacing.x,
+                    inputs_size.x + outputs_size.x + mara_item_spacing().x,
                     f32::max(inputs_size.y, outputs_size.y),
                 );
 
@@ -2318,12 +2328,12 @@ where
                 if viewer.has_body(&graph.nodes.get(node.0).unwrap().value) {
                     let body_rect = Rect::from_min_max(
                         pos2(
-                            inputs_rect.right() + ui.spacing().item_spacing.x,
+                            inputs_rect.right() + mara_item_spacing().x,
                             payload_rect.top(),
                         )
                         .into(),
                         pos2(
-                            outputs_rect.left() - ui.spacing().item_spacing.x,
+                            outputs_rect.left() - mara_item_spacing().x,
                             payload_rect.bottom(),
                         )
                         .into(),
@@ -2341,7 +2351,7 @@ where
                         graph_state,
                     );
 
-                    new_pins_size.x += r.final_rect.width() + ui.spacing().item_spacing.x;
+                    new_pins_size.x += r.final_rect.width() + mara_item_spacing().x;
                     new_pins_size.y = f32::max(new_pins_size.y, r.final_rect.height());
 
                     pins_rect = pins_rect.union(body_rect);
@@ -2389,7 +2399,7 @@ where
 
                 new_pins_size = inputs_rect.size().into();
 
-                let mut next_y = inputs_rect.bottom() + ui.spacing().item_spacing.y;
+                let mut next_y = inputs_rect.bottom() + mara_item_spacing().y;
 
                 if !graph.nodes.contains(node.0) {
                     // If removed
@@ -2417,7 +2427,7 @@ where
                     let body_rect = r.final_rect;
 
                     new_pins_size.x = f32::max(new_pins_size.x, body_rect.width());
-                    new_pins_size.y += body_rect.height() + ui.spacing().item_spacing.y;
+                    new_pins_size.y += body_rect.height() + mara_item_spacing().y;
 
                     if !graph.nodes.contains(node.0) {
                         // If removed
@@ -2425,7 +2435,7 @@ where
                     }
 
                     pins_rect = pins_rect.union(body_rect);
-                    next_y = body_rect.bottom() + ui.spacing().item_spacing.y;
+                    next_y = body_rect.bottom() + mara_item_spacing().y;
                 }
 
                 // Show output pins.
@@ -2471,7 +2481,7 @@ where
                 node_state.set_output_heights(new_output_heights);
 
                 new_pins_size.x = f32::max(new_pins_size.x, outputs_rect.width());
-                new_pins_size.y += outputs_rect.height() + ui.spacing().item_spacing.y;
+                new_pins_size.y += outputs_rect.height() + mara_item_spacing().y;
 
                 pins_rect = pins_rect.union(outputs_rect);
 
@@ -2513,7 +2523,7 @@ where
 
                 new_pins_size = outputs_rect.size().into();
 
-                let mut next_y = outputs_rect.bottom() + ui.spacing().item_spacing.y;
+                let mut next_y = outputs_rect.bottom() + mara_item_spacing().y;
 
                 if !graph.nodes.contains(node.0) {
                     // If removed
@@ -2541,7 +2551,7 @@ where
                     let body_rect = r.final_rect;
 
                     new_pins_size.x = f32::max(new_pins_size.x, body_rect.width());
-                    new_pins_size.y += body_rect.height() + ui.spacing().item_spacing.y;
+                    new_pins_size.y += body_rect.height() + mara_item_spacing().y;
 
                     if !graph.nodes.contains(node.0) {
                         // If removed
@@ -2549,7 +2559,7 @@ where
                     }
 
                     pins_rect = pins_rect.union(body_rect);
-                    next_y = body_rect.bottom() + ui.spacing().item_spacing.y;
+                    next_y = body_rect.bottom() + mara_item_spacing().y;
                 }
 
                 // Show output pins.
@@ -2595,7 +2605,7 @@ where
                 node_state.set_output_heights(new_output_heights);
 
                 new_pins_size.x = f32::max(new_pins_size.x, inputs_rect.width());
-                new_pins_size.y += inputs_rect.height() + ui.spacing().item_spacing.y;
+                new_pins_size.y += inputs_rect.height() + mara_item_spacing().y;
 
                 pins_rect = pins_rect.union(inputs_rect);
 
@@ -2607,7 +2617,7 @@ where
             let footer_rect = Rect::from_min_max(
                 pos2(
                     node_rect.left(),
-                    pins_rect.bottom() + ui.spacing().item_spacing.y,
+                    pins_rect.bottom() + mara_item_spacing().y,
                 )
                 .into(),
                 pos2(node_rect.right(), node_rect.bottom()).into(),
@@ -2632,7 +2642,7 @@ where
             let footer_size = final_rect.size();
 
             new_pins_size.x = f32::max(new_pins_size.x, footer_size.x);
-            new_pins_size.y += footer_size.y + ui.spacing().item_spacing.y;
+            new_pins_size.y += footer_size.y + mara_item_spacing().y;
 
             if !graph.nodes.contains(node.0) {
                 // If removed
@@ -2676,8 +2686,8 @@ where
                     if style.get_collapsible() {
                         let (_, r) = ui.allocate_exact_size(
                             egui::Vec2::from(vec2(
-                                ui.spacing().icon_width,
-                                ui.spacing().icon_width,
+                                mara_core::style::icon_width(),
+                                mara_core::style::icon_width(),
                             )),
                             Sense::click(),
                         );
@@ -2719,7 +2729,7 @@ where
             f32::max(header_size.x, new_pins_size.x),
             header_size.y
                 + header_frame.total_margin().bottomf()
-                + ui.spacing().item_spacing.y
+                + mara_item_spacing().y
                 + new_pins_size.y,
         )));
     });
