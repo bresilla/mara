@@ -401,22 +401,18 @@ impl View3d {
         }
     }
 
-    /// Enable GPU triangle fill for hosts backed by `egui-wgpu`.
+    /// Enable GPU triangle fill when the host already knows the egui-wgpu
+    /// output format.
     ///
     /// This only switches the filled mesh triangles to the GPU preview
     /// painter. Grid, dots, gizmo, camera math, and Mara's technical
     /// shading remain the same as the CPU preview path.
-    #[cfg(feature = "gpu-preview")]
-    #[doc(hidden)]
-    pub fn __internal_set_gpu_render_state(
-        &mut self,
-        render_state: Option<&egui_wgpu::RenderState>,
-    ) {
-        self.gpu_target_format = render_state.map(|state| state.target_format);
-    }
-
-    /// Enable GPU triangle fill when the host already knows the egui-wgpu
-    /// output format.
+    ///
+    /// The `__internal_set_gpu_render_state` sibling that took a raw
+    /// `&egui_wgpu::RenderState` is gone (PLAN.md WS-C2.6): it had no
+    /// callers anywhere, and the format it extracted is the one thing
+    /// this needs. The view also reads the format straight from the
+    /// context each frame, which is how the demo actually drives it.
     #[cfg(feature = "gpu-preview")]
     pub const fn set_gpu_target_format(&mut self, format: Option<wgpu::TextureFormat>) {
         self.gpu_target_format = format;
