@@ -34,7 +34,8 @@ pub mod cache;
 pub mod command_palette;
 pub mod container;
 pub mod context;
-pub(crate) mod debug;
+#[doc(hidden)]
+pub mod debug;
 pub mod embed;
 pub mod enforce;
 pub mod focus;
@@ -50,7 +51,6 @@ pub mod pod;
 pub mod popup;
 pub mod probe;
 pub mod ribbon;
-pub(crate) mod scroll;
 pub mod scroll_state;
 pub mod shelf;
 pub mod shell;

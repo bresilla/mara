@@ -25,9 +25,6 @@
 //! * `998` — INSPECTOR overlay (F10 debug paint).
 //! * `999..=1000` — RESERVED for future top-of-stack overlays.
 
-use std::hash::Hash;
-
-use egui::{Id, LayerId, Order};
 
 /// Pre-defined tiers used by the pane / container / chrome stack.
 /// Callers can pass any `u16` directly; these are just the
@@ -72,22 +69,3 @@ pub mod z {
     pub const WINDOW_CHROME: u16 = 1000;
 }
 
-/// Map a tier number to its egui [`Order`] tier. Tier `0` reads
-/// as 1; tiers above 1000 clamp to 1000 (Debug).
-#[inline]
-pub(crate) fn order_for(tier: u16) -> Order {
-    match tier {
-        0..=40 => Order::Middle,
-        41..=70 => Order::Foreground,
-        71..=95 => Order::Tooltip,
-        _ => Order::Debug,
-    }
-}
-
-/// Build a [`LayerId`] for the given tier, salted with `salt`. The
-/// tier number is folded into the id so two callers at different
-/// tiers always resolve to distinct sublayers even if they share
-/// `salt`.
-pub(crate) fn layer_id(salt: impl Hash, tier: u16) -> LayerId {
-    LayerId::new(order_for(tier), Id::new(("mara_z", tier, salt)))
-}

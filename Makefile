@@ -278,7 +278,7 @@ check:
 	@! grep -RInE '^pub fn (publish_shelf_layout|shelf_layout|shelf_layout_published_this_pass)[(][^#]*egui::Context' crates/core/src/shelf/mod.rs
 	@! grep -RInE 'pub use .*(publish_shelf_layout|shelf_layout|shelf_layout_published_this_pass)|mara_core::(publish_shelf_layout|shelf_layout|shelf_layout_published_this_pass)' crates/core/src/lib.rs example/src mara/plugin/bevy/src
 	@! grep -RInE 'use egui::Color32|build_ribbon[(]&self,[[:space:]]*_accent' crates/core/src/shell.rs
-	@! grep -RInE 'accent:[[:space:]]*egui::Color32|fill:[[:space:]]*egui::Color32|Option<egui::Color32>' crates/core/src/widget/button.rs crates/core/src/widget/chip.rs crates/core/src/widget/badge.rs crates/core/src/widget/progressbar.rs crates/core/src/widget/toggle.rs crates/core/src/widget/slider.rs crates/core/src/widget/dropdown.rs crates/core/src/widget/text_input/mod.rs crates/core/src/widget/select.rs crates/core/src/widget/color.rs crates/core/src/widget/foldable.rs crates/core/src/widget/context_menu.rs
+	@! grep -RInE 'accent:[[:space:]]*egui::Color32|fill:[[:space:]]*egui::Color32|Option<egui::Color32>' crates/core/src/widget/button.rs crates/core/src/widget/chip.rs crates/core/src/widget/badge.rs crates/core/src/widget/progressbar.rs crates/core/src/widget/toggle.rs crates/core/src/widget/slider.rs crates/backend-egui/src/dropdown.rs crates/backend-egui/src/text_input/mod.rs crates/core/src/widget/select.rs crates/core/src/widget/color.rs crates/core/src/widget/foldable.rs crates/backend-egui/src/context_menu.rs
 	@! grep -RIn 'accent_egui' crates/core/src/widget/button.rs
 	@! grep -RInE 'fn (lerp_col|lerp_col_alpha|with_alpha)[(].*egui::Color32' crates/core/src/widget/button.rs
 	@! grep -RInE 'ui[.]ctx[(][)]|allocate_exact_size|painter_at|painter[(][)]|painter[.](rect_filled|rect_stroke)|egui::(Stroke::new|CornerRadius::same|Color32|lerp|Id)' crates/core/src/widget/button.rs
@@ -289,8 +289,8 @@ check:
 	# backend type at all, so it runs on any backend.
 	@! grep -RInE '(^|[^:a-z_])egui::' crates/core/src/widget/color.rs
 	@! grep -RInE 'ui[.](id|ctx)[(]|MaraMemoryCtx' crates/core/src/widget/foldable.rs
-	@! grep -RInE 'egui::Color32|egui::Stroke|ui[.](ctx|id)[(]' crates/core/src/widget/dropdown.rs crates/core/src/widget/text_input/mod.rs
-	@! grep -RInE 'pub fn context_menu_mara|spacing_mut[(][)][.]item_spacing' crates/core/src/widget/context_menu.rs
+	@! grep -RInE 'egui::Color32|egui::Stroke|ui[.](ctx|id)[(]' crates/backend-egui/src/dropdown.rs crates/backend-egui/src/text_input/mod.rs
+	@! grep -RInE 'pub fn context_menu_mara|spacing_mut[(][)][.]item_spacing' crates/backend-egui/src/context_menu.rs
 	@! grep -RInE '^pub fn (label|label_colored|readout|readout_h|chip|chip_colored|keybinding_row|keybinding_row_h|badge_row|badge_row_colored|button|button_h|card_button|card_action_button|progressbar|progressbar_h|toggle|toggle_h|toggle_track_only|slider|slider_h|drag_value|drag_value_h|axis_drag|axis_drag_h|select_row|select_row_h|hybrid_select_row|hybrid_select_row_h|dropdown|dropdown_h|color_rgb|color_rgba|text_input|text_input_h|section)[(]' crates/core/src/widget
 	@! grep -nE 'pub fn card_button[(]|pub use .*card_button' crates/core/src/mui/mod.rs
 	@! grep -RIn 'Compatibility shortcut' crates mara example
@@ -310,8 +310,8 @@ check:
 	@! grep -nE 'self[.]ui[.](id|available_width|available_height|available_rect_before_wrap|add_space|interact|painter_at|clip_rect)[(]' crates/core/src/mui/mod.rs
 	@! grep -nE 'self[.]ui[.]ctx[(][)]|with_response[(]self[.]ui[.]ctx' crates/core/src/mui/mod.rs
 	@! grep -nE '[.](horizontal|vertical)[(]' crates/core/src/mui/mod.rs
-	@! grep -nE 'show_(horizontal|vertical)_for_ui' crates/core/src/mui/mod.rs crates/core/src/backend/egui.rs
-	@! grep -nE 'painter_for_ui_available_rect' crates/core/src/mui/mod.rs crates/core/src/backend/egui.rs
+	@! grep -nE 'show_(horizontal|vertical)_for_ui' crates/core/src/mui/mod.rs crates/backend-egui/src/lib.rs
+	@! grep -nE 'painter_for_ui_available_rect' crates/core/src/mui/mod.rs crates/backend-egui/src/lib.rs
 	@! grep -nE 'mara_label[(]self[.]ui|readout(_h)?[(]self[.]ui' crates/core/src/mui/mod.rs
 	@! grep -nE 'readout[(]ui,' crates/core/src/pod/mod.rs
 	@! grep -nE 'chip(_colored)?[(]self[.]ui' crates/core/src/mui/mod.rs
@@ -374,7 +374,11 @@ check:
 	@! grep -RIn '__internal_paint_icon_egui' crates mara example
 	@! grep -RInE '^pub const .*egui::Color32' crates/core/src/style.rs crates/core/src/themes
 	@! grep -nE 'pub use .*_(BG|BORDER)_' crates/core/src/style.rs
-	@! grep -n 'pub mod debug' crates/core/src/lib.rs
+	# The F10 inspector paints from `mara_backend_egui`, so `debug` has to
+	# be reachable across the crate boundary. What the guard protects is
+	# that it is never *documented* app API — assert the `#[doc(hidden)]`
+	# instead of banning `pub`.
+	@grep -B1 'pub mod debug;' crates/core/src/lib.rs | grep -q '#\[doc(hidden)\]'
 	@! grep -RInE 'pub fn (claim_window_chrome_input|window_chrome_input_claimed|clear_window_chrome_regions)[(]|pub use .*claim_window_chrome_input|pub use .*window_chrome_input_claimed|pub use .*clear_window_chrome_regions' crates/core/src/window_chrome.rs crates/core/src/lib.rs
 	@! grep -RInE '^pub fn (publish_window_chrome_regions|window_chrome_regions|publish_window_chrome_host_capabilities|window_chrome_host_capabilities|hit_test_window_chrome|hovered_resize_corner|paint_resize_corner_hover)[(][^#]*egui::Context' crates/core/src/window_chrome.rs
 	@! grep -RInE 'pub use .*(publish_window_chrome_regions|window_chrome_regions|publish_window_chrome_host_capabilities|window_chrome_host_capabilities|hit_test_window_chrome|hovered_resize_corner|paint_resize_corner_hover)' crates/core/src/lib.rs
@@ -388,7 +392,10 @@ check:
 	@! grep -RInE 'screen:[[:space:]]*egui::Rect|cursor:[[:space:]]*egui::Pos2|->[[:space:]]*egui::Pos2' crates/core/src/embed.rs
 	@! grep -RInE 'Option<egui::Pos2>|remove::<egui::Pos2>|[.]pointer_interact_pos' crates/core/src/embed.rs
 	@! grep -RInE 'egui::Area::new|egui::Order::|egui::LayerId|egui::Painter::new' crates/core/src/embed.rs
-	@! (grep -RInE 'egui::Area::new|egui::Order::(Tooltip|Foreground|Middle)|egui::LayerId::new|egui::Painter::new' crates/core/src | grep -v 'crates/core/src/backend/egui.rs')
+	# The exclusion for `backend/egui.rs` is gone with the file: the
+	# backend now lives in its own crate, so core may not name these
+	# anywhere at all.
+	@! grep -RInE 'egui::Area::new|egui::Order::(Tooltip|Foreground|Middle)|egui::LayerId::new|egui::Painter::new' crates/core/src
 	@! grep -RInE '(^|[^_])painter[.]rect[(]' crates/core/src/embed.rs
 	@! grep -RIn 'ghost_painter\.rect' crates/core/src/embed.rs
 	@! grep -RInE 'ui\.painter[(][)][.](text|rect_filled)' crates/core/src/embed.rs

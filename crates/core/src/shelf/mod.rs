@@ -283,10 +283,14 @@ impl ShelfLayout {
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub(crate) struct ShelfPresence {
-    pub(crate) left: bool,
-    pub(crate) right: bool,
-    pub(crate) bottom: bool,
+#[doc(hidden)]
+pub struct ShelfPresence {
+    #[doc(hidden)]
+    pub left: bool,
+    #[doc(hidden)]
+    pub right: bool,
+    #[doc(hidden)]
+    pub bottom: bool,
 }
 
 impl ShelfPresence {
@@ -967,7 +971,8 @@ fn shelf_active_container_key(shelf: &ShelfDef<'_>) -> Id {
     shelf_active_container_key_for(shelf.egui_id(), shelf.edge)
 }
 
-fn shelf_active_container_key_for(shelf_id: Id, edge: ShelfEdge) -> Id {
+#[doc(hidden)]
+pub fn shelf_active_container_key_for(shelf_id: Id, edge: ShelfEdge) -> Id {
     shelf_render_key(shelf_id, edge).with("active_container")
 }
 

@@ -201,11 +201,13 @@ impl ShelfState {
         self.active_containers.remove(&shelf_id);
     }
 
-    pub(super) fn active_container_for_group(&self, group_id: Id) -> Option<Id> {
+    #[doc(hidden)]
+    pub fn active_container_for_group(&self, group_id: Id) -> Option<Id> {
         self.active_containers.get(&group_id).copied()
     }
 
-    pub(super) fn set_active_container_for_group(&mut self, group_id: Id, container_id: Id) {
+    #[doc(hidden)]
+    pub fn set_active_container_for_group(&mut self, group_id: Id, container_id: Id) {
         self.active_containers.insert(group_id, container_id);
     }
 

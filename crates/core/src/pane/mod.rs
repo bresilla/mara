@@ -14,15 +14,18 @@
 //! * `mod.rs` (this file) — `Pane` builder + render entry point.
 
 mod anchor;
-mod body;
+#[doc(hidden)]
+pub mod body;
 mod dots;
 mod drag;
 mod layout;
-pub(crate) mod tab_drag;
+#[doc(hidden)]
+pub mod tab_drag;
 mod title;
 
 pub use body::{ContainerSpec, PaneBody};
-pub(crate) use body::{TabRoutingScope, render_containers_with_tab_scope};
+#[doc(hidden)]
+pub use body::{TabRoutingScope, render_containers_with_tab_scope};
 pub(crate) use dots::paint_container_dots;
 
 pub use anchor::{PaneAnchor, RailZone, TitleSide};
@@ -236,6 +239,16 @@ impl PaneResize {
 /// pointer is well-defined while any one body callback runs.
 pub(crate) fn active_pane_key() -> Id {
     Id::new("mara_active_pane_id")
+}
+
+/// The key above, for the backend crate's frame tests.
+///
+/// They seed the active pane before rendering, which needs the key.
+/// Exposed under the `__internal_` name rather than by widening
+/// `active_pane_key` itself — that name is guarded as non-API.
+#[doc(hidden)]
+pub fn __internal_active_pane_key() -> Id {
+    active_pane_key()
 }
 
 fn ribbon_pane_ids_key() -> Id {

@@ -39,7 +39,8 @@ use iconflow::{IconRef, Pack, Size, Style, fonts, try_icon};
 /// FIRST frame — before bevy_mara's `apply_theme_system` runs —
 /// would crash with "FontFamily::Name(...) is not bound to any
 /// fonts".
-pub(crate) static ICONFLOW_FONTS_READY: AtomicBool = AtomicBool::new(false);
+#[doc(hidden)]
+pub static ICONFLOW_FONTS_READY: AtomicBool = AtomicBool::new(false);
 
 #[inline]
 fn fonts_ready() -> bool {
@@ -53,7 +54,8 @@ pub(crate) fn icon_fonts_ready() -> bool {
 /// Pull every iconflow font into `FontDefinitions` and register
 /// each as a named family so `FontFamily::Name(family)` resolves to
 /// the right glyph table. Called from Mara's internal style font installer.
-pub(crate) fn install_iconflow_fonts(fonts_def: &mut egui::FontDefinitions) {
+#[doc(hidden)]
+pub fn install_iconflow_fonts(fonts_def: &mut egui::FontDefinitions) {
     let fallback_fonts = fonts_def
         .families
         .get(&egui::FontFamily::Proportional)

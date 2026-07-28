@@ -76,6 +76,10 @@ gpu = ["dep:mara_gpu", "dep:egui-wgpu", "dep:wgpu"]
 bevy = ["dep:bevy"]
 
 [dev-dependencies]
+# Integration tests (`tests/*.rs`) are separate crates, so depending on
+# the backend here is not the unit-test cycle — they link one
+# `mara_core`, the same one the backend links.
+mara_backend_egui = { workspace = true }
 # `mara_gpu` types appear in the WS-A7 signature test even when the
 # `gpu` feature is off for the library build.
 mara_gpu = { workspace = true }

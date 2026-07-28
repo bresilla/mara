@@ -33,7 +33,8 @@ use crate::ribbon::{
 use crate::vocab::Id as MaraId;
 
 const TOP_BAR_CHROME_ID: &str = "mara.shell.topbar";
-const TOP_BAR_VIEWS_CHROME_ID: &str = "mara.shell.topbar.views";
+#[doc(hidden)]
+pub const TOP_BAR_VIEWS_CHROME_ID: &str = "mara.shell.topbar.views";
 const APP_MENU_ITEM_ID: &str = "system.app_menu.item";
 
 /// One button in the permanent top bar's view switcher. The buttons
@@ -181,7 +182,8 @@ impl ShellBar {
         events
     }
 
-    fn build_ribbons(&self) -> Vec<ResolvedSlotRibbon> {
+    #[doc(hidden)]
+    pub fn build_ribbons(&self) -> Vec<ResolvedSlotRibbon> {
         // Conventional top-bar layout:
         //   * Start (far left): the app-menu button.
         //   * Middle (centred): the view switcher.
@@ -262,113 +264,4 @@ impl ShellBar {
 #[must_use]
 fn view_command_id(view_id: &'static str) -> MaraId {
     MaraId::new(("mara.topbar.view", view_id))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// Rendering a bar with an app-menu + views must build valid slot
-    /// items (non-empty label/tooltip) and not panic. Regression for
-    /// the empty-tooltip assert that crashed the native demo.
-    /// A single-tab app shows no tab chrome: with nothing to switch
-    /// between, the switcher ribbon must not be emitted at all.
-    #[test]
-    fn single_view_bar_emits_no_switcher() {
-        let bar = ShellBar {
-            views: vec![ShellView::new("v.only", "cube", "Only")],
-            active: Some("v.only"),
-            ..Default::default()
-        };
-        let ribbons = bar.build_ribbons();
-        assert!(
-            !ribbons
-                .iter()
-                .any(|ribbon| ribbon.chrome_id == Some(TOP_BAR_VIEWS_CHROME_ID)),
-            "one view => no switcher ribbon"
-        );
-
-        let two = ShellBar {
-            views: vec![
-                ShellView::new("v.a", "cube", "A"),
-                ShellView::new("v.b", "pen", "B"),
-            ],
-            ..Default::default()
-        };
-        assert!(
-            two.build_ribbons()
-                .iter()
-                .any(|ribbon| ribbon.chrome_id == Some(TOP_BAR_VIEWS_CHROME_ID)),
-            "two views => switcher present"
-        );
-    }
-
-    /// The switcher rides `views_cluster` — Middle by default, movable
-    /// to Start/End by the app.
-    #[test]
-    fn switcher_cluster_is_configurable_default_middle() {
-        let mut bar = ShellBar {
-            views: vec![
-                ShellView::new("v.a", "cube", "A"),
-                ShellView::new("v.b", "pen", "B"),
-            ],
-            ..Default::default()
-        };
-        let cluster_of = |bar: &ShellBar| {
-            bar.build_ribbons()
-                .into_iter()
-                .find(|ribbon| ribbon.chrome_id == Some(TOP_BAR_VIEWS_CHROME_ID))
-                .map(|ribbon| ribbon.cluster)
-        };
-        assert_eq!(cluster_of(&bar), Some(RibbonCluster::Middle));
-        bar.views_cluster = RibbonCluster::End;
-        assert_eq!(cluster_of(&bar), Some(RibbonCluster::End));
-    }
-
-    #[test]
-    fn shell_bar_renders_without_panicking() {
-        let bar = ShellBar {
-            views: vec![
-                ShellView::new("v.scene", "cube", "Scene"),
-                ShellView::new("v.graph", "pen", "Graph"),
-            ],
-            active: Some("v.scene"),
-            ..Default::default()
-        };
-        let raw = egui::Context::default();
-        let ctx = crate::backend::egui::EguiCtx::new(&raw);
-        let mut open = RibbonOpen::default();
-        let mut placement = RibbonPlacement::default();
-        let mut drag = RibbonDrag::default();
-        ctx.begin_pass(egui::RawInput::default());
-        let mut bar = bar;
-        let events = bar.__internal_show_egui(&ctx, &mut open, &mut placement, &mut drag);
-        let _ = ctx.end_pass();
-        // No interaction in a headless pass → no events.
-        assert!(events.is_empty());
-    }
-
-    /// The bar render always paints — the bar has no disable flag.
-    /// (The explicit per-frame opt-out lives in `crate::enforce` and is
-    /// tested there.)
-    #[test]
-    fn shell_bar_show_always_renders() {
-        let mut bar = ShellBar {
-            views: vec![ShellView::new("v", "cube", "V")],
-            ..Default::default()
-        };
-        let raw = egui::Context::default();
-        let ctx = crate::backend::egui::EguiCtx::new(&raw);
-        let mut open = RibbonOpen::default();
-        let mut placement = RibbonPlacement::default();
-        let mut drag = RibbonDrag::default();
-        ctx.begin_pass(egui::RawInput::default());
-        let events = bar.__internal_show_egui(&ctx, &mut open, &mut placement, &mut drag);
-        let output = ctx.end_pass();
-        assert!(events.is_empty());
-        assert!(
-            !output.shapes.is_empty(),
-            "the bar must render unconditionally"
-        );
-    }
 }

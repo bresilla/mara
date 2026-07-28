@@ -321,7 +321,7 @@ impl<A: WindowApp> NativeWinitApp<A> {
             && self.egui_ctx.cumulative_pass_nr().is_multiple_of(120);
         if probe_this_frame {
             mara_core::probe::__internal_set_enabled(
-                &mara_core::backend::egui::EguiCtx::new(&self.egui_ctx),
+                &mara_backend_egui::EguiCtx::new(&self.egui_ctx),
                 true,
             );
         }
@@ -333,7 +333,7 @@ impl<A: WindowApp> NativeWinitApp<A> {
         let frame_t0 = std::time::Instant::now();
 
         let full_output = self.egui_ctx.run_ui(raw_input, |ui| {
-            let ctx = &mara_core::backend::egui::EguiCtx::new(ui.ctx());
+            let ctx = &mara_backend_egui::EguiCtx::new(ui.ctx());
             let mut host = MaraHostCtx::mara_window(ctx, Some(&render_state));
             // A bare `WindowApp` should already look and behave like
             // Mara: apply the active Mara theme, publish native window
@@ -372,17 +372,17 @@ impl<A: WindowApp> NativeWinitApp<A> {
 
         if probe_this_frame {
             let poses = mara_core::probe::__internal_drain(
-                &mara_core::backend::egui::EguiCtx::new(&self.egui_ctx),
+                &mara_backend_egui::EguiCtx::new(&self.egui_ctx),
             );
             eprintln!("{}", mara_core::probe::format(&poses));
             mara_core::probe::__internal_set_enabled(
-                &mara_core::backend::egui::EguiCtx::new(&self.egui_ctx),
+                &mara_backend_egui::EguiCtx::new(&self.egui_ctx),
                 false,
             );
         }
 
         self.last_chrome_regions = mara_core::window_chrome::__internal_window_chrome_regions(
-            &mara_core::backend::egui::EguiCtx::new(&self.egui_ctx),
+            &mara_backend_egui::EguiCtx::new(&self.egui_ctx),
         );
 
         let egui::FullOutput {

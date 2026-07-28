@@ -114,7 +114,8 @@ impl MaraResponse {
 impl MaraResponse {
     /// Inert response at `rect` — used by non-interactive backends
     /// (the recording backend) and tests.
-    pub(crate) fn synthetic(rect: vocab::Rect) -> Self {
+    #[doc(hidden)]
+    pub fn synthetic(rect: vocab::Rect) -> Self {
         Self {
             clicked: false,
             double_clicked: false,
@@ -201,7 +202,8 @@ impl MaraResponse {
         self.pointer_button_down
     }
 
-    pub(crate) fn backend_response_id(&self) -> vocab::Id {
+    #[doc(hidden)]
+    pub fn backend_response_id(&self) -> vocab::Id {
         self.backend_response
     }
 }
@@ -1001,7 +1003,8 @@ impl<'a> MaraUi<'a> {
     /// Construct over a borrowed backend. The caller owns the backend
     /// (typically a local `MaraBackend::Egui` wrapping an `egui::Ui`)
     /// for at least as long as this `MaraUi`.
-    pub(crate) fn over(backend: &'a mut dyn UiBackend, accent: impl Into<vocab::Color32>) -> Self {
+    #[doc(hidden)]
+    pub fn over(backend: &'a mut dyn UiBackend, accent: impl Into<vocab::Color32>) -> Self {
         Self {
             backend,
             accent: accent.into(),

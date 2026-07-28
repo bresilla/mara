@@ -24,7 +24,7 @@
 
 use std::hash::Hash;
 
-use crate::{
+use mara_core::{
     layout::{PopupAlign, PopupListSpec, PopupSpec, PopupTrigger, Sense, UiBackend},
     mui::MaraResponse,
     paint::PaintCmd,
@@ -36,9 +36,6 @@ use crate::{
     vocab::{Align2, Color32, Id, Pos2, Rect, Stroke, Vec2},
 };
 
-/// Default trigger height — the canonical 1U row used elsewhere in
-/// the kit.
-pub const DROPDOWN_ROW_H: f32 = crate::style::UNIT;
 
 /// Render a dropdown at the default [`DROPDOWN_ROW_H`] height.
 /// `id_salt` disambiguates this dropdown's popup id from siblings in
@@ -74,15 +71,15 @@ pub(crate) fn dropdown_h(
     let accent = accent.into();
     let display = options.get(*selected).copied().unwrap_or("—");
     let mut resp = {
-        let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
+        let mut backend = crate::EguiUiBackend::new(ui);
         dropdown_trigger_backend(&mut backend, display, accent, height)
     };
 
     // Stable id for the popup so its open-state survives across
     // frames. `id_salt` disambiguates sibling dropdowns.
-    let popup_id = crate::backend::egui::ui_id(ui).with(("mara_dropdown", &id_salt));
+    let popup_id = crate::ui_id(ui).with(("mara_dropdown", &id_salt));
     let trigger = dropdown_popup_trigger(resp.backend_response_id(), popup_id);
-    let Some(resp_with_id) = crate::backend::egui::popup_toggle_response_for_ui(ui, trigger) else {
+    let Some(resp_with_id) = crate::popup_toggle_response_for_ui(ui, trigger) else {
         return resp;
     };
 
@@ -91,9 +88,9 @@ pub(crate) fn dropdown_h(
     // trigger click (the same condition egui used) and let egui apply
     // its anchoring + click-outside/Escape dismissal into the bool.
     let mut open = {
-        let store = crate::backend::egui::store_for_ui(ui);
-        let memory = crate::memory::MaraMemoryCtx::new(&store);
-        crate::popup::PopupState::load(&memory, popup_id).is_open()
+        let store = crate::store_for_ui(ui);
+        let memory = mara_core::memory::MaraMemoryCtx::new(&store);
+        mara_core::popup::PopupState::load(&memory, popup_id).is_open()
     };
     if resp.clicked() {
         open = !open;
@@ -102,17 +99,17 @@ pub(crate) fn dropdown_h(
     let popup_spec = dropdown_popup_spec(resp.rect.width());
 
     let mut changed = false;
-    if let Some(inner) = crate::backend::egui::show_popup_open_bool(
+    if let Some(inner) = crate::show_popup_open_bool(
         &resp_with_id,
         &mut open,
         popup_spec,
         frame_for(FrameRole::Popup, accent),
         |ui| {
-            crate::backend::egui::apply_popup_list_spec(ui, dropdown_popup_list_spec());
+            crate::apply_popup_list_spec(ui, dropdown_popup_list_spec());
             for (idx, opt) in options.iter().enumerate() {
                 let is_selected = *selected == idx;
                 let row_resp = {
-                    let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
+                    let mut backend = crate::EguiUiBackend::new(ui);
                     dropdown_popup_row_backend(&mut backend, opt, is_selected, accent)
                 };
                 changed |= apply_dropdown_popup_pick(selected, idx, &row_resp);
@@ -125,9 +122,9 @@ pub(crate) fn dropdown_h(
     // Persist the (possibly egui-dismissed) open-state back into Mara
     // memory for the next frame.
     {
-        let store = crate::backend::egui::store_for_ui(ui);
-        let mut memory = crate::memory::MaraMemoryCtx::new(&store);
-        crate::popup::PopupState::new(open).store(&mut memory, popup_id);
+        let store = crate::store_for_ui(ui);
+        let mut memory = mara_core::memory::MaraMemoryCtx::new(&store);
+        mara_core::popup::PopupState::new(open).store(&mut memory, popup_id);
     }
 
     if changed {
@@ -303,9 +300,10 @@ fn lerp_col(a: Color32, b: Color32, t: f32) -> Color32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::vocab::Id;
+    use mara_core::DROPDOWN_ROW_H;
+    use mara_core::vocab::Id;
 
-    use crate::backend::record::RecordingBackend;
+    use mara_core::backend::record::RecordingBackend;
 
     #[test]
     fn dropdown_trigger_backend_emits_chrome_selected_text_and_chevron() {

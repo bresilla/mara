@@ -56,7 +56,8 @@ fn app_shell_pass_key() -> Id {
     key("app_shell_pass")
 }
 
-fn app_theme_pass_key() -> Id {
+#[doc(hidden)]
+pub fn app_theme_pass_key() -> Id {
     key("app_theme_pass")
 }
 
@@ -72,7 +73,8 @@ fn grace_pass_key() -> Id {
     key("grace_pass")
 }
 
-fn enforced_shell_pass_key() -> Id {
+#[doc(hidden)]
+pub fn enforced_shell_pass_key() -> Id {
     key("enforced_shell_pass")
 }
 
@@ -80,30 +82,34 @@ fn shell_opt_out_pass_key() -> Id {
     key("shell_opt_out_pass")
 }
 
-fn fallback_state_key() -> Id {
+#[doc(hidden)]
+pub fn fallback_state_key() -> Id {
     key("fallback_shell_state")
 }
 
 /// Persisted state of the Mara-owned fallback bar (config + featureful
 /// ribbon chrome state), kept in the egui data store between passes.
 #[derive(Clone, Default)]
-struct FallbackShell {
-    bar: ShellBar,
-    open: RibbonOpen,
-    placement: RibbonPlacement,
-    drag: RibbonDrag,
+#[doc(hidden)]
+pub struct FallbackShell {
+    pub bar: ShellBar,
+    pub open: RibbonOpen,
+    pub placement: RibbonPlacement,
+    pub drag: RibbonDrag,
 }
 
 /// `true` while Mara itself is rendering/applying enforced defaults, so
 /// the enforced work never counts as "the app did it" and entry points
 /// reached from inside enforcement don't recurse.
-pub(crate) fn enforcing(ctx: &dyn MaraCtx) -> bool {
+#[doc(hidden)]
+pub fn enforcing(ctx: &dyn MaraCtx) -> bool {
     ctx.memory()
         .get_temp::<bool>(enforcing_key())
         .unwrap_or(false)
 }
 
-fn set_enforcing(ctx: &dyn MaraCtx, on: bool) {
+#[doc(hidden)]
+pub fn set_enforcing(ctx: &dyn MaraCtx, on: bool) {
     ctx.memory().set_temp(enforcing_key(), on);
 }
 
@@ -118,7 +124,8 @@ fn stamp(ctx: &dyn MaraCtx, key: Id) {
 /// Stamp read: `true` when the app performed the action this pass or
 /// the previous one (the hysteresis window described in the module
 /// docs).
-fn fresh(ctx: &dyn MaraCtx, key: Id) -> bool {
+#[doc(hidden)]
+pub fn fresh(ctx: &dyn MaraCtx, key: Id) -> bool {
     let pass = ctx.pass_nr();
     ctx.memory()
         .get_temp::<u64>(key)
@@ -132,7 +139,8 @@ pub(crate) fn mark_app_shell_shown(ctx: &dyn MaraCtx) {
 }
 
 /// The app applied a theme (via the host facade or the style hook).
-pub(crate) fn mark_app_theme_applied(ctx: &dyn MaraCtx) {
+#[doc(hidden)]
+pub fn mark_app_theme_applied(ctx: &dyn MaraCtx) {
     stamp(ctx, app_theme_pass_key());
 }
 
@@ -180,7 +188,8 @@ pub fn __internal_shell_opted_out(ctx: &dyn MaraCtx) -> bool {
 /// app do this, or does Mara?" testable and portable.
 ///
 /// Returns the pass number to stamp when it says yes.
-fn fallback_bar_due(ctx: &dyn MaraCtx) -> Option<u64> {
+#[doc(hidden)]
+pub fn fallback_bar_due(ctx: &dyn MaraCtx) -> Option<u64> {
     // Shelf-layout baseline: publish the full-viewport no-shelf layout
     // unless the app published one. Re-published per pass so floating
     // chrome tracks the live window size.
@@ -216,201 +225,4 @@ fn fallback_bar_due(ctx: &dyn MaraCtx) -> Option<u64> {
         return None;
     }
     Some(pass)
-}
-
-/// Enforce Mara's defaults for this pass. Called by every Mara surface
-/// entry point; cheap after the first call of a pass (stamp reads).
-#[cfg(feature = "backend-egui-conv")]
-#[doc(hidden)]
-pub fn __internal_enforce_defaults(ctx: &egui::Context) {
-    // The seam view of the same context; the wrapper owns an `Arc`
-    // handle, so this is a refcount bump rather than a copy.
-    let seam = crate::backend::egui::EguiCtx::new(ctx);
-    let seam: &dyn MaraCtx = &seam;
-    if enforcing(seam) {
-        return;
-    }
-
-    // Image loaders: `PaintCmd::Svg` needs a rasteriser registered on
-    // the context. Enforced here rather than left to the app so a
-    // sealed module can emit `Svg` and have it render, on any host,
-    // without the app knowing an image-loader chain exists.
-    // `install_image_loaders` guards each loader on
-    // `Context::is_loader_installed`, so calling it per pass is cheap.
-    #[cfg(feature = "svg")]
-    egui_extras::install_image_loaders(ctx);
-
-    // Theme application builds backend visuals, so it stays on this
-    // side of the split. It de-dupes internally, so re-applying every
-    // pass for theme-less apps is cheap and tracks resizes.
-    if !fresh(seam, app_theme_pass_key()) {
-        set_enforcing(seam, true);
-        crate::style::__internal_apply_theme(
-            ctx,
-            crate::style::AccentColor(crate::style::raw_accent()),
-            crate::style::glass_opacity(),
-        );
-        set_enforcing(seam, false);
-    }
-
-    let Some(pass) = fallback_bar_due(seam) else {
-        return;
-    };
-
-    // The app has had its chance — render the Mara-owned fallback bar.
-    // The default `ShellBar` (app-menu + injected host controls, no
-    // views) — the same bar a bare runner app gets. An items-less bar
-    // would paint nothing, which is no enforcement at all. Events are
-    // dropped — there is no app wired to receive them; apps that want
-    // the functional bar render `ShellBar` themselves, which
-    // suppresses this fallback.
-    set_enforcing(seam, true);
-    let mut state = MaraCtx::memory(seam)
-        .get_temp::<FallbackShell>(fallback_state_key())
-        .unwrap_or_default();
-    let _ = state.bar.__internal_show_egui(
-        seam,
-        &mut state.open,
-        &mut state.placement,
-        &mut state.drag,
-    );
-    {
-        let mut memory = MaraCtx::memory(seam);
-        memory.set_temp(fallback_state_key(), state);
-        memory.set_temp(enforced_shell_pass_key(), pass);
-    };
-    set_enforcing(seam, false);
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn run_pass(ctx: &egui::Context, f: impl FnOnce()) -> egui::FullOutput {
-        let input = egui::RawInput {
-            screen_rect: Some(egui::Rect::from_min_size(
-                egui::Pos2::ZERO,
-                egui::vec2(1280.0, 800.0),
-            )),
-            ..Default::default()
-        };
-        ctx.begin_pass(input);
-        f();
-        ctx.end_pass()
-    }
-
-    /// A consumer that draws Mara surfaces but never renders the bar
-    /// gets the enforced fallback bar from the second pass onward
-    /// (pass one is the grace pass).
-    #[test]
-    fn fallback_bar_kicks_in_after_grace_pass() {
-        let raw = egui::Context::default();
-        let ctx = crate::backend::egui::EguiCtx::new(&raw);
-
-        let out1 = run_pass(&ctx, || __internal_enforce_defaults(&ctx));
-        assert!(
-            __internal_shell_enforced_pass(&ctx).is_none(),
-            "grace pass must not draw the fallback bar"
-        );
-
-        let _ = run_pass(&ctx, || __internal_enforce_defaults(&ctx));
-        assert!(
-            __internal_shell_enforced_pass(&ctx).is_some(),
-            "second pass without an app bar must enforce the fallback"
-        );
-
-        // And it keeps rendering every subsequent pass (the stamp
-        // advances pass over pass). egui areas are invisible on their
-        // first frame (sizing pass), so paint is asserted on this
-        // settled pass, not the pass the fallback first fired.
-        let after_second = __internal_shell_enforced_pass(&ctx).expect("stamped above");
-        let out3 = run_pass(&ctx, || __internal_enforce_defaults(&ctx));
-        let after_third = __internal_shell_enforced_pass(&ctx).expect("still enforced");
-        assert!(
-            after_third > after_second,
-            "fallback must re-render every pass without an app bar"
-        );
-        assert!(
-            out3.shapes.len() > out1.shapes.len(),
-            "the enforced bar must actually paint something"
-        );
-    }
-
-    /// An app that renders its own `ShellBar` each pass never triggers
-    /// the fallback — even though enforcement runs every pass too.
-    #[test]
-    fn app_bar_suppresses_fallback() {
-        let raw = egui::Context::default();
-        let ctx = crate::backend::egui::EguiCtx::new(&raw);
-        let mut bar = ShellBar::default();
-        let mut open = RibbonOpen::default();
-        let mut placement = RibbonPlacement::default();
-        let mut drag = RibbonDrag::default();
-
-        for _ in 0..4 {
-            run_pass(&ctx, || {
-                // Content first, bar last — the common host pattern.
-                __internal_enforce_defaults(&ctx);
-                let _ = bar.__internal_show_egui(&ctx, &mut open, &mut placement, &mut drag);
-            });
-        }
-        assert!(
-            __internal_shell_enforced_pass(&ctx).is_none(),
-            "fallback must never fire while the app renders the bar"
-        );
-    }
-
-    /// The explicit per-frame opt-out suppresses the fallback — but
-    /// only for frames it is repeated in; going silent brings the bar
-    /// back.
-    #[test]
-    fn explicit_opt_out_suppresses_fallback_per_frame() {
-        let raw = egui::Context::default();
-        let ctx = crate::backend::egui::EguiCtx::new(&raw);
-
-        for _ in 0..3 {
-            run_pass(&ctx, || {
-                __internal_opt_out_shell(&ctx);
-                __internal_enforce_defaults(&ctx);
-            });
-        }
-        assert!(
-            __internal_shell_enforced_pass(&ctx).is_none(),
-            "opted-out frames must not draw the fallback bar"
-        );
-
-        // Opt-out stops being called → hysteresis covers one pass,
-        // then the enforced bar returns.
-        run_pass(&ctx, || __internal_enforce_defaults(&ctx));
-        assert!(__internal_shell_enforced_pass(&ctx).is_none());
-        run_pass(&ctx, || __internal_enforce_defaults(&ctx));
-        assert!(
-            __internal_shell_enforced_pass(&ctx).is_some(),
-            "the bar must come back once the opt-out is no longer repeated"
-        );
-    }
-
-    /// An app that stops rendering its bar loses the argument: the
-    /// fallback takes over after the hysteresis window.
-    #[test]
-    fn fallback_takes_over_when_app_bar_stops() {
-        let raw = egui::Context::default();
-        let ctx = crate::backend::egui::EguiCtx::new(&raw);
-        let mut bar = ShellBar::default();
-        let mut open = RibbonOpen::default();
-        let mut placement = RibbonPlacement::default();
-        let mut drag = RibbonDrag::default();
-
-        for _ in 0..2 {
-            run_pass(&ctx, || {
-                __internal_enforce_defaults(&ctx);
-                let _ = bar.__internal_show_egui(&ctx, &mut open, &mut placement, &mut drag);
-            });
-        }
-        // App goes silent; hysteresis covers one pass, then Mara draws.
-        run_pass(&ctx, || __internal_enforce_defaults(&ctx));
-        assert!(__internal_shell_enforced_pass(&ctx).is_none());
-        run_pass(&ctx, || __internal_enforce_defaults(&ctx));
-        assert!(__internal_shell_enforced_pass(&ctx).is_some());
-    }
 }

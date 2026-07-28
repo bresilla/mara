@@ -19,12 +19,14 @@ pub struct ViewCtx<'a> {
     /// Owned rather than borrowed: the wrapper holds an `Arc` handle,
     /// so a node can lend a `&dyn MaraCtx` out of itself without the
     /// caller having to keep one alive alongside.
-    pub(crate) seam: Box<dyn crate::context::MaraCtx + 'a>,
+    #[doc(hidden)]
+    pub seam: Box<dyn crate::context::MaraCtx + 'a>,
     /// The raw backend handle, kept only for the render entry points
     /// whose callees still take one (panes, shelves, leaf ribbons,
     /// texture upload, offscreen). Goes away with WS-G.
     #[cfg(feature = "backend-egui-conv")]
-    pub(crate) egui_ctx: &'a egui::Context,
+    #[doc(hidden)]
+    pub egui_ctx: &'a egui::Context,
     pub workspace: &'a mut WorkspaceStack,
     pub accent: MaraColor32,
     pub content_avoidance: RibbonAvoidance,
@@ -32,7 +34,8 @@ pub struct ViewCtx<'a> {
     /// or a cell rect for a child of a parent `Split`/`ViewNode`. Every
     /// method (painter, input, panes, body) scopes to this region, so a
     /// node is a self-contained surface (PLAN.md Phase 1 / ADR 0001).
-    region: MaraRect,
+    #[doc(hidden)]
+    pub region: MaraRect,
 }
 
 /// Inset `region` by one ribbon rail's clearance on each edge that has a
@@ -48,33 +51,6 @@ fn shrink_region_by_ribbon_edges(region: MaraRect, edges: [bool; 4]) -> MaraRect
 }
 
 impl<'a> ViewCtx<'a> {
-    /// Build a view context from the current egui backend.
-    ///
-    /// Hidden first-party hook: hosts/app code should use
-    /// `MaraHostCtx::view_ctx` instead of passing raw backend context handles
-    /// around. Sealed consumers receive a ready-made `ViewCtx` from the app
-    /// shell / host facade.
-    #[must_use]
-    #[cfg(feature = "backend-egui-conv")]
-    #[doc(hidden)]
-    pub fn __internal_new(
-        egui_ctx: &'a egui::Context,
-        workspace: &'a mut WorkspaceStack,
-        accent: impl Into<MaraColor32>,
-        content_avoidance: RibbonAvoidance,
-    ) -> Self {
-        let seam: Box<dyn crate::context::MaraCtx + 'a> =
-            Box::new(crate::backend::egui::EguiCtx::new(egui_ctx));
-        seam.enforce_defaults();
-        Self {
-            region: seam.content_rect(),
-            seam,
-            egui_ctx,
-            workspace,
-            accent: accent.into(),
-            content_avoidance,
-        }
-    }
 
     /// Build a child context scoped to a fixed `rect` (one cell of a
     /// [`ViewNode`](crate::ViewNode)), with its own `workspace`. Its

@@ -1,8 +1,22 @@
-//! Egui backend adapter.
+//! egui backend for Mara.
+//!
+//! The one crate that names egui. It implements `mara_core`'s seams —
+//! `UiBackend`, `MaraCtx`, `MaraStore`, `PainterSink` — and carries the
+//! widget wrappers, scroll machinery and theme application that are
+//! backend concerns rather than Mara's.
+
+pub mod context_menu;
+pub mod dropdown;
+pub mod scroll;
+pub mod text_input;
+pub mod theme;
+
+#[cfg(test)]
+mod frame_tests;
 
 use egui::{FontId, layers::ShapeIdx};
 
-use crate::{
+use mara_core::{
     layout::{
         AreaHost, AreaSlotSpec, ChildRegion, ContainerBodySpec, CursorIcon, FrameHostSpec,
         InlinePickerSpec, ItemSpacingSpec, Layer, PaintSurfaceRegion, PaintSurfaceSpec,
@@ -17,7 +31,7 @@ use crate::{
 };
 
 #[doc(hidden)]
-pub fn egui_frame_for_style_spec(spec: crate::style::FrameSpec) -> egui::Frame {
+pub fn egui_frame_for_style_spec(spec: mara_core::style::FrameSpec) -> egui::Frame {
     let shadow = spec
         .shadow
         .map(|shadow| egui::epaint::Shadow {
@@ -98,7 +112,7 @@ impl<'a> EguiUiBackend<'a> {
 }
 
 #[allow(dead_code)]
-pub(crate) fn egui_rich_text_for_style_spec(spec: crate::style::TextSpec) -> egui::RichText {
+pub(crate) fn egui_rich_text_for_style_spec(spec: mara_core::style::TextSpec) -> egui::RichText {
     let mut text = egui::RichText::new(spec.text);
     if spec.strong {
         text = text.strong();
@@ -212,7 +226,7 @@ impl UiBackend for EguiUiBackend<'_> {
         ui_available_height(self.ui)
     }
 
-    fn ctx(&self) -> &dyn crate::context::MaraCtx {
+    fn ctx(&self) -> &dyn mara_core::context::MaraCtx {
         &self.ctx
     }
 
@@ -222,8 +236,8 @@ impl UiBackend for EguiUiBackend<'_> {
 
     fn in_region(
         &mut self,
-        region: crate::layout::ChildRegion,
-        body: &mut dyn FnMut(&mut dyn crate::layout::UiBackend),
+        region: mara_core::layout::ChildRegion,
+        body: &mut dyn FnMut(&mut dyn mara_core::layout::UiBackend),
     ) {
         let mut child = child_ui_for_region(self.ui, region);
         let mut inner = EguiUiBackend::new(&mut child);
@@ -253,7 +267,7 @@ impl UiBackend for EguiUiBackend<'_> {
     fn pane_body_slot(
         &mut self,
         spec: PaneBodyScrollSpec,
-        body: &mut dyn FnMut(&mut dyn crate::layout::UiBackend),
+        body: &mut dyn FnMut(&mut dyn mara_core::layout::UiBackend),
     ) {
         show_pane_body_scroll_slot(self.ui, spec, |ui| {
             let mut inner = EguiUiBackend::new(ui);
@@ -272,7 +286,7 @@ impl UiBackend for EguiUiBackend<'_> {
     fn body_slot(
         &mut self,
         spec: ContainerBodySpec,
-        body: &mut dyn FnMut(&mut dyn crate::layout::UiBackend),
+        body: &mut dyn FnMut(&mut dyn mara_core::layout::UiBackend),
     ) -> f32 {
         let (_, height) = show_container_body_slot(self.ui, spec, |ui| {
             let mut inner = EguiUiBackend::new(ui);
@@ -296,8 +310,8 @@ impl UiBackend for EguiUiBackend<'_> {
         available_text_family_for_ui(self.ui, family)
     }
 
-    fn memory(&self) -> crate::memory::BackendMemory<'_> {
-        crate::memory::BackendMemory::Egui(MaraMemoryCtx::new(&self.ctx))
+    fn memory(&self) -> mara_core::memory::BackendMemory<'_> {
+        mara_core::memory::BackendMemory::Egui(MaraMemoryCtx::new(&self.ctx))
     }
 
     fn input(&self) -> MaraInput {
@@ -328,23 +342,23 @@ impl UiBackend for EguiUiBackend<'_> {
         render_paint_cmd_ui(self.ui, cmd);
     }
 
-    fn reserve_paint_slot(&mut self) -> crate::layout::PaintSlot {
+    fn reserve_paint_slot(&mut self) -> mara_core::layout::PaintSlot {
         // The slot carries the layer's own shape index, not a position
         // in some per-wrapper table. A caller may reserve through one
         // short-lived `EguiUiBackend` and fill through another over the
         // same `Ui` — an indirection local to the wrapper would lose
         // the slot silently, painting nothing.
-        crate::layout::PaintSlot(self.ui.painter().add(egui::Shape::Noop).0)
+        mara_core::layout::PaintSlot(self.ui.painter().add(egui::Shape::Noop).0)
     }
 
-    fn fill_paint_slot(&mut self, slot: crate::layout::PaintSlot, cmd: Option<PaintCmd>) {
+    fn fill_paint_slot(&mut self, slot: mara_core::layout::PaintSlot, cmd: Option<PaintCmd>) {
         let shape = cmd.map(shape_from_paint_cmd).unwrap_or(egui::Shape::Noop);
         self.ui.painter().set(ShapeIdx(slot.0), shape);
     }
 
     fn inline_picker_scope(
         &mut self,
-        spec: crate::layout::InlinePickerSpec,
+        spec: mara_core::layout::InlinePickerSpec,
         body: &mut dyn FnMut(&mut dyn UiBackend),
     ) {
         show_inline_picker_scope(self.ui, spec, |ui| {
@@ -357,11 +371,11 @@ impl UiBackend for EguiUiBackend<'_> {
         constrain_ui_to_rect(self.ui, rect);
     }
 
-    fn set_cursor_icon(&mut self, cursor: crate::layout::CursorIcon) {
+    fn set_cursor_icon(&mut self, cursor: mara_core::layout::CursorIcon) {
         set_cursor_icon_for_ui(self.ui, cursor);
     }
 
-    fn hover_cursor(&mut self, response: &MaraResponse, cursor: crate::layout::CursorIcon) {
+    fn hover_cursor(&mut self, response: &MaraResponse, cursor: mara_core::layout::CursorIcon) {
         hover_cursor_for_ui_response(self.ui, response, cursor);
     }
 
@@ -399,7 +413,7 @@ impl UiBackend for EguiUiBackend<'_> {
 
     fn framed(
         &mut self,
-        spec: crate::style::FrameSpec,
+        spec: mara_core::style::FrameSpec,
         body: &mut dyn FnMut(&mut dyn UiBackend),
     ) -> vocab::Rect {
         let frame = egui_frame_for_style_spec(spec);
@@ -416,13 +430,13 @@ impl UiBackend for EguiUiBackend<'_> {
     fn in_row(
         &mut self,
         size: vocab::Vec2,
-        align: crate::layout::CrossAlign,
+        align: mara_core::layout::CrossAlign,
         body: &mut dyn FnMut(&mut dyn UiBackend),
     ) {
         let align = match align {
-            crate::layout::CrossAlign::Start => egui::Align::Min,
-            crate::layout::CrossAlign::Center => egui::Align::Center,
-            crate::layout::CrossAlign::End => egui::Align::Max,
+            mara_core::layout::CrossAlign::Start => egui::Align::Min,
+            mara_core::layout::CrossAlign::Center => egui::Align::Center,
+            mara_core::layout::CrossAlign::End => egui::Align::Max,
         };
         self.ui.allocate_ui_with_layout(
             size.into(),
@@ -447,7 +461,7 @@ impl UiBackend for EguiUiBackend<'_> {
         });
     }
 
-    fn set_layer_transform(&mut self, transform: crate::transform::Transform) {
+    fn set_layer_transform(&mut self, transform: mara_core::transform::Transform) {
         self.ui.ctx().set_transform_layer(
             self.ui.layer_id(),
             egui::emath::TSTransform {
@@ -504,7 +518,7 @@ impl UiBackend for EguiUiBackend<'_> {
         height: f32,
         accent: vocab::Color32,
     ) -> MaraResponse {
-        crate::widget::text_input::text_input_h(self.ui, text, placeholder, accent, height)
+        crate::text_input::text_input_h(self.ui, text, placeholder, accent, height)
     }
 
     fn dropdown(
@@ -514,7 +528,7 @@ impl UiBackend for EguiUiBackend<'_> {
         options: &[&str],
         accent: vocab::Color32,
     ) -> MaraResponse {
-        crate::widget::dropdown::dropdown(self.ui, id_salt, selected, options, accent)
+        crate::dropdown::dropdown(self.ui, id_salt, selected, options, accent)
     }
 
     fn text_edit_at(
@@ -529,7 +543,7 @@ impl UiBackend for EguiUiBackend<'_> {
     fn frame_host(
         &mut self,
         spec: FrameHostSpec,
-        body: &mut dyn FnMut(&mut dyn crate::layout::UiBackend),
+        body: &mut dyn FnMut(&mut dyn mara_core::layout::UiBackend),
     ) -> vocab::Rect {
         show_frame_for_spec(self.ui, spec, |ui| {
             let mut inner = EguiUiBackend::new(ui);
@@ -547,7 +561,7 @@ impl UiBackend for EguiUiBackend<'_> {
         body: &mut dyn FnMut(&mut dyn UiBackend),
     ) {
         with_response_for_ui(self.ui, response, |raw| {
-            crate::widget::context_menu::context_menu_mara(raw, accent, |ui| {
+            crate::context_menu::context_menu_mara(raw, accent, |ui| {
                 let mut inner = EguiUiBackend::new(ui);
                 body(&mut inner);
             });
@@ -573,8 +587,8 @@ impl UiBackend for EguiUiBackend<'_> {
         }
     }
 
-    fn make_painter(&self, spec: PaintSurfaceSpec) -> crate::mui::MaraPainter {
-        crate::mui::MaraPainter::from_sink(Box::new(EguiSink(painter_for_ui_surface(
+    fn make_painter(&self, spec: PaintSurfaceSpec) -> mara_core::mui::MaraPainter {
+        mara_core::mui::MaraPainter::from_sink(Box::new(EguiSink(painter_for_ui_surface(
             self.ui, spec,
         ))))
     }
@@ -726,12 +740,12 @@ pub(crate) fn consume_key(ctx: &egui::Context, key: MaraKey) -> bool {
 
 // ─── Layout pose probe ──────────────────────────────────────────────
 //
-// Backend-side storage + recording for `crate::probe`. A shared log is
+// Backend-side storage + recording for `mara_core::probe`. A shared log is
 // stashed in ctx temp data while enabled; the `UiBackend` allocation /
 // interaction seams and area hosts record into it so a host can dump the
-// whole frame's layout (see `crate::probe::format`).
+// whole frame's layout (see `mara_core::probe::format`).
 
-type PoseLog = std::sync::Arc<std::sync::Mutex<Vec<crate::probe::ElementPose>>>;
+type PoseLog = std::sync::Arc<std::sync::Mutex<Vec<mara_core::probe::ElementPose>>>;
 
 /// Lock-free fast path: when the probe is disabled (the normal case),
 /// `probe_record_response` is called from every allocate/interact, so it
@@ -760,7 +774,7 @@ pub(crate) fn probe_enabled(ctx: &egui::Context) -> bool {
         && ctx.data(|d| d.get_temp::<PoseLog>(pose_log_key()).is_some())
 }
 
-pub(crate) fn probe_record(ctx: &egui::Context, pose: crate::probe::ElementPose) {
+pub(crate) fn probe_record(ctx: &egui::Context, pose: mara_core::probe::ElementPose) {
     if let Some(log) = ctx.data(|d| d.get_temp::<PoseLog>(pose_log_key()))
         && let Ok(mut v) = log.lock()
     {
@@ -768,7 +782,7 @@ pub(crate) fn probe_record(ctx: &egui::Context, pose: crate::probe::ElementPose)
     }
 }
 
-pub(crate) fn probe_drain(ctx: &egui::Context) -> Vec<crate::probe::ElementPose> {
+pub(crate) fn probe_drain(ctx: &egui::Context) -> Vec<mara_core::probe::ElementPose> {
     ctx.data(|d| d.get_temp::<PoseLog>(pose_log_key()))
         .map(|log| {
             log.lock()
@@ -789,7 +803,7 @@ fn probe_record_response(
         return;
     }
     let mut pose =
-        crate::probe::ElementPose::new(kind, resp.rect).interactive(resp.hovered, resp.clicked);
+        mara_core::probe::ElementPose::new(kind, resp.rect).interactive(resp.hovered, resp.clicked);
     if let Some(id) = id {
         pose = pose.with_id(id);
     }
@@ -870,7 +884,7 @@ pub(crate) fn show_area_for_host<R>(
     if probe_enabled(ctx) {
         probe_record(
             ctx,
-            crate::probe::ElementPose::new("area", inner.response.rect.into())
+            mara_core::probe::ElementPose::new("area", inner.response.rect.into())
                 .with_id(host_id)
                 .with_label(format!("{host_layer:?}")),
         );
@@ -886,37 +900,37 @@ pub(crate) fn show_area_for_host<R>(
 /// area-registered painter keeps its registration slot (first-seen
 /// order), letting later-opened areas (panes) stack above it.
 /// Rasterising sink over the backend's painter.
-/// A [`MaraPainter`](crate::mui::MaraPainter) over a backend painter.
+/// A [`MaraPainter`](mara_core::mui::MaraPainter) over a backend painter.
 ///
 /// First-party hook for incremental renderer ports, where a converted
 /// leaf draws through `MaraPainter` while its caller still holds the
 /// backend's own painter.
 #[doc(hidden)]
 #[must_use]
-pub fn __internal_painter_from_egui(painter: egui::Painter) -> crate::mui::MaraPainter {
-    crate::mui::MaraPainter::from_sink(Box::new(EguiSink(painter)))
+pub fn __internal_painter_from_egui(painter: egui::Painter) -> mara_core::mui::MaraPainter {
+    mara_core::mui::MaraPainter::from_sink(Box::new(EguiSink(painter)))
 }
 
 /// An owned backend handle over `ui`, for host plugins that own the
 /// egui pass and lend the surface to `MaraUi::__internal_over`.
 #[doc(hidden)]
 #[must_use]
-pub fn __internal_backend_from_raw(ui: &mut egui::Ui) -> crate::mui::MaraRawBackend<'_> {
-    crate::mui::MaraRawBackend::__internal_from_boxed(Box::new(EguiUiBackend::new(ui)))
+pub fn __internal_backend_from_raw(ui: &mut egui::Ui) -> mara_core::mui::MaraRawBackend<'_> {
+    mara_core::mui::MaraRawBackend::__internal_from_boxed(Box::new(EguiUiBackend::new(ui)))
 }
 
 /// Paint the deepest tag from this frame and clear the slot. Call
 /// once at the END of the top-level UI callback. No-op when the
 /// inspector is off, or when no tag captured the cursor this frame.
 pub fn paint(ctx: &egui::Context) {
-    let seam = crate::backend::egui::EguiCtx::new(ctx);
-    if !crate::debug::is_enabled(&seam) {
+    let seam = crate::EguiCtx::new(ctx);
+    if !mara_core::debug::is_enabled(&seam) {
         return;
     }
-    let mut memory = crate::context::MaraCtx::memory(&seam);
-    let best: Option<crate::debug::Best> =
-        memory.get_temp::<crate::debug::Best>(crate::debug::best_id());
-    memory.remove_temp::<crate::debug::Best>(crate::debug::best_id());
+    let mut memory = mara_core::context::MaraCtx::memory(&seam);
+    let best: Option<mara_core::debug::Best> =
+        memory.get_temp::<mara_core::debug::Best>(mara_core::debug::best_id());
+    memory.remove_temp::<mara_core::debug::Best>(mara_core::debug::best_id());
     let Some(best) = best else {
         return;
     };
@@ -967,23 +981,23 @@ pub fn paint(ctx: &egui::Context) {
 /// the active L1+ module workspace through a host-supplied renderer.
 ///
 /// The app shell does not own module instances, so the host maps
-/// `crate::WorkspaceCtx::level.owner` / module ids to the concrete active
+/// `mara_core::WorkspaceCtx::level.owner` / module ids to the concrete active
 /// module and calls its `workspace`/body renderer inside
 /// `render_workspace`. Any ribbons or override layers added to the
-/// [`crate::WorkspaceCtx`] are then folded into the slot-resolution pass
+/// [`mara_core::WorkspaceCtx`] are then folded into the slot-resolution pass
 /// before painting permanent/view/workspace chrome.
 /// Internal egui render hook for shell chrome plus host-supplied
 /// workspace rendering.
 #[doc(hidden)]
 pub fn __internal_show_app_shell_with_workspace_renderer_egui<F>(
     egui_ctx: &egui::Context,
-    router: &mut crate::ViewRouter,
-    permanent_ribbons: &[crate::ribbon::RibbonSlotDef],
+    router: &mut mara_core::ViewRouter,
+    permanent_ribbons: &[mara_core::ribbon::RibbonSlotDef],
     accent: impl Into<vocab::Color32>,
     render_workspace: F,
-) -> Result<(crate::AppShellResolution, Vec<crate::RibbonActionResult>), crate::AppShellError>
+) -> Result<(mara_core::AppShellResolution, Vec<mara_core::RibbonActionResult>), mara_core::AppShellError>
 where
-    F: FnOnce(&egui::Context, &mut crate::WorkspaceCtx<'_>),
+    F: FnOnce(&egui::Context, &mut mara_core::WorkspaceCtx<'_>),
 {
     let accent = accent.into();
     let depth = router.active_workspace()?.depth();
@@ -992,26 +1006,26 @@ where
 
     if depth > 0 {
         let entry = router.active_entry_mut()?;
-        let mut workspace_ctx = crate::WorkspaceCtx::new(&mut entry.workspace, accent);
+        let mut workspace_ctx = mara_core::WorkspaceCtx::new(&mut entry.workspace, accent);
         render_workspace(egui_ctx, &mut workspace_ctx);
         workspace_ribbons.extend_from_slice(workspace_ctx.ribbons());
         workspace_layers.extend_from_slice(workspace_ctx.ribbon_overrides());
     }
 
-    let resolved = crate::app_shell::resolve_app_shell_ribbons_with_workspace_chrome(
+    let resolved = mara_core::app_shell::resolve_app_shell_ribbons_with_workspace_chrome(
         router,
         permanent_ribbons,
         &workspace_ribbons,
         &workspace_layers,
     )?;
-    let clicks = crate::ribbon::__internal_draw_slot_ribbons_egui(
+    let clicks = mara_core::ribbon::__internal_draw_slot_ribbons_egui(
         &EguiCtx::new(egui_ctx),
         accent,
         &resolved.as_slot_ribbons(),
     );
     let mut results = Vec::with_capacity(clicks.len());
     for click in clicks {
-        results.push(crate::app_shell::dispatch_app_shell_action(
+        results.push(mara_core::app_shell::dispatch_app_shell_action(
             router,
             click.action,
         )?);
@@ -1020,7 +1034,7 @@ where
     if depth == 0 {
         let entry = router.active_entry_mut()?;
         let content_avoidance = entry.view.content_avoidance();
-        let mut ctx = crate::ViewCtx::__internal_new(
+        let mut ctx = crate::theme::__internal_view_ctx(
             egui_ctx,
             &mut entry.workspace,
             accent,
@@ -1035,8 +1049,8 @@ where
 #[doc(hidden)]
 pub struct EguiSink(#[doc(hidden)] pub egui::Painter);
 
-impl crate::mui::PainterSink for EguiSink {
-    fn boxed_clone(&self) -> Box<dyn crate::mui::PainterSink> {
+impl mara_core::mui::PainterSink for EguiSink {
+    fn boxed_clone(&self) -> Box<dyn mara_core::mui::PainterSink> {
         Box::new(Self(self.0.clone()))
     }
 
@@ -1044,7 +1058,7 @@ impl crate::mui::PainterSink for EguiSink {
         painter_clip_rect(&self.0)
     }
 
-    fn with_clip(&self, rect: vocab::Rect) -> Box<dyn crate::mui::PainterSink> {
+    fn with_clip(&self, rect: vocab::Rect) -> Box<dyn mara_core::mui::PainterSink> {
         Box::new(Self(painter_with_clip(&self.0, rect)))
     }
 
@@ -1059,11 +1073,11 @@ impl crate::mui::PainterSink for EguiSink {
     fn measure_text(&self, text: &str, size: f32, mono: bool) -> vocab::Vec2 {
         measure_text_for_spec(
             &self.0,
-            &crate::layout::TextMeasureSpec::new(text, size, mono),
+            &mara_core::layout::TextMeasureSpec::new(text, size, mono),
         )
     }
 
-    fn measure_text_runs(&self, runs: &[crate::paint::TextRun]) -> vocab::Vec2 {
+    fn measure_text_runs(&self, runs: &[mara_core::paint::TextRun]) -> vocab::Vec2 {
         measure_text_runs_for_painter(&self.0, runs)
     }
 }
@@ -1255,7 +1269,7 @@ pub(crate) fn show_popup_open_bool<R>(
     response: &egui::Response,
     open: &mut bool,
     spec: PopupSpec,
-    frame: crate::style::FrameSpec,
+    frame: mara_core::style::FrameSpec,
     body: impl FnOnce(&mut egui::Ui) -> R,
 ) -> Option<egui::InnerResponse<R>> {
     egui::Popup::from_response(response)
@@ -1432,7 +1446,7 @@ pub(crate) fn render_paint_cmd_on_z_layer(
     opacity: f32,
     cmd: PaintCmd,
 ) {
-    let layer_id = crate::layer::layer_id(Into::<egui::Id>::into(id), tier);
+    let layer_id = layer_id(Into::<egui::Id>::into(id), tier);
     match cmd {
         PaintCmd::Svg { .. } => {
             let mut child = ui.new_child(
@@ -1678,7 +1692,6 @@ fn arc_polyline(
 ///
 /// This is not app-facing API; future backends should consume
 /// `PaintCmd` directly through their own renderer.
-#[cfg(feature = "backend-egui-conv")]
 #[doc(hidden)]
 pub fn __internal_render_paint_cmd_egui(painter: &egui::Painter, cmd: PaintCmd) {
     render_paint_cmd(painter, cmd);
@@ -2007,7 +2020,7 @@ fn render_svg_cmd(ui: &mut egui::Ui, svg: String, rect: vocab::Rect, tint: vocab
 /// paint into. A painter has none, so this resolves the texture through
 /// the context's loader chain itself and emits a plain textured quad.
 /// Without this, [`PaintCmd::Svg`] silently drew nothing whenever a
-/// surface painted through [`crate::MaraPainter`] rather than a `Ui` —
+/// surface painted through [`mara_core::MaraPainter`] rather than a `Ui` —
 /// which is every sealed module.
 fn render_svg_cmd_painter(
     painter: &egui::Painter,
@@ -2054,7 +2067,7 @@ fn svg_stable_hash(svg: &str) -> u64 {
     h
 }
 
-fn egui_mesh_from_mara(vertices: Vec<crate::paint::PaintVertex>, indices: Vec<u32>) -> egui::Mesh {
+fn egui_mesh_from_mara(vertices: Vec<mara_core::paint::PaintVertex>, indices: Vec<u32>) -> egui::Mesh {
     let vertices = vertices
         .into_iter()
         .map(|vertex| egui::epaint::Vertex {
@@ -2174,7 +2187,7 @@ fn layout_job_for_text_runs(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::vocab::{Color32, CornerRadius, Pos2, Rect, Stroke, Vec2};
+    use mara_core::vocab::{Color32, CornerRadius, Pos2, Rect, Stroke, Vec2};
 
     /// A floating surface paints with the accent its host names, not
     /// the process-wide one.
@@ -2185,17 +2198,17 @@ mod tests {
     /// owns — a mismatch nothing would have reported.
     #[test]
     fn area_body_paints_with_the_hosts_accent() {
-        use crate::context::MaraCtx;
+        use mara_core::context::MaraCtx;
 
         let want = Color32::from_rgb(1, 2, 3);
         assert_ne!(
             want,
-            crate::style::active_accent(),
+            mara_core::style::active_accent(),
             "the global accent must differ, or this test passes vacuously"
         );
 
         let raw = egui::Context::default();
-        let ctx = crate::backend::egui::EguiCtx::new(&raw);
+        let ctx = crate::EguiCtx::new(&raw);
         let mut seen = None;
         let _ = ctx.run_ui(Default::default(), |ui| {
             MaraCtx::area(
@@ -2381,8 +2394,8 @@ mod offscreen {
     use std::collections::HashMap;
     use std::sync::{Arc, Mutex};
 
-    use crate::mui::MaraUi;
-    use crate::vocab;
+    use mara_core::mui::MaraUi;
+    use mara_core::vocab;
 
     /// A surface's retained GPU + context state, reused frame to frame.
     struct OffscreenSurface {
@@ -2493,7 +2506,7 @@ mod offscreen {
             ..Default::default()
         };
         let output = surface.ctx.run_ui(raw_input, |ui| {
-            let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
+            let mut backend = crate::EguiUiBackend::new(ui);
             body(&mut MaraUi::over(&mut backend, accent));
         });
         let primitives = surface
@@ -2692,7 +2705,7 @@ struct MaraStateMap(
         std::sync::Mutex<
             std::collections::HashMap<
                 (vocab::Id, bool, std::any::TypeId),
-                crate::memory::StateCell,
+                mara_core::memory::StateCell,
             >,
         >,
     >,
@@ -2714,13 +2727,13 @@ fn mara_state_map(ctx: &egui::Context) -> MaraStateMap {
     })
 }
 
-impl crate::memory::MaraStore for EguiCtx {
+impl mara_core::memory::MaraStore for EguiCtx {
     fn get_any(
         &self,
         id: vocab::Id,
         persisted: bool,
         ty: std::any::TypeId,
-    ) -> Option<crate::memory::StateCell> {
+    ) -> Option<mara_core::memory::StateCell> {
         let map = mara_state_map(self);
         let guard = map.0.lock().unwrap_or_else(|e| e.into_inner());
         guard.get(&(id, persisted, ty)).cloned()
@@ -2731,7 +2744,7 @@ impl crate::memory::MaraStore for EguiCtx {
         id: vocab::Id,
         persisted: bool,
         ty: std::any::TypeId,
-        value: crate::memory::StateCell,
+        value: mara_core::memory::StateCell,
     ) {
         let map = mara_state_map(self);
         let mut guard = map.0.lock().unwrap_or_else(|e| e.into_inner());
@@ -2761,7 +2774,7 @@ impl crate::memory::MaraStore for EguiCtx {
     }
 }
 
-impl crate::context::MaraCtx for EguiCtx {
+impl mara_core::context::MaraCtx for EguiCtx {
     fn input(&self) -> MaraInput {
         input_snapshot(self)
     }
@@ -2796,13 +2809,13 @@ impl crate::context::MaraCtx for EguiCtx {
 
     fn area(
         &self,
-        host: crate::layout::AreaHost,
-        body: &mut dyn FnMut(&mut crate::MaraUi<'_>),
+        host: mara_core::layout::AreaHost,
+        body: &mut dyn FnMut(&mut mara_core::MaraUi<'_>),
     ) -> vocab::Rect {
-        let accent = host.accent.unwrap_or_else(crate::style::active_accent);
+        let accent = host.accent.unwrap_or_else(mara_core::style::active_accent);
         show_area_for_host(self, host, |ui| {
             let mut backend = EguiUiBackend::new(ui);
-            let mut mara = crate::MaraUi::over(&mut backend, accent);
+            let mut mara = mara_core::MaraUi::over(&mut backend, accent);
             body(&mut mara);
         })
         .response
@@ -2812,13 +2825,13 @@ impl crate::context::MaraCtx for EguiCtx {
 
     fn area_slot(
         &self,
-        spec: crate::layout::AreaSlotSpec,
-        body: &mut dyn FnMut(&mut crate::MaraUi<'_>),
+        spec: mara_core::layout::AreaSlotSpec,
+        body: &mut dyn FnMut(&mut mara_core::MaraUi<'_>),
     ) -> vocab::Rect {
-        let accent = spec.host.accent.unwrap_or_else(crate::style::active_accent);
+        let accent = spec.host.accent.unwrap_or_else(mara_core::style::active_accent);
         show_area_slot(self, spec, |ui| {
             let mut backend = EguiUiBackend::new(ui);
-            let mut mara = crate::MaraUi::over(&mut backend, accent);
+            let mut mara = mara_core::MaraUi::over(&mut backend, accent);
             body(&mut mara);
         })
         .response
@@ -2828,11 +2841,11 @@ impl crate::context::MaraCtx for EguiCtx {
 
     fn layer_painter(
         &self,
-        layer: crate::layout::Layer,
+        layer: mara_core::layout::Layer,
         id: vocab::Id,
         clip: vocab::Rect,
-    ) -> crate::MaraPainter {
-        crate::MaraPainter::from_sink(Box::new(EguiSink(area_registered_painter(
+    ) -> mara_core::MaraPainter {
+        mara_core::MaraPainter::from_sink(Box::new(EguiSink(area_registered_painter(
             self, layer, id, clip,
         ))))
     }
@@ -2860,7 +2873,7 @@ impl crate::context::MaraCtx for EguiCtx {
         probe_enabled(self)
     }
 
-    fn probe_record(&self, pose: crate::probe::ElementPose) {
+    fn probe_record(&self, pose: mara_core::probe::ElementPose) {
         probe_record(self, pose);
     }
 
@@ -2868,12 +2881,12 @@ impl crate::context::MaraCtx for EguiCtx {
         probe_set_enabled(self, on);
     }
 
-    fn probe_drain(&self) -> Vec<crate::probe::ElementPose> {
+    fn probe_drain(&self) -> Vec<mara_core::probe::ElementPose> {
         probe_drain(self)
     }
 
     fn enforce_defaults(&self) {
-        crate::enforce::__internal_enforce_defaults(self);
+        crate::theme::__internal_enforce_defaults(self);
     }
 
     fn load_texture(
@@ -2890,7 +2903,31 @@ impl crate::context::MaraCtx for EguiCtx {
         MaraMemoryCtx::__internal_from_backend_ctx(self)
     }
 
-    fn boxed_clone(&self) -> Box<dyn crate::context::MaraCtx + '_> {
+    fn boxed_clone(&self) -> Box<dyn mara_core::context::MaraCtx + '_> {
         Box::new(self.clone())
     }
+}
+
+/// Map a Mara z-tier to egui's [`Order`]. Tier `0` reads as 1; tiers
+/// above 1000 clamp to 1000 (Debug).
+///
+/// Lives here rather than in `mara_core::layer` because `Order` and
+/// [`LayerId`] are egui types — the tier constants stay in core, the
+/// mapping onto a backend's layer model is a backend concern.
+#[inline]
+pub fn order_for(tier: u16) -> egui::Order {
+    match tier {
+        0..=40 => egui::Order::Middle,
+        41..=70 => egui::Order::Foreground,
+        71..=95 => egui::Order::Tooltip,
+        _ => egui::Order::Debug,
+    }
+}
+
+/// Build a [`LayerId`] for the given tier, salted with `salt`. The
+/// tier number is folded into the id so two callers at different
+/// tiers always resolve to distinct sublayers even if they share
+/// `salt`.
+pub fn layer_id(salt: impl std::hash::Hash, tier: u16) -> egui::LayerId {
+    egui::LayerId::new(order_for(tier), egui::Id::new(("mara_z", tier, salt)))
 }

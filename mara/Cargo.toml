@@ -12,6 +12,7 @@ mara_canvas = { workspace = true, optional = true }
 mara_board = { workspace = true, optional = true }
 mara_code = { workspace = true, optional = true }
 mara_core = { path = "../crates/core", default-features = false }
+mara_backend_egui = { path = "../crates/backend-egui", default-features = false }
 mara_graph = { workspace = true, optional = true }
 mara_image = { workspace = true, optional = true }
 mara_map = { workspace = true, optional = true }
@@ -56,7 +57,7 @@ map = ["dep:mara_map"]
 three-d = ["dep:mara_3d", "mara_3d/gpu-preview"]
 # Offscreen UI surfaces (`ViewCtx::offscreen`). Forwarded from
 # `mara_core` so a consumer enables it once, on the facade.
-gpu = ["mara_core/gpu"]
+gpu = ["mara_core/gpu", "mara_backend_egui/gpu"]
 bevy = ["dep:mara_bevy"]
 window = [
     "egui-wgpu/winit",

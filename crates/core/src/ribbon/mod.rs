@@ -14,7 +14,8 @@
 
 pub mod action;
 #[allow(dead_code)]
-pub(crate) mod chrome;
+#[doc(hidden)]
+pub mod chrome;
 pub mod dispatch;
 mod paint;
 pub mod permanent;

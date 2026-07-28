@@ -66,7 +66,7 @@ use mara_core::vocab::{Color32 as MaraColor32, Vec2 as MaraVec2};
 /// Everything else stays at the library default so scroll / zoom /
 /// selection interactions remain familiar to upstream users.
 pub fn mara_node_graph_style(accent: impl Into<MaraColor32>) -> GraphStyle {
-    let accent = mara_core::backend::egui::color32_for_backend(accent.into());
+    let accent = mara_backend_egui::color32_for_backend(accent.into());
     // ── Blender-style geometry ──
     // Blender (4.x) measures all node geometry off `widget_unit = 20 px`:
     //   * NODE_DY (header height, row height) = widget_unit = 20 px
@@ -355,7 +355,7 @@ pub fn mara_node_graph_with_opts<T, V: NodeViewer<T>>(
     // target size so the secondary egui context renders at the
     // exact pixel dimensions of whichever surface owns the pane
     // this frame.
-    let mut surface = mara_core::backend::egui::__internal_backend_from_raw(ui);
+    let mut surface = mara_backend_egui::__internal_backend_from_raw(ui);
     let mut mara = mara_core::MaraUi::__internal_over(&mut surface, accent);
     mara_core::embed::__internal_maximizable_with_opts_egui(
         &mut mara,
@@ -372,13 +372,13 @@ pub fn mara_node_graph_with_opts<T, V: NodeViewer<T>>(
             // install is one-shot; theme apply runs each frame so a
             // mid-session theme swap re-tints the sub-context too.
             if state.take_first_frame() {
-                mara_core::style::__internal_install_fonts(
+                mara_backend_egui::theme::__internal_install_fonts(
                     state.__internal_ctx(),
                     mara_core::style::font_weight(),
                     mara_core::style::title_weight(),
                 );
             }
-            mara_core::style::__internal_apply_theme_to(
+            mara_backend_egui::theme::__internal_apply_theme_to(
                 state.__internal_ctx(),
                 mara_core::style::AccentColor(mara_core::style::active_accent()),
                 mara_core::style::glass_opacity(),

@@ -310,7 +310,8 @@ pub struct RibbonDrag {
     pub source: Option<(&'static str, RibbonCluster, u32)>,
 }
 
-pub(crate) fn chrome_bounds_key() -> crate::vocab::Id {
+#[doc(hidden)]
+pub fn chrome_bounds_key() -> crate::vocab::Id {
     crate::vocab::Id::new("mara_ribbon_chrome_bounds")
 }
 
@@ -332,7 +333,8 @@ fn chrome_rect(ctx: &dyn crate::context::MaraCtx) -> MaraRect {
 /// the "side rail / panes stop tracking window resize" bug, and it
 /// bit hosts that never did anything wrong (a single stale write
 /// stuck forever). See [`crate::shelf::__internal_publish_shelf_layout`].
-pub(crate) fn fresh_chrome_bounds(ctx: &dyn crate::context::MaraCtx) -> MaraRect {
+#[doc(hidden)]
+pub fn fresh_chrome_bounds(ctx: &dyn crate::context::MaraCtx) -> MaraRect {
     let rect = crate::shelf::__internal_shelf_layout(ctx)
         .map(|layout| layout.viewport)
         .unwrap_or_else(|| MaraCtx::content_rect(ctx));
@@ -412,7 +414,8 @@ fn clusters_for_mode(mode: RibbonMode) -> &'static [RibbonCluster] {
 }
 
 #[derive(Clone, Copy, Default)]
-pub(crate) struct SideInsets {
+#[doc(hidden)]
+pub struct SideInsets {
     left: f32,
     right: f32,
     top: f32,
@@ -427,7 +430,8 @@ fn item_id(item: &RibbonSlotItem) -> Option<&'static str> {
     item.chrome_id
 }
 
-pub(crate) fn compute_side_insets(ribbons: &[ResolvedSlotRibbon]) -> SideInsets {
+#[doc(hidden)]
+pub fn compute_side_insets(ribbons: &[ResolvedSlotRibbon]) -> SideInsets {
     // Keep the exact old assembly spacing: when a perpendicular
     // rail exists, reserve its edge gap + button + one inter-button
     // gap. Do not add a second edge gap here, or side ribbons drift
@@ -463,7 +467,8 @@ fn enforce_single_open_side(
 
 /// Pure side-exclusivity: close every open pane on the side opposite
 /// the just-opened pane. No breakpoint check — the caller gates.
-fn close_opposite_side_panes(
+#[doc(hidden)]
+pub fn close_opposite_side_panes(
     ribbons: &[ResolvedSlotRibbon],
     open: &mut RibbonOpen,
     opened_rid: &'static str,
@@ -491,7 +496,8 @@ fn close_opposite_side_panes(
     }
 }
 
-pub(crate) fn insets_for_ribbon(
+#[doc(hidden)]
+pub fn insets_for_ribbon(
     ribbons: &[ResolvedSlotRibbon],
     ribbon: &ResolvedSlotRibbon,
     base: SideInsets,
@@ -527,7 +533,8 @@ pub(crate) fn insets_for_ribbon(
     out
 }
 
-fn strip_rect(
+#[doc(hidden)]
+pub fn strip_rect(
     ribbon: &ResolvedSlotRibbon,
     ctx: &dyn crate::context::MaraCtx,
     insets: SideInsets,
@@ -655,13 +662,15 @@ fn cluster_region(
 }
 
 #[derive(Clone, Copy)]
-pub(crate) struct ButtonPlacement {
+#[doc(hidden)]
+pub struct ButtonPlacement {
     screen: MaraRect,
     anchor: MaraAlign2,
     offset: MaraVec2,
 }
 
-pub(crate) fn place_button(
+#[doc(hidden)]
+pub fn place_button(
     ctx: &dyn crate::context::MaraCtx,
     ribbon: &ResolvedSlotRibbon,
     cluster: RibbonCluster,
@@ -754,7 +763,8 @@ pub(crate) fn place_button(
     }
 }
 
-pub(crate) fn screen_rect(placement: ButtonPlacement) -> MaraRect {
+#[doc(hidden)]
+pub fn screen_rect(placement: ButtonPlacement) -> MaraRect {
     let screen = placement.screen;
     let size = MaraVec2::new(SIDE_BTN_SIZE, SIDE_BTN_SIZE);
     let anchor = placement.anchor;
@@ -1400,347 +1410,5 @@ fn resolve_drop(
                 placement.overrides.insert(id, (r, c_raw, n as u32));
             }
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::ribbon::{RibbonAction, RibbonScope};
-
-    fn test_ctx_with_chrome(rect: egui::Rect) -> crate::backend::egui::EguiCtx {
-        let raw = egui::Context::default();
-        let ctx = crate::backend::egui::EguiCtx::new(&raw);
-        crate::memory::MaraMemoryCtx::new(&ctx).set_temp(chrome_bounds_key(), MaraRect::from(rect));
-        ctx
-    }
-
-    fn test_ctx_with_screen_and_chrome(
-        screen: egui::Rect,
-        chrome: egui::Rect,
-    ) -> crate::backend::egui::EguiCtx {
-        let raw = egui::Context::default();
-        let ctx = crate::backend::egui::EguiCtx::new(&raw);
-        ctx.begin_pass(egui::RawInput {
-            screen_rect: Some(screen),
-            ..Default::default()
-        });
-        crate::memory::MaraMemoryCtx::new(&ctx)
-            .set_temp(chrome_bounds_key(), MaraRect::from(chrome));
-        ctx
-    }
-
-    fn ribbon(edge: RibbonEdge) -> ResolvedSlotRibbon {
-        ribbon_with_id("test_ribbon", edge)
-    }
-
-    fn ribbon_with_id(id: &'static str, edge: RibbonEdge) -> ResolvedSlotRibbon {
-        ResolvedSlotRibbon {
-            id: crate::vocab::Id::new((id, edge)),
-            chrome_id: Some(id),
-            scope: RibbonScope::Permanent,
-            edge,
-            role: RibbonRole::Icon,
-            mode: RibbonMode::ThreeSided,
-            cluster: RibbonCluster::Middle,
-            accepts: &["*"],
-            items: vec![
-                RibbonSlotItem::featureful("test_item", "info", "Test", "Test", RibbonAction::Noop)
-                    .draggable(true),
-            ],
-        }
-    }
-
-    #[test]
-    fn bottom_bar_spans_full_width_side_rails_inset() {
-        // The bottom bar runs corner-to-corner; the side rails stop
-        // short above it. Holds in BOTH declaration orders, so a
-        // relocated main bar dropped to the bottom still spans fully.
-        let chrome = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(800.0, 480.0));
-        let ctx = test_ctx_with_chrome(chrome);
-        let left = ribbon_with_id("left", RibbonEdge::Left);
-        let bottom = ribbon_with_id("bottom", RibbonEdge::Bottom);
-
-        for order in [
-            vec![left.clone(), bottom.clone()],
-            vec![bottom.clone(), left.clone()],
-        ] {
-            let base = compute_side_insets(&order);
-            let left_ribbon = order.iter().find(|r| r.edge == RibbonEdge::Left).unwrap();
-            let bottom_ribbon = order.iter().find(|r| r.edge == RibbonEdge::Bottom).unwrap();
-            let left_strip = strip_rect(
-                left_ribbon,
-                &ctx,
-                insets_for_ribbon(&order, left_ribbon, base),
-            );
-            let bottom_strip = strip_rect(
-                bottom_ribbon,
-                &ctx,
-                insets_for_ribbon(&order, bottom_ribbon, base),
-            );
-            // Bottom bar reaches the left edge (owns the corner).
-            assert_eq!(bottom_strip.left(), chrome.left() + EDGE_GAP);
-            // Side rail stops above the bottom bar.
-            assert!(left_strip.bottom() < bottom_strip.top());
-        }
-    }
-
-    #[test]
-    fn opening_a_side_pane_closes_the_opposite_side() {
-        let left = ribbon_with_id("left", RibbonEdge::Left);
-        let right = ribbon_with_id("right", RibbonEdge::Right);
-        let ribbons = vec![left, right];
-        let mut open = RibbonOpen::default();
-        open.set("left", "left_pane");
-        open.set("right", "right_pane");
-
-        // Just opened the left pane → the right side must close.
-        close_opposite_side_panes(&ribbons, &mut open, "left");
-        assert!(open.is_open("left", "left_pane"));
-        assert!(open.get("right").is_none());
-
-        // Now open the right pane → the left side closes.
-        open.set("right", "right_pane");
-        close_opposite_side_panes(&ribbons, &mut open, "right");
-        assert!(open.is_open("right", "right_pane"));
-        assert!(open.get("left").is_none());
-    }
-
-    #[test]
-    fn fresh_chrome_bounds_track_window_resize_without_explicit_publish() {
-        // No shelf layout published. The bounds must follow the live
-        // window each pass — regression for the self-perpetuating
-        // chrome_bounds_key that froze side ribbons at frame 1.
-        let raw = egui::Context::default();
-        let ctx = crate::backend::egui::EguiCtx::new(&raw);
-
-        ctx.begin_pass(egui::RawInput {
-            screen_rect: Some(egui::Rect::from_min_size(
-                egui::pos2(0.0, 0.0),
-                egui::vec2(800.0, 480.0),
-            )),
-            ..Default::default()
-        });
-        // Chrome bounds reserve the (assumed-present) top bar strip, so the
-        // content area starts one rail clearance below the window top.
-        let cr = ctx.content_rect();
-        assert_eq!(
-            fresh_chrome_bounds(&ctx),
-            MaraRect::from_min_max(
-                MaraPos2::new(cr.min.x, cr.min.y + ribbon_clearance()),
-                cr.max,
-            )
-        );
-        // Simulate the renderer writing the key (what froze it before).
-        let first = fresh_chrome_bounds(&ctx);
-        crate::memory::MaraMemoryCtx::new(&ctx).set_temp(chrome_bounds_key(), first);
-        let _ = ctx.end_pass();
-
-        // Window grows on the next pass.
-        ctx.begin_pass(egui::RawInput {
-            screen_rect: Some(egui::Rect::from_min_size(
-                egui::pos2(0.0, 0.0),
-                egui::vec2(1200.0, 700.0),
-            )),
-            ..Default::default()
-        });
-        let second = fresh_chrome_bounds(&ctx);
-        let _ = ctx.end_pass();
-
-        assert_eq!(
-            second,
-            MaraRect::from(egui::Rect::from_min_max(
-                egui::pos2(0.0, ribbon_clearance()),
-                egui::pos2(1200.0, 700.0)
-            )),
-            "chrome bounds must follow the resized window, not the stale write"
-        );
-        assert_ne!(second, first, "bounds must not freeze at the first pass");
-    }
-
-    #[test]
-    fn fresh_chrome_bounds_prefer_published_shelf_viewport() {
-        let raw = egui::Context::default();
-        let ctx = crate::backend::egui::EguiCtx::new(&raw);
-        ctx.begin_pass(egui::RawInput {
-            screen_rect: Some(egui::Rect::from_min_size(
-                egui::pos2(0.0, 0.0),
-                egui::vec2(800.0, 480.0),
-            )),
-            ..Default::default()
-        });
-        let reserved = egui::Rect::from_min_max(egui::pos2(60.0, 40.0), egui::pos2(740.0, 480.0));
-        crate::shelf::__internal_publish_shelf_layout(
-            &ctx,
-            crate::shelf::ShelfLayout::full(reserved),
-        );
-        // The published shelf viewport is preferred, then the top-bar strip
-        // is reserved on top of it.
-        assert_eq!(
-            fresh_chrome_bounds(&ctx),
-            MaraRect::from(egui::Rect::from_min_max(
-                egui::pos2(60.0, 40.0 + ribbon_clearance()),
-                egui::pos2(740.0, 480.0)
-            ))
-        );
-        let _ = ctx.end_pass();
-    }
-
-    #[test]
-    fn top_ribbon_uses_full_window_even_when_chrome_bounds_are_reserved() {
-        let screen = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(800.0, 480.0));
-        let chrome = egui::Rect::from_min_max(egui::pos2(220.0, 0.0), egui::pos2(620.0, 480.0));
-        let ctx = test_ctx_with_screen_and_chrome(screen, chrome);
-        let top = ribbon_with_id("top", RibbonEdge::Top);
-        let left = ribbon_with_id("left", RibbonEdge::Left);
-        let ribbons = vec![top, left];
-        let base = compute_side_insets(&ribbons);
-
-        let top_strip = strip_rect(
-            &ribbons[0],
-            &ctx,
-            insets_for_ribbon(&ribbons, &ribbons[0], base),
-        );
-        assert_eq!(top_strip.left(), screen.left() + EDGE_GAP);
-        assert_eq!(top_strip.right(), screen.right() - EDGE_GAP);
-
-        let left_strip = strip_rect(
-            &ribbons[1],
-            &ctx,
-            insets_for_ribbon(&ribbons, &ribbons[1], base),
-        );
-        assert_eq!(left_strip.left(), chrome.left() + EDGE_GAP);
-    }
-
-    #[test]
-    fn vertical_middle_buttons_center_against_published_chrome_height() {
-        let chrome = egui::Rect::from_min_size(egui::pos2(24.0, 40.0), egui::vec2(320.0, 384.0));
-        let ctx = test_ctx_with_chrome(chrome);
-        let insets = SideInsets::default();
-
-        for edge in [RibbonEdge::Left, RibbonEdge::Right] {
-            let ribbon = ribbon(edge);
-            let rect = screen_rect(place_button(
-                &ctx,
-                &ribbon,
-                RibbonCluster::Middle,
-                0,
-                1,
-                insets,
-            ));
-
-            assert_eq!(rect.center().y, chrome.center().y);
-        }
-    }
-
-    #[test]
-    fn vertical_middle_button_group_centers_against_published_chrome_height() {
-        let chrome = egui::Rect::from_min_size(egui::pos2(0.0, 96.0), egui::vec2(480.0, 512.0));
-        let ctx = test_ctx_with_chrome(chrome);
-        let insets = SideInsets::default();
-        let ribbon = ribbon(RibbonEdge::Left);
-
-        let first = screen_rect(place_button(
-            &ctx,
-            &ribbon,
-            RibbonCluster::Middle,
-            0,
-            3,
-            insets,
-        ));
-        let last = screen_rect(place_button(
-            &ctx,
-            &ribbon,
-            RibbonCluster::Middle,
-            2,
-            3,
-            insets,
-        ));
-        let group_center = (first.center().y + last.center().y) * 0.5;
-
-        assert_eq!(group_center, chrome.center().y);
-    }
-
-    #[test]
-    fn featureful_button_placement_uses_mara_geometry() {
-        let chrome = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(800.0, 480.0));
-        let ctx = test_ctx_with_chrome(chrome);
-        let ribbon = ribbon(RibbonEdge::Bottom);
-
-        let rect: MaraRect = screen_rect(place_button(
-            &ctx,
-            &ribbon,
-            RibbonCluster::End,
-            0,
-            1,
-            SideInsets::default(),
-        ));
-
-        assert_eq!(rect.bottom(), chrome.bottom() - EDGE_GAP);
-        assert_eq!(rect.right(), chrome.right());
-    }
-
-    #[test]
-    fn ribbon_open_rejects_blank_chrome_ids() {
-        let mut open = RibbonOpen::default();
-
-        let blank_ribbon = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            open.set(" ", "item");
-        }));
-        let blank_item = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            open.toggle("ribbon", " ");
-        }));
-
-        assert!(blank_ribbon.is_err());
-        assert!(blank_item.is_err());
-    }
-
-    #[test]
-    fn ribbon_width_sanitizes_invalid_values() {
-        let mut widths = RibbonWidth::default();
-
-        widths.set("ribbon", RibbonCluster::Start, -12.0);
-        assert_eq!(widths.get("ribbon", RibbonCluster::Start), Some(0.0));
-
-        widths.set("ribbon", RibbonCluster::Start, f32::NAN);
-        assert_eq!(widths.get("ribbon", RibbonCluster::Start), None);
-
-        widths
-            .per_cluster
-            .insert(("ribbon", RibbonCluster::Middle), f32::NEG_INFINITY);
-        assert_eq!(widths.get("ribbon", RibbonCluster::Middle), None);
-
-        let blank_ribbon = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            widths.set(" ", RibbonCluster::End, 10.0);
-        }));
-        assert!(blank_ribbon.is_err());
-    }
-
-    #[test]
-    fn ribbon_placement_rejects_blank_ids_and_ignores_invalid_direct_targets() {
-        let mut placement = RibbonPlacement::default();
-        placement.set("item", "target", RibbonCluster::End, 3);
-        assert_eq!(
-            placement.resolve_parts("item", "source", RibbonCluster::Start, 0),
-            ("target", RibbonCluster::End, 3)
-        );
-
-        placement
-            .overrides
-            .insert("bad-target", (" ", RibbonCluster::End, 9));
-        assert_eq!(
-            placement.resolve_parts("bad-target", "source", RibbonCluster::Start, 0),
-            ("source", RibbonCluster::Start, 0)
-        );
-
-        let blank_item = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            placement.set(" ", "target", RibbonCluster::Middle, 0);
-        }));
-        let blank_fallback = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            let _ = placement.resolve_parts("item", " ", RibbonCluster::Middle, 0);
-        }));
-
-        assert!(blank_item.is_err());
-        assert!(blank_fallback.is_err());
     }
 }

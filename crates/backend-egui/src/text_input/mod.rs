@@ -25,7 +25,7 @@
 
 use egui;
 
-use crate::{
+use mara_core::{
     layout::{Sense, TextEditRegion, TextEditSpec, UiBackend},
     mui::MaraResponse,
     paint::PaintCmd,
@@ -52,7 +52,7 @@ pub(crate) fn text_input_h(
 ) -> MaraResponse {
     let accent = accent.into();
     let chrome = {
-        let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
+        let mut backend = crate::EguiUiBackend::new(ui);
         text_input_chrome_backend(&mut backend, !text.is_empty(), accent, height)
     };
     let mut cleared = false;
@@ -77,7 +77,7 @@ pub(crate) fn text_input_h(
         dim_text,
         style::on_track_dim(),
     );
-    let edit_output = crate::backend::egui::show_singleline_text_edit_for_spec(ui, text, text_spec);
+    let edit_output = crate::show_singleline_text_edit_for_spec(ui, text, text_spec);
     // Extend the response's rect from the inner TextEdit to the
     // full painted field — the leading magnifier glyph, the trailing
     // clear button, and the rounded glass border are all PART of
@@ -177,19 +177,19 @@ pub fn text_input_chrome_backend(
 mod tests {
     use super::*;
 
-    use crate::backend::record::RecordingBackend;
+    use mara_core::backend::record::RecordingBackend;
 
     #[test]
     fn text_input_chrome_backend_emits_field_search_and_clear() {
         let mut backend = RecordingBackend {
-            available: Rect::from_min_size(Pos2::ZERO, Vec2::new(240.0, crate::style::UNIT)),
+            available: Rect::from_min_size(Pos2::ZERO, Vec2::new(240.0, mara_core::style::UNIT)),
             paints: Vec::new(),
             interaction: None,
             ..Default::default()
         };
 
         let chrome =
-            text_input_chrome_backend(&mut backend, true, Color32::WHITE, crate::style::UNIT);
+            text_input_chrome_backend(&mut backend, true, Color32::WHITE, mara_core::style::UNIT);
 
         assert_eq!(chrome.rect.width(), 240.0);
         assert!(chrome.clear_response.is_some());
@@ -210,14 +210,14 @@ mod tests {
     #[test]
     fn text_input_chrome_backend_omits_clear_for_empty_text() {
         let mut backend = RecordingBackend {
-            available: Rect::from_min_size(Pos2::ZERO, Vec2::new(240.0, crate::style::UNIT)),
+            available: Rect::from_min_size(Pos2::ZERO, Vec2::new(240.0, mara_core::style::UNIT)),
             paints: Vec::new(),
             interaction: None,
             ..Default::default()
         };
 
         let chrome =
-            text_input_chrome_backend(&mut backend, false, Color32::WHITE, crate::style::UNIT);
+            text_input_chrome_backend(&mut backend, false, Color32::WHITE, mara_core::style::UNIT);
 
         assert!(chrome.clear_response.is_none());
         assert_eq!(backend.paints.len(), 3);

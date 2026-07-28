@@ -5,6 +5,7 @@ members = [
     "mara",
     "mara/plugin/bevy",
     "crates/core",
+    "crates/backend-egui",
     "crates/modules/code",
     "crates/modules/graph",
     "crates/modules/image",
@@ -66,6 +67,7 @@ bevy = { version = "0.19", default-features = false }
 # theme, embed mechanism). Package id is `mara_core`, which avoids
 # shadowing Rust's std `core` in derive expansions.
 mara_core = { path = "crates/core" }
+mara_backend_egui = { path = "crates/backend-egui" }
 mara_gpu = { path = "crates/gpu" }
 # `mara_graph` — standalone vendored node-graph crate (forked from
 # `egui-snarl`, see `crates/modules/graph/ACKNOWLEDGEMENTS.md`

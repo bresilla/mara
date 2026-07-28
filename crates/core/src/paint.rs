@@ -201,11 +201,6 @@ impl PaintList {
     }
 }
 
-#[cfg(feature = "backend-egui-conv")]
-#[doc(hidden)]
-pub fn __internal_render_paint_cmd_egui_ui(ui: &mut egui::Ui, cmd: PaintCmd) {
-    crate::backend::egui::render_paint_cmd_ui(ui, cmd);
-}
 
 #[cfg(test)]
 mod tests {

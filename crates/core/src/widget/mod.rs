@@ -10,9 +10,7 @@ pub mod button;
 pub mod chip;
 pub mod color;
 pub mod color_picker;
-pub(crate) mod context_menu;
 pub mod drag_value;
-pub mod dropdown;
 pub mod foldable;
 pub mod keybinding;
 pub mod label;
@@ -21,7 +19,6 @@ pub mod readout;
 pub mod select;
 pub mod slider;
 pub mod text_area;
-pub mod text_input;
 pub mod toggle;
 pub mod tree;
 
@@ -30,9 +27,12 @@ pub use button::{
     ActionButton, ActionButtonResponse, BUTTON_ACTION_GAP, BUTTON_ACTION_W, BUTTON_LABEL_FONT,
     BUTTON_ROW_H, BUTTON_ROW_H_SUBTITLE, Button, CARD_BUTTON_ROW_H, FillStyle,
 };
+/// Default trigger height — the canonical 1U row used elsewhere in
+/// the kit.
+pub const DROPDOWN_ROW_H: f32 = crate::style::UNIT;
+
 pub use chip::CHIP_H;
 pub use color::COLOR_SWATCH_H;
-pub use dropdown::DROPDOWN_ROW_H;
 pub use keybinding::KEYBINDING_ROW_H;
 pub use label::{LABEL_FONT, LABEL_ROW_H};
 pub use progressbar::PROGRESSBAR_ROW_H;

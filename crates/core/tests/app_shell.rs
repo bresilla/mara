@@ -402,7 +402,7 @@ fn app_shell_calls_workspace_renderer_for_l1() {
     let mut called = false;
 
     let (resolved, _) =
-        mara_core::backend::egui::__internal_show_app_shell_with_workspace_renderer_egui(
+        mara_backend_egui::__internal_show_app_shell_with_workspace_renderer_egui(
             &egui_ctx,
             &mut router,
             &permanent_main_with_system_control(),

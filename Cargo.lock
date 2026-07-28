@@ -3597,6 +3597,7 @@ dependencies = [
  "egui-wgpu",
  "egui-winit",
  "mara_3d",
+ "mara_backend_egui",
  "mara_bevy",
  "mara_board",
  "mara_canvas",
@@ -3621,6 +3622,19 @@ dependencies = [
  "mara_core",
  "three-d",
  "wgpu",
+]
+
+[[package]]
+name = "mara_backend_egui"
+version = "0.4.1"
+dependencies = [
+ "egui",
+ "egui-scale",
+ "egui-wgpu",
+ "egui_extras",
+ "iconflow",
+ "mara_core",
+ "mara_gpu",
 ]
 
 [[package]]
@@ -3668,6 +3682,7 @@ dependencies = [
  "egui-wgpu",
  "egui_extras",
  "iconflow",
+ "mara_backend_egui",
  "mara_gpu",
  "pastel",
  "serde",
@@ -3708,6 +3723,7 @@ version = "0.4.1"
 dependencies = [
  "egui",
  "egui-wgpu",
+ "mara_backend_egui",
  "mara_core",
  "serde",
  "slab",

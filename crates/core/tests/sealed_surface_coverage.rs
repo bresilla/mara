@@ -215,14 +215,14 @@ fn f3_svg_paint_command_reaches_a_rasteriser() {
     const MARKER: &str = r##"<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12 2 22 12 12 22 2 12Z" fill="#ffffff"/></svg>"##;
 
     let ctx = egui::Context::default();
-    mara_core::enforce::__internal_enforce_defaults(&ctx);
+    mara_backend_egui::theme::__internal_enforce_defaults(&ctx);
 
     // The loader rasterises off-frame, so poll a few frames before
     // concluding anything — one pass is expected to report Pending.
     let mut resolved = false;
     for _ in 0..64 {
         let _ = ctx.run_ui(Default::default(), |ui| {
-            mara_core::backend::egui::__internal_render_paint_cmd_egui(
+            mara_backend_egui::__internal_render_paint_cmd_egui(
                 ui.painter(),
                 PaintCmd::Svg {
                     svg: MARKER.to_owned(),
@@ -405,7 +405,7 @@ fn d13_cache_sweeps_once_per_frame_not_once_per_access() {
     let key = mara_core::vocab::Id::new("wires");
 
     let _ = ctx.run_ui(Default::default(), |ui| {
-        let store = mara_core::backend::egui::EguiCtx::new(ui.ctx());
+        let store = mara_backend_egui::EguiCtx::new(ui.ctx());
         let mut memory = MaraMemoryCtx::__internal_from_backend_ctx(&store);
         // Three accesses inside one frame must produce exactly one sweep.
         for _ in 0..3 {
@@ -421,7 +421,7 @@ fn d13_cache_sweeps_once_per_frame_not_once_per_access() {
     });
 
     let _ = ctx.run_ui(Default::default(), |ui| {
-        let store = mara_core::backend::egui::EguiCtx::new(ui.ctx());
+        let store = mara_backend_egui::EguiCtx::new(ui.ctx());
         let mut memory = MaraMemoryCtx::__internal_from_backend_ctx(&store);
         let cache = memory.cache::<Counted>(key);
         assert_eq!(

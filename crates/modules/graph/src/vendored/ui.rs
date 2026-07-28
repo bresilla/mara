@@ -994,7 +994,7 @@ where
     let (mut latest_pos, modifiers) = ui.ctx().input(|i| (i.pointer.latest_pos(), i.modifiers));
 
     let bg_frame = style.get_bg_frame(mara_core::style::active_accent());
-    let bg_frame_backend = mara_core::backend::egui::egui_frame_for_style_spec(bg_frame);
+    let bg_frame_backend = mara_backend_egui::egui_frame_for_style_spec(bg_frame);
 
     let outer_size_bounds = egui::Vec2::from(
         Vec2::from(ui.available_size_before_wrap())
@@ -1039,7 +1039,7 @@ where
 
     if style.get_crisp_magnified_text() {
         style.scale(max_scale);
-        let mut raw = mara_core::backend::egui::__internal_backend_from_raw(&mut ui);
+        let mut raw = mara_backend_egui::__internal_backend_from_raw(&mut ui);
         mara_core::MaraUi::__internal_over(&mut raw, mara_core::vocab::Color32::WHITE)
             .scale_style(max_scale);
 
@@ -1188,7 +1188,7 @@ where
     let mut wire_shapes: Vec<mara_core::paint::PaintCmd> = Vec::new();
     // The seam while `ui.rs` is still egui-typed (PLAN.md WS-D1.3):
     // `wire.rs` speaks Mara memory + a clip rect, so build them once.
-    let wire_store = mara_core::backend::egui::EguiCtx::new(ui.ctx());
+    let wire_store = mara_backend_egui::EguiCtx::new(ui.ctx());
     let mut wire_memory =
         mara_core::memory::MaraMemoryCtx::__internal_from_backend_ctx(&wire_store);
     let wire_clip: mara_core::vocab::Rect = ui.clip_rect().into();
@@ -1551,7 +1551,7 @@ where
 
     graph_state.store(graph, ui.ctx());
 
-    mara_core::backend::egui::mara_response_from(&graph_resp)
+    mara_backend_egui::mara_response_from(&graph_resp)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1621,7 +1621,7 @@ where
             // Show input content
             let node_pin = {
                 let accent = mara_core::style::active_accent();
-                let mut raw = mara_core::backend::egui::__internal_backend_from_raw(pin_ui);
+                let mut raw = mara_backend_egui::__internal_backend_from_raw(pin_ui);
                 let mut mui = mara_core::MaraUi::__internal_over(&mut raw, accent);
                 viewer.show_input(in_pin, &mut mui, graph)
             };
@@ -1697,7 +1697,7 @@ where
                 style,
                 pin_ui.style(),
                 visual_pin_rect.into(),
-                &mara_core::backend::egui::__internal_painter_from_egui(pin_ui.painter().clone()),
+                &mara_backend_egui::__internal_painter_from_egui(pin_ui.painter().clone()),
             );
 
             input_positions.insert(
@@ -1796,7 +1796,7 @@ where
             // Show output content
             let node_pin = {
                 let accent = mara_core::style::active_accent();
-                let mut raw = mara_core::backend::egui::__internal_backend_from_raw(pin_ui);
+                let mut raw = mara_backend_egui::__internal_backend_from_raw(pin_ui);
                 let mut mui = mara_core::MaraUi::__internal_over(&mut raw, accent);
                 viewer.show_output(out_pin, &mut mui, graph)
             };
@@ -1872,7 +1872,7 @@ where
                 style,
                 pin_ui.style(),
                 visual_pin_rect.into(),
-                &mara_core::backend::egui::__internal_painter_from_egui(pin_ui.painter().clone()),
+                &mara_backend_egui::__internal_painter_from_egui(pin_ui.painter().clone()),
             );
 
             output_positions.insert(
@@ -2108,7 +2108,7 @@ where
         .node_halo
         .map(|_| with_mara_ui(node_ui, |mara| mara.reserve_paint_slot()));
 
-    let r = mara_core::backend::egui::egui_frame_for_style_spec(node_frame).show(node_ui, |ui| {
+    let r = mara_backend_egui::egui_frame_for_style_spec(node_frame).show(node_ui, |ui| {
         if viewer.has_node_style(node, &inputs, &outputs, graph) {
             viewer.apply_node_style(ui.style_mut(), node, &inputs, &outputs, graph);
         }
@@ -2633,7 +2633,7 @@ where
                 .id_salt("header"),
         );
 
-        mara_core::backend::egui::egui_frame_for_style_spec(header_frame).show(
+        mara_backend_egui::egui_frame_for_style_spec(header_frame).show(
             header_ui,
             |ui: &mut Ui| {
                 ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
@@ -2872,7 +2872,7 @@ const fn graph_style_is_send_sync() {
 /// separable; the helper disappears when the render path ports.
 fn with_mara_ui<R>(ui: &mut Ui, body: impl for<'a> FnOnce(&mut mara_core::MaraUi<'a>) -> R) -> R {
     let accent = mara_core::style::active_accent();
-    let mut raw = mara_core::backend::egui::__internal_backend_from_raw(ui);
+    let mut raw = mara_backend_egui::__internal_backend_from_raw(ui);
     let mut mara = mara_core::MaraUi::__internal_over(&mut raw, accent);
     body(&mut mara)
 }

@@ -206,7 +206,8 @@ impl MaraAnim for MaraMemoryCtx<'_> {
 }
 
 impl<'a> MaraMemoryCtx<'a> {
-    pub(crate) fn new(store: &'a dyn MaraStore) -> Self {
+    #[doc(hidden)]
+    pub fn new(store: &'a dyn MaraStore) -> Self {
         Self { store }
     }
 

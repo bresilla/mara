@@ -168,7 +168,8 @@ pub struct RecordingBackend {
     /// clip has to be readable back: a surface asks what it is clipped
     /// to, and a headless backend that always answered "everything"
     /// would let a clipping bug pass its own tests.
-    pub(crate) clip_stack: Vec<Rect>,
+    #[doc(hidden)]
+    pub clip_stack: Vec<Rect>,
     /// Every paint command emitted, in order.
     pub paints: Vec<PaintCmd>,
     /// When set, `interact` returns a clone of this response instead of

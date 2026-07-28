@@ -7102,7 +7102,7 @@ where
         .unwrap_or(0);
     let labels: Vec<&str> = options.iter().map(|(l, _)| *l).collect();
     const SLOT_W: f32 = 140.0;
-    let h = mara_core::widget::dropdown::DROPDOWN_ROW_H;
+    let h = mara_core::widget::DROPDOWN_ROW_H;
     let mut changed = false;
     ui.row(
         MaraVec2::new(SLOT_W, h),

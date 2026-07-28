@@ -216,8 +216,8 @@ impl<'a> MaraHostCtx<'a> {
     /// callers bind it and lend `&seam` where a `&dyn MaraCtx` is
     /// wanted. `MaraHostCtx` stays `Copy` this way.
     #[must_use]
-    pub fn seam(&self) -> mara_core::backend::egui::EguiCtx {
-        mara_core::backend::egui::EguiCtx::new(self.egui)
+    pub fn seam(&self) -> mara_backend_egui::EguiCtx {
+        mara_backend_egui::EguiCtx::new(self.egui)
     }
 
     pub fn new(
@@ -330,7 +330,7 @@ impl<'a> MaraHostCtx<'a> {
         accent: impl Into<mara_core::vocab::Color32>,
         body: impl FnOnce(&mut mara_core::MaraUi<'_>, mara_core::vocab::Rect) -> R,
     ) -> R {
-        mara_core::enforce::__internal_enforce_defaults(&self.seam());
+        mara_backend_egui::theme::__internal_enforce_defaults(&self.seam());
         let accent = accent.into();
         // The body gets the FULL content rect (edge to edge, top to
         // bottom) so a root surface can paint full-bleed *behind* the
@@ -343,7 +343,7 @@ impl<'a> MaraHostCtx<'a> {
                 .frame(egui::Frame::new().fill(egui::Color32::TRANSPARENT))
                 .show(&self.seam(), |ui| {
                     let screen_rect = ui.max_rect().into();
-                    let mut __raw = mara_core::backend::egui::__internal_backend_from_raw(ui);
+                    let mut __raw = mara_backend_egui::__internal_backend_from_raw(ui);
                     let mut mui = mara_core::MaraUi::__internal_over(&mut __raw, accent);
                     body(&mut mui, screen_rect)
                 })
@@ -405,7 +405,7 @@ impl<'a> MaraHostCtx<'a> {
                 d.insert_temp(egui::Id::new("mara_gpu_target_format"), state.target_format);
             });
         }
-        mara_core::ViewCtx::__internal_new(self.egui, workspace, accent, ribbon_avoidance)
+        mara_backend_egui::theme::__internal_view_ctx(self.egui, workspace, accent, ribbon_avoidance)
     }
 
     /// Publish the layout rectangle left after structural shelves reserve
@@ -510,7 +510,7 @@ impl<'a> MaraHostCtx<'a> {
         glass: mara_core::style::GlassOpacity,
     ) {
         mara_core::style::set_glass_opacity(glass.0);
-        mara_core::style::__internal_apply_theme(&self.seam(), accent, glass);
+        mara_backend_egui::theme::__internal_apply_theme(&self.seam(), accent, glass);
         mara_core::window_chrome::__internal_publish_window_chrome_host_capabilities(
             &self.seam(),
             mara_core::WindowChromeHostCapabilities {
