@@ -885,18 +885,34 @@ impl From<TextureId> for egui::TextureId {
     }
 }
 
+/// A backend's retained texture.
+///
+/// Two things Mara needs from a texture it does not own: keeping it
+/// alive (`Drop` on the last clone frees it), and replacing its pixels
+/// **in place**. The second is why this is a trait rather than
+/// `Arc<dyn Any>` — a render loop that re-uploads a preview every frame
+/// must reuse one texture, and going back through
+/// [`MaraCtx::load_texture`](crate::context::MaraCtx::load_texture)
+/// would allocate a new one each time.
+pub trait RetainedTexture: std::any::Any + Send + Sync {
+    /// Replace this texture's contents, keeping its id.
+    fn set(&self, image: ColorImage, options: TextureOptions);
+
+    /// Upcast, so a backend can recover its own handle type.
+    fn as_any(&self) -> &dyn std::any::Any;
+}
+
 /// A retained texture, owned for as long as the handle lives.
 ///
 /// The id and size are plain data, but the retention is not: dropping
 /// the last clone has to free the texture in whichever backend uploaded
-/// it. So the backend's own handle rides along erased — Mara never
-/// names its type, and never needs to, because the only thing Mara does
-/// with it is keep it alive.
+/// it. So the backend's own handle rides along behind
+/// [`RetainedTexture`] — Mara never names its type.
 #[derive(Clone)]
 pub struct TextureHandle {
     id: TextureId,
     size: [usize; 2],
-    retained: std::sync::Arc<dyn std::any::Any + Send + Sync>,
+    retained: std::sync::Arc<dyn RetainedTexture>,
 }
 
 impl TextureHandle {
@@ -908,9 +924,22 @@ impl TextureHandle {
     pub fn new(
         id: TextureId,
         size: [usize; 2],
-        retained: std::sync::Arc<dyn std::any::Any + Send + Sync>,
+        retained: std::sync::Arc<dyn RetainedTexture>,
     ) -> Self {
         Self { id, size, retained }
+    }
+
+    /// Replace this texture's pixels, keeping the id.
+    ///
+    /// The in-place counterpart to
+    /// [`MaraCtx::load_texture`](crate::context::MaraCtx::load_texture):
+    /// a surface that re-rasterises every frame calls this instead of
+    /// uploading a fresh texture per frame.
+    ///
+    /// The size is not updated — a resize needs a new texture, because
+    /// backends may not reallocate under a live id.
+    pub fn set(&self, image: ColorImage, options: TextureOptions) {
+        self.retained.set(image, options);
     }
 
     /// Id for painting this texture with
@@ -932,7 +961,7 @@ impl TextureHandle {
     /// backend itself, and by hosts that registered the texture.
     #[must_use]
     pub fn retained<T: std::any::Any + Send + Sync>(&self) -> Option<&T> {
-        self.retained.downcast_ref::<T>()
+        self.retained.as_any().downcast_ref::<T>()
     }
 }
 
@@ -942,6 +971,25 @@ impl std::fmt::Debug for TextureHandle {
             .field("id", &self.id)
             .field("size", &self.size)
             .finish_non_exhaustive()
+    }
+}
+
+/// egui's handle already owns its texture manager, so replacing pixels
+/// needs no context — it just needs a `&mut`, and the handle is cheap to
+/// clone (it is `Arc` inside).
+#[cfg(feature = "backend-egui-conv")]
+impl RetainedTexture for egui::TextureHandle {
+    fn set(&self, image: ColorImage, options: TextureOptions) {
+        let mut handle = self.clone();
+        let image: egui::ColorImage = image.into();
+        // Qualified: this trait's own `set` takes `&self` and would win
+        // the autoref race against egui's inherent `&mut self` one,
+        // recursing forever.
+        egui::TextureHandle::set(&mut handle, image, options.into());
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
     }
 }
 

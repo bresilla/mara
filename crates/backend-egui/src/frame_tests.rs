@@ -1522,3 +1522,80 @@ mod icons {
         );
     }
 }
+
+/// The in-place texture update behind `vocab::TextureHandle::set`.
+mod retained_texture {
+    use mara_core::context::MaraCtx;
+    use mara_core::vocab::{Color32, ColorImage, TextureOptions};
+
+    fn image(size: [usize; 2], fill: Color32) -> ColorImage {
+        ColorImage::from_rgba_pixels(size, &vec![fill; size[0] * size[1]])
+    }
+
+    /// `set` reuses the texture; `load_texture` allocates another.
+    ///
+    /// This is the whole reason the seam grew `RetainedTexture` — a
+    /// preview that re-rasterises every frame must not mint a texture
+    /// per frame (PLAN.md WS-C2.4).
+    #[test]
+    fn set_keeps_the_id_where_a_reload_does_not() {
+        let raw = egui::Context::default();
+        let ctx = crate::EguiCtx::new(&raw);
+        raw.begin_pass(egui::RawInput::default());
+
+        let handle = MaraCtx::load_texture(
+            &ctx,
+            "retained",
+            image([2, 2], Color32::from_rgb(255, 0, 0)),
+            TextureOptions::NEAREST,
+        )
+        .expect("egui backend has a texture store");
+        let first = handle.id();
+
+        handle.set(image([2, 2], Color32::from_rgb(0, 255, 0)), TextureOptions::NEAREST);
+        assert_eq!(
+            handle.id(),
+            first,
+            "set replaces contents in place, so the id must survive"
+        );
+
+        let reloaded = MaraCtx::load_texture(
+            &ctx,
+            "retained",
+            image([2, 2], Color32::from_rgb(0, 0, 255)),
+            TextureOptions::NEAREST,
+        )
+        .expect("egui backend has a texture store");
+        assert_ne!(
+            reloaded.id(),
+            first,
+            "load_texture allocates a fresh texture — that is what set avoids"
+        );
+
+        let _ = raw.end_pass();
+    }
+
+    /// The size a handle reports is the size it was uploaded at; `set`
+    /// does not resize, because backends may not reallocate under a
+    /// live id.
+    #[test]
+    fn set_does_not_change_the_reported_size() {
+        let raw = egui::Context::default();
+        let ctx = crate::EguiCtx::new(&raw);
+        raw.begin_pass(egui::RawInput::default());
+
+        let handle = MaraCtx::load_texture(
+            &ctx,
+            "sized",
+            image([4, 2], Color32::from_rgb(255, 0, 0)),
+            TextureOptions::LINEAR,
+        )
+        .expect("egui backend has a texture store");
+        assert_eq!(handle.size(), [4, 2]);
+
+        handle.set(image([4, 2], Color32::from_rgb(0, 255, 0)), TextureOptions::LINEAR);
+        assert_eq!(handle.size(), [4, 2]);
+
+        let _ = raw.end_pass();
+    }
+}

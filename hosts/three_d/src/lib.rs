@@ -8,6 +8,9 @@
 
 #![allow(clippy::too_many_arguments, clippy::question_mark)]
 
+use mara_backend_egui::EguiCtx;
+use mara_core::context::MaraCtx;
+use mara_core::vocab::{ColorImage as MaraColorImage, TextureOptions as MaraTextureOptions};
 use mara_core::{
     MaraModule, MaraView, ModuleInlineCtx, ModuleResponse, RibbonAction, RibbonCluster, RibbonEdge,
     RibbonOverridePolicy, RibbonScope, RibbonSlot, RibbonSlotDef, RibbonSlotId, RibbonSlotItem,
@@ -370,7 +373,7 @@ pub struct View3d {
     id: egui::Id,
     scene: Scene3d,
     orbit: Orbit3d,
-    preview_texture: Option<egui::TextureHandle>,
+    preview_texture: Option<mara_core::vocab::TextureHandle>,
     gizmo_drag: Option<GizmoDragState>,
     #[cfg(feature = "gpu-preview")]
     gpu_callback_id: u64,
@@ -3303,7 +3306,7 @@ fn paint_faces_supersampled(
     ui: &egui::Ui,
     painter: &egui::Painter,
     rect: MaraRect,
-    texture: &mut Option<egui::TextureHandle>,
+    texture: &mut Option<mara_core::vocab::TextureHandle>,
     faces: Vec<PreviewFace>,
 ) {
     let low_width = rect.width().round().max(1.0) as usize;
@@ -3321,30 +3324,29 @@ fn paint_faces_supersampled(
         rasterize_face(rect, scale, width, height, &mut pixels, &mut depth, &face);
     }
 
-    // The CPU rasteriser above works in Mara vocabulary; this is the
-    // one place the pixels cross into the backend's image type.
-    let image = egui::ColorImage {
-        size: [width, height],
-        pixels: pixels.into_iter().map(Into::into).collect(),
-        source_size: egui::vec2(width as f32, height as f32),
-    };
+    let image = MaraColorImage::from_rgba_pixels([width, height], &pixels);
 
+    // Same size: replace the pixels in place, keeping one texture for
+    // the life of the preview. Only a resize allocates (PLAN.md
+    // WS-C2.4) — re-uploading every frame would mint a texture per
+    // frame in a render loop.
     match texture {
         Some(texture) if texture.size() == [width, height] => {
-            texture.set(image, egui::TextureOptions::LINEAR);
+            texture.set(image, MaraTextureOptions::LINEAR);
         }
         _ => {
-            *texture = Some(ui.ctx().load_texture(
+            *texture = MaraCtx::load_texture(
+                &EguiCtx::new(ui.ctx()),
                 "mara_3d_supersampled_preview",
                 image,
-                egui::TextureOptions::LINEAR,
-            ));
+                MaraTextureOptions::LINEAR,
+            );
         }
     }
 
     if let Some(texture) = texture {
         painter.image(
-            texture.id(),
+            texture.id().into(),
             rect.into(),
             egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0)),
             egui::Color32::WHITE,

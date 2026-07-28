@@ -15,6 +15,7 @@ bytemuck = { version = "1", features = ["derive"], optional = true }
 egui = { workspace = true, default-features = false }
 egui-wgpu = { workspace = true, optional = true }
 mara_core = { workspace = true }
+mara_backend_egui = { workspace = true }
 three-d = { version = "0.19", default-features = false }
 wgpu = { workspace = true, optional = true }
 

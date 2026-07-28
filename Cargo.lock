@@ -3619,6 +3619,7 @@ dependencies = [
  "bytemuck",
  "egui",
  "egui-wgpu",
+ "mara_backend_egui",
  "mara_core",
  "three-d",
  "wgpu",
