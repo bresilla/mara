@@ -31,13 +31,11 @@ use crate::widget::{
     chip::{chip_colored_backend, chip_fill},
     color::{color_rgb, color_rgba},
     drag_value::drag_value_backend,
-    dropdown::dropdown,
     keybinding::keybinding_row_backend,
     progressbar::progressbar_backend,
     readout::readout_backend,
     select::{hybrid_select_row_backend, select_row_backend},
     slider::slider_backend,
-    text_input::text_input,
     toggle::toggle_backend,
 };
 
@@ -1610,32 +1608,31 @@ fn paint_widgets(
                 .expect("in_id_scope body runs exactly once");
             match spec {
                 WidgetSpec::Search(cfg) => {
-                    if let Some(ui) = backend.__internal_egui_ui_mut() {
-                        let buf_key = pod_id.with(("mara_pod_search_buf", search_idx));
-                        let mut buf: String = crate::memory::MaraMemoryCtx::new(ui.ctx())
-                            .get_temp::<String>(buf_key)
-                            .unwrap_or_default();
-                        let resp = text_input(ui, &mut buf, &cfg.placeholder, cfg.accent);
-                        let changed = resp.changed();
-                        if changed {
-                            crate::memory::MaraMemoryCtx::new(ui.ctx())
-                                .set_temp(buf_key, buf.clone());
-                        }
-                        crate::debug::tag(
-                            ui.ctx(),
-                            resp.rect.into(),
-                            format!("widget[text_input/search #{}]", search_idx),
-                        );
-                        response.searches.push(SearchResponse {
-                            query: buf,
-                            changed,
-                        });
-                    } else {
-                        response.searches.push(SearchResponse {
-                            query: String::new(),
-                            changed: false,
-                        });
+                    let buf_key = pod_id.with(("mara_pod_search_buf", search_idx));
+                    let mut buf: String = backend
+                        .ctx()
+                        .memory()
+                        .get_temp::<String>(buf_key)
+                        .unwrap_or_default();
+                    let resp = backend.text_input(
+                        &mut buf,
+                        &cfg.placeholder,
+                        crate::style::UNIT,
+                        cfg.accent,
+                    );
+                    let changed = resp.changed();
+                    if changed {
+                        backend.ctx().memory().set_temp(buf_key, buf.clone());
                     }
+                    crate::debug::tag(
+                        backend.ctx(),
+                        resp.rect.into(),
+                        format!("widget[text_input/search #{}]", search_idx),
+                    );
+                    response.searches.push(SearchResponse {
+                        query: buf,
+                        changed,
+                    });
                     search_idx += 1;
                 }
                 WidgetSpec::Button(cfg) => {
@@ -1827,39 +1824,33 @@ fn paint_widgets(
                     drag_value_idx += 1;
                 }
                 WidgetSpec::Dropdown(cfg) => {
-                    if let Some(ui) = backend.__internal_egui_ui_mut() {
-                        let val_key = pod_id.with(("mara_pod_dropdown_idx", dropdown_idx));
-                        let mut sel: usize = crate::memory::MaraMemoryCtx::new(ui.ctx())
-                            .get_persisted::<usize>(val_key)
-                            .unwrap_or(cfg.initial)
-                            .min(cfg.options.len().saturating_sub(1));
-                        let opts: Vec<&str> = cfg.options.iter().map(String::as_str).collect();
-                        let resp = dropdown(
-                            ui,
-                            ("mara_pod_dropdown", dropdown_idx),
-                            &mut sel,
-                            &opts,
-                            cfg.accent,
-                        );
-                        let changed = resp.changed();
-                        if changed {
-                            crate::memory::MaraMemoryCtx::new(ui.ctx()).set_persisted(val_key, sel);
-                        }
-                        crate::debug::tag(
-                            ui.ctx(),
-                            resp.rect.into(),
-                            format!("widget[dropdown #{}]", dropdown_idx),
-                        );
-                        response.dropdowns.push(DropdownResponse {
-                            selected: sel,
-                            changed,
-                        });
-                    } else {
-                        response.dropdowns.push(DropdownResponse {
-                            selected: cfg.initial,
-                            changed: false,
-                        });
+                    let val_key = pod_id.with(("mara_pod_dropdown_idx", dropdown_idx));
+                    let mut sel: usize = backend
+                        .ctx()
+                        .memory()
+                        .get_persisted::<usize>(val_key)
+                        .unwrap_or(cfg.initial)
+                        .min(cfg.options.len().saturating_sub(1));
+                    let opts: Vec<&str> = cfg.options.iter().map(String::as_str).collect();
+                    let resp = backend.dropdown(
+                        Id::new(("mara_pod_dropdown", dropdown_idx)),
+                        &mut sel,
+                        &opts,
+                        cfg.accent,
+                    );
+                    let changed = resp.changed();
+                    if changed {
+                        backend.ctx().memory().set_persisted(val_key, sel);
                     }
+                    crate::debug::tag(
+                        backend.ctx(),
+                        resp.rect.into(),
+                        format!("widget[dropdown #{}]", dropdown_idx),
+                    );
+                    response.dropdowns.push(DropdownResponse {
+                        selected: sel,
+                        changed,
+                    });
                     dropdown_idx += 1;
                 }
                 WidgetSpec::Select(cfg) => {
@@ -1941,52 +1932,44 @@ fn paint_widgets(
                     hybrid_select_idx += 1;
                 }
                 WidgetSpec::Color(cfg) => {
-                    if let Some(ui) = backend.__internal_egui_ui_mut() {
-                        let val_key = pod_id.with(("mara_pod_color_val", color_idx));
-                        let mut rgba: [f32; 4] = crate::memory::MaraMemoryCtx::new(ui.ctx())
-                            .get_persisted::<[f32; 4]>(val_key)
-                            .unwrap_or(cfg.initial);
-                        let changed = if cfg.alpha {
-                            let resp = {
-                                let mut raw = crate::MaraUi::__internal_backend_from_raw(ui);
-                                let mut mara = crate::MaraUi::__internal_over(&mut raw, cfg.accent);
-                                color_rgba(&mut mara, &cfg.label, &mut rgba, cfg.accent)
-                            };
-                            crate::debug::tag(
-                                ui.ctx(),
-                                resp.rect.into(),
-                                format!("widget[color_rgba #{}]", color_idx),
-                            );
-                            resp.changed()
-                        } else {
-                            let mut rgb = [rgba[0], rgba[1], rgba[2]];
-                            let resp = {
-                                let mut raw = crate::MaraUi::__internal_backend_from_raw(ui);
-                                let mut mara = crate::MaraUi::__internal_over(&mut raw, cfg.accent);
-                                color_rgb(&mut mara, &cfg.label, &mut rgb, cfg.accent)
-                            };
-                            rgba[0] = rgb[0];
-                            rgba[1] = rgb[1];
-                            rgba[2] = rgb[2];
-                            rgba[3] = 1.0;
-                            crate::debug::tag(
-                                ui.ctx(),
-                                resp.rect.into(),
-                                format!("widget[color_rgb #{}]", color_idx),
-                            );
-                            resp.changed()
+                    let val_key = pod_id.with(("mara_pod_color_val", color_idx));
+                    let mut rgba: [f32; 4] = backend
+                        .ctx()
+                        .memory()
+                        .get_persisted::<[f32; 4]>(val_key)
+                        .unwrap_or(cfg.initial);
+                    let changed = if cfg.alpha {
+                        let resp = {
+                            let mut mara = crate::MaraUi::over(&mut *backend, cfg.accent);
+                            color_rgba(&mut mara, &cfg.label, &mut rgba, cfg.accent)
                         };
-                        if changed {
-                            crate::memory::MaraMemoryCtx::new(ui.ctx())
-                                .set_persisted(val_key, rgba);
-                        }
-                        response.colors.push(ColorResponse { rgba, changed });
+                        crate::debug::tag(
+                            backend.ctx(),
+                            resp.rect.into(),
+                            format!("widget[color_rgba #{}]", color_idx),
+                        );
+                        resp.changed()
                     } else {
-                        response.colors.push(ColorResponse {
-                            rgba: cfg.initial,
-                            changed: false,
-                        });
+                        let mut rgb = [rgba[0], rgba[1], rgba[2]];
+                        let resp = {
+                            let mut mara = crate::MaraUi::over(&mut *backend, cfg.accent);
+                            color_rgb(&mut mara, &cfg.label, &mut rgb, cfg.accent)
+                        };
+                        rgba[0] = rgb[0];
+                        rgba[1] = rgb[1];
+                        rgba[2] = rgb[2];
+                        rgba[3] = 1.0;
+                        crate::debug::tag(
+                            backend.ctx(),
+                            resp.rect.into(),
+                            format!("widget[color_rgb #{}]", color_idx),
+                        );
+                        resp.changed()
+                    };
+                    if changed {
+                        backend.ctx().memory().set_persisted(val_key, rgba);
                     }
+                    response.colors.push(ColorResponse { rgba, changed });
                     color_idx += 1;
                 }
                 WidgetSpec::Readout(cfg) => {

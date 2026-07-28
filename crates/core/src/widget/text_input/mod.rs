@@ -38,18 +38,6 @@ const GLYPH_W: f32 = 18.0;
 /// Padding between the text and the glyph columns.
 const TEXT_PAD: f32 = 4.0;
 
-/// Render a text input at the canonical 1U height
-/// ([`crate::style::UNIT`]). See [`text_input_h`] for the
-/// variable-height variant used by resizable pods.
-pub(crate) fn text_input(
-    ui: &mut egui::Ui,
-    text: &mut String,
-    placeholder: &str,
-    accent: impl Into<Color32>,
-) -> MaraResponse {
-    text_input_h(ui, text, placeholder, accent, crate::style::UNIT)
-}
-
 /// Render a text input bound to `text` at the requested `height`.
 /// `placeholder` shows as a dim hint when the buffer is empty.
 /// Returns the inner `TextEdit`'s `Response` (with `.rect` extended
