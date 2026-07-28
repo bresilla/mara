@@ -348,7 +348,8 @@ mod tests {
 
     #[test]
     fn memory_ctx_uses_mara_ids_for_temp_and_persisted_values() {
-        let ctx = egui::Context::default();
+        let raw = egui::Context::default();
+        let ctx = crate::backend::egui::EguiCtx::new(&raw);
         let key = Id::new("memory-test");
 
         let mut memory = MaraMemoryCtx::new(&ctx);
@@ -365,7 +366,8 @@ mod tests {
     /// caller falls back to a default. These pin all three.
     #[test]
     fn erased_store_keys_on_id_and_type_and_half() {
-        let ctx = egui::Context::default();
+        let raw = egui::Context::default();
+        let ctx = crate::backend::egui::EguiCtx::new(&raw);
         let key = Id::new("erasure");
         let mut memory = MaraMemoryCtx::new(&ctx);
 
@@ -409,7 +411,8 @@ mod tests {
     /// is keyed by the host, not by the handle that reached it.
     #[test]
     fn facades_over_one_context_share_a_store() {
-        let ctx = egui::Context::default();
+        let raw = egui::Context::default();
+        let ctx = crate::backend::egui::EguiCtx::new(&raw);
         let key = Id::new("shared");
 
         MaraMemoryCtx::new(&ctx).set_temp(key, 5_u32);

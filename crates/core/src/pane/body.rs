@@ -637,7 +637,8 @@ mod tests {
 
     #[test]
     fn pane_rejects_duplicate_tab_ids_across_containers() {
-        let ctx = egui::Context::default();
+        let raw = egui::Context::default();
+        let ctx = crate::backend::egui::EguiCtx::new(&raw);
         let pane_id = Id::new("pane");
         ctx.begin_pass(egui::RawInput {
             screen_rect: Some(egui::Rect::from_min_size(
@@ -648,7 +649,8 @@ mod tests {
         });
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             egui::CentralPanel::default().show(&ctx, |ui| {
-                crate::memory::MaraMemoryCtx::new(ui.ctx()).set_temp(active_pane_key(), pane_id);
+                crate::memory::MaraMemoryCtx::new(&crate::backend::egui::store_for_ui(ui))
+                    .set_temp(active_pane_key(), pane_id);
                 let mut backend =
                     crate::mui::MaraBackend::Egui(crate::backend::egui::EguiUiBackend::new(ui));
                 let mut mara = crate::MaraUi::over(&mut backend, crate::vocab::Color32::WHITE);
@@ -684,7 +686,8 @@ mod tests {
 
     #[test]
     fn pane_rejects_duplicate_container_ids() {
-        let ctx = egui::Context::default();
+        let raw = egui::Context::default();
+        let ctx = crate::backend::egui::EguiCtx::new(&raw);
         let pane_id = Id::new("pane");
         ctx.begin_pass(egui::RawInput {
             screen_rect: Some(egui::Rect::from_min_size(
@@ -695,7 +698,8 @@ mod tests {
         });
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             egui::CentralPanel::default().show(&ctx, |ui| {
-                crate::memory::MaraMemoryCtx::new(ui.ctx()).set_temp(active_pane_key(), pane_id);
+                crate::memory::MaraMemoryCtx::new(&crate::backend::egui::store_for_ui(ui))
+                    .set_temp(active_pane_key(), pane_id);
                 let mut backend =
                     crate::mui::MaraBackend::Egui(crate::backend::egui::EguiUiBackend::new(ui));
                 let mut mara = crate::MaraUi::over(&mut backend, crate::vocab::Color32::WHITE);
@@ -721,7 +725,8 @@ mod tests {
 
     #[test]
     fn single_tabbed_container_still_registers_tab_strip() {
-        let ctx = egui::Context::default();
+        let raw = egui::Context::default();
+        let ctx = crate::backend::egui::EguiCtx::new(&raw);
         let pane_id = Id::new("pane");
         let container_id = Id::new("single-tab-container");
         ctx.begin_pass(egui::RawInput {
@@ -732,7 +737,8 @@ mod tests {
             ..Default::default()
         });
         egui::CentralPanel::default().show(&ctx, |ui| {
-            crate::memory::MaraMemoryCtx::new(ui.ctx()).set_temp(active_pane_key(), pane_id);
+            crate::memory::MaraMemoryCtx::new(&crate::backend::egui::store_for_ui(ui))
+                .set_temp(active_pane_key(), pane_id);
             let mut backend =
                 crate::mui::MaraBackend::Egui(crate::backend::egui::EguiUiBackend::new(ui));
             let mut mara = crate::MaraUi::over(&mut backend, crate::vocab::Color32::WHITE);
@@ -749,8 +755,10 @@ mod tests {
                 )],
             );
             assert!(responses.contains_key(&container_id));
-            let strips = tab_drag::strip_cache(ui.ctx(), pane_id.into());
-            let buttons = tab_drag::button_cache(ui.ctx(), pane_id.into());
+            let strips =
+                tab_drag::strip_cache(&crate::backend::egui::store_for_ui(ui), pane_id.into());
+            let buttons =
+                tab_drag::button_cache(&crate::backend::egui::store_for_ui(ui), pane_id.into());
             assert_eq!(
                 strips
                     .iter()
@@ -773,7 +781,8 @@ mod tests {
 
     #[test]
     fn shared_tab_scope_renders_moved_tab_with_container_after_pane_change() {
-        let ctx = egui::Context::default();
+        let raw = egui::Context::default();
+        let ctx = crate::backend::egui::EguiCtx::new(&raw);
         let routing_id = Id::new("shelf-tab-routing");
         let target_pane = Id::new("target-shelf-pane");
         let source = Id::new("source-container");
@@ -833,7 +842,7 @@ mod tests {
             ..Default::default()
         });
         egui::CentralPanel::default().show(&ctx, |ui| {
-            crate::memory::MaraMemoryCtx::new(ui.ctx()).set_temp(active_pane_key(), target_pane);
+            crate::memory::MaraMemoryCtx::new(&crate::backend::egui::store_for_ui(ui)).set_temp(active_pane_key(), target_pane);
             let mut backend =
                 crate::mui::MaraBackend::Egui(crate::backend::egui::EguiUiBackend::new(ui));
             let mut mara = crate::MaraUi::over(&mut backend, crate::vocab::Color32::WHITE);
@@ -850,7 +859,7 @@ mod tests {
 
             assert!(responses.contains_key(&target));
             let mut target_buttons: Vec<MaraId> =
-                tab_drag::button_cache(ui.ctx(), target_pane.into())
+                tab_drag::button_cache(&crate::backend::egui::store_for_ui(ui), target_pane.into())
                 .into_iter()
                 .filter(|button| button.container_id == MaraId::from(target))
                 .map(|button| button.tab_id)

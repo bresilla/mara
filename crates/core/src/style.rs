@@ -549,7 +549,8 @@ pub fn __internal_apply_theme(ctx: &egui::Context, accent: AccentColor, opacity:
     // Record that a theme was applied this pass (no-op while the
     // enforcement fallback itself applies it) so `crate::enforce`
     // doesn't override an app/host-applied theme.
-    crate::enforce::mark_app_theme_applied(ctx);
+    let seam = crate::backend::egui::EguiCtx::new(ctx);
+    crate::enforce::mark_app_theme_applied(&seam);
 
     // Packed (r, g, b, a) cache. `u32::MAX` is used as the
     // "never-applied" sentinel — no real colour hashes to that,
@@ -577,7 +578,7 @@ pub fn __internal_apply_theme(ctx: &egui::Context, accent: AccentColor, opacity:
     // Publish the per-frame responsive metrics BEFORE the dedup gate,
     // so `screen_class()` / `touch_density()` stay current every frame
     // even when the theme itself hasn't changed.
-    set_screen_metrics(ctx);
+    set_screen_metrics(&seam);
     let touch_u8 = touch_density() as u8;
 
     let th = theme();

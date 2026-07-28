@@ -539,7 +539,8 @@ mod tests {
 
     #[test]
     fn interactive_exclusions_win_over_resize_and_move() {
-        let ctx = egui::Context::default();
+        let raw = egui::Context::default();
+        let ctx = crate::backend::egui::EguiCtx::new(&raw);
         __internal_publish_window_chrome_regions(
             &ctx,
             [Rect::from_min_max(
@@ -573,7 +574,8 @@ mod tests {
 
     #[test]
     fn host_chrome_capabilities_default_to_web_safe_disabled() {
-        let ctx = egui::Context::default();
+        let raw = egui::Context::default();
+        let ctx = crate::backend::egui::EguiCtx::new(&raw);
         assert_eq!(
             __internal_window_chrome_host_capabilities(&ctx),
             WindowChromeHostCapabilities::default()

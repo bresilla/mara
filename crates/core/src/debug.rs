@@ -170,10 +170,11 @@ pub fn tag_backend(
 /// once at the END of the top-level UI callback. No-op when the
 /// inspector is off, or when no tag captured the cursor this frame.
 pub fn paint(ctx: &egui::Context) {
-    if !is_enabled(ctx) {
+    let seam = crate::backend::egui::EguiCtx::new(ctx);
+    if !is_enabled(&seam) {
         return;
     }
-    let mut memory = crate::context::MaraCtx::memory(ctx);
+    let mut memory = crate::context::MaraCtx::memory(&seam);
     let best: Option<Best> = memory.get_temp::<Best>(best_id());
     memory.remove_temp::<Best>(best_id());
     let Some(best) = best else {

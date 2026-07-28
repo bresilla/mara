@@ -928,7 +928,8 @@ mod tests {
 
     #[test]
     fn node_region_nests_and_restores() {
-        let ctx = egui::Context::default();
+        let raw = egui::Context::default();
+        let ctx = crate::backend::egui::EguiCtx::new(&raw);
         let outer = Rect::from_min_size(Pos2::new(0.0, 0.0), Vec2::new(100.0, 100.0));
         let inner = Rect::from_min_size(Pos2::new(10.0, 10.0), Vec2::new(20.0, 20.0));
 

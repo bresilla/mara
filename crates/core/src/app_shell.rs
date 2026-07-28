@@ -478,7 +478,11 @@ pub fn __internal_show_app_shell_with_slot_ribbons_egui(
 ) -> Result<(AppShellResolution, Vec<RibbonActionResult>), AppShellError> {
     let accent = accent.into();
     let resolved = resolve_app_shell_ribbons(router, permanent_ribbons)?;
-    let clicks = __internal_draw_slot_ribbons_egui(egui_ctx, accent, &resolved.as_slot_ribbons());
+    let clicks = __internal_draw_slot_ribbons_egui(
+        &crate::backend::egui::EguiCtx::new(egui_ctx),
+        accent,
+        &resolved.as_slot_ribbons(),
+    );
     let mut results = Vec::with_capacity(clicks.len());
     for click in clicks {
         results.push(dispatch_app_shell_action(router, click.action)?);
@@ -537,7 +541,11 @@ where
         &workspace_ribbons,
         &workspace_layers,
     )?;
-    let clicks = __internal_draw_slot_ribbons_egui(egui_ctx, accent, &resolved.as_slot_ribbons());
+    let clicks = __internal_draw_slot_ribbons_egui(
+        &crate::backend::egui::EguiCtx::new(egui_ctx),
+        accent,
+        &resolved.as_slot_ribbons(),
+    );
     let mut results = Vec::with_capacity(clicks.len());
     for click in clicks {
         results.push(dispatch_app_shell_action(router, click.action)?);

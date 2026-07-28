@@ -3781,7 +3781,8 @@ mod active_tab_tests {
 
     #[test]
     fn active_tab_resolution_prefers_stable_tab_id_over_stale_index() {
-        let ctx = egui::Context::default();
+        let raw = egui::Context::default();
+        let ctx = crate::backend::egui::EguiCtx::new(&raw);
         let key = Id::new("active-tabs");
         let first = Id::new("first");
         let moved = Id::new("moved");
@@ -3803,7 +3804,8 @@ mod active_tab_tests {
 
     #[test]
     fn active_tab_resolution_clamps_index_and_repairs_active_id() {
-        let ctx = egui::Context::default();
+        let raw = egui::Context::default();
+        let ctx = crate::backend::egui::EguiCtx::new(&raw);
         let key = Id::new("active-tabs");
         let only = Id::new("only");
         crate::memory::MaraMemoryCtx::new(&ctx).set_persisted(key, 99usize);

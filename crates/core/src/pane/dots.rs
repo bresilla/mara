@@ -189,7 +189,8 @@ mod tests {
 
     #[test]
     fn dot_hit_rects_are_frame_local() {
-        let ctx = egui::Context::default();
+        let raw = egui::Context::default();
+        let ctx = crate::backend::egui::EguiCtx::new(&raw);
         let pane_id = Id::new("pane");
         let rect = MaraRect::from_min_size(MaraPos2::new(10.0, 20.0), MaraVec2::new(30.0, 6.0));
 
@@ -202,7 +203,8 @@ mod tests {
 
     #[test]
     fn dot_hit_rects_are_scoped_per_pane() {
-        let ctx = egui::Context::default();
+        let raw = egui::Context::default();
+        let ctx = crate::backend::egui::EguiCtx::new(&raw);
         let first = Id::new("first-pane");
         let second = Id::new("second-pane");
         let rect = MaraRect::from_min_size(MaraPos2::new(10.0, 20.0), MaraVec2::new(30.0, 6.0));

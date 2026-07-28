@@ -223,7 +223,11 @@ fn fallback_bar_due(ctx: &dyn MaraCtx) -> Option<u64> {
 #[cfg(feature = "backend-egui-conv")]
 #[doc(hidden)]
 pub fn __internal_enforce_defaults(ctx: &egui::Context) {
-    if enforcing(ctx) {
+    // The seam view of the same context; the wrapper owns an `Arc`
+    // handle, so this is a refcount bump rather than a copy.
+    let seam = crate::backend::egui::EguiCtx::new(ctx);
+    let seam: &dyn MaraCtx = &seam;
+    if enforcing(seam) {
         return;
     }
 
@@ -239,17 +243,17 @@ pub fn __internal_enforce_defaults(ctx: &egui::Context) {
     // Theme application builds backend visuals, so it stays on this
     // side of the split. It de-dupes internally, so re-applying every
     // pass for theme-less apps is cheap and tracks resizes.
-    if !fresh(ctx, app_theme_pass_key()) {
-        set_enforcing(ctx, true);
+    if !fresh(seam, app_theme_pass_key()) {
+        set_enforcing(seam, true);
         crate::style::__internal_apply_theme(
             ctx,
             crate::style::AccentColor(crate::style::raw_accent()),
             crate::style::glass_opacity(),
         );
-        set_enforcing(ctx, false);
+        set_enforcing(seam, false);
     }
 
-    let Some(pass) = fallback_bar_due(ctx) else {
+    let Some(pass) = fallback_bar_due(seam) else {
         return;
     };
 
@@ -260,20 +264,22 @@ pub fn __internal_enforce_defaults(ctx: &egui::Context) {
     // dropped — there is no app wired to receive them; apps that want
     // the functional bar render `ShellBar` themselves, which
     // suppresses this fallback.
-    set_enforcing(ctx, true);
-    let mut state = MaraCtx::memory(ctx)
+    set_enforcing(seam, true);
+    let mut state = MaraCtx::memory(seam)
         .get_temp::<FallbackShell>(fallback_state_key())
         .unwrap_or_default();
-    let _ =
-        state
-            .bar
-            .__internal_show_egui(ctx, &mut state.open, &mut state.placement, &mut state.drag);
+    let _ = state.bar.__internal_show_egui(
+        seam,
+        &mut state.open,
+        &mut state.placement,
+        &mut state.drag,
+    );
     {
-        let mut memory = MaraCtx::memory(ctx);
+        let mut memory = MaraCtx::memory(seam);
         memory.set_temp(fallback_state_key(), state);
         memory.set_temp(enforced_shell_pass_key(), pass);
     };
-    set_enforcing(ctx, false);
+    set_enforcing(seam, false);
 }
 
 #[cfg(test)]
@@ -298,7 +304,8 @@ mod tests {
     /// (pass one is the grace pass).
     #[test]
     fn fallback_bar_kicks_in_after_grace_pass() {
-        let ctx = egui::Context::default();
+        let raw = egui::Context::default();
+        let ctx = crate::backend::egui::EguiCtx::new(&raw);
 
         let out1 = run_pass(&ctx, || __internal_enforce_defaults(&ctx));
         assert!(
@@ -333,7 +340,8 @@ mod tests {
     /// the fallback — even though enforcement runs every pass too.
     #[test]
     fn app_bar_suppresses_fallback() {
-        let ctx = egui::Context::default();
+        let raw = egui::Context::default();
+        let ctx = crate::backend::egui::EguiCtx::new(&raw);
         let mut bar = ShellBar::default();
         let mut open = RibbonOpen::default();
         let mut placement = RibbonPlacement::default();
@@ -357,7 +365,8 @@ mod tests {
     /// back.
     #[test]
     fn explicit_opt_out_suppresses_fallback_per_frame() {
-        let ctx = egui::Context::default();
+        let raw = egui::Context::default();
+        let ctx = crate::backend::egui::EguiCtx::new(&raw);
 
         for _ in 0..3 {
             run_pass(&ctx, || {
@@ -385,7 +394,8 @@ mod tests {
     /// fallback takes over after the hysteresis window.
     #[test]
     fn fallback_takes_over_when_app_bar_stops() {
-        let ctx = egui::Context::default();
+        let raw = egui::Context::default();
+        let ctx = crate::backend::egui::EguiCtx::new(&raw);
         let mut bar = ShellBar::default();
         let mut open = RibbonOpen::default();
         let mut placement = RibbonPlacement::default();

@@ -264,7 +264,8 @@ mod tests {
 
     #[test]
     fn container_flow_sanitizes_non_finite_user_values() {
-        let ctx = egui::Context::default();
+        let raw = egui::Context::default();
+        let ctx = crate::backend::egui::EguiCtx::new(&raw);
         let vertical = Id::new("vertical-container");
         let horizontal = Id::new("horizontal-container");
 
@@ -280,7 +281,8 @@ mod tests {
 
     #[test]
     fn container_initial_flow_ignores_non_finite_overrides() {
-        let ctx = egui::Context::default();
+        let raw = egui::Context::default();
+        let ctx = crate::backend::egui::EguiCtx::new(&raw);
         let cid = Id::new("initial-flow-container");
 
         set_container_initial_flow(&ctx, cid, f32::NAN);
@@ -295,7 +297,8 @@ mod tests {
 
     #[test]
     fn intrinsic_flow_sanitizes_non_finite_measurements() {
-        let ctx = egui::Context::default();
+        let raw = egui::Context::default();
+        let ctx = crate::backend::egui::EguiCtx::new(&raw);
         let cid = Id::new("intrinsic-container");
 
         record_container_intrinsic(&ctx, cid, f32::NEG_INFINITY);
@@ -305,7 +308,8 @@ mod tests {
 
     #[test]
     fn container_flow_clamps_to_orientation_bounds() {
-        let ctx = egui::Context::default();
+        let raw = egui::Context::default();
+        let ctx = crate::backend::egui::EguiCtx::new(&raw);
         let vertical = Id::new("vertical-clamp-container");
         let horizontal = Id::new("horizontal-clamp-container");
 

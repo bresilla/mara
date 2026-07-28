@@ -1772,7 +1772,8 @@ mod tests {
 
     #[test]
     fn published_pane_rects_are_mara_vocab_for_host_firewalls() {
-        let ctx = egui::Context::default();
+        let raw = egui::Context::default();
+        let ctx = crate::backend::egui::EguiCtx::new(&raw);
         let raw = egui::Rect::from_min_max(egui::pos2(10.0, 20.0), egui::pos2(30.0, 50.0));
 
         publish_pane_rect(&ctx, raw);
@@ -1790,7 +1791,8 @@ mod tests {
 
     #[test]
     fn user_extents_sanitize_non_finite_values() {
-        let ctx = egui::Context::default();
+        let raw = egui::Context::default();
+        let ctx = crate::backend::egui::EguiCtx::new(&raw);
         let pane_id = Id::new("pane");
 
         set_user_flow(&ctx, pane_id, f32::NAN);
@@ -1806,7 +1808,8 @@ mod tests {
 
     #[test]
     fn user_extents_clamp_to_safe_bounds() {
-        let ctx = egui::Context::default();
+        let raw = egui::Context::default();
+        let ctx = crate::backend::egui::EguiCtx::new(&raw);
         let pane_id = Id::new("pane");
 
         set_user_flow(&ctx, pane_id, -100.0);
@@ -1822,7 +1825,8 @@ mod tests {
 
     #[test]
     fn body_extra_flow_accumulates_and_clears_per_pane() {
-        let ctx = egui::Context::default();
+        let raw = egui::Context::default();
+        let ctx = crate::backend::egui::EguiCtx::new(&raw);
         let pane_id = Id::new("pane");
 
         publish_body_extra_flow(&ctx, pane_id, 6.0);
@@ -1835,7 +1839,8 @@ mod tests {
 
     #[test]
     fn body_extra_flow_sanitizes_invalid_values() {
-        let ctx = egui::Context::default();
+        let raw = egui::Context::default();
+        let ctx = crate::backend::egui::EguiCtx::new(&raw);
         let pane_id = Id::new("pane");
 
         publish_body_extra_flow(&ctx, pane_id, f32::NAN);
@@ -1945,7 +1950,8 @@ mod tests {
 
     #[test]
     fn published_container_cids_are_frame_local() {
-        let ctx = egui::Context::default();
+        let raw = egui::Context::default();
+        let ctx = crate::backend::egui::EguiCtx::new(&raw);
         let pane_id = Id::new("pane");
         let first = Id::new("first");
         let second = Id::new("second");
@@ -1960,7 +1966,8 @@ mod tests {
 
     #[test]
     fn published_container_cids_reject_duplicates_in_one_frame() {
-        let ctx = egui::Context::default();
+        let raw = egui::Context::default();
+        let ctx = crate::backend::egui::EguiCtx::new(&raw);
         let pane_id = Id::new("pane");
         let container = Id::new("container");
 

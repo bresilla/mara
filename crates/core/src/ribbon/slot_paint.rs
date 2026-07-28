@@ -982,7 +982,7 @@ mod tests {
         use crate::ribbon::{RibbonOverridePolicy, RibbonSlot, RibbonSlotDef, RibbonSlotId};
         use crate::vocab::Id;
 
-        let ctx = egui::Context::default();
+        let raw = egui::Context::default();
         // Cell in the middle-right of a 1600x900 window.
         let region =
             MaraRect::from_min_size(MaraPos2::new(600.0, 100.0), MaraVec2::new(500.0, 600.0));
@@ -1011,9 +1011,9 @@ mod tests {
             egui::Pos2::ZERO,
             egui::vec2(1600.0, 900.0),
         ));
-        let _ = ctx.run(input, |ctx| {
+        let _ = raw.run(input, |ctx| {
             let _ = __internal_draw_view_ribbons(
-                ctx,
+                &crate::backend::egui::EguiCtx::new(ctx),
                 region,
                 MaraId::new("test.view.salt"),
                 MaraColor32::WHITE,
@@ -1023,7 +1023,7 @@ mod tests {
 
         let ribbon_id = MaraId::new((def.id, def.cluster));
         let area_id: egui::Id = MaraId::new(("mara_slot_ribbon", ribbon_id, Id::new("pen"))).into();
-        let rect = ctx
+        let rect = raw
             .memory(|m| m.area_rect(area_id))
             .expect("leaf ribbon area must exist after the pass");
         let rect: MaraRect = rect.into();

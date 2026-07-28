@@ -1408,14 +1408,19 @@ mod tests {
     use super::*;
     use crate::ribbon::{RibbonAction, RibbonScope};
 
-    fn test_ctx_with_chrome(rect: egui::Rect) -> egui::Context {
-        let ctx = egui::Context::default();
+    fn test_ctx_with_chrome(rect: egui::Rect) -> crate::backend::egui::EguiCtx {
+        let raw = egui::Context::default();
+        let ctx = crate::backend::egui::EguiCtx::new(&raw);
         crate::memory::MaraMemoryCtx::new(&ctx).set_temp(chrome_bounds_key(), MaraRect::from(rect));
         ctx
     }
 
-    fn test_ctx_with_screen_and_chrome(screen: egui::Rect, chrome: egui::Rect) -> egui::Context {
-        let ctx = egui::Context::default();
+    fn test_ctx_with_screen_and_chrome(
+        screen: egui::Rect,
+        chrome: egui::Rect,
+    ) -> crate::backend::egui::EguiCtx {
+        let raw = egui::Context::default();
+        let ctx = crate::backend::egui::EguiCtx::new(&raw);
         ctx.begin_pass(egui::RawInput {
             screen_rect: Some(screen),
             ..Default::default()
@@ -1506,7 +1511,8 @@ mod tests {
         // No shelf layout published. The bounds must follow the live
         // window each pass — regression for the self-perpetuating
         // chrome_bounds_key that froze side ribbons at frame 1.
-        let ctx = egui::Context::default();
+        let raw = egui::Context::default();
+        let ctx = crate::backend::egui::EguiCtx::new(&raw);
 
         ctx.begin_pass(egui::RawInput {
             screen_rect: Some(egui::Rect::from_min_size(
@@ -1520,10 +1526,10 @@ mod tests {
         let cr = ctx.content_rect();
         assert_eq!(
             fresh_chrome_bounds(&ctx),
-            MaraRect::from(egui::Rect::from_min_max(
-                egui::pos2(cr.min.x, cr.min.y + ribbon_clearance()),
+            MaraRect::from_min_max(
+                MaraPos2::new(cr.min.x, cr.min.y + ribbon_clearance()),
                 cr.max,
-            ))
+            )
         );
         // Simulate the renderer writing the key (what froze it before).
         let first = fresh_chrome_bounds(&ctx);
@@ -1554,7 +1560,8 @@ mod tests {
 
     #[test]
     fn fresh_chrome_bounds_prefer_published_shelf_viewport() {
-        let ctx = egui::Context::default();
+        let raw = egui::Context::default();
+        let ctx = crate::backend::egui::EguiCtx::new(&raw);
         ctx.begin_pass(egui::RawInput {
             screen_rect: Some(egui::Rect::from_min_size(
                 egui::pos2(0.0, 0.0),

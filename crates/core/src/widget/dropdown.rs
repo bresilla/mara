@@ -91,7 +91,8 @@ pub(crate) fn dropdown_h(
     // trigger click (the same condition egui used) and let egui apply
     // its anchoring + click-outside/Escape dismissal into the bool.
     let mut open = {
-        let memory = crate::backend::egui::memory_ctx_for_ui(ui);
+        let store = crate::backend::egui::store_for_ui(ui);
+        let memory = crate::memory::MaraMemoryCtx::new(&store);
         crate::popup::PopupState::load(&memory, popup_id).is_open()
     };
     if resp.clicked() {
@@ -124,7 +125,8 @@ pub(crate) fn dropdown_h(
     // Persist the (possibly egui-dismissed) open-state back into Mara
     // memory for the next frame.
     {
-        let mut memory = crate::backend::egui::memory_ctx_for_ui(ui);
+        let store = crate::backend::egui::store_for_ui(ui);
+        let mut memory = crate::memory::MaraMemoryCtx::new(&store);
         crate::popup::PopupState::new(open).store(&mut memory, popup_id);
     }
 

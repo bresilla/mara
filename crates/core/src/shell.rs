@@ -335,7 +335,8 @@ mod tests {
             active: Some("v.scene"),
             ..Default::default()
         };
-        let ctx = egui::Context::default();
+        let raw = egui::Context::default();
+        let ctx = crate::backend::egui::EguiCtx::new(&raw);
         let mut open = RibbonOpen::default();
         let mut placement = RibbonPlacement::default();
         let mut drag = RibbonDrag::default();
@@ -356,7 +357,8 @@ mod tests {
             views: vec![ShellView::new("v", "cube", "V")],
             ..Default::default()
         };
-        let ctx = egui::Context::default();
+        let raw = egui::Context::default();
+        let ctx = crate::backend::egui::EguiCtx::new(&raw);
         let mut open = RibbonOpen::default();
         let mut placement = RibbonPlacement::default();
         let mut drag = RibbonDrag::default();

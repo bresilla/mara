@@ -539,7 +539,8 @@ mod tests {
 
     #[test]
     fn drag_target_ignores_source_tab_button_for_same_strip_slots() {
-        let ctx = Context::default();
+        let raw = Context::default();
+        let ctx = crate::backend::egui::EguiCtx::new(&raw);
         let pane_id = Id::new("pane");
         let container_id = Id::new("container");
         let first = Id::new("first");
@@ -613,7 +614,8 @@ mod tests {
 
     #[test]
     fn drag_target_ignores_source_tab_button_for_vertical_same_strip_slots() {
-        let ctx = Context::default();
+        let raw = Context::default();
+        let ctx = crate::backend::egui::EguiCtx::new(&raw);
         let pane_id = Id::new("pane");
         let container_id = Id::new("container");
         let first = Id::new("first");
@@ -659,7 +661,8 @@ mod tests {
 
     #[test]
     fn drag_target_keeps_foreign_strip_buttons() {
-        let ctx = Context::default();
+        let raw = Context::default();
+        let ctx = crate::backend::egui::EguiCtx::new(&raw);
         let pane_id = Id::new("pane");
         let source_container = Id::new("source");
         let target_container = Id::new("target");
@@ -706,7 +709,8 @@ mod tests {
 
     #[test]
     fn retain_containers_prunes_stale_tab_drop_targets() {
-        let ctx = Context::default();
+        let raw = Context::default();
+        let ctx = crate::backend::egui::EguiCtx::new(&raw);
         let pane_id = Id::new("pane");
         let current = Id::new("current");
         let stale = Id::new("removed");
@@ -748,7 +752,8 @@ mod tests {
 
     #[test]
     fn commit_drop_seeds_empty_target_order_from_live_tabs() {
-        let ctx = Context::default();
+        let raw = Context::default();
+        let ctx = crate::backend::egui::EguiCtx::new(&raw);
         let pane_id = Id::new("pane");
         let source = Id::new("source");
         let target = Id::new("target");
@@ -798,7 +803,8 @@ mod tests {
 
     #[test]
     fn route_repairs_duplicate_and_stale_persisted_tab_order() {
-        let ctx = Context::default();
+        let raw = Context::default();
+        let ctx = crate::backend::egui::EguiCtx::new(&raw);
         let pane_id = Id::new("pane");
         let container = Id::new("container");
         let first = Id::new("first");
@@ -825,7 +831,8 @@ mod tests {
 
     #[test]
     fn route_ignores_stale_persisted_owner_containers() {
-        let ctx = Context::default();
+        let raw = Context::default();
+        let ctx = crate::backend::egui::EguiCtx::new(&raw);
         let pane_id = Id::new("pane");
         let container = Id::new("container");
         let removed_container = Id::new("removed-container");
@@ -844,7 +851,8 @@ mod tests {
 
     #[test]
     fn moved_out_tabs_do_not_reappear_when_source_container_changes_pane() {
-        let ctx = Context::default();
+        let raw = Context::default();
+        let ctx = crate::backend::egui::EguiCtx::new(&raw);
         let first_pane = Id::new("first-pane");
         let second_pane = Id::new("second-pane");
         let source = Id::new("source-container");
@@ -869,7 +877,8 @@ mod tests {
 
     #[test]
     fn commit_drop_uses_vertical_live_target_order() {
-        let ctx = Context::default();
+        let raw = Context::default();
+        let ctx = crate::backend::egui::EguiCtx::new(&raw);
         let pane_id = Id::new("pane");
         let source = Id::new("source");
         let target = Id::new("target");
@@ -915,7 +924,8 @@ mod tests {
 
     #[test]
     fn commit_drop_same_container_reorders_from_live_tabs_without_duplication() {
-        let ctx = Context::default();
+        let raw = Context::default();
+        let ctx = crate::backend::egui::EguiCtx::new(&raw);
         let pane_id = Id::new("pane");
         let container = Id::new("container");
         let first = Id::new("first");
@@ -960,7 +970,8 @@ mod tests {
 
     #[test]
     fn commit_drop_selects_dropped_tab_in_target_container() {
-        let ctx = Context::default();
+        let raw = Context::default();
+        let ctx = crate::backend::egui::EguiCtx::new(&raw);
         let pane_id = Id::new("pane");
         let source = Id::new("source");
         let target = Id::new("target");
@@ -1009,7 +1020,8 @@ mod tests {
 
     #[test]
     fn commit_drop_same_container_selects_reordered_tab() {
-        let ctx = Context::default();
+        let raw = Context::default();
+        let ctx = crate::backend::egui::EguiCtx::new(&raw);
         let pane_id = Id::new("pane");
         let container = Id::new("container");
         let first = Id::new("first");

@@ -1188,7 +1188,9 @@ where
     let mut wire_shapes: Vec<mara_core::paint::PaintCmd> = Vec::new();
     // The seam while `ui.rs` is still egui-typed (PLAN.md WS-D1.3):
     // `wire.rs` speaks Mara memory + a clip rect, so build them once.
-    let mut wire_memory = mara_core::memory::MaraMemoryCtx::__internal_from_backend_ctx(ui.ctx());
+    let wire_store = mara_core::backend::egui::EguiCtx::new(ui.ctx());
+    let mut wire_memory =
+        mara_core::memory::MaraMemoryCtx::__internal_from_backend_ctx(&wire_store);
     let wire_clip: mara_core::vocab::Rect = ui.clip_rect().into();
 
     // Draw and interact with wires

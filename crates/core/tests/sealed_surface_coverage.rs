@@ -405,7 +405,8 @@ fn d13_cache_sweeps_once_per_frame_not_once_per_access() {
     let key = mara_core::vocab::Id::new("wires");
 
     let _ = ctx.run_ui(Default::default(), |ui| {
-        let mut memory = MaraMemoryCtx::__internal_from_backend_ctx(ui.ctx());
+        let store = mara_core::backend::egui::EguiCtx::new(ui.ctx());
+        let mut memory = MaraMemoryCtx::__internal_from_backend_ctx(&store);
         // Three accesses inside one frame must produce exactly one sweep.
         for _ in 0..3 {
             let cache = memory.cache::<Counted>(key);
@@ -420,7 +421,8 @@ fn d13_cache_sweeps_once_per_frame_not_once_per_access() {
     });
 
     let _ = ctx.run_ui(Default::default(), |ui| {
-        let mut memory = MaraMemoryCtx::__internal_from_backend_ctx(ui.ctx());
+        let store = mara_core::backend::egui::EguiCtx::new(ui.ctx());
+        let mut memory = MaraMemoryCtx::__internal_from_backend_ctx(&store);
         let cache = memory.cache::<Counted>(key);
         assert_eq!(
             cache.with(|c| c.sweeps),

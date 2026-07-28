@@ -334,7 +334,13 @@ check:
 	@! grep -nE 'interact_for_ui_rect[(]self[.]ui|painter_for_ui_(rect|clip)[(]self[.]ui' crates/core/src/mui/mod.rs
 	@! grep -nE 'pub[(]crate[)][[:space:]]+ui:[[:space:]]*&' crates/core/src/mui/mod.rs
 	@! grep -RInE 'pub accent:[[:space:]]*Color32|accent:[[:space:]]*Color32|use egui::Color32|use egui::[{]Color32' crates/core/src/view/context.rs crates/core/src/module/context.rs
-	@! grep -RInE 'pub fn new[(][^#]*egui::Context|ViewCtx::new[(]' crates/core/src/view/context.rs crates mara example
+# Two claims, two scopes. `ViewCtx` must not expose a `new` taking a raw
+# context — that is about this file. Nobody anywhere may call
+# `ViewCtx::new` — that is tree-wide. Keeping them in one grep made the
+# first claim tree-wide too, which caught `EguiCtx::new`, the backend
+# wrapper whose whole job is to take a raw context.
+	@! grep -RInE 'pub fn new[(][^#]*egui::Context' crates/core/src/view/context.rs
+	@! grep -RInE 'ViewCtx::new[(]' crates/core/src/view/context.rs crates mara example
 	@! grep -RInE 'egui::Painter::new|egui::LayerId|egui::Area::new|egui::Order::' crates/core/src/view/context.rs
 	@! grep -RInE 'use egui::Id|pub [A-Za-z_][A-Za-z0-9_]*:[[:space:]]*Id\\b|impl Into<Id>|push_module[(][^)]*:[[:space:]]*Id\\b|push_module_workspace[(][^)]*:[[:space:]]*Id\\b|pub pod_id:[[:space:]]*Id\\b' crates/core/src/workspace crates/core/src/module/context.rs
 	@! grep -RInE 'use egui::Id|pub .*egui::Id|RibbonAction::Command[(]egui::Id::new|RibbonAction::PushModuleWorkspace[(]egui::Id::new|RibbonScope::WorkspaceLevel[(]egui::Id::new' crates/core/src/ribbon/action.rs crates/core/src/ribbon/slot.rs crates/core/src/ribbon/dispatch.rs crates/core/src/ribbon/permanent.rs crates/core/src/app_shell.rs crates/core/src/shell.rs crates/core/tests/ribbon_slots.rs crates/core/tests/app_shell.rs example/src/app.rs

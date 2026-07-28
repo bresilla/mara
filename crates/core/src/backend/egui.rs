@@ -41,14 +41,58 @@ pub fn egui_frame_for_style_spec(spec: crate::style::FrameSpec) -> egui::Frame {
 pub struct EguiUiBackend<'a> {
     ui: &'a mut egui::Ui,
     clip_stack: Vec<egui::Rect>,
+    /// The frame context, owned so [`UiBackend::ctx`] can hand out a
+    /// reference to it.
+    ///
+    /// Owned rather than borrowed because `ui` is already held
+    /// mutably — a `&egui::Context` derived from it would alias. The
+    /// clone is an `Arc` bump: `egui::Context` is a handle, not the
+    /// context itself.
+    ctx: EguiCtx,
+}
+
+/// The backend context, wrapped so Mara's traits can be implemented on
+/// it.
+///
+/// `impl MaraCtx for egui::Context` is legal only while the trait and
+/// the type share a crate. Once `backend/` moves out, both are foreign
+/// there and the orphan rule forbids it. A local newtype is the shape
+/// that survives the split, and it owns its handle so a surface can
+/// lend a reference to one.
+#[derive(Clone)]
+pub struct EguiCtx(pub egui::Context);
+
+/// Deref to the backend context so the trait impls below can call
+/// egui's own methods directly.
+///
+/// Note this shadows same-named trait methods at call sites — reach
+/// `MaraCtx::input(&seam)` explicitly rather than `seam.input()`, which
+/// resolves to egui's.
+impl std::ops::Deref for EguiCtx {
+    type Target = egui::Context;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl EguiCtx {
+    /// Wrap a borrowed context, cloning the handle.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn new(ctx: &egui::Context) -> Self {
+        Self(ctx.clone())
+    }
 }
 
 impl<'a> EguiUiBackend<'a> {
     #[doc(hidden)]
     pub fn new(ui: &'a mut egui::Ui) -> Self {
+        let ctx = EguiCtx::new(ui.ctx());
         Self {
             ui,
             clip_stack: Vec::new(),
+            ctx,
         }
     }
 }
@@ -169,7 +213,7 @@ impl UiBackend for EguiUiBackend<'_> {
     }
 
     fn ctx(&self) -> &dyn crate::context::MaraCtx {
-        self.ui.ctx()
+        &self.ctx
     }
 
     fn opacity(&self) -> f32 {
@@ -253,7 +297,7 @@ impl UiBackend for EguiUiBackend<'_> {
     }
 
     fn memory(&self) -> crate::memory::BackendMemory<'_> {
-        crate::memory::BackendMemory::Egui(MaraMemoryCtx::new(self.ui.ctx()))
+        crate::memory::BackendMemory::Egui(MaraMemoryCtx::new(&self.ctx))
     }
 
     fn input(&self) -> MaraInput {
@@ -1404,8 +1448,13 @@ pub(crate) fn input_snapshot_for_ui(ui: &egui::Ui) -> MaraInput {
     input_snapshot(ui.ctx())
 }
 
-pub(crate) fn memory_ctx_for_ui(ui: &egui::Ui) -> MaraMemoryCtx<'_> {
-    MaraMemoryCtx::new(ui.ctx())
+/// The store behind `ui`, for callers that want a memory facade.
+///
+/// Returns the wrapper rather than the facade: `MaraMemoryCtx` borrows
+/// its store, so the caller has to own one for as long as it holds the
+/// facade.
+pub(crate) fn store_for_ui(ui: &egui::Ui) -> EguiCtx {
+    EguiCtx::new(ui.ctx())
 }
 
 pub(crate) fn painter_clip_rect(painter: &egui::Painter) -> vocab::Rect {
@@ -1948,11 +1997,12 @@ mod tests {
             "the global accent must differ, or this test passes vacuously"
         );
 
-        let ctx = egui::Context::default();
+        let raw = egui::Context::default();
+        let ctx = crate::backend::egui::EguiCtx::new(&raw);
         let mut seen = None;
         let _ = ctx.run_ui(Default::default(), |ui| {
             MaraCtx::area(
-                ui.ctx(),
+                &EguiCtx::new(ui.ctx()),
                 AreaHost::new(vocab::Id::new("accented"), Pos2::ZERO, Layer::Foreground)
                     .accent(want),
                 &mut |mara| seen = Some(mara.accent()),
@@ -2467,7 +2517,7 @@ fn mara_state_map(ctx: &egui::Context) -> MaraStateMap {
     })
 }
 
-impl crate::memory::MaraStore for egui::Context {
+impl crate::memory::MaraStore for EguiCtx {
     fn get_any(
         &self,
         id: vocab::Id,
@@ -2514,7 +2564,7 @@ impl crate::memory::MaraStore for egui::Context {
     }
 }
 
-impl crate::context::MaraCtx for egui::Context {
+impl crate::context::MaraCtx for EguiCtx {
     fn input(&self) -> MaraInput {
         input_snapshot(self)
     }

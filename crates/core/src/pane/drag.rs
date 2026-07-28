@@ -498,7 +498,8 @@ mod tests {
 
     #[test]
     fn section_order_repairs_duplicate_and_stale_persisted_ids() {
-        let ctx = Context::default();
+        let raw = Context::default();
+        let ctx = crate::backend::egui::EguiCtx::new(&raw);
         let pane_id = Id::new("pane");
         let first = Id::new("first");
         let second = Id::new("second");
@@ -515,7 +516,8 @@ mod tests {
 
     #[test]
     fn finalize_snapshot_carries_dragged_rect_when_render_skips_it() {
-        let ctx = Context::default();
+        let raw = Context::default();
+        let ctx = crate::backend::egui::EguiCtx::new(&raw);
         let pane_id = Id::new("pane");
         let dragged = Id::new("dragged");
         let still_rendered = Id::new("still-rendered");
@@ -559,7 +561,8 @@ mod tests {
 
     #[test]
     fn target_cache_prefers_live_rects_and_carries_dragged_snapshot() {
-        let ctx = Context::default();
+        let raw = Context::default();
+        let ctx = crate::backend::egui::EguiCtx::new(&raw);
         let pane_id = Id::new("pane");
         let dragged = Id::new("dragged");
         let live_new = Id::new("live-new");
