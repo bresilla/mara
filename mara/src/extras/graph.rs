@@ -44,7 +44,7 @@ use mara_core::style::{
     FrameRole, GraphCanvasPattern, RadiusRole, StrokeRole, frame_for, glass_alpha_window,
     glass_fill, radius_for, stroke_for,
 };
-use mara_core::vocab::{Color32 as MaraColor32, Vec2 as MaraVec2};
+use mara_core::vocab::{Color32 as MaraColor32, Id as MaraId, Vec2 as MaraVec2};
 
 /// Build a [`GraphStyle`] that inherits the mara palette + border
 /// language. Call per-frame with the current accent so the graph
@@ -329,7 +329,7 @@ pub fn mara_node_graph_with_opts<T, V: NodeViewer<T>>(
 ) {
     let accent = accent.into();
     let desired_size = desired_size.into();
-    let id_for_graph_base = egui::Id::new("mara_node_graph_widget");
+    let id_for_graph_base = MaraId::new("mara_node_graph_widget");
     // Auto-recentre bookkeeping. The `version` is folded into the
     // GraphWidget's id below; bumping it invalidates egui-graph's
     // saved transform so `GraphState::initial` runs again and
@@ -449,11 +449,11 @@ pub fn mara_node_graph_with_opts<T, V: NodeViewer<T>>(
                 // the updated translation and the scene point
                 // under the cursor stays under the cursor.
                 |sub_ctx, delta| {
-                    mara_graph::GraphState::nudge_saved_translation(sub_ctx, id_for_graph, delta);
+                    mara_graph::GraphState::nudge_saved_translation(sub_ctx, id_for_graph.into(), delta);
                 },
                 |sub_ui| {
                     GraphWidget::new()
-                        .id(id_for_graph)
+                        .id(id_for_graph.into())
                         .style(mara_node_graph_style(accent))
                         .min_size(size_egui.into())
                         .show(graph, viewer, sub_ui);
@@ -525,7 +525,7 @@ impl<'ui, 'spec> PaneBodyNodeGraphExt<'spec> for mara_core::pane::PaneBody<'ui, 
         V: NodeViewer<T>,
         T: 'spec,
     {
-        let id: egui::Id = id.into().into();
+        let id: MaraId = id.into().into();
         // Enqueue as a `ContainerSpec::raw_internal` so the graph
         // participates in the same drag-reorder flow as `add_normal`
         // / `add_tabbed` (snapshot push, inline ghost gap, section
@@ -565,7 +565,7 @@ impl<'ui, 'spec> PaneBodyNodeGraphExt<'spec> for mara_core::pane::PaneBody<'ui, 
 /// [`mara_core::MaraView`] or embedded as a [`mara_core::MaraModule`].
 #[derive(Clone, Debug)]
 pub struct GraphSurface<T, V> {
-    id: egui::Id,
+    id: MaraId,
     title: String,
     graph: Graph<T>,
     viewer: V,
@@ -581,7 +581,7 @@ impl<T, V> GraphSurface<T, V> {
         viewer: V,
     ) -> Self {
         Self {
-            id: egui::Id::new(id),
+            id: MaraId::new(id),
             title: title.into(),
             graph,
             viewer,
@@ -621,7 +621,7 @@ where
     fn show_graph(&mut self, ui: &mut egui::Ui) {
         let size = ui.available_size_before_wrap();
         GraphWidget::new()
-            .id(self.id)
+            .id(self.id.into())
             .style(mara_node_graph_style(mara_core::style::active_accent()))
             .min_size(size.into())
             .show(&mut self.graph, &mut self.viewer, ui);
@@ -629,7 +629,7 @@ where
 
     fn toolbar(&self, scope: mara_core::RibbonScope) -> mara_core::RibbonSlotDef {
         let add_node = mara_core::RibbonSlotItem::new(
-            egui::Id::new(("graph.add_node", self.id)),
+            MaraId::new(("graph.add_node", self.id)),
             "add",
             "Add Node",
             "Add a graph node",
@@ -639,7 +639,7 @@ where
             ))),
         );
         mara_core::RibbonSlotDef::new(
-            egui::Id::new(("graph.ribbon", self.id)),
+            MaraId::new(("graph.ribbon", self.id)),
             scope,
             mara_core::RibbonEdge::Top,
             mara_core::RibbonCluster::Middle,
@@ -733,12 +733,12 @@ where
     fn workspace(&mut self, ws: &mut mara_core::WorkspaceCtx<'_>) {
         ws.add_bar(
             mara_core::WorkspaceBar::new(
-                egui::Id::new(("graph.workspace.bar", self.id)),
+                MaraId::new(("graph.workspace.bar", self.id)),
                 mara_core::WorkspaceBarEdge::Top,
                 mara_core::WorkspaceBarCluster::Middle,
             )
             .with_item(mara_core::WorkspaceBarItem::command(
-                egui::Id::new(("graph.workspace.add_node", self.id)),
+                MaraId::new(("graph.workspace.add_node", self.id)),
                 "Add Node",
                 Some("add"),
             )),
