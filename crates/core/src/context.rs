@@ -207,6 +207,24 @@ pub trait MaraCtx {
     /// nothing to enforce.
     fn enforce_defaults(&self) {}
 
+    /// Upload an image as a managed texture, returning the retained
+    /// handle.
+    ///
+    /// A texture belongs to the frame's host, not to whichever surface
+    /// happened to be drawing — a view uploads once and paints the
+    /// handle for as long as it lives.
+    ///
+    /// `None` when the host has no texture store.
+    fn load_texture(
+        &self,
+        name: &str,
+        image: crate::vocab::ColorImage,
+        options: crate::vocab::TextureOptions,
+    ) -> Option<crate::vocab::TextureHandle> {
+        let _ = (name, image, options);
+        None
+    }
+
     /// Backend-neutral state store.
     fn memory(&self) -> MaraMemoryCtx<'_>;
 

@@ -334,17 +334,13 @@ impl<'a> ViewCtx<'a> {
     /// handle (vocab type — it can update its pixels but cannot
     /// reach the widget tree).
     #[must_use]
-    #[cfg(feature = "backend-egui-conv")]
     pub fn load_texture(
         &self,
         name: &str,
         image: crate::vocab::ColorImage,
         options: crate::vocab::TextureOptions,
-    ) -> crate::vocab::TextureHandle {
-        let image: egui::ColorImage = image.into();
-        self.egui_ctx
-            .load_texture(name, image, options.into())
-            .into()
+    ) -> Option<crate::vocab::TextureHandle> {
+        self.seam.load_texture(name, image, options)
     }
 
     /// Render a sealed UI body into its own texture at an independent

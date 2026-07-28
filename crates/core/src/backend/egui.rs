@@ -2717,6 +2717,16 @@ impl crate::context::MaraCtx for EguiCtx {
         crate::enforce::__internal_enforce_defaults(self);
     }
 
+    fn load_texture(
+        &self,
+        name: &str,
+        image: vocab::ColorImage,
+        options: vocab::TextureOptions,
+    ) -> Option<vocab::TextureHandle> {
+        let image: egui::ColorImage = image.into();
+        Some(self.0.load_texture(name, image, options.into()).into())
+    }
+
     fn memory(&self) -> MaraMemoryCtx<'_> {
         MaraMemoryCtx::__internal_from_backend_ctx(self)
     }
