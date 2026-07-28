@@ -635,17 +635,28 @@ impl GraphStyle {
         self.pin_size.unwrap_or(style.spacing.interact_size.y * 0.6)
     }
 
-    fn get_pin_fill(&self, style: &Style) -> Color32 {
+    /// Fill for a pin the caller did not colour.
+    ///
+    /// Falls back to Mara's accent rather than reading the backend's
+    /// `Style` (PLAN.md WS-D1.3). Not a behaviour change for Mara
+    /// consumers: `mara_node_graph_style` sets `pin_fill` explicitly, so
+    /// this branch never runs there — and where it does run, egui's
+    /// `widgets.active.bg_fill` is the adapted accent anyway, because
+    /// that is what Mara's theme installs.
+    fn get_pin_fill(&self) -> Color32 {
         self.pin_fill
-            .unwrap_or_else(|| style.visuals.widgets.active.bg_fill.into())
+            .unwrap_or_else(|| mara_core::style::active_accent().into())
     }
 
-    fn get_pin_stroke(&self, style: &Style) -> Stroke {
+    /// Outline for a pin the caller did not stroke. Same reasoning as
+    /// [`GraphStyle::get_pin_fill`].
+    fn get_pin_stroke(&self) -> Stroke {
         self.pin_stroke.unwrap_or_else(|| {
-            Stroke::new(
-                style.visuals.widgets.active.bg_stroke.width,
-                style.visuals.widgets.active.bg_stroke.color.into(),
-            )
+            let s = mara_core::style::stroke_for(
+                mara_core::style::StrokeRole::WidgetBorder,
+                mara_core::style::active_accent(),
+            );
+            Stroke::new(s.width, s.color.into())
         })
     }
 
@@ -1695,7 +1706,6 @@ where
 
             let wire_info = node_pin.draw(
                 style,
-                pin_ui.style(),
                 visual_pin_rect.into(),
                 &mara_backend_egui::__internal_painter_from_egui(pin_ui.painter().clone()),
             );
@@ -1870,7 +1880,6 @@ where
 
             let wire_info = node_pin.draw(
                 style,
-                pin_ui.style(),
                 visual_pin_rect.into(),
                 &mara_backend_egui::__internal_painter_from_egui(pin_ui.painter().clone()),
             );

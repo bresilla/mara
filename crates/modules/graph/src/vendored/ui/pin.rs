@@ -1,4 +1,3 @@
-use egui::Style;
 use mara_core::MaraPainter;
 use mara_core::vocab::{Color32, Rect, Stroke, Vec2, pos2, vec2};
 
@@ -56,7 +55,6 @@ pub trait NodePin {
     fn draw(
         self,
         graph_style: &GraphStyle,
-        style: &Style,
         rect: Rect,
         painter: &MaraPainter,
     ) -> PinWireInfo;
@@ -186,16 +184,16 @@ impl PinInfo {
 
     /// Returns fill color of the pin.
     #[must_use]
-    pub fn get_fill(&self, graph_style: &GraphStyle, style: &Style) -> Color32 {
+    pub fn get_fill(&self, graph_style: &GraphStyle) -> Color32 {
         self.fill
-            .unwrap_or_else(|| graph_style.get_pin_fill(style).into())
+            .unwrap_or_else(|| graph_style.get_pin_fill().into())
     }
 
     /// Returns outline stroke of the pin.
     #[must_use]
-    pub fn get_stroke(&self, graph_style: &GraphStyle, style: &Style) -> Stroke {
+    pub fn get_stroke(&self, graph_style: &GraphStyle) -> Stroke {
         self.stroke.unwrap_or_else(|| {
-            let s = graph_style.get_pin_stroke(style);
+            let s = graph_style.get_pin_stroke();
             Stroke::new(s.width, Color32::from(s.color))
         })
     }
@@ -207,13 +205,12 @@ impl PinInfo {
     pub fn draw(
         &self,
         graph_style: &GraphStyle,
-        style: &Style,
         rect: Rect,
         painter: &MaraPainter,
     ) -> PinWireInfo {
         let shape = self.get_shape(graph_style);
-        let fill = self.get_fill(graph_style, style);
-        let stroke = self.get_stroke(graph_style, style);
+        let fill = self.get_fill(graph_style);
+        let stroke = self.get_stroke(graph_style);
 
         // Pin glow — 4-layer fake bloom under the crisp pin.
         // Each layer is a wider, alpha-reduced copy of the same
@@ -251,11 +248,10 @@ impl NodePin for PinInfo {
     fn draw(
         self,
         graph_style: &GraphStyle,
-        style: &Style,
         rect: Rect,
         painter: &MaraPainter,
     ) -> PinWireInfo {
-        Self::draw(&self, graph_style, style, rect, painter)
+        Self::draw(&self, graph_style, rect, painter)
     }
 }
 
