@@ -17,8 +17,9 @@ iconflow = { version = "1.0", default-features = false, features = ["pack-fluent
 egui_extras = { version = "0.34", default-features = false, features = ["svg"], optional = true }
 mara_gpu = { workspace = true, optional = true }
 egui-wgpu = { workspace = true, optional = true }
+wgpu = { workspace = true, optional = true }
 
 [features]
 default = ["svg"]
 svg = ["dep:egui_extras", "mara_core/svg"]
-gpu = ["dep:mara_gpu", "dep:egui-wgpu", "mara_core/gpu"]
+gpu = ["dep:mara_gpu", "dep:egui-wgpu", "dep:wgpu", "mara_core/gpu"]

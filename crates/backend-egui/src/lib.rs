@@ -2394,6 +2394,7 @@ mod offscreen {
     use std::collections::HashMap;
     use std::sync::{Arc, Mutex};
 
+    use mara_core::context::OffscreenInput;
     use mara_core::mui::MaraUi;
     use mara_core::vocab;
 
@@ -2557,26 +2558,6 @@ mod offscreen {
         Some(parent_texture.into())
     }
 
-    /// Pointer and keyboard state to feed into an offscreen surface,
-    /// in the surface's OWN coordinate space.
-    ///
-    /// Without this an offscreen surface is inert: it has no window, so
-    /// it receives no events unless the host forwards them. The caller
-    /// maps window coordinates into surface-local ones — it is the only
-    /// party that knows where the composited texture was drawn.
-    #[derive(Clone, Copy, Debug, Default)]
-    pub(crate) struct OffscreenInput {
-        /// Pointer position in surface-local points, or `None` when the
-        /// pointer is elsewhere.
-        pub pointer: Option<vocab::Pos2>,
-        pub primary_down: bool,
-        pub secondary_down: bool,
-        pub middle_down: bool,
-        pub scroll_delta: vocab::Vec2,
-        pub modifiers_shift: bool,
-        pub modifiers_ctrl: bool,
-        pub modifiers_alt: bool,
-    }
 
     /// Translate [`OffscreenInput`] into the event stream the sub-context
     /// expects. Buttons become press/release pairs around the pointer
@@ -2679,7 +2660,8 @@ mod offscreen {
 }
 
 #[cfg(feature = "gpu")]
-pub(crate) use offscreen::{OffscreenInput, render_offscreen};
+#[cfg(feature = "gpu")]
+pub(crate) use offscreen::render_offscreen;
 
 // ─── The context seam (PLAN.md WS-E3) ─────────────────────────────
 //
@@ -2897,6 +2879,20 @@ impl mara_core::context::MaraCtx for EguiCtx {
     ) -> Option<vocab::TextureHandle> {
         let image: egui::ColorImage = image.into();
         Some(self.0.load_texture(name, image, options.into()).into())
+    }
+
+    #[cfg(feature = "gpu")]
+    fn render_offscreen(
+        &self,
+        gpu: mara_gpu::MaraRenderState<'_>,
+        id: mara_core::vocab::Id,
+        size_points: mara_core::vocab::Vec2,
+        scale: f32,
+        accent: mara_core::vocab::Color32,
+        input: mara_core::context::OffscreenInput,
+        body: &mut dyn FnMut(&mut mara_core::MaraUi<'_>),
+    ) -> Option<mara_core::vocab::TextureId> {
+        render_offscreen(&self.0, gpu, id, size_points, scale, accent, input, body)
     }
 
     fn memory(&self) -> MaraMemoryCtx<'_> {

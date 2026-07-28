@@ -3635,6 +3635,7 @@ dependencies = [
  "iconflow",
  "mara_core",
  "mara_gpu",
+ "wgpu",
 ]
 
 [[package]]

@@ -346,8 +346,7 @@ impl<'a> ViewCtx<'a> {
         mut body: impl FnMut(&mut MaraUi<'_>),
     ) -> Option<crate::vocab::TextureId> {
         let origin = origin.into();
-        crate::backend::egui::render_offscreen(
-            self.egui_ctx,
+        self.seam.render_offscreen(
             gpu,
             self.workspace.current().id.with(salt),
             origin.size(),
@@ -366,13 +365,13 @@ impl<'a> ViewCtx<'a> {
     /// surface-local; a pointer outside `origin` reads as absent, so the
     /// surface does not react to clicks that landed elsewhere.
     #[cfg(feature = "gpu")]
-    fn offscreen_input(&self, origin: MaraRect) -> crate::backend::egui::OffscreenInput {
+    fn offscreen_input(&self, origin: MaraRect) -> crate::context::OffscreenInput {
         let snapshot = self.input();
         let pointer = snapshot
             .pointer
             .filter(|p| origin.contains(*p))
             .map(|p| crate::vocab::Pos2::new(p.x - origin.min.x, p.y - origin.min.y));
-        crate::backend::egui::OffscreenInput {
+        crate::context::OffscreenInput {
             pointer,
             primary_down: snapshot.primary_down,
             secondary_down: snapshot.secondary_down,

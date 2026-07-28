@@ -29,6 +29,28 @@ use crate::memory::MaraMemoryCtx;
 use crate::mui::MaraInput;
 use crate::vocab::Rect;
 
+/// Pointer and keyboard state to feed into an offscreen surface, in the
+/// surface's OWN coordinate space.
+///
+/// Without this an offscreen surface is inert: it has no window, so it
+/// receives no events unless the host forwards them. The caller maps
+/// window coordinates into surface-local ones — it is the only party
+/// that knows where the composited texture was drawn.
+#[cfg(feature = "gpu")]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct OffscreenInput {
+    /// Pointer position in surface-local points, or `None` when the
+    /// pointer is elsewhere.
+    pub pointer: Option<crate::vocab::Pos2>,
+    pub primary_down: bool,
+    pub secondary_down: bool,
+    pub middle_down: bool,
+    pub scroll_delta: crate::vocab::Vec2,
+    pub modifiers_shift: bool,
+    pub modifiers_ctrl: bool,
+    pub modifiers_alt: bool,
+}
+
 /// Frame-level state a surface needs without naming a backend.
 pub trait MaraCtx {
     /// Per-frame input snapshot.
@@ -222,6 +244,34 @@ pub trait MaraCtx {
         options: crate::vocab::TextureOptions,
     ) -> Option<crate::vocab::TextureHandle> {
         let _ = (name, image, options);
+        None
+    }
+
+    /// Render a UI body into its own texture at an independent
+    /// rasterisation scale, and return the texture to paint.
+    ///
+    /// Backs [`ViewCtx::offscreen`](crate::ViewCtx::offscreen). It sits
+    /// on the context rather than on a surface because an offscreen
+    /// pass needs the *host* — a device to allocate on and a texture
+    /// store to register the result in — not whichever surface happened
+    /// to be drawing.
+    ///
+    /// `None` when the surface cannot be prepared: a degenerate size, a
+    /// failed GPU allocation, or a host with no offscreen support at
+    /// all, which is what the default returns. Callers paint a fallback
+    /// rather than assume a texture.
+    #[cfg(feature = "gpu")]
+    fn render_offscreen(
+        &self,
+        gpu: mara_gpu::MaraRenderState<'_>,
+        id: crate::vocab::Id,
+        size_points: crate::vocab::Vec2,
+        scale: f32,
+        accent: crate::vocab::Color32,
+        input: OffscreenInput,
+        body: &mut dyn FnMut(&mut crate::MaraUi<'_>),
+    ) -> Option<crate::vocab::TextureId> {
+        let _ = (gpu, id, size_points, scale, accent, input, body);
         None
     }
 

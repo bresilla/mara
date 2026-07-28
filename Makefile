@@ -74,6 +74,12 @@ check:
 # Check the optional-GPU crate both ways.
 	@$(CARGO) check -p mara_3d
 	@$(CARGO) check -p mara_3d --features gpu-preview
+# Same masking, found the same way: `ViewCtx::offscreen` kept calling
+# `backend::egui::render_offscreen` after that module moved to its own
+# crate, and nothing noticed because `gpu` is off by default and the
+# workspace check never turns it on.
+	@$(CARGO) check -p mara_core --features gpu
+	@$(CARGO) check -p mara_backend_egui --features gpu
 # PLAN.md's goal, asserted rather than greped: with the conversion feature
 # off, `mara_core` must have no egui edge at all. This is what makes
 # `mara_backend_egui` the one crate that names the backend — a stray
@@ -90,7 +96,11 @@ check:
 #
 # Renderer-owning crates live in `hosts/` instead — see the Cargo.toml
 # layout comment for why that is honest rather than a loophole.
-	@! grep -RlnE '^(egui|egui[_-][a-z]+|wgpu)[[:space:]]*=' \
+#
+# `mara_backend_egui` is in the ban list for the same reason
+# `__internal_raw_ui` is below: depending on it reaches egui without ever
+# writing the token, so a name-only ban would be blind to it.
+	@! grep -RlnE '^(egui|egui[_-][a-z]+|wgpu|mara_backend_egui)[[:space:]]*=' \
 		$$(ls -d crates/modules/*/Cargo.toml | grep -vE 'modules/graph/')
 	@! grep -RInE '\begui[_-]?[a-z]*::|\bwgpu::' \
 		$$(ls -d crates/modules/*/src | grep -vE 'modules/graph/')
