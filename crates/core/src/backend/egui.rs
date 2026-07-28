@@ -2184,7 +2184,7 @@ mod offscreen {
     use std::collections::HashMap;
     use std::sync::{Arc, Mutex};
 
-    use crate::mui::{MaraBackend, MaraUi};
+    use crate::mui::MaraUi;
     use crate::vocab;
 
     /// A surface's retained GPU + context state, reused frame to frame.
@@ -2296,7 +2296,7 @@ mod offscreen {
             ..Default::default()
         };
         let output = surface.ctx.run_ui(raw_input, |ui| {
-            let mut backend = MaraBackend::Egui(crate::backend::egui::EguiUiBackend::new(ui));
+            let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
             body(&mut MaraUi::over(&mut backend, accent));
         });
         let primitives = surface

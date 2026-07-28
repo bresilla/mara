@@ -1321,6 +1321,16 @@ pub trait UiBackend {
         body: &mut dyn FnMut(&mut dyn UiBackend),
     );
 
+    /// The `PaintCmd`s this backend recorded through the canvas
+    /// painters it handed out.
+    ///
+    /// Empty for a rasterising backend — it painted rather than
+    /// recorded. The headless harness reads this back to assert what a
+    /// module drew.
+    fn canvas_commands(&self) -> Vec<PaintCmd> {
+        Vec::new()
+    }
+
     /// Set the spacing this surface leaves between successive items.
     fn set_item_spacing(&mut self, spec: ItemSpacingSpec) {
         let _ = spec;
@@ -1395,6 +1405,9 @@ impl<T: UiBackend + ?Sized> UiBackend for &mut T {
     }
     fn set_item_spacing(&mut self, spec: ItemSpacingSpec) {
         (**self).set_item_spacing(spec)
+    }
+    fn canvas_commands(&self) -> Vec<PaintCmd> {
+        (**self).canvas_commands()
     }
     fn reserve_title_slot(&mut self, spec: PaneFlexSpec) -> Rect {
         (**self).reserve_title_slot(spec)

@@ -399,6 +399,10 @@ impl UiBackend for RecordingBackend {
         self
     }
 
+    fn canvas_commands(&self) -> Vec<PaintCmd> {
+        RecordingBackend::canvas_commands(self)
+    }
+
     /// Headless: the host frame is the surface itself, so `body` lays
     /// out in place and the rect used is what it advanced through.
     fn frame_host(
@@ -794,9 +798,9 @@ mod golden {
     /// recording backend with zero egui in the call path.
     #[test]
     fn golden_mara_ui_over_recording() {
-        use crate::mui::{MaraBackend, MaraUi};
+        use crate::mui::MaraUi;
 
-        let mut backend = MaraBackend::Recording(Box::new(frame()));
+        let mut backend = frame();
         {
             let mut mui = MaraUi::over(&mut backend, ACCENT);
             mui.label("headless");
@@ -806,9 +810,6 @@ mod golden {
             let mut value = 0.5_f64;
             mui.slider("gain", &mut value, 0.0..=1.0, 2, "");
         }
-        let MaraBackend::Recording(recorded) = backend else {
-            unreachable!("constructed with the recording backend");
-        };
-        golden_check("mara_ui_over_recording", &recorded.paints);
+        golden_check("mara_ui_over_recording", &backend.paints);
     }
 }

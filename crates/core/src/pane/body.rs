@@ -651,8 +651,7 @@ mod tests {
             egui::CentralPanel::default().show(&ctx, |ui| {
                 crate::memory::MaraMemoryCtx::new(&crate::backend::egui::store_for_ui(ui))
                     .set_temp(active_pane_key(), pane_id);
-                let mut backend =
-                    crate::mui::MaraBackend::Egui(crate::backend::egui::EguiUiBackend::new(ui));
+                let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
                 let mut mara = crate::MaraUi::over(&mut backend, crate::vocab::Color32::WHITE);
                 let _ = render_containers(
                     &mut mara,
@@ -700,8 +699,7 @@ mod tests {
             egui::CentralPanel::default().show(&ctx, |ui| {
                 crate::memory::MaraMemoryCtx::new(&crate::backend::egui::store_for_ui(ui))
                     .set_temp(active_pane_key(), pane_id);
-                let mut backend =
-                    crate::mui::MaraBackend::Egui(crate::backend::egui::EguiUiBackend::new(ui));
+                let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
                 let mut mara = crate::MaraUi::over(&mut backend, crate::vocab::Color32::WHITE);
                 let _ = render_containers(
                     &mut mara,
@@ -739,8 +737,7 @@ mod tests {
         egui::CentralPanel::default().show(&ctx, |ui| {
             crate::memory::MaraMemoryCtx::new(&crate::backend::egui::store_for_ui(ui))
                 .set_temp(active_pane_key(), pane_id);
-            let mut backend =
-                crate::mui::MaraBackend::Egui(crate::backend::egui::EguiUiBackend::new(ui));
+            let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
             let mut mara = crate::MaraUi::over(&mut backend, crate::vocab::Color32::WHITE);
             let responses = render_containers(
                 &mut mara,
@@ -844,7 +841,7 @@ mod tests {
         egui::CentralPanel::default().show(&ctx, |ui| {
             crate::memory::MaraMemoryCtx::new(&crate::backend::egui::store_for_ui(ui)).set_temp(active_pane_key(), target_pane);
             let mut backend =
-                crate::mui::MaraBackend::Egui(crate::backend::egui::EguiUiBackend::new(ui));
+                crate::backend::egui::EguiUiBackend::new(ui);
             let mut mara = crate::MaraUi::over(&mut backend, crate::vocab::Color32::WHITE);
             let responses = render_containers_with_tab_scope(
                 &mut mara,
