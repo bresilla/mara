@@ -6841,9 +6841,9 @@ impl NodeViewer<GraphNode> for DemoViewer {
                 let bar_h = (rect.height() - 8.0) / 3.0;
                 let max = v[0].abs().max(v[1].abs()).max(v[2].abs()).max(1.0) as f32;
                 let colors = [
-                    egui::Color32::from_rgb(0xFF, 0x33, 0x52), // x = red
-                    egui::Color32::from_rgb(0x8B, 0xDC, 0x00), // y = green
-                    egui::Color32::from_rgb(0x28, 0x90, 0xFF), // z = blue
+                    MaraColor32::from_rgb(0xFF, 0x33, 0x52), // x = red
+                    MaraColor32::from_rgb(0x8B, 0xDC, 0x00), // y = green
+                    MaraColor32::from_rgb(0x28, 0x90, 0xFF), // z = blue
                 ];
                 for (i, comp) in v.iter().enumerate() {
                     let y0 = rect.top() + 4.0 + (i as f32) * bar_h;
