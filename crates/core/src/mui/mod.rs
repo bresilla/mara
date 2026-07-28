@@ -496,42 +496,6 @@ pub trait PainterSink {
     fn boxed_clone(&self) -> Box<dyn PainterSink>;
 }
 
-/// Rasterising sink over the backend's painter.
-struct EguiSink(egui::Painter);
-
-impl PainterSink for EguiSink {
-    fn boxed_clone(&self) -> Box<dyn PainterSink> {
-        Box::new(Self(self.0.clone()))
-    }
-
-    fn clip_rect(&self) -> vocab::Rect {
-        backend::egui::painter_clip_rect(&self.0)
-    }
-
-    fn with_clip(&self, rect: vocab::Rect) -> Box<dyn PainterSink> {
-        Box::new(Self(backend::egui::painter_with_clip(&self.0, rect)))
-    }
-
-    fn render(&self, cmd: PaintCmd) {
-        backend::egui::render_paint_cmd(&self.0, cmd);
-    }
-
-    fn render_text(&self, cmd: PaintCmd) -> vocab::Rect {
-        backend::egui::render_text_cmd(&self.0, cmd)
-    }
-
-    fn measure_text(&self, text: &str, size: f32, mono: bool) -> vocab::Vec2 {
-        backend::egui::measure_text_for_spec(
-            &self.0,
-            &crate::layout::TextMeasureSpec::new(text, size, mono),
-        )
-    }
-
-    fn measure_text_runs(&self, runs: &[crate::paint::TextRun]) -> vocab::Vec2 {
-        backend::egui::measure_text_runs_for_painter(&self.0, runs)
-    }
-}
-
 /// Command-recording sink — used by non-egui backends and tests.
 struct CommandSink {
     commands: Rc<RefCell<PaintList>>,
@@ -616,10 +580,12 @@ impl Clone for MaraPainter {
 }
 
 impl MaraPainter {
-    pub(crate) fn new(painter: egui::Painter) -> Self {
-        Self {
-            sink: Box::new(EguiSink(painter)),
-        }
+    /// Build a painter over `sink`.
+    ///
+    /// The backend supplies the sink; `MaraPainter` never names a
+    /// backend painter type.
+    pub(crate) fn from_sink(sink: Box<dyn PainterSink>) -> Self {
+        Self { sink }
     }
 
     /// First-party hook: wrap a backend painter.
@@ -628,10 +594,11 @@ impl MaraPainter {
     /// ported leaf draws through `MaraPainter` while its still-unported
     /// caller holds the backend's painter. Doc-hidden; the seam shrinks
     /// to nothing as the port completes.
+    #[cfg(feature = "backend-egui-conv")]
     #[doc(hidden)]
     #[must_use]
     pub fn __internal_from_egui(painter: egui::Painter) -> Self {
-        Self::new(painter)
+        Self::from_sink(Box::new(crate::backend::egui::EguiSink(painter)))
     }
 
     /// A painter that records into an internal command list rather than

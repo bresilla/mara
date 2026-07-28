@@ -574,7 +574,9 @@ impl UiBackend for EguiUiBackend<'_> {
     }
 
     fn make_painter(&self, spec: PaintSurfaceSpec) -> crate::mui::MaraPainter {
-        crate::mui::MaraPainter::new(painter_for_ui_surface(self.ui, spec))
+        crate::mui::MaraPainter::from_sink(Box::new(EguiSink(painter_for_ui_surface(
+            self.ui, spec,
+        ))))
     }
 
     fn now(&self) -> f64 {
@@ -883,6 +885,42 @@ pub(crate) fn show_area_for_host<R>(
 /// painted on a free layer would cover every Background-order pane. An
 /// area-registered painter keeps its registration slot (first-seen
 /// order), letting later-opened areas (panes) stack above it.
+/// Rasterising sink over the backend's painter.
+pub(crate) struct EguiSink(pub(crate) egui::Painter);
+
+impl crate::mui::PainterSink for EguiSink {
+    fn boxed_clone(&self) -> Box<dyn crate::mui::PainterSink> {
+        Box::new(Self(self.0.clone()))
+    }
+
+    fn clip_rect(&self) -> vocab::Rect {
+        painter_clip_rect(&self.0)
+    }
+
+    fn with_clip(&self, rect: vocab::Rect) -> Box<dyn crate::mui::PainterSink> {
+        Box::new(Self(painter_with_clip(&self.0, rect)))
+    }
+
+    fn render(&self, cmd: PaintCmd) {
+        render_paint_cmd(&self.0, cmd);
+    }
+
+    fn render_text(&self, cmd: PaintCmd) -> vocab::Rect {
+        render_text_cmd(&self.0, cmd)
+    }
+
+    fn measure_text(&self, text: &str, size: f32, mono: bool) -> vocab::Vec2 {
+        measure_text_for_spec(
+            &self.0,
+            &crate::layout::TextMeasureSpec::new(text, size, mono),
+        )
+    }
+
+    fn measure_text_runs(&self, runs: &[crate::paint::TextRun]) -> vocab::Vec2 {
+        measure_text_runs_for_painter(&self.0, runs)
+    }
+}
+
 pub(crate) fn area_registered_painter(
     ctx: &egui::Context,
     layer: Layer,
@@ -2635,7 +2673,9 @@ impl crate::context::MaraCtx for EguiCtx {
         id: vocab::Id,
         clip: vocab::Rect,
     ) -> crate::MaraPainter {
-        crate::MaraPainter::new(area_registered_painter(self, layer, id, clip))
+        crate::MaraPainter::from_sink(Box::new(EguiSink(area_registered_painter(
+            self, layer, id, clip,
+        ))))
     }
 
     fn set_cursor_icon(&self, cursor: CursorIcon) {
