@@ -610,11 +610,11 @@ impl Pane {
     #[doc(hidden)]
     pub fn __internal_show<'spec>(
         self,
-        ctx: &egui::Context,
+        ctx: &dyn crate::context::MaraCtx,
         region: MaraRect,
         body: impl FnOnce(&mut PaneBody<'_, 'spec>),
     ) {
-        crate::enforce::__internal_enforce_defaults(ctx);
+        ctx.enforce_defaults();
         if !pane_has_ribbon_button(ctx, self.id) {
             return;
         }
