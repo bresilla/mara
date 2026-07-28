@@ -97,11 +97,16 @@ check:
 # Renderer-owning crates live in `hosts/` instead — see the Cargo.toml
 # layout comment for why that is honest rather than a loophole.
 #
-# `mara_backend_egui` is in the ban list for the same reason
-# `__internal_raw_ui` is below: depending on it reaches egui without ever
-# writing the token, so a name-only ban would be blind to it.
-	@! grep -RlnE '^(egui|egui[_-][a-z]+|wgpu|mara_backend_egui)[[:space:]]*=' \
-		$$(ls -d crates/modules/*/Cargo.toml | grep -vE 'modules/graph/')
+# The dependency half is `scripts/sealed_deps.sh` (PLAN.md WS-G2), which
+# reads resolved package names out of `cargo metadata` instead of
+# grepping manifests. It replaced a grep that a renamed dep
+# (`ui_kit = { package = "egui" }`) walked straight past — demonstrated,
+# not assumed. It also bans `mara_backend_egui`, since depending on the
+# backend crate reaches egui without writing the token.
+#
+# The source-token grep below stays: it catches reaching a backend type
+# through a re-export, which no dependency edge shows.
+	@./scripts/sealed_deps.sh
 	@! grep -RInE '\begui[_-]?[a-z]*::|\bwgpu::' \
 		$$(ls -d crates/modules/*/src | grep -vE 'modules/graph/')
 # Naming `egui::` is not the only way to reach it. `mara_canvas` held a
