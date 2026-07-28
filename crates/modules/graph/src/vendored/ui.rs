@@ -1058,8 +1058,12 @@ where
 
     let ui_rect = content_rect;
 
+    // The graph's own state lives in Mara's store now, not egui's
+    // context data (PLAN.md WS-D1.4 prerequisite). `EguiCtx` is the
+    // bridge while the surrounding surface is still an `egui::Ui`.
+    let seam = mara_backend_egui::EguiCtx::new(ui.ctx());
     let mut graph_state =
-        GraphState::load(ui.ctx(), graph_id, graph, ui_rect, min_scale, max_scale);
+        GraphState::load(&seam, graph_id, graph, ui_rect, min_scale, max_scale);
     let mut to_global = graph_state.to_global();
 
     let clip_rect = ui.clip_rect();
@@ -1583,7 +1587,7 @@ where
         }
     }
 
-    graph_state.store(graph, ui.ctx());
+    graph_state.store(graph, &seam);
 
     mara_backend_egui::mara_response_from(&graph_resp)
 }

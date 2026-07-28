@@ -1,4 +1,5 @@
 use egui::{Context, Id, Pos2, Rect, Ui, Vec2, ahash::HashSet, emath::GuiRounding, style::Spacing};
+use mara_core::context::MaraCtx;
 use mara_core::transform::Transform;
 use smallvec::{SmallVec, ToSmallVec, smallvec};
 
@@ -180,18 +181,17 @@ pub struct GraphState {
 struct DrawOrder(Vec<NodeId>);
 
 impl DrawOrder {
-    fn save(self, cx: &Context, id: Id) {
-        cx.data_mut(|d| {
-            if self.0.is_empty() {
-                d.remove_temp::<Self>(id);
-            } else {
-                d.insert_temp::<Self>(id, self);
-            }
-        });
+    fn save(self, cx: &dyn MaraCtx, id: Id) {
+        let mut mem = cx.memory();
+        if self.0.is_empty() {
+            mem.remove_temp::<Self>(mara_id(id));
+        } else {
+            mem.set_temp(mara_id(id), self);
+        }
     }
 
-    fn load(cx: &Context, id: Id) -> Self {
-        cx.data(|d| d.get_temp::<Self>(id)).unwrap_or_default()
+    fn load(cx: &dyn MaraCtx, id: Id) -> Self {
+        cx.memory().get_temp::<Self>(mara_id(id)).unwrap_or_default()
     }
 }
 
@@ -199,19 +199,20 @@ impl DrawOrder {
 struct SelectedNodes(SmallVec<[NodeId; 8]>);
 
 impl SelectedNodes {
-    fn save(self, cx: &Context, id: Id) {
-        cx.data_mut(|d| {
-            if self.0.is_empty() {
-                d.remove_temp::<Self>(id);
-            } else {
-                d.get_temp_mut_or_default::<Self>(id).clone_from(&self);
-                d.insert_temp::<Self>(id, self);
-            }
-        });
+    fn save(self, cx: &dyn MaraCtx, id: Id) {
+        let mut mem = cx.memory();
+        if self.0.is_empty() {
+            mem.remove_temp::<Self>(mara_id(id));
+        } else {
+            // The original also wrote through `get_temp_mut_or_default`
+            // before inserting; that write was immediately overwritten
+            // by the insert, so only the insert is kept.
+            mem.set_temp(mara_id(id), self);
+        }
     }
 
-    fn load(cx: &Context, id: Id) -> Self {
-        cx.data(|d| d.get_temp::<Self>(id)).unwrap_or_default()
+    fn load(cx: &dyn MaraCtx, id: Id) -> Self {
+        cx.memory().get_temp::<Self>(mara_id(id)).unwrap_or_default()
     }
 }
 
@@ -224,15 +225,20 @@ struct GraphStateData {
 }
 
 impl GraphStateData {
-    fn save(self, cx: &Context, id: Id) {
-        cx.data_mut(|d| {
-            d.insert_temp(id, self);
-        });
+    fn save(self, cx: &dyn MaraCtx, id: Id) {
+        cx.memory().set_temp(mara_id(id), self);
     }
 
-    fn load(cx: &Context, id: Id) -> Option<Self> {
-        cx.data(|d| d.get_temp(id))
+    fn load(cx: &dyn MaraCtx, id: Id) -> Option<Self> {
+        cx.memory().get_temp(mara_id(id))
     }
+}
+
+/// egui's `Id` is what this vendored code threads around; the Mara store
+/// is keyed by `vocab::Id`. One conversion point rather than a cast at
+/// every call.
+fn mara_id(id: Id) -> mara_core::vocab::Id {
+    id.into()
 }
 
 fn prune_selected_nodes<T>(selected_nodes: &mut SmallVec<[NodeId; 8]>, graph: &Graph<T>) -> bool {
@@ -243,7 +249,7 @@ fn prune_selected_nodes<T>(selected_nodes: &mut SmallVec<[NodeId; 8]>, graph: &G
 
 impl GraphState {
     pub fn load<T>(
-        cx: &Context,
+        cx: &dyn MaraCtx,
         id: Id,
         graph: &Graph<T>,
         ui_rect: Rect,
@@ -305,7 +311,7 @@ impl GraphState {
     }
 
     #[inline(always)]
-    pub fn store<T>(mut self, graph: &Graph<T>, cx: &Context) {
+    pub fn store<T>(mut self, graph: &Graph<T>, cx: &dyn MaraCtx) {
         self.dirty |= prune_selected_nodes(&mut self.selected_nodes, graph);
 
         if self.dirty {
@@ -346,7 +352,7 @@ impl GraphState {
     /// next `GraphState::load`, so writing here BEFORE
     /// `GraphWidget::show` runs makes the new translation take
     /// effect this frame.
-    pub fn nudge_saved_translation(cx: &Context, id: Id, delta: egui::Vec2) {
+    pub fn nudge_saved_translation(cx: &dyn MaraCtx, id: Id, delta: egui::Vec2) {
         let Some(mut data) = GraphStateData::load(cx, id) else {
             return;
         };

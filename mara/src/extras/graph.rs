@@ -449,7 +449,14 @@ pub fn mara_node_graph_with_opts<T, V: NodeViewer<T>>(
                 // the updated translation and the scene point
                 // under the cursor stays under the cursor.
                 |sub_ctx, delta| {
-                    mara_graph::GraphState::nudge_saved_translation(sub_ctx, id_for_graph.into(), delta);
+                    // The graph's saved transform lives in Mara's store;
+                    // wrap the sub-context to reach it.
+                    let seam = mara_backend_egui::EguiCtx::new(sub_ctx);
+                    mara_graph::GraphState::nudge_saved_translation(
+                        &seam,
+                        id_for_graph.into(),
+                        delta,
+                    );
                 },
                 |sub_ui| {
                     GraphWidget::new()
