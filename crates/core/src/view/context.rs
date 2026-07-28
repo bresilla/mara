@@ -19,10 +19,11 @@ pub struct ViewCtx<'a> {
     /// Owned rather than borrowed: the wrapper holds an `Arc` handle,
     /// so a node can lend a `&dyn MaraCtx` out of itself without the
     /// caller having to keep one alive alongside.
-    pub(crate) seam: crate::backend::egui::EguiCtx,
+    pub(crate) seam: Box<dyn crate::context::MaraCtx + 'a>,
     /// The raw backend handle, kept only for the render entry points
     /// whose callees still take one (panes, shelves, leaf ribbons,
     /// texture upload, offscreen). Goes away with WS-G.
+    #[cfg(feature = "backend-egui-conv")]
     pub(crate) egui_ctx: &'a egui::Context,
     pub workspace: &'a mut WorkspaceStack,
     pub accent: MaraColor32,
@@ -54,6 +55,7 @@ impl<'a> ViewCtx<'a> {
     /// around. Sealed consumers receive a ready-made `ViewCtx` from the app
     /// shell / host facade.
     #[must_use]
+    #[cfg(feature = "backend-egui-conv")]
     #[doc(hidden)]
     pub fn __internal_new(
         egui_ctx: &'a egui::Context,
@@ -61,10 +63,11 @@ impl<'a> ViewCtx<'a> {
         accent: impl Into<MaraColor32>,
         content_avoidance: RibbonAvoidance,
     ) -> Self {
-        let seam = crate::backend::egui::EguiCtx::new(egui_ctx);
-        crate::context::MaraCtx::enforce_defaults(&seam);
+        let seam: Box<dyn crate::context::MaraCtx + 'a> =
+            Box::new(crate::backend::egui::EguiCtx::new(egui_ctx));
+        seam.enforce_defaults();
         Self {
-            region: crate::context::MaraCtx::content_rect(&seam),
+            region: seam.content_rect(),
             seam,
             egui_ctx,
             workspace,
@@ -86,7 +89,8 @@ impl<'a> ViewCtx<'a> {
         accent: impl Into<MaraColor32>,
     ) -> ViewCtx<'b> {
         ViewCtx {
-            seam: self.seam.clone(),
+            seam: self.seam.boxed_clone(),
+            #[cfg(feature = "backend-egui-conv")]
             egui_ctx: self.egui_ctx,
             workspace,
             accent: accent.into(),
@@ -99,6 +103,7 @@ impl<'a> ViewCtx<'a> {
     /// and not semver-stable.
     #[doc(hidden)]
     #[must_use]
+    #[cfg(feature = "backend-egui-conv")]
     pub fn __internal_egui_ctx(&self) -> &egui::Context {
         self.egui_ctx
     }
@@ -109,7 +114,7 @@ impl<'a> ViewCtx<'a> {
     #[doc(hidden)]
     #[must_use]
     pub fn __internal_seam_ctx(&self) -> &dyn crate::context::MaraCtx {
-        &self.seam
+        self.seam.as_ref()
     }
 
     #[must_use]
@@ -119,16 +124,20 @@ impl<'a> ViewCtx<'a> {
         // children of the leaf, so the body insets from them inside the
         // region — wherever the region is, however small it gets.
         let mut rect = self.region;
-        if let Some(edges) =
-            crate::ribbon::slot_paint::view_ribbon_edges(&self.seam, self.workspace.current().id)
-        {
+        if let Some(edges) = crate::ribbon::slot_paint::view_ribbon_edges(
+            self.seam.as_ref(),
+            self.workspace.current().id,
+        ) {
             rect = shrink_region_by_ribbon_edges(rect, edges);
         }
         // Then window-level rails: for the root, the intersection trims
         // the region under rails that actually exist; for an interior
         // cell the window rails fall outside the cell, so the
         // intersection is the cell itself.
-        rect.intersect(ribbon_avoiding_rect(&self.seam, self.content_avoidance))
+        rect.intersect(ribbon_avoiding_rect(
+            self.seam.as_ref(),
+            self.content_avoidance,
+        ))
     }
 
     /// The node's full rect — for views that paint an edge-to-edge
@@ -141,7 +150,7 @@ impl<'a> ViewCtx<'a> {
 
     #[must_use]
     pub fn ribbon_avoiding_rect(&self, avoidance: RibbonAvoidance) -> MaraRect {
-        ribbon_avoiding_rect(&self.seam, avoidance)
+        ribbon_avoiding_rect(self.seam.as_ref(), avoidance)
     }
 
     /// Per-frame input snapshot for custom view interaction, scoped to
@@ -149,7 +158,7 @@ impl<'a> ViewCtx<'a> {
     /// absent, so sibling cells only see the pointer over themselves.
     #[must_use]
     pub fn input(&self) -> MaraInput {
-        let mut snapshot = crate::context::MaraCtx::input(&self.seam);
+        let mut snapshot = self.seam.input();
         if snapshot.pointer.is_some_and(|p| !self.region.contains(p)) {
             snapshot.pointer = None;
         }
@@ -165,14 +174,14 @@ impl<'a> ViewCtx<'a> {
     /// Backend-neutral memory facade for view-level UI state.
     #[must_use]
     pub fn memory(&self) -> MaraMemoryCtx<'_> {
-        crate::context::MaraCtx::memory(&self.seam)
+        self.seam.memory()
     }
 
     /// Current maximized-widget owner, if a maximizable Mara surface
     /// owns the full host content area this frame.
     #[must_use]
     pub fn fullscreen_owner(&self) -> Option<MaraId> {
-        crate::embed::__internal_fullscreen_owner(&self.seam)
+        crate::embed::__internal_fullscreen_owner(self.seam.as_ref())
     }
 
     /// `true` when any maximizable Mara surface owns the full host
@@ -187,14 +196,14 @@ impl<'a> ViewCtx<'a> {
     /// app/module bar can hide the floating chip and route restore
     /// through their normal chrome.
     pub fn set_fullscreen_minimize_chip_visible(&self, visible: bool) {
-        crate::embed::__internal_set_fullscreen_minimize_chip_visible(&self.seam, visible);
+        crate::embed::__internal_set_fullscreen_minimize_chip_visible(self.seam.as_ref(), visible);
     }
 
     /// Restore the active full-window maximizable widget, if one
     /// exists. Returns `true` when a fullscreen owner was found and
     /// toggled off.
     pub fn restore_fullscreen(&self) -> bool {
-        crate::embed::__internal_restore_fullscreen(&self.seam)
+        crate::embed::__internal_restore_fullscreen(self.seam.as_ref())
     }
 
     /// Typed painter over this node's region on the background layer —
@@ -205,8 +214,7 @@ impl<'a> ViewCtx<'a> {
     /// Background panes stack ABOVE the backdrop, never behind it.
     #[must_use]
     pub fn painter(&self) -> MaraPainter {
-        crate::context::MaraCtx::layer_painter(
-            &self.seam,
+        self.seam.layer_painter(
             Layer::Background,
             self.node_layer_id("mara_view_background"),
             self.region,
@@ -217,8 +225,7 @@ impl<'a> ViewCtx<'a> {
     /// for overlays above panes and shelves.
     #[must_use]
     pub fn overlay_painter(&self) -> MaraPainter {
-        crate::context::MaraCtx::layer_painter(
-            &self.seam,
+        self.seam.layer_painter(
             Layer::Foreground,
             self.node_layer_id("mara_view_overlay"),
             self.region,
@@ -268,15 +275,14 @@ impl<'a> ViewCtx<'a> {
         let region = self.region;
         let id = self.workspace.current().id.with(salt);
         let accent = self.accent;
-        let ctx = &self.seam;
+        let ctx = self.seam.as_ref();
         crate::embed::__internal_with_node_region(ctx, region, || {
             // The seam's area body is `&mut dyn FnMut`, which can
             // neither consume a `FnOnce` nor carry a return value out —
             // so both travel through captures.
             let mut body = Some(body);
             let mut out = None;
-            crate::context::MaraCtx::area(
-                ctx,
+            ctx.area(
                 AreaHost::new(id, rect.min, layer).accent(accent),
                 &mut |mara| {
                     mara.constrain_to(rect);
@@ -296,7 +302,7 @@ impl<'a> ViewCtx<'a> {
     /// caller to dispatch (PLAN.md Phase 3).
     pub fn show_ribbons(&self, ribbons: &[RibbonSlotDef]) -> Vec<RibbonSlotClick> {
         crate::ribbon::slot_paint::__internal_draw_view_ribbons(
-            &self.seam,
+            self.seam.as_ref(),
             self.region,
             self.workspace.current().id,
             self.accent,
@@ -308,7 +314,7 @@ impl<'a> ViewCtx<'a> {
     /// typed [`PaneBody`] — containers and pods only.
     pub fn show_pane<'spec>(&self, pane: Pane, body: impl FnOnce(&mut PaneBody<'_, 'spec>)) {
         let region = self.region;
-        let ctx = &self.seam;
+        let ctx = self.seam.as_ref();
         crate::embed::__internal_with_node_region(ctx, region, || {
             pane.__internal_show(ctx, region, body);
         });
@@ -321,13 +327,14 @@ impl<'a> ViewCtx<'a> {
         shelves: Vec<ShelfDef<'_>>,
         state: &mut ShelfState,
     ) {
-        __internal_show_shelves_egui(&self.seam, layout, shelves, state);
+        __internal_show_shelves_egui(self.seam.as_ref(), layout, shelves, state);
     }
 
     /// Upload an image as a managed texture. Returns the retained
     /// handle (vocab type — it can update its pixels but cannot
     /// reach the widget tree).
     #[must_use]
+    #[cfg(feature = "backend-egui-conv")]
     pub fn load_texture(
         &self,
         name: &str,
@@ -409,25 +416,25 @@ impl<'a> ViewCtx<'a> {
     /// rendering into its own pixel buffer must size that buffer by.
     #[must_use]
     pub fn pixels_per_point(&self) -> f32 {
-        crate::context::MaraCtx::pixels_per_point(&self.seam)
+        self.seam.pixels_per_point()
     }
 
     /// Seconds since the host started, for time-based animation and
     /// throttling. Monotonic within a run; not a wall clock.
     #[must_use]
     pub fn now(&self) -> f64 {
-        crate::context::MaraCtx::now(&self.seam)
+        self.seam.now()
     }
 
     /// Ask the host to schedule another frame.
     pub fn request_repaint(&self) {
-        crate::context::MaraCtx::request_repaint(&self.seam);
+        self.seam.request_repaint();
     }
 
     /// Ask the host to schedule a frame no later than `after` — for
     /// views polling off-thread work (tile fetches, decode queues).
     pub fn request_repaint_after(&self, after: std::time::Duration) {
-        crate::context::MaraCtx::request_repaint_after(&self.seam, after);
+        self.seam.request_repaint_after(after);
     }
 
     /// Current responsive size class for this node's region. Views

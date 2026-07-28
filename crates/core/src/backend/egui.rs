@@ -2720,4 +2720,8 @@ impl crate::context::MaraCtx for EguiCtx {
     fn memory(&self) -> MaraMemoryCtx<'_> {
         MaraMemoryCtx::__internal_from_backend_ctx(self)
     }
+
+    fn boxed_clone(&self) -> Box<dyn crate::context::MaraCtx + '_> {
+        Box::new(self.clone())
+    }
 }

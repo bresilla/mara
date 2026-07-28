@@ -280,6 +280,13 @@ impl crate::context::MaraCtx for RecordingBackend {
     fn memory(&self) -> crate::memory::MaraMemoryCtx<'_> {
         crate::memory::MaraMemoryCtx::__internal_from_backend_ctx(&self.memory)
     }
+
+    /// Headless: a fresh recorder over the same region. The clone does
+    /// not share the store — nothing reads a headless context's state
+    /// back through a scoped child.
+    fn boxed_clone(&self) -> Box<dyn crate::context::MaraCtx + '_> {
+        Box::new(RecordingBackend::at(self.available))
+    }
 }
 
 impl UiBackend for RecordingBackend {

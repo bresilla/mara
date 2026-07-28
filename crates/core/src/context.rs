@@ -209,6 +209,13 @@ pub trait MaraCtx {
 
     /// Backend-neutral state store.
     fn memory(&self) -> MaraMemoryCtx<'_>;
+
+    /// Clone behind the box.
+    ///
+    /// A view node owns its context so it can lend one out, and a
+    /// scoped child needs its own copy — but a trait object cannot
+    /// derive `Clone`.
+    fn boxed_clone(&self) -> Box<dyn MaraCtx + '_>;
 }
 
 #[cfg(test)]
@@ -252,6 +259,12 @@ mod tests {
         }
         fn memory(&self) -> MaraMemoryCtx<'_> {
             unimplemented!("this fake covers the frame-state half only")
+        }
+        fn boxed_clone(&self) -> Box<dyn MaraCtx + '_> {
+            Box::new(Self {
+                pass: self.pass,
+                repaints: std::cell::Cell::new(self.repaints.get()),
+            })
         }
     }
 
