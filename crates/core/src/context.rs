@@ -64,6 +64,39 @@ pub struct OffscreenInput {
     pub modifiers_alt: bool,
 }
 
+/// How far content shifts, in surface-local points, when an offscreen
+/// surface's scale changes about a cursor.
+///
+/// Add the result to the embedded content's pan to keep the point under
+/// the cursor stationary across a zoom step.
+///
+/// `cursor` and `origin` are in the *parent's* coordinates; the scales
+/// are the surface's before and after. Returns zero for a degenerate
+/// scale rather than an infinity — a zoom of nothing moves nothing.
+///
+/// This exists so the caller of [`ViewCtx::offscreen`] can anchor a zoom
+/// without a callback from inside the render (PLAN.md WS-D1.4). The
+/// caller owns the scale it passes in, so it already knows both ends of
+/// the step; nothing inside the surface knows more than it does.
+///
+/// [`ViewCtx::offscreen`]: crate::ViewCtx::offscreen
+#[must_use]
+pub fn offscreen_zoom_anchor_delta(
+    cursor: crate::vocab::Pos2,
+    origin: crate::vocab::Pos2,
+    old_scale: f32,
+    new_scale: f32,
+) -> crate::vocab::Vec2 {
+    if old_scale.abs() < f32::EPSILON || new_scale.abs() < f32::EPSILON {
+        return crate::vocab::Vec2::ZERO;
+    }
+    let offset = crate::vocab::Vec2::new(cursor.x - origin.x, cursor.y - origin.y);
+    crate::vocab::Vec2::new(
+        offset.x / new_scale - offset.x / old_scale,
+        offset.y / new_scale - offset.y / old_scale,
+    )
+}
+
 /// One touch point forwarded into an offscreen surface.
 #[cfg(feature = "gpu")]
 #[derive(Clone, Copy, Debug)]
@@ -332,6 +365,68 @@ pub trait MaraCtx {
 mod tests {
     use super::*;
     use crate::vocab::{Pos2, Vec2};
+
+    /// The zoom-anchor arithmetic, pinned against the formula
+    /// `mara_graph::node_view` computes inside its render:
+    /// `offset/z_new - offset/z_old`. Reproducing it at the call site is
+    /// what lets `ViewCtx::offscreen` stay callback-free.
+    mod zoom_anchor {
+        use super::*;
+
+        #[test]
+        fn no_scale_change_moves_nothing() {
+            let d = offscreen_zoom_anchor_delta(
+                Pos2::new(120.0, 80.0),
+                Pos2::new(20.0, 10.0),
+                2.0,
+                2.0,
+            );
+            assert_eq!(d, Vec2::ZERO);
+        }
+
+        #[test]
+        fn a_cursor_at_the_origin_never_moves() {
+            let at_origin = Pos2::new(20.0, 10.0);
+            let d = offscreen_zoom_anchor_delta(at_origin, at_origin, 1.0, 4.0);
+            assert_eq!(d, Vec2::ZERO, "the anchor point is the fixed point");
+        }
+
+        #[test]
+        fn it_matches_the_offset_over_scale_difference() {
+            let cursor = Pos2::new(120.0, 80.0);
+            let origin = Pos2::new(20.0, 10.0);
+            let (old, new) = (1.0_f32, 2.0_f32);
+            let off = Vec2::new(cursor.x - origin.x, cursor.y - origin.y);
+            assert_eq!(
+                offscreen_zoom_anchor_delta(cursor, origin, old, new),
+                Vec2::new(off.x / new - off.x / old, off.y / new - off.y / old)
+            );
+        }
+
+        /// Zooming in pulls content back toward the origin; zooming out
+        /// pushes it away. Opposite signs, and reversing the step
+        /// reverses the delta.
+        #[test]
+        fn zoom_in_and_out_are_opposite_and_symmetric() {
+            let cursor = Pos2::new(120.0, 80.0);
+            let origin = Pos2::new(20.0, 10.0);
+            let in_ = offscreen_zoom_anchor_delta(cursor, origin, 1.0, 2.0);
+            let out = offscreen_zoom_anchor_delta(cursor, origin, 2.0, 1.0);
+            assert!(in_.x < 0.0 && out.x > 0.0, "in={in_:?} out={out:?}");
+            assert_eq!(in_.x, -out.x);
+            assert_eq!(in_.y, -out.y);
+        }
+
+        /// A degenerate scale yields zero, not an infinity that would
+        /// poison the pan it is added to.
+        #[test]
+        fn a_degenerate_scale_yields_zero_not_infinity() {
+            let c = Pos2::new(120.0, 80.0);
+            let o = Pos2::new(20.0, 10.0);
+            assert_eq!(offscreen_zoom_anchor_delta(c, o, 0.0, 2.0), Vec2::ZERO);
+            assert_eq!(offscreen_zoom_anchor_delta(c, o, 2.0, 0.0), Vec2::ZERO);
+        }
+    }
 
     /// A stand-in host, proving the trait is implementable with no
     /// backend at all and is object-safe — both prerequisites for the
