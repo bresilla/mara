@@ -12,7 +12,7 @@ use mara_core::{
     MaraModule, MaraView, ModuleInlineCtx, ModuleResponse, RibbonAction, RibbonCluster, RibbonEdge,
     RibbonOverridePolicy, RibbonScope, RibbonSlot, RibbonSlotDef, RibbonSlotId, RibbonSlotItem,
     ViewCtx, ViewId, WorkspaceBar, WorkspaceBarCluster, WorkspaceBarEdge, WorkspaceCtx,
-    vocab::{Color32 as MaraColor32, Pos2 as MaraPos2, Vec2 as MaraVec2},
+    vocab::{Color32 as MaraColor32, Pos2 as MaraPos2, Stroke as MaraStroke, Vec2 as MaraVec2},
 };
 
 const WORLD_UP: Vec3 = [0.0, 1.0, 0.0];
@@ -949,7 +949,7 @@ impl View3d {
         camera: &PreviewCamera,
         gizmo: &Gizmo3d,
     ) {
-        let stroke = egui::Stroke::new(gizmo.style.width.max(0.5), gizmo.style.color);
+        let stroke = MaraStroke::new(gizmo.style.width.max(0.5), gizmo.style.color);
         match &gizmo.kind {
             Gizmo3dKind::Dot { position } => {
                 if let Some((screen, _)) = camera.project(rect, *position) {
@@ -1244,8 +1244,8 @@ impl View3d {
             camera.project(rect, scale_points[1]),
             camera.project(rect, scale_points[2]),
         ) {
-            painter.line_segment([a, b], egui::Stroke::new(scale_width, scale_color));
-            painter.line_segment([b, c], egui::Stroke::new(scale_width * 2.4, scale_color));
+            painter.line_segment([a, b], MaraStroke::new(scale_width, scale_color));
+            painter.line_segment([b, c], MaraStroke::new(scale_width * 2.4, scale_color));
         }
 
         // Translation handle: the original gizmo offsets movement arrows
@@ -1268,7 +1268,7 @@ impl View3d {
         ) else {
             return;
         };
-        painter.line_segment([a, b], egui::Stroke::new(translate_width, translate_color));
+        painter.line_segment([a, b], MaraStroke::new(translate_width, translate_color));
         paint_gizmo_arrow_head(painter, b, c, translate_color, translate_width);
     }
 
@@ -1313,14 +1313,14 @@ impl View3d {
         painter.add(egui::Shape::convex_polygon(
             projected,
             color,
-            egui::Stroke::new(
+            Into::<egui::Stroke>::into(MaraStroke::new(
                 if highlighted {
                     GIZMO_STROKE_WIDTH * 0.75
                 } else {
                     0.0
                 },
                 gizmo_axis_color(axis, visibility, highlighted),
-            ),
+            )),
         ));
     }
 
@@ -1364,10 +1364,10 @@ impl View3d {
         if screen_points.len() >= 2 {
             painter.add(egui::Shape::line(
                 screen_points,
-                egui::Stroke::new(
+                Into::<egui::Stroke>::into(MaraStroke::new(
                     highlighted_width(GIZMO_STROKE_WIDTH, highlighted),
                     gizmo_axis_color(axis, 1.0, highlighted),
-                ),
+                )),
             ));
         }
     }
@@ -1382,7 +1382,7 @@ impl View3d {
         painter.circle_stroke(
             origin,
             GIZMO_SIZE + GIZMO_STROKE_WIDTH + 5.0,
-            egui::Stroke::new(
+            MaraStroke::new(
                 highlighted_width(GIZMO_STROKE_WIDTH, rotate_highlighted),
                 gizmo_view_color(rotate_highlighted),
             ),
@@ -1390,7 +1390,7 @@ impl View3d {
         painter.circle_stroke(
             origin,
             GIZMO_SIZE * 0.2,
-            egui::Stroke::new(
+            MaraStroke::new(
                 highlighted_width(GIZMO_STROKE_WIDTH, translate_highlighted),
                 gizmo_view_color(translate_highlighted),
             ),
@@ -1615,7 +1615,7 @@ impl View3d {
             if alpha == 0 {
                 continue;
             }
-            let stroke = egui::Stroke::new(
+            let stroke = MaraStroke::new(
                 line.width,
                 MaraColor32::from_rgba_unmultiplied(
                     grid_color.r(),
@@ -1712,7 +1712,7 @@ impl View3d {
         camera: &PreviewCamera,
         a: Vec3,
         b: Vec3,
-        stroke: egui::Stroke,
+        stroke: MaraStroke,
     ) {
         let stable_near = camera.near.max(self.orbit.distance * 0.015);
         if let Some((a, b)) = camera
@@ -3509,7 +3509,7 @@ fn paint_gizmo_arrow_head(
     painter.add(egui::Shape::convex_polygon(
         vec![tip, base + side * tip_width, base - side * tip_width],
         color,
-        egui::Stroke::NONE,
+        Into::<egui::Stroke>::into(MaraStroke::NONE),
     ));
 }
 
@@ -3599,7 +3599,7 @@ fn paint_projected_polyline(
     camera: &PreviewCamera,
     points: &[Vec3],
     closed: bool,
-    stroke: egui::Stroke,
+    stroke: MaraStroke,
 ) {
     if points.len() < 2 {
         return;
@@ -3614,7 +3614,10 @@ fn paint_projected_polyline(
         projected.push(projected[0]);
     }
     if projected.len() >= 2 {
-        painter.add(egui::Shape::line(projected, stroke));
+        painter.add(egui::Shape::line(
+            projected,
+            Into::<egui::Stroke>::into(stroke),
+        ));
     }
 }
 
@@ -3650,7 +3653,7 @@ fn paint_gizmo_axis_segment(
 ) {
     if let (Some((a, _)), Some((b, _))) = (camera.project(rect, a), camera.project(rect, b)) {
         let color = gizmo_axis_color(axis, 1.0, true);
-        painter.line_segment([a, b], egui::Stroke::new(width.max(1.0), color));
+        painter.line_segment([a, b], MaraStroke::new(width.max(1.0), color));
         paint_gizmo_arrow_head(painter, a, b, color, width.max(1.0));
     }
 }
