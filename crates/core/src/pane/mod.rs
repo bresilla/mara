@@ -1331,7 +1331,7 @@ impl Pane {
                 crate::MaraUi::over(mara.backend_mut(), accent),
                 id,
                 anchor,
-                accent,
+                accent.into(),
             );
             let body = body
                 .take()

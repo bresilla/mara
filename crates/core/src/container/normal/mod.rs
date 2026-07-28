@@ -79,7 +79,7 @@ pub const CONTAINER_DEFAULT_MIN_WIDTH: f32 = 286.0;
 pub struct Normal {
     title: String,
     anchor: PaneAnchor,
-    accent: Color32,
+    accent: MaraColor32,
     /// Parent pane's id. Used to look up / toggle the shared
     /// `body_open` state and the animation's `openness`, so
     /// `Pane` and the container animate in lockstep.
@@ -147,7 +147,7 @@ impl Normal {
     pub fn new(
         title: impl Into<String>,
         anchor: PaneAnchor,
-        accent: Color32,
+        accent: MaraColor32,
         pane_id: impl Into<Id>,
     ) -> Self {
         Self {
@@ -1933,7 +1933,7 @@ fn paint_folder_tabs(
     tab_meta: &[(String, Icon<'static>)],
     tab_ids: &[Id],
     active_idx: usize,
-    accent: Color32,
+    accent: MaraColor32,
     pane_id: Id,
     active_idx_key: Id,
     strip_side: TitleSide,
@@ -2163,7 +2163,7 @@ fn paint_top_tabs(
     tab_meta: &[(String, Icon<'static>)],
     tab_ids: &[Id],
     active_idx: usize,
-    accent: Color32,
+    accent: MaraColor32,
     pane_id: Id,
     active_idx_key: Id,
 ) {
@@ -2558,7 +2558,7 @@ fn paint_title(
     rect: MaraRect,
     title: &str,
     anchor: PaneAnchor,
-    accent: Color32,
+    accent: MaraColor32,
     open: bool,
     openness: f32,
     icon: Option<Icon<'_>>,
@@ -3079,7 +3079,7 @@ fn chevron_h_paint_cmd(
 fn paint_corner_ticks(
     mara: &mut crate::MaraUi<'_>,
     outer_rect: MaraRect,
-    accent: Color32,
+    accent: MaraColor32,
     title_side: TitleSide,
     openness: f32,
     container_id: Id,
@@ -3247,7 +3247,7 @@ fn paint_corner_ticks(
     // animates on first appearance / fold-unfold; once that
     // settles, the brackets are static.
     let bracket_accent = accent;
-    let accent_col = Color32::from_rgba_unmultiplied(
+    let accent_col = MaraColor32::from_rgba_unmultiplied(
         bracket_accent.r(),
         bracket_accent.g(),
         bracket_accent.b(),

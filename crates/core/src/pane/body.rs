@@ -19,7 +19,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::vocab::Id;
-use egui::Color32;
+use crate::vocab::Color32 as MaraColor32;
 
 use crate::container::{Normal, SeparatorOrient, Tab, container_flow, set_container_flow};
 use crate::pod::{Pod, PodResponse};
@@ -228,7 +228,7 @@ pub struct PaneBody<'ui, 'spec> {
     ui: crate::MaraUi<'ui>,
     pane_id: Id,
     anchor: PaneAnchor,
-    accent: Color32,
+    accent: MaraColor32,
     pending: Vec<ContainerSpec<'spec>>,
 }
 
@@ -237,7 +237,7 @@ impl<'ui, 'spec> PaneBody<'ui, 'spec> {
         ui: crate::MaraUi<'ui>,
         pane_id: Id,
         anchor: PaneAnchor,
-        accent: Color32,
+        accent: MaraColor32,
     ) -> Self {
         Self {
             ui,
@@ -364,7 +364,7 @@ pub(crate) fn render_containers<'a>(
     body_ui: &mut crate::MaraUi<'_>,
     pane_id: Id,
     anchor: PaneAnchor,
-    accent: Color32,
+    accent: MaraColor32,
     mut containers: Vec<ContainerSpec<'a>>,
 ) -> HashMap<Id, Vec<PodResponse>> {
     let mut tab_scope = TabRoutingScope::new();
@@ -387,7 +387,7 @@ pub(crate) fn render_containers_with_tab_scope<'a>(
     pane_id: Id,
     tab_routing_id: Id,
     anchor: PaneAnchor,
-    accent: Color32,
+    accent: MaraColor32,
     containers: Vec<ContainerSpec<'a>>,
     tab_scope: &mut TabRoutingScope,
     tabbed_strip_side: Option<TitleSide>,
@@ -656,7 +656,7 @@ mod tests {
                     &mut mara,
                     pane_id,
                     PaneAnchor::LeftRail(RailZone::Middle),
-                    Color32::from_rgb(120, 160, 220),
+                    MaraColor32::from_rgb(120, 160, 220),
                     vec![
                         ContainerSpec::tabbed(
                             "first",
@@ -703,7 +703,7 @@ mod tests {
                     &mut mara,
                     pane_id,
                     PaneAnchor::LeftRail(RailZone::Middle),
-                    Color32::from_rgb(120, 160, 220),
+                    MaraColor32::from_rgb(120, 160, 220),
                     vec![
                         ContainerSpec::normal("duplicate", "First", "settings", Vec::new()),
                         ContainerSpec::normal("duplicate", "Second", "info", Vec::new()),
@@ -740,7 +740,7 @@ mod tests {
                 &mut mara,
                 pane_id,
                 PaneAnchor::LeftRail(RailZone::Middle),
-                Color32::from_rgb(120, 160, 220),
+                MaraColor32::from_rgb(120, 160, 220),
                 vec![ContainerSpec::tabbed(
                     container_id,
                     "One Tab",
@@ -842,7 +842,7 @@ mod tests {
                 target_pane,
                 routing_id,
                 PaneAnchor::LeftRail(RailZone::Middle),
-                Color32::from_rgb(120, 160, 220),
+                MaraColor32::from_rgb(120, 160, 220),
                 target_specs,
                 &mut scope,
                 None,
