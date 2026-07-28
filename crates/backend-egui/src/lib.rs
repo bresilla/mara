@@ -2406,6 +2406,15 @@ mod offscreen {
         ctx: egui::Context,
         renderer: egui_wgpu::Renderer,
         target: Option<OffscreenTarget>,
+        /// Whether Mara's fonts have been installed on `ctx`.
+        ///
+        /// An independent context starts with egui's defaults, *not*
+        /// Mara's — a separate font atlas is exactly what makes it
+        /// independent. Without this the body renders unthemed and its
+        /// icons do not resolve at all, because the iconflow families are
+        /// bound per context. Installed once; the theme is re-applied
+        /// every pass, since the accent can change between them.
+        fonts_installed: bool,
     }
 
     struct OffscreenTarget {
@@ -2481,6 +2490,7 @@ mod offscreen {
                 },
             ),
             target: None,
+            fonts_installed: false,
         });
 
         ensure_target(surface, render_state, &device, format, pixels);
@@ -2506,6 +2516,23 @@ mod offscreen {
             },
             ..Default::default()
         };
+        // The sub-context is not the parent's: it needs Mara's fonts and
+        // visuals installed on it directly, or the body draws with egui's
+        // defaults and no icons.
+        if !surface.fonts_installed {
+            crate::theme::__internal_install_fonts(
+                &surface.ctx,
+                mara_core::style::font_weight(),
+                mara_core::style::title_weight(),
+            );
+            surface.fonts_installed = true;
+        }
+        crate::theme::__internal_apply_theme_to(
+            &surface.ctx,
+            mara_core::style::AccentColor(accent),
+            mara_core::style::GlassOpacity::default(),
+        );
+
         let output = surface.ctx.run_ui(raw_input, |ui| {
             let mut backend = crate::EguiUiBackend::new(ui);
             body(&mut MaraUi::over(&mut backend, accent));
