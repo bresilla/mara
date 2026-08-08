@@ -9,8 +9,8 @@
 use std::time::Duration;
 
 use mara_backend_egui::EguiCtx;
-use mara_core::context::MaraCtx;
 use mara_core::MaraPainter;
+use mara_core::context::MaraCtx;
 use mara_core::layout::Layer;
 use mara_core::vocab::{
     Align2 as MaraAlign2, Pos2 as MaraPos2, Stroke as MaraStroke, TextureId as MaraTextureId,

@@ -795,6 +795,10 @@ pub enum CursorIcon {
     Grabbing,
     ResizeHorizontal,
     ResizeVertical,
+    /// Diagonal resize, top-left ↔ bottom-right.
+    ResizeNwSe,
+    /// Diagonal resize, top-right ↔ bottom-left.
+    ResizeNeSw,
 }
 
 pub trait UiBackend {
@@ -1656,7 +1660,6 @@ pub struct PaintSlot(#[doc(hidden)] pub usize);
 impl PaintSlot {
     pub(crate) const INLINE: PaintSlot = PaintSlot(usize::MAX);
 }
-
 
 #[cfg(test)]
 mod tests {

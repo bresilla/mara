@@ -78,3 +78,6 @@ android = [
     "wgpu/vulkan",
     "wgpu/gles",
 ]
+
+[dev-dependencies]
+image = { version = "0.25", default-features = false, features = ["png"] }

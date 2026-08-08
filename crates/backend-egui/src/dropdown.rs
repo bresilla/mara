@@ -36,7 +36,6 @@ use mara_core::{
     vocab::{Align2, Color32, Id, Pos2, Rect, Stroke, Vec2},
 };
 
-
 /// Render a dropdown at the default [`DROPDOWN_ROW_H`] height.
 /// `id_salt` disambiguates this dropdown's popup id from siblings in
 /// the same `Ui` (a string, an enum value, an index — anything

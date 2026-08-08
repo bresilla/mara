@@ -101,9 +101,11 @@ fn render_styled(graph: &mut Graph<DemoNode>, style: mara_graph::GraphStyle) -> 
                 &mut backend,
                 mara_core::style::active_accent(),
                 |mara| {
-                    let _ = GraphWidget::new()
-                        .style(style.clone())
-                        .show(graph, &mut MinimalViewer, mara);
+                    let _ = GraphWidget::new().style(style.clone()).show(
+                        graph,
+                        &mut MinimalViewer,
+                        mara,
+                    );
                 },
             );
         });
@@ -120,7 +122,9 @@ fn render_styled(graph: &mut Graph<DemoNode>, style: mara_graph::GraphStyle) -> 
                 summary.mesh_count += 1;
                 summary.vertex_count += mesh.vertices.len();
                 for v in &mesh.vertices {
-                    summary.painted = summary.painted.union(egui::Rect::from_min_max(v.pos, v.pos));
+                    summary.painted = summary
+                        .painted
+                        .union(egui::Rect::from_min_max(v.pos, v.pos));
                     summary.centroid_sum += v.pos.to_vec2();
                 }
             }
@@ -396,5 +400,107 @@ fn removing_a_node_removes_its_geometry() {
     assert!(
         one < both,
         "removing a node must shrink the output: both={both} one={one}"
+    );
+}
+
+// ── PLAN_NODE.md P1 — the node underlay slot ────────────────────────
+//
+// `draw_node` reserves ONE paint slot before the frame and pins are
+// submitted, and fills it with a `Group` holding the drop shadow and
+// the accent halo. Before P1 the halo owned that slot alone and it was
+// reserved only when a halo was configured. These pin the two things
+// that generalisation can break: that the shadow reaches the output at
+// all, and that batching two commands into one slot does not lose one
+// of them.
+//
+// Assertions are on `vertex_count`, never `mesh_count` — a mesh in the
+// tessellated output is one texture/clip batch, not one shape, so
+// adding a rounded-rect stroke to an existing batch raises the vertex
+// count while leaving the mesh count alone.
+
+/// A style whose only difference from the default is the underlay.
+fn styled(
+    shadow: Option<mara_graph::ShadowSpec>,
+    halo: Option<mara_graph::NodeHalo>,
+) -> mara_graph::GraphStyle {
+    mara_graph::GraphStyle {
+        node_shadow: shadow,
+        node_halo: halo,
+        ..mara_graph::GraphStyle::new()
+    }
+}
+
+fn one_node_graph() -> Graph<DemoNode> {
+    let mut graph = Graph::<DemoNode>::new();
+    graph.insert_node(Pos2::new(200.0, 150.0), DemoNode { title: "alpha" });
+    graph
+}
+
+#[test]
+fn a_node_shadow_adds_geometry() {
+    let plain = render_styled(&mut one_node_graph(), styled(None, None)).vertex_count;
+    let shadowed = render_styled(
+        &mut one_node_graph(),
+        styled(Some(mara_graph::ShadowSpec::default()), None),
+    )
+    .vertex_count;
+
+    assert!(
+        shadowed > plain,
+        "a configured shadow must reach the painter: plain={plain} shadowed={shadowed}"
+    );
+}
+
+/// The halo used to own the reserved slot outright. P1 made the slot
+/// unconditional and moved the halo into a `Group` alongside the
+/// shadow; this is the guard that the move did not drop it.
+#[test]
+fn a_node_halo_still_paints_when_sharing_the_underlay_slot() {
+    let plain = render_styled(&mut one_node_graph(), styled(None, None)).vertex_count;
+    let haloed = render_styled(
+        &mut one_node_graph(),
+        styled(None, Some(mara_graph::NodeHalo::default())),
+    )
+    .vertex_count;
+
+    assert!(
+        haloed > plain,
+        "the halo must survive sharing the slot: plain={plain} haloed={haloed}"
+    );
+}
+
+/// Both commands go into ONE `fill_paint_slot` call. A `Group` that
+/// kept only its last child, or a second fill silently overwriting the
+/// first, would leave this equal to whichever single feature won.
+#[test]
+fn shadow_and_halo_share_one_slot_without_displacing_each_other() {
+    let shadow = mara_graph::ShadowSpec::default();
+    let halo = mara_graph::NodeHalo::default();
+
+    let shadow_only = render_styled(&mut one_node_graph(), styled(Some(shadow), None)).vertex_count;
+    let halo_only = render_styled(&mut one_node_graph(), styled(None, Some(halo))).vertex_count;
+    let plain = render_styled(&mut one_node_graph(), styled(None, None)).vertex_count;
+    let both = render_styled(&mut one_node_graph(), styled(Some(shadow), Some(halo))).vertex_count;
+
+    assert_eq!(
+        both,
+        shadow_only + halo_only - plain,
+        "batching must be additive — both={both} shadow_only={shadow_only} \
+         halo_only={halo_only} plain={plain}"
+    );
+}
+
+/// The underlay is reserved unconditionally now. An unfilled slot must
+/// be inert, or every graph with no shadow and no halo would pay for
+/// a stray shape.
+#[test]
+fn an_unfilled_underlay_slot_paints_nothing() {
+    let mut graph = one_node_graph();
+    let explicit_none = render_styled(&mut graph, styled(None, None));
+    let default_style = render_styled(&mut one_node_graph(), mara_graph::GraphStyle::new());
+
+    assert_eq!(
+        explicit_none.vertex_count, default_style.vertex_count,
+        "reserving a slot and never filling it must cost no geometry"
     );
 }

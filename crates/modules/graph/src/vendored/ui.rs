@@ -14,9 +14,14 @@ use mara_core::style::{FrameRole, FrameSpec, frame_for};
 use mara_core::vocab::{Color32, Pos2, Rect, Stroke, Vec2, pos2, vec2};
 use smallvec::SmallVec;
 
-use crate::vendored::{Graph, InPin, InPinId, Node, NodeId, OutPin, OutPinId, ui::wire::WireId};
+use crate::vendored::{
+    Graph, InPin, InPinId, Node, NodeId, NodeUid, OutPin, OutPinId, subgraph::DefId,
+    ui::wire::WireId,
+};
 
 mod background_pattern;
+mod frame_paint;
+pub mod lod;
 mod pin;
 mod scale;
 mod state;
@@ -32,7 +37,10 @@ use self::{
 
 pub use self::{
     background_pattern::{BackgroundPattern, Dots, Grid, Hex},
-    pin::{AnyPins, NodePin, PinInfo, PinShape},
+    // `PinWireInfo` was never re-exported, which made `NodePin`
+    // externally unimplementable: the trait's `draw` takes one and no
+    // downstream crate could name the type. PLAN_NODE.md P2.
+    pin::{AnyPins, NodePin, PinInfo, PinShape, PinWireInfo},
     state::GraphState,
     viewer::NodeViewer,
     wire::{WireColorMode, WireLayer, WireStyle},
@@ -336,6 +344,93 @@ impl Default for NodeHalo {
     }
 }
 
+/// Drop shadow painted under each node body, plus the deeper variant
+/// used while the node is being dragged.
+///
+/// The two states are one struct rather than two style fields because
+/// they are never meaningful apart: a shadow that does not lift on
+/// drag reads as a flat sticker, and a lift with no resting shadow has
+/// nothing to lift from. `PLAN_NODE.md` P1.
+///
+/// Both variants go into the node's underlay slot, which is reserved
+/// before the frame and pins are submitted, so the shadow lands under
+/// the body rather than over it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct ShadowSpec {
+    /// Resting offset in points, `[x, y]`. Positive `y` is down.
+    pub offset: [i8; 2],
+    /// Resting blur radius in points.
+    pub blur: u8,
+    /// Resting spread in points — grows the shadow rect before blurring.
+    pub spread: u8,
+    /// Shadow colour, alpha included. Typically near-black at low alpha.
+    pub color: Color32,
+    /// Offset used while the node is dragged by the primary button.
+    pub drag_offset: [i8; 2],
+    /// Blur used while the node is dragged.
+    pub drag_blur: u8,
+}
+
+impl Default for ShadowSpec {
+    fn default() -> Self {
+        Self {
+            offset: [0, 4],
+            blur: 12,
+            spread: 0,
+            color: Color32::from_black_alpha(90),
+            drag_offset: [0, 10],
+            drag_blur: 24,
+        }
+    }
+}
+
+impl ShadowSpec {
+    /// The `(offset, blur)` pair for the node's current drag state.
+    #[must_use]
+    const fn for_state(&self, dragged: bool) -> ([i8; 2], u8) {
+        if dragged {
+            (self.drag_offset, self.drag_blur)
+        } else {
+            (self.offset, self.blur)
+        }
+    }
+}
+
+/// Layered selection halo — a core stroke plus three progressively
+/// wider, fainter outside strokes.
+///
+/// A single 1 px border is illegible in a multi-select over a dense
+/// graph: at any reasonable zoom it is indistinguishable from the
+/// node's own outline. Stacked strokes read as a glow without needing
+/// one, and survive being scaled down.
+#[derive(Clone, Copy, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct HaloSpec {
+    /// Width of the crisp inner stroke, in points.
+    pub core_width: f32,
+    /// Widths of the three outside strokes, ascending.
+    pub widths: [f32; 3],
+    /// Alphas of the three outside strokes, descending.
+    pub alphas: [f32; 3],
+    /// Corner radius of the halo rect.
+    pub radius: u8,
+    /// Distance from the node edge to the core stroke.
+    pub margin: f32,
+}
+
+impl Default for HaloSpec {
+    fn default() -> Self {
+        Self {
+            core_width: 2.0,
+            widths: [4.0, 7.0, 11.0],
+            alphas: [0.18, 0.09, 0.04],
+            radius: 10,
+            margin: 2.0,
+        }
+    }
+}
+
 /// Controls how pins are placed in the node.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -534,6 +629,46 @@ pub struct GraphStyle {
         serde(skip_serializing_if = "Option::is_none", default)
     )]
     pub node_halo: Option<NodeHalo>,
+
+    /// Optional drop shadow painted under each node body, deepening
+    /// while the node is dragged. Shares the node's underlay slot with
+    /// [`GraphStyle::node_halo`], so it is always beneath the body and
+    /// the pins. Default `None` (no shadow).
+    #[cfg_attr(
+        feature = "serde",
+        serde(skip_serializing_if = "Option::is_none", default)
+    )]
+    pub node_shadow: Option<ShadowSpec>,
+
+    /// Layered halo painted around selected nodes. `None` keeps the
+    /// flat `select_style` rect.
+    #[cfg_attr(
+        feature = "serde",
+        serde(skip_serializing_if = "Option::is_none", default)
+    )]
+    pub select_halo: Option<HaloSpec>,
+
+    /// Thickness in points of the accent bar across a node's top edge.
+    /// Colour comes from `NodeViewer::node_chrome`. `None` or `0` off.
+    #[cfg_attr(
+        feature = "serde",
+        serde(skip_serializing_if = "Option::is_none", default)
+    )]
+    pub header_accent: Option<f32>,
+
+    /// Zoom level-of-detail thresholds.
+    #[cfg_attr(
+        feature = "serde",
+        serde(skip_serializing_if = "Option::is_none", default)
+    )]
+    pub lod: Option<lod::LodLadder>,
+
+    /// Camera easing rate in e-folds per second. `None` snaps.
+    #[cfg_attr(
+        feature = "serde",
+        serde(skip_serializing_if = "Option::is_none", default)
+    )]
+    pub camera_spring: Option<f32>,
 
     /// Frame used to draw background
     #[cfg_attr(
@@ -846,6 +981,11 @@ impl GraphStyle {
             pin_glow: None,
             pin_inset: None,
             node_halo: None,
+            node_shadow: None,
+            select_halo: None,
+            header_accent: None,
+            lod: None,
+            camera_spring: None,
             header_drag_space: None,
             collapsible: None,
 
@@ -883,6 +1023,19 @@ struct DrawNodeResponse {
     drag_released: bool,
     pin_hovered: Option<AnyPin>,
     final_rect: Rect,
+    /// The node the pointer is over, if this one is.
+    ///
+    /// Collected in the node loop and consumed by the wire loop, which
+    /// runs after it — that ordering is what lets hover focus dim wires
+    /// in the same frame the hover happens rather than one frame late.
+    hovered: Option<NodeId>,
+    /// Set on the frame a node's own drag ENDS.
+    ///
+    /// Distinct from `drag_released`, which reports a *pin* drag
+    /// finishing (a wire being dropped). Frame adoption resolves on
+    /// this and only this: recomputing membership continuously would
+    /// capture any node that merely passes over a group.
+    node_drag_stopped: Option<NodeId>,
 }
 
 struct DrawPinsResponse {
@@ -951,8 +1104,8 @@ impl GraphWidget {
     /// Prefer using [`GraphWidget::id_salt`] otherwise.
     #[inline]
     #[must_use]
-    pub const fn id(mut self, id: Id) -> Self {
-        self.id = Some(id);
+    pub fn id(mut self, id: mara_core::vocab::Id) -> Self {
+        self.id = Some(Id::from(id));
         self
     }
 
@@ -1091,8 +1244,7 @@ where
     // context data (PLAN.md WS-D1.4 prerequisite). `EguiCtx` is the
     // bridge while the surrounding surface is still an `egui::Ui`.
     let seam = mara_backend_egui::EguiCtx::new(ui.ctx());
-    let mut graph_state =
-        GraphState::load(&seam, graph_id, graph, ui_rect, min_scale, max_scale);
+    let mut graph_state = GraphState::load(&seam, graph_id, graph, ui_rect, min_scale, max_scale);
     let mut to_global = graph_state.to_global();
 
     let clip_rect = ui.clip_rect();
@@ -1158,16 +1310,65 @@ where
     // Map latest pointer position to graph space.
     latest_pos = latest_pos.map(|pos| egui::Pos2::from(from_global.mul_pos(pos.into())));
 
+    // `draw_background` speaks `MaraPainter` since PLAN_NODE.md P2, so
+    // the painter is taken through the seal rather than handed over as
+    // a backend type. The default body no longer bridges at all.
+    let bg_painter = with_mara_ui(&mut ui, |mara| mara.painter());
     viewer.draw_background(
         style.bg_pattern.as_ref(),
         &viewport.into(),
         &style,
-        ui.painter(),
+        &bg_painter,
         graph,
     );
 
     let mut node_moved = None;
     let mut node_to_top = None;
+    let mut node_drag_stopped: Option<NodeId> = None;
+    let mut hovered_node: Option<NodeId> = None;
+
+    // ── Frame groups (PLAN_NODE.md P5) ──
+    //
+    // Painted here — after the background, before wires and nodes — so
+    // a group box sits under everything it contains without needing a
+    // reserved slot. Inline rather than slotted because the backend's
+    // slot filler maps `Text` to a no-op and the title would silently
+    // vanish; see `frame_paint`'s module comment.
+    // Clone the context handle so the rect provider does not borrow
+    // `ui` — `frame_pass` needs `&mut ui` at the same time, and
+    // `egui::Context` is an `Arc` internally so this is a refcount bump.
+    let rect_ctx = ui.ctx().clone();
+    let node_rect_provider = |node: NodeId| -> mara_core::vocab::Rect {
+        node_frame_rect_of(&rect_ctx, graph_id, node, graph, &style)
+    };
+    // Whether a NODE is being dragged, as opposed to any button being
+    // down at all. `pointer.any_down()` is equally true while the
+    // canvas is being panned or a rubber-band selection is in flight,
+    // and using it made the candidate-group highlight flash during
+    // every pan. Matching the dragged widget against the node frame ids
+    // costs one hash per node and answers the question actually being
+    // asked.
+    let dragging_node = ui.ctx().dragged_id().is_some_and(|dragged| {
+        graph
+            .node_ids()
+            .any(|(n, _)| graph_id.with(("graph-node", n)).with("frame") == dragged)
+    });
+    let frame_outcome = if graph.frames().next().is_some() {
+        with_mara_ui(&mut ui, |mara| {
+            frame_paint::frame_pass(
+                mara,
+                graph,
+                mara_core::vocab::Id::from(graph_id),
+                mara_core::style::active_accent(),
+                &node_rect_provider,
+                to_global.scaling,
+                latest_pos.map(mara_core::vocab::Pos2::from),
+                dragging_node,
+            )
+        })
+    } else {
+        frame_paint::FramePassOutcome::default()
+    };
 
     // Process selection rect.
     let mut rect_selection_ended = None;
@@ -1209,11 +1410,39 @@ where
     let draw_order = graph_state.update_draw_order(graph);
     let mut drag_released = false;
 
+    // The visible region in GRAPH space, plus a margin so a node whose
+    // body extends past its cached size does not pop at the edge.
+    let viewport_graph: mara_core::vocab::Rect = viewport.into();
+    let cull_margin = 400.0;
+
     let mut nodes_bb = Rect::NOTHING;
     let mut node_rects = Vec::new();
 
     for node_idx in draw_order {
         if !graph.nodes.contains(node_idx.0) {
+            continue;
+        }
+
+        // A collapsed frame folds its contents away. Skipped here
+        // rather than drawn-and-hidden so a folded group costs nothing
+        // to render — which is the point of folding a large one.
+        if graph.is_collapsed_away(node_idx) {
+            continue;
+        }
+
+        // ── Viewport culling (PLAN_NODE.md P11) ──
+        //
+        // Skipped BEFORE `draw_node`, so an off-screen node costs no
+        // viewer calls, no pin construction and no layout — not merely
+        // no pixels. egui's tessellator already drops fully-clipped
+        // shapes, so culling that only avoided geometry would save
+        // almost nothing; the cost this avoids is the work upstream of
+        // it. Uses the cached size, which is why it is an estimate: a
+        // node whose content grew this frame may be one frame late to
+        // appear, and being late by a frame at the screen edge is
+        // preferable to laying out five hundred invisible nodes.
+        let node_bounds = node_frame_rect_of(&rect_ctx, graph_id, node_idx, graph, &style);
+        if node_bounds.is_finite() && !viewport_graph.expand(cull_margin).intersects(node_bounds) {
             continue;
         }
 
@@ -1242,6 +1471,12 @@ where
                 pin_hovered = Some(v);
             }
             drag_released |= response.drag_released;
+            if let Some(v) = response.node_drag_stopped {
+                node_drag_stopped = Some(v);
+            }
+            if let Some(v) = response.hovered {
+                hovered_node = Some(v);
+            }
 
             nodes_bb = nodes_bb.union(response.final_rect);
             if rect_selection_ended.is_some() {
@@ -1260,8 +1495,43 @@ where
         mara_core::memory::MaraMemoryCtx::__internal_from_backend_ctx(&wire_store);
     let wire_clip: mara_core::vocab::Rect = ui.clip_rect().into();
 
-    // Draw and interact with wires
-    for wire in graph.wires.iter() {
+    // Draw and interact with wires.
+    //
+    // Sorted first: the wire set is a `HashSet`, so its iteration order
+    // differs run to run and even frame to frame. Painting in that
+    // order makes overlapping wires swap z-position every frame — a
+    // visible shimmer — and defeats any cache keyed on draw order.
+    // Sorting the visible subset once per frame is cheap next to
+    // tessellating them.
+    let mut ordered_wires: Vec<_> = graph.wires.iter().collect();
+    ordered_wires.sort_by_key(|w| (w.out_pin, w.in_pin));
+
+    // ── Hover focus (PLAN_NODE.md P10) ──
+    //
+    // Hovering a node lights its one-hop neighbourhood and dims
+    // everything else. On a three-hundred-gate graph this is the
+    // difference between usable and unusable, and it costs one BFS over
+    // the wire set plus colour arithmetic at paint time — no extra
+    // geometry, no extra passes.
+    //
+    // `None` means nothing is hovered and everything paints at full
+    // strength, which is the common case and must stay free.
+    let focus: Option<std::collections::HashSet<NodeId>> = hovered_node.map(|n| {
+        let mut set = std::collections::HashSet::new();
+        set.insert(n);
+        for (o, i) in graph.wires() {
+            if o.node == n {
+                set.insert(i.node);
+            } else if i.node == n {
+                set.insert(o.node);
+            }
+        }
+        set
+    });
+    /// How far an out-of-focus item is pulled toward the background.
+    const DIM: f32 = 0.30;
+
+    for wire in ordered_wires {
         let Some(from_r) = output_info.get(&wire.out_pin) else {
             continue;
         };
@@ -1304,11 +1574,19 @@ where
             }
         }
 
-        let color = match style.get_wire_color_mode() {
+        let mut color = match style.get_wire_color_mode() {
             WireColorMode::Mix => mix_colors(from_r.wire_color, to_r.wire_color),
             WireColorMode::FromSource => from_r.wire_color,
             WireColorMode::FromTarget => to_r.wire_color,
         };
+
+        // A wire is in focus only if BOTH ends are — a wire with one
+        // end in the neighbourhood still leads somewhere irrelevant.
+        if let Some(f) = &focus
+            && !(f.contains(&wire.out_pin.node) && f.contains(&wire.in_pin.node))
+        {
+            color = color.gamma_multiply(DIM);
+        }
 
         let mut draw_width = wire_width;
         if hovered_wire == Some(wire) {
@@ -1424,7 +1702,33 @@ where
     // Do centering unless no nodes are present.
     if style.get_centering() && graph_resp.double_clicked() && nodes_bb.is_finite() {
         let nodes_bb = nodes_bb.expand(100.0);
-        graph_state.look_at(nodes_bb.into(), ui_rect, min_scale, max_scale);
+        // Eased when a spring rate is configured, instant otherwise.
+        // Routing every view change through `fly_to` is what makes
+        // fit-to-selection, breadcrumb jumps and the subgraph dive cost
+        // a target each rather than an animation each.
+        if style.camera_spring.is_some() {
+            graph_state.fly_to(nodes_bb.into(), ui_rect, min_scale, max_scale);
+        } else {
+            graph_state.look_at(nodes_bb.into(), ui_rect, min_scale, max_scale);
+        }
+    }
+
+    // ── Camera spring (PLAN_NODE.md P6) ──
+    //
+    // Stepped after the frame's interactions so a target set this frame
+    // starts moving on the next one, and gated on there being a target
+    // at all — an idle canvas must request zero repaints.
+    if let (Some(rate), Some(target)) = (style.camera_spring, graph_state.camera_target()) {
+        let dt = ui.ctx().input(|i| i.stable_dt).clamp(0.0, 0.25);
+        let mut spring = crate::vendored::camera::CameraSpring::at(graph_state.to_global());
+        spring.retarget(target);
+        if spring.step(dt, rate) {
+            graph_state.set_to_global(spring.current());
+            ui.ctx().request_repaint();
+        } else {
+            graph_state.set_to_global(target);
+            graph_state.clear_camera_target();
+        }
     }
 
     if modifiers.command && graph_resp.clicked_by(PointerButton::Primary) {
@@ -1605,14 +1909,133 @@ where
         && graph.nodes.contains(node.0)
     {
         mara_core::context::MaraCtx::request_repaint(&seam);
-        if graph_state.selected_nodes().contains(&node) {
-            for node in graph_state.selected_nodes() {
-                let node = &mut graph.nodes[node.0];
-                node.pos += mara_core::vocab::Vec2::from(delta);
+        // `drag_targets_node` is the pure model function: dragging a
+        // selected node moves the whole selection, anything else moves
+        // alone. Keeping the rule in the model rather than here is what
+        // makes it testable without a render pass.
+        let targets = graph.drag_targets_node(node, graph_state.selected_nodes());
+        let d = mara_core::vocab::Vec2::from(delta);
+        for target in targets {
+            graph.nodes[target.0].pos += d;
+        }
+        graph.touch();
+    }
+
+    // Frame drags land at the SAME deferred site as node drags, for the
+    // same reason: the node loop holds `&mut graph` and cannot move
+    // anything while iterating.
+    if let Some((frame, delta)) = frame_outcome.frame_moved
+        && let Some(f) = graph.frame(frame)
+    {
+        mara_core::context::MaraCtx::request_repaint(&seam);
+        let d = mara_core::vocab::Vec2::from(delta);
+        match f.move_mode {
+            crate::vendored::frames::FrameMove::WithContents => {
+                for target in graph.drag_targets_frame(frame) {
+                    graph.nodes[target.0].pos += d;
+                }
+                // A manually-sized frame carries its box along with its
+                // contents; an auto-fitting one re-fits and would fight
+                // an explicit bounds nudge.
+                if let Some(f) = graph.frame_mut(frame)
+                    && !f.shrink
+                {
+                    f.bounds = f.bounds.translate(d);
+                }
             }
+            crate::vendored::frames::FrameMove::BoxOnly => {
+                if let Some(f) = graph.frame_mut(frame)
+                    && !f.shrink
+                {
+                    f.bounds = f.bounds.translate(d);
+                }
+            }
+        }
+        graph.touch();
+    }
+
+    if let Some(frame) = frame_outcome.toggle_collapsed
+        && let Some(f) = graph.frame_mut(frame)
+    {
+        f.collapsed = !f.collapsed;
+        mara_core::context::MaraCtx::request_repaint(&seam);
+    }
+
+    if let Some((frame, bounds)) = frame_outcome.frame_resized
+        && let Some(f) = graph.frame_mut(frame)
+    {
+        // Starting a resize turns auto-fit off and keeps the bounds the
+        // box had at that moment, so it does not snap back under the
+        // cursor mid-drag.
+        f.shrink = false;
+        f.bounds = bounds;
+    }
+
+    // `F` groups the selection. Blender moved every frame operation onto
+    // this key in 4.5 precisely because creation-by-menu "got in the
+    // way"; a group you can make in one keystroke is a group people
+    // actually make.
+    // Ctrl/Cmd+G folds the selection into a definition; adding Shift
+    // dissolves a selected instance back out. Recorded rather than
+    // performed, because both need the document and this function only
+    // ever holds one level of it.
+    if graph_resp.hovered()
+        && modifiers.command
+        && ui.input(|i| i.key_pressed(egui::Key::G))
+        && !graph_state.selected_nodes().is_empty()
+    {
+        note_intent(if modifiers.shift {
+            StructuralIntent::Expand
         } else {
-            let node = &mut graph.nodes[node.0];
-            node.pos += mara_core::vocab::Vec2::from(delta);
+            StructuralIntent::Collapse
+        });
+        mara_core::context::MaraCtx::request_repaint(&seam);
+    }
+
+    if graph_resp.hovered()
+        && ui.input(|i| i.key_pressed(egui::Key::F))
+        && !graph_state.selected_nodes().is_empty()
+    {
+        let members: Vec<NodeId> = graph_state.selected_nodes().to_vec();
+        // Nest inside whatever the selection already shares, so grouping
+        // a subset of a group produces a child rather than a sibling
+        // that overlaps it.
+        let common = {
+            let first = graph.frame_of(members[0]);
+            members
+                .iter()
+                .all(|n| graph.frame_of(*n) == first)
+                .then_some(first)
+                .flatten()
+        };
+        let new_frame = graph.insert_frame(
+            "Group",
+            mara_core::style::active_accent(),
+            mara_core::vocab::Rect::NAN,
+        );
+        if let Some(parent) = common {
+            graph.set_frame_parent(new_frame, Some(parent));
+        }
+        for node in members {
+            graph.set_node_frame(node, Some(new_frame));
+        }
+        mara_core::context::MaraCtx::request_repaint(&seam);
+    }
+
+    // Adoption resolves on drag STOP, never continuously: recomputing
+    // membership from geometry every frame is Unreal's model and it
+    // captures nodes that merely pass over a box.
+    if let Some(node) = node_drag_stopped
+        && graph.nodes.contains(node.0)
+    {
+        let landed = frame_outcome.hovered_frame;
+        if landed != graph.frame_of(node) {
+            // Dragging fully out releases to the frame's PARENT rather
+            // than to the root, so pulling a node out of a nested group
+            // leaves it in the surrounding one.
+            let target =
+                landed.or_else(|| graph.frame_of(node).and_then(|f| graph.frame(f)?.parent));
+            graph.set_node_frame(node, target);
         }
     }
 
@@ -2008,6 +2431,37 @@ where
 
 //First step for split big function to parts
 /// Draw one node. Return Pins info
+///
+/// # The decoration budget
+///
+/// Every decorative cue here was added on its own merits and they were
+/// never costed together: a selected node that belonged to a group and
+/// was a subgraph instance used to paint eleven layers in four unrelated
+/// colour systems, and the result read as damage rather than as
+/// information. The budget that replaced it:
+///
+/// - **One resting ring, never two.** [`GraphStyle::node_halo`] is that
+///   ring. Group membership is carried by the group box painted behind
+///   the node, not by a second ring on the node — a per-node ring in the
+///   group's colour competes with the box that already says the same
+///   thing, and with the accent that owns the node's edge.
+/// - **Selection replaces the resting ring rather than stacking on it.**
+///   A selected node drops `node_halo` and shows the selection cue in
+///   its place — [`GraphStyle::select_halo`] where one is configured,
+///   the flat rect otherwise. Stacking them made selection read as
+///   noise; emphasis needs the contrast of a cue appearing where there
+///   was none, not a thicker version of a cue already present.
+/// - **The deck of cards survives** because it means something no other
+///   layer says — "there is a world inside this" — but capped at two
+///   cards and only where the body is legible at all.
+/// - **The header accent bar means a category, so absent must stay
+///   absent.** Falling back to the host accent gave every node in an
+///   uncategorised app an identical bar, which is a stripe that
+///   distinguishes nothing.
+/// - **Badges only at [`DetailTier::Full`].** Below it the label is
+///   unreadable and the chip collides with the title.
+///
+/// [`DetailTier::Full`]: crate::vendored::chrome::DetailTier::Full
 #[inline]
 #[allow(clippy::too_many_lines)]
 #[allow(clippy::too_many_arguments)]
@@ -2026,15 +2480,14 @@ fn draw_node<T, V>(
 where
     V: NodeViewer<T>,
 {
-    let Node {
-        pos,
-        open,
-        ref value,
-    } = graph.nodes[node.0];
+    let Node { pos, open, .. } = graph.nodes[node.0];
+    let size_override = graph.size_override_of(node);
 
-    // Collect pins
-    let inputs_count = viewer.inputs(value);
-    let outputs_count = viewer.outputs(value);
+    // Collect pins. Asked by node id rather than by payload, so a
+    // wrapper can answer for nodes the app does not own — a subgraph
+    // instance's pins come from its definition's interface.
+    let inputs_count = viewer.inputs_of(node, graph);
+    let outputs_count = viewer.outputs_of(node, graph);
 
     let inputs = (0..inputs_count)
         .map(|idx| InPin::new(graph, InPinId { node, input: idx }))
@@ -2051,7 +2504,12 @@ where
 
     let openness = ui.ctx().animate_bool(node_id, open);
 
-    let mut node_state = NodeState::load(ui.ctx(), node_id, ui.spacing());
+    // `NodeState` lives in Mara memory since PLAN_NODE.md P2, so it is
+    // reached through the seam rather than the backend context.
+    // `EguiCtx` owns a cheap `Arc` clone, so holding it does not borrow
+    // `ui`.
+    let seam = mara_backend_egui::EguiCtx::new(ui.ctx());
+    let mut node_state = NodeState::load(&seam, node_id);
 
     let node_rect = node_state.node_rect(node_pos, openness);
 
@@ -2081,11 +2539,22 @@ where
         mara_core::vocab::Rect::from(node_rect).expand_by(node_frame.total_margin()),
     );
 
-    if graph_state.selected_nodes().contains(&node) {
+    // Detail tier and app-supplied chrome, resolved once and threaded
+    // through the rest of the node. PLAN_NODE.md P6.
+    let ladder = style.lod.unwrap_or_default();
+    let (tier, _tier_alpha) = lod::tier_for(graph_state.to_global().scaling, ladder);
+    let chrome = viewer.node_chrome(node, tier, graph);
+    let node_accent = chrome
+        .accent
+        .unwrap_or_else(mara_core::style::active_accent);
+    let selected = graph_state.selected_nodes().contains(&node);
+    if selected && style.select_halo.is_none() {
+        // The flat rect, kept for callers that have not opted into the
+        // layered halo. The halo variant is painted into the underlay
+        // slot instead, so it lands beneath the body rather than over
+        // it.
         let select_style = style.get_select_style();
-
         let select_rect = node_frame_rect + select_style.margin;
-
         ui.painter().rect(
             select_rect,
             select_style.rounding,
@@ -2109,6 +2578,23 @@ where
         node_id.with("frame"),
         Sense::click_and_drag(),
     );
+
+    // Captured HERE, not at the fill site: `r` is shadowed further
+    // down by the node frame's own `InnerResponse`, whose response was
+    // allocated by `Frame::show` with no drag sense and is therefore
+    // never dragged. Reading the drag state after that point would
+    // silently disable the lift.
+    let lifted = r.dragged_by(PointerButton::Primary);
+    let node_drag_stopped = r.drag_stopped_by(PointerButton::Primary).then_some(node);
+    let hovered_self = r.hovered().then_some(node);
+
+    // Double-clicking a node asks to descend into it. Recorded here and
+    // acted on by `show_doc`, which is the only caller that knows what
+    // a level is. Registered after the canvas response, so this does
+    // not collide with the background double-click-to-centre.
+    if r.double_clicked_by(PointerButton::Primary) {
+        note_entered(node, node_frame_rect.into());
+    }
 
     if !modifiers.shift && !modifiers.command && r.dragged_by(PointerButton::Primary) {
         node_moved = Some((node, r.drag_delta().into()));
@@ -2135,7 +2621,7 @@ where
     }
 
     if !graph.nodes.contains(node.0) {
-        node_state.clear(ui.ctx());
+        node_state.clear(&seam);
         // If removed
         return None;
     }
@@ -2149,7 +2635,7 @@ where
     }
 
     if !graph.nodes.contains(node.0) {
-        node_state.clear(ui.ctx());
+        node_state.clear(&seam);
         // If removed
         return None;
     }
@@ -2163,21 +2649,21 @@ where
 
     let mut new_pins_size = Vec2::ZERO;
 
-    // Reserve a slot in the painter for the node halo BEFORE the
-    // frame + pins are submitted, so pins render on top of the
-    // halo line where they intersect (with `PinPlacement::Edge`
-    // pins straddle the body outline). We fill the reserved slot
-    // after `node_frame.show` returns and we know the final
-    // body rect.
-    let halo_slot = style
-        .node_halo
-        .map(|_| with_mara_ui(node_ui, |mara| mara.reserve_paint_slot()));
+    // Reserve one underlay slot in the painter BEFORE the frame +
+    // pins are submitted, so everything drawn into it lands beneath
+    // the body — the drop shadow under the frame fill, and the halo
+    // under the pins where they intersect (with `PinPlacement::Edge`
+    // pins straddle the body outline). Filled after `node_frame.show`
+    // returns and the final body rect is known.
+    //
+    // Reserved unconditionally: `fill_paint_slot` takes an `Option`
+    // precisely so a caller can reserve first and decide later, and an
+    // unfilled slot is inert. Only rect/shadow/mesh geometry may go in
+    // here — the backend's slot filler maps text, images and clips to
+    // a no-op shape.
+    let underlay_slot = with_mara_ui(node_ui, |mara| mara.reserve_paint_slot());
 
     let r = mara_backend_egui::egui_frame_for_style_spec(node_frame).show(node_ui, |ui| {
-        if viewer.has_node_style(node, &inputs, &outputs, graph) {
-            viewer.apply_node_style(ui.style_mut(), node, &inputs, &outputs, graph);
-        }
-
         // Input pins' center side by X axis.
         // `pin_inset` adds an extra inward push for `Inside`
         // placement so the pins sit inside the body's content
@@ -2634,11 +3120,7 @@ where
 
         if viewer.has_footer(&graph.nodes[node.0].value) {
             let footer_rect = Rect::from_min_max(
-                pos2(
-                    node_rect.left(),
-                    pins_rect.bottom() + mara_item_spacing().y,
-                )
-                .into(),
+                pos2(node_rect.left(), pins_rect.bottom() + mara_item_spacing().y).into(),
                 pos2(node_rect.right(), node_rect.bottom()).into(),
             );
 
@@ -2671,8 +3153,6 @@ where
 
         // Render header frame.
         let mut header_rect = Rect::NAN;
-
-        let mut header_frame_rect = Rect::NAN; //node_rect + egui::Margin::from(header_frame.total_margin());
 
         // Show node's header
         //
@@ -2727,8 +3207,6 @@ where
                     header_rect = with_mara_ui(ui, |mara| mara.occupied_rect());
                 });
 
-                header_frame_rect = header_rect.expand_by(header_frame.total_margin());
-
                 ui.advance_cursor_after_rect(egui::Rect::from_min_max(
                     header_rect.min.into(),
                     pos2(
@@ -2744,38 +3222,177 @@ where
         let header_size = header_rect.size();
         node_state.set_header_height(header_size.y);
 
-        node_state.set_size(egui::Vec2::from(vec2(
+        // An explicit size wins over the measured one — the only
+        // channel an app has to say "this node is 512x384", which a
+        // live image or a chart cannot express through drawn content.
+        // Applied here rather than at the measurement sites so every
+        // path through the node body honours it.
+        let measured = vec2(
             f32::max(header_size.x, new_pins_size.x),
             header_size.y
                 + header_frame.total_margin().bottomf()
                 + mara_item_spacing().y
                 + new_pins_size.y,
-        )));
+        );
+        // The override is a floor, not a replacement: a node told to be
+        // 512 wide must still grow if its own content needs more, or
+        // the content would be clipped by the app's own request.
+        let final_size = match size_override {
+            Some(o) => vec2(measured.x.max(o.x), measured.y.max(o.y)),
+            None => measured,
+        };
+        node_state.set_size(egui::Vec2::from(final_size));
     });
 
-    // Fill the reserved halo slot now that we know the final
+    // Fill the reserved underlay slot now that we know the final
     // body rect — `r.response.rect` is the rect that was used to
     // render the node frame.
-    if let (Some(slot), Some(halo)) = (halo_slot, style.node_halo) {
-        let halo_rect = r.response.rect.expand(halo.gap);
-        with_mara_ui(node_ui, |mara| {
-            mara.fill_paint_slot(
-                slot,
-                Some(mara_core::paint::PaintCmd::RectStroke {
-                    rect: halo_rect.into(),
-                    corner: mara_core::vocab::CornerRadius::same(halo.radius),
+    //
+    // Painted back to front within the batch: shadow, then halo.
+    // `CornerRadius` and `Margin` are spelled out in full below — the
+    // unqualified names in this file resolve to the backend's types
+    // via the module-level import, not to vocab's.
+    {
+        let body_rect = r.response.rect;
+        let mut underlay: Vec<mara_core::paint::PaintCmd> = Vec::new();
+
+        // Deck of cards: layered rounded rects offset down-right, so a
+        // node that contains something reads as a stack rather than a
+        // plain block. Painted first, so they sit behind the shadow and
+        // the body both.
+        if chrome.stacked > 0 && tier.shows_body() {
+            for i in (1..=chrome.stacked.min(DECK_CARDS)).rev() {
+                let step = 3.0 * i as f32;
+                let alpha = 0.35 / i as f32;
+                underlay.push(mara_core::paint::PaintCmd::RectStroke {
+                    rect: mara_core::vocab::Rect::from(body_rect.translate(egui::vec2(step, step))),
+                    corner: node_frame.corner,
+                    stroke: mara_core::vocab::Stroke::new(1.0, node_accent.gamma_multiply(alpha)),
+                });
+            }
+        }
+
+        if let Some(shadow) = style.node_shadow {
+            let (offset, blur) = shadow.for_state(lifted);
+            underlay.push(mara_core::paint::PaintCmd::Shadow {
+                rect: body_rect.into(),
+                corner: node_frame.corner,
+                offset,
+                blur,
+                spread: shadow.spread,
+                color: shadow.color,
+            });
+        }
+
+        if let Some(halo) = style.node_halo
+            && !selected
+        {
+            underlay.push(mara_core::paint::PaintCmd::RectStroke {
+                rect: body_rect.expand(halo.gap).into(),
+                corner: mara_core::vocab::CornerRadius::same(halo.radius),
+                stroke: mara_core::vocab::Stroke::new(
+                    halo.width,
+                    mara_core::vocab::Color32::from(halo.color),
+                ),
+            });
+        }
+
+        // Layered selection halo: one crisp stroke plus three wider,
+        // fainter ones. Widest first so the faint outer bands sit under
+        // the crisp core rather than washing it out.
+        if selected && let Some(spec) = style.select_halo {
+            let base = mara_core::vocab::Rect::from(body_rect.expand(spec.margin));
+            for i in (0..3).rev() {
+                underlay.push(mara_core::paint::PaintCmd::RectStroke {
+                    rect: base,
+                    corner: mara_core::vocab::CornerRadius::same(spec.radius),
                     stroke: mara_core::vocab::Stroke::new(
-                        halo.width,
-                        mara_core::vocab::Color32::from(halo.color),
+                        spec.widths[i],
+                        node_accent.gamma_multiply(spec.alphas[i]),
                     ),
-                }),
+                });
+            }
+            underlay.push(mara_core::paint::PaintCmd::RectStroke {
+                rect: base,
+                corner: mara_core::vocab::CornerRadius::same(spec.radius),
+                stroke: mara_core::vocab::Stroke::new(spec.core_width, node_accent),
+            });
+        }
+
+        if !underlay.is_empty() {
+            with_mara_ui(node_ui, |mara| {
+                mara.fill_paint_slot(
+                    underlay_slot,
+                    Some(mara_core::paint::PaintCmd::Group(underlay)),
+                );
+            });
+        }
+    }
+
+    // Header accent bar across the node's top edge, above the frame
+    // fill because it is submitted after it. Keyed on `chrome.accent`
+    // rather than `node_accent`: the bar states a category, and the host
+    // accent is what a node has when it has no category.
+    let accent_bar = match (style.header_accent, chrome.accent) {
+        (Some(t), Some(_)) if t > 0.0 && tier.shows_body() => t,
+        _ => 0.0,
+    };
+
+    if accent_bar > 0.0
+        && let Some(accent) = chrome.accent
+    {
+        let (bar, bar_corner) = header_accent_bar(
+            mara_core::vocab::Rect::from(r.response.rect),
+            node_frame.corner,
+            accent_bar,
+        );
+        with_mara_ui(node_ui, |mara| {
+            mara.painter().rect_filled(bar, bar_corner, accent);
+        });
+    }
+
+    // Badges at the header's right edge. The instance count lands here
+    // for shared definitions, which is what stops a user being
+    // blindsided when editing one chip changes seven others.
+    if !chrome.badges.is_empty() && matches!(tier, crate::vendored::chrome::DetailTier::Full) {
+        let body = mara_core::vocab::Rect::from(r.response.rect);
+        let text_size = mara_core::style::icon_width() * BADGE_TEXT_FACTOR;
+        let top = body.min.y + accent_bar + BADGE_INSET;
+        let mut right = body.max.x - BADGE_INSET;
+        with_mara_ui(node_ui, |mara| {
+            let p = mara.painter();
+            let chips = fitting_badges(
+                &p,
+                &chrome.badges,
+                text_size,
+                body.width() - BADGE_INSET * 2.0,
             );
+            for (badge, &(w, h)) in chrome.badges.iter().zip(chips.iter()).rev() {
+                let chip = mara_core::vocab::Rect::from_min_max(
+                    mara_core::vocab::Pos2::new(right - w, top),
+                    mara_core::vocab::Pos2::new(right, top + h),
+                );
+                let tint = badge.color.unwrap_or(node_accent);
+                p.rect_filled(
+                    chip,
+                    mara_core::vocab::CornerRadius::same(BADGE_CORNER),
+                    tint.gamma_multiply(0.22),
+                );
+                p.text(
+                    chip.center(),
+                    mara_core::vocab::Align2::CENTER_CENTER,
+                    &badge.label,
+                    text_size,
+                    tint,
+                );
+                right -= w + BADGE_GAP;
+            }
         });
     }
 
     if !graph.nodes.contains(node.0) {
         ui.ctx().request_repaint();
-        node_state.clear(ui.ctx());
+        node_state.clear(&seam);
         // If removed
         return None;
     }
@@ -2785,14 +3402,100 @@ where
         viewer.final_node_rect(node, final_rect.into(), mui, graph)
     });
 
-    node_state.store(ui.ctx());
+    node_state.store(&seam);
     Some(DrawNodeResponse {
         node_moved,
         node_to_top,
         drag_released,
         pin_hovered,
         final_rect: r.response.rect.into(),
+        node_drag_stopped,
+        hovered: hovered_self,
     })
+}
+
+/// Cards drawn behind a node that contains a subgraph.
+///
+/// Two is enough to read as a stack; a third adds a stroke and no
+/// information, and it is the layer that pushes a selected instance
+/// inside a group past what the eye will parse as one object.
+const DECK_CARDS: u8 = 2;
+
+/// Badge label size as a fraction of the icon metric.
+const BADGE_TEXT_FACTOR: f32 = 0.8;
+/// Gap between the node's edge and the badge strip.
+const BADGE_INSET: f32 = 5.0;
+/// Gap between two adjacent chips.
+const BADGE_GAP: f32 = 4.0;
+/// Horizontal padding inside a chip, either side of the label.
+const BADGE_PAD_X: f32 = 5.0;
+/// Vertical padding inside a chip, above and below the label.
+const BADGE_PAD_Y: f32 = 2.0;
+const BADGE_CORNER: u8 = 4;
+
+/// Chip sizes for the leading badges that fit in `avail` points.
+///
+/// Sized from a real text measurement rather than a
+/// characters-times-width guess. The guess is wrong in both directions
+/// — too wide for `1` or `i`, too narrow for `WW` — and a chip narrower
+/// than its own label is exactly how badge text ends up painted outside
+/// the node box.
+///
+/// Anything that does not fit is dropped whole rather than clipped: a
+/// half-painted chip reads as a rendering fault, and a chip pushed past
+/// the node's left edge reads as a stray label belonging to nobody.
+/// Trailing badges go first, on the assumption that an app lists the
+/// badge it cares about most first.
+fn fitting_badges(
+    p: &mara_core::MaraPainter,
+    badges: &[crate::vendored::chrome::Badge],
+    text_size: f32,
+    avail: f32,
+) -> SmallVec<[(f32, f32); 4]> {
+    let mut out: SmallVec<[(f32, f32); 4]> = SmallVec::new();
+    let mut used = 0.0;
+    for badge in badges {
+        let text = p.measure_text(&badge.label, text_size, false);
+        let w = text.x + BADGE_PAD_X * 2.0;
+        let next = used + w + if out.is_empty() { 0.0 } else { BADGE_GAP };
+        if next > avail {
+            break;
+        }
+        used = next;
+        out.push((w, text.y + BADGE_PAD_Y * 2.0));
+    }
+    out
+}
+
+/// The header accent bar's rect and corner radius, given the node's
+/// body rect and its own corner radius.
+///
+/// A bar thinner than twice the node's corner radius cannot repeat that
+/// radius — the tessellator clamps a corner to half the shape's height
+/// — so a naive full-width bar sticks out past the node's rounded top
+/// corners. Insetting each end by the radius the bar had to give up
+/// keeps it provably inside: at every height down the corner arc the
+/// bar's edge is at least as far in as the node's own.
+fn header_accent_bar(
+    body: mara_core::vocab::Rect,
+    corner: mara_core::vocab::CornerRadius,
+    thickness: f32,
+) -> (mara_core::vocab::Rect, mara_core::vocab::CornerRadius) {
+    #![allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+
+    let cap = (thickness * 0.5).clamp(0.0, 255.0);
+    let nw = f32::from(corner.nw).min(cap);
+    let ne = f32::from(corner.ne).min(cap);
+    let rect = mara_core::vocab::Rect::from_min_max(
+        mara_core::vocab::Pos2::new(body.min.x + (f32::from(corner.nw) - nw), body.min.y),
+        mara_core::vocab::Pos2::new(
+            body.max.x - (f32::from(corner.ne) - ne),
+            body.min.y + thickness,
+        ),
+    );
+    let radius =
+        mara_core::vocab::CornerRadius::from_corners(nw.round() as u8, ne.round() as u8, 0, 0);
+    (rect, radius)
 }
 
 const fn mix_colors(a: Color32, b: Color32) -> Color32 {
@@ -2883,25 +3586,6 @@ fn with_alpha_factor(c: Color32, f: f32) -> Color32 {
 //     })
 // }
 
-impl<T> Graph<T> {
-    /// Render [`Graph`] using given viewer and style into the [`Ui`].
-    #[inline]
-    pub fn show<V>(&mut self, viewer: &mut V, style: &GraphStyle, id_salt: impl Hash, ui: &mut Ui)
-    where
-        V: NodeViewer<T>,
-    {
-        show_graph(
-            ui.make_persistent_id(id_salt),
-            *style,
-            Vec2::ZERO,
-            Vec2::INFINITY,
-            self,
-            viewer,
-            ui,
-        );
-    }
-}
-
 /// Clamp the view scale, rescaling about the viewport centre so the
 /// content under the middle of the screen stays put.
 ///
@@ -2930,6 +3614,52 @@ const fn graph_style_is_send_sync() {
     is_send_sync::<GraphStyle>();
 }
 
+/// `GraphStyle` must stay `Copy`: `GraphWidget` is `Copy` and
+/// `GraphWidget::style` is a `const fn`, so a `String`/`Vec`/`HashMap`
+/// field would break both plus every `.style(..)` call site — and the
+/// errors would land at the call sites rather than at the field that
+/// caused them. This fails at the definition instead.
+const _: () = {
+    const fn is_copy<T: Copy>() {}
+    is_copy::<GraphStyle>();
+};
+
+/// A node's outer rect — body plus frame margin — in graph space,
+/// **without drawing it**.
+///
+/// The frame pass needs every member's extent before the node loop
+/// runs, so it cannot wait for `draw_node` to report one. This
+/// reproduces `draw_node`'s prologue against the same cached
+/// `NodeState`, so the two agree to the pixel in the ordinary case.
+///
+/// It deliberately uses the **style's** node frame rather than calling
+/// `NodeViewer::node_frame`. That hook takes `&mut self` and needs the
+/// node's pins built, so consulting it here would run every viewer's
+/// per-node logic twice per frame. The cost is that a viewer which
+/// overrides the frame margin *per node* shifts that node's
+/// contribution to its group's bounds by the margin difference — a few
+/// points, on a box that is 12 points padded anyway.
+fn node_frame_rect_of<T>(
+    ctx: &egui::Context,
+    graph_id: Id,
+    node: NodeId,
+    graph: &Graph<T>,
+    style: &GraphStyle,
+) -> mara_core::vocab::Rect {
+    let Some(info) = graph.get_node_info(node) else {
+        return mara_core::vocab::Rect::NAN;
+    };
+    let node_id = graph_id.with(("graph-node", node));
+    let openness = ctx.animate_bool(node_id, info.open);
+    let seam = mara_backend_egui::EguiCtx::new(ctx);
+    let state = NodeState::load(&seam, node_id);
+    let rect = state.node_rect(egui::Pos2::from(info.pos).round_ui(), openness);
+    let margin = style
+        .get_node_frame(mara_core::style::active_accent())
+        .total_margin();
+    mara_core::vocab::Rect::from(rect).expand_by(margin)
+}
+
 /// Run `body` with the sealed surface over a backend `Ui`.
 ///
 /// `NodeViewer` speaks `MaraUi` since WS-D1.4, while this file's render
@@ -2940,4 +3670,505 @@ fn with_mara_ui<R>(ui: &mut Ui, body: impl for<'a> FnOnce(&mut mara_core::MaraUi
     let mut raw = mara_backend_egui::__internal_backend_from_raw(ui);
     let mut mara = mara_core::MaraUi::__internal_over(&mut raw, accent);
     body(&mut mara)
+}
+
+// ── Nested documents (PLAN_NODE.md P7) ──────────────────────────────
+
+/// What one `show_doc` pass decided.
+pub struct GraphOutcome {
+    pub response: MaraResponse,
+    /// The level rendered this frame.
+    pub path: crate::vendored::nav::NodePath,
+    /// One entry per level from the root down. Handed back as data so
+    /// the host can paint it as chrome; a canvas-drawn breadcrumb would
+    /// pan and zoom with the graph, and would fight Mara's enforced
+    /// top bar.
+    pub breadcrumb: Vec<crate::vendored::nav::Crumb>,
+    /// Selection at the level rendered, as stable ids.
+    pub selection: Vec<NodeUid>,
+}
+
+/// Where in a document the widget is currently looking.
+///
+/// UI state, not model state: it lives in Mara memory beside the
+/// viewport transform, never in `GraphDoc`, so navigating somewhere
+/// does not dirty the document or enter the saved file.
+#[derive(Clone, Default)]
+struct NavState {
+    path: crate::vendored::nav::NodePath,
+}
+
+impl NavState {
+    fn load(cx: &dyn mara_core::context::MaraCtx, id: Id) -> Self {
+        cx.memory()
+            .get_temp::<Self>(mara_core::vocab::Id::from(id))
+            .unwrap_or_default()
+    }
+
+    fn save(self, cx: &dyn mara_core::context::MaraCtx, id: Id) {
+        cx.memory().set_temp(mara_core::vocab::Id::from(id), self);
+    }
+}
+
+/// Wraps the app's viewer so subgraph instances answer for themselves.
+///
+/// An instance node's pin count comes from its definition's interface,
+/// not from the app — the app may not even know the node exists, since
+/// collapsing created it. Interception happens on the id-taking
+/// widenings, which is precisely why they exist: `inputs(&T)` cannot
+/// tell which node it is being asked about.
+struct DocViewer<'a, V> {
+    inner: &'a mut V,
+    ifaces: &'a crate::vendored::subgraph::IfaceTable,
+    /// Instances per definition, computed once per frame. Walking the
+    /// document per node would be quadratic.
+    counts: &'a std::collections::HashMap<DefId, u32>,
+}
+
+impl<T, V: NodeViewer<T>> NodeViewer<T> for DocViewer<'_, V> {
+    fn title(&mut self, node: &T) -> String {
+        self.inner.title(node)
+    }
+
+    fn inputs(&mut self, node: &T) -> usize {
+        self.inner.inputs(node)
+    }
+
+    fn outputs(&mut self, node: &T) -> usize {
+        self.inner.outputs(node)
+    }
+
+    fn inputs_of(&mut self, node: NodeId, graph: &Graph<T>) -> usize {
+        match self.iface_for(node, graph) {
+            Some(i) => i.inputs as usize,
+            None => self.inner.inputs_of(node, graph),
+        }
+    }
+
+    fn outputs_of(&mut self, node: NodeId, graph: &Graph<T>) -> usize {
+        match self.iface_for(node, graph) {
+            Some(i) => i.outputs as usize,
+            None => self.inner.outputs_of(node, graph),
+        }
+    }
+
+    fn title_of(&mut self, node: NodeId, graph: &Graph<T>) -> String {
+        match self.iface_for(node, graph) {
+            Some(i) => i.name.clone(),
+            None => self.inner.title_of(node, graph),
+        }
+    }
+
+    fn has_body_of(&mut self, node: NodeId, graph: &Graph<T>) -> bool {
+        if self.iface_for(node, graph).is_some() {
+            return false;
+        }
+        self.inner.has_body_of(node, graph)
+    }
+
+    fn show_input(
+        &mut self,
+        pin: &InPin,
+        ui: &mut mara_core::MaraUi<'_>,
+        graph: &mut Graph<T>,
+    ) -> impl NodePin + 'static {
+        self.inner.show_input(pin, ui, graph)
+    }
+
+    fn show_output(
+        &mut self,
+        pin: &OutPin,
+        ui: &mut mara_core::MaraUi<'_>,
+        graph: &mut Graph<T>,
+    ) -> impl NodePin + 'static {
+        self.inner.show_output(pin, ui, graph)
+    }
+
+    fn node_chrome(
+        &mut self,
+        node: NodeId,
+        tier: crate::vendored::chrome::DetailTier,
+        graph: &Graph<T>,
+    ) -> crate::vendored::chrome::NodeChrome {
+        let mut chrome = self.inner.node_chrome(node, tier, graph);
+        if let Some(iface) = self.iface_for(node, graph) {
+            // An instance takes its definition's colour unless the app
+            // has an opinion, so every placement of a chip reads alike.
+            if chrome.accent.is_none() {
+                chrome.accent = iface.color;
+            }
+            // Two cards behind it: the read is "this contains
+            // something", at any zoom and any detail tier.
+            if chrome.stacked == 0 {
+                chrome.stacked = 2;
+            }
+            // A count, but only when sharing is actually in play.
+            // Editing one chip changes every instance of it, and a user
+            // who cannot see that is about to be surprised.
+            if let Some(n) = self
+                .counts
+                .get(&self.def_of(node, graph).unwrap_or(DefId(usize::MAX)))
+                && *n > 1
+                && chrome.badges.is_empty()
+            {
+                chrome
+                    .badges
+                    .push(crate::vendored::chrome::Badge::new(format!("×{n}")));
+            }
+        }
+        chrome
+    }
+
+    fn wire_fx(
+        &mut self,
+        from: &OutPinId,
+        to: &InPinId,
+        graph: &Graph<T>,
+    ) -> crate::vendored::chrome::WireFx {
+        self.inner.wire_fx(from, to, graph)
+    }
+
+    fn has_graph_menu(&mut self, pos: mara_core::vocab::Pos2, graph: &mut Graph<T>) -> bool {
+        self.inner.has_graph_menu(pos, graph)
+    }
+
+    fn show_graph_menu(
+        &mut self,
+        pos: mara_core::vocab::Pos2,
+        ui: &mut mara_core::MaraUi<'_>,
+        graph: &mut Graph<T>,
+    ) {
+        self.inner.show_graph_menu(pos, ui, graph);
+    }
+
+    fn connect(&mut self, from: &OutPin, to: &InPin, graph: &mut Graph<T>) {
+        self.inner.connect(from, to, graph);
+    }
+
+    fn disconnect(&mut self, from: &OutPin, to: &InPin, graph: &mut Graph<T>) {
+        self.inner.disconnect(from, to, graph);
+    }
+}
+
+/// Lets the app's viewer serve as the payload source for a structural
+/// edit.
+///
+/// `NodeViewer` cannot be the `NodeFactory` bound directly — it is
+/// dyn-incompatible through its RPITIT pin methods, and `collapse` takes
+/// `&mut dyn NodeFactory<T>` precisely so the algorithm can be tested
+/// with `T = ()`.
+struct ViewerFactory<'a, V>(&'a mut V);
+
+impl<T, V: NodeViewer<T>> crate::vendored::subgraph::NodeFactory<T> for ViewerFactory<'_, V> {
+    fn instance_node(
+        &mut self,
+        def: DefId,
+        name: &str,
+        ports: &crate::vendored::subgraph::Ports,
+    ) -> Option<T> {
+        self.0.make_instance_node(def, name, ports)
+    }
+
+    fn port_node(&mut self, spec: &crate::vendored::subgraph::PortSpec<'_>) -> Option<T> {
+        self.0.make_port_node(spec)
+    }
+}
+
+impl<V> DocViewer<'_, V> {
+    fn def_of<T>(&self, node: NodeId, graph: &Graph<T>) -> Option<DefId> {
+        graph.instance_def(graph.uid_of(node)?)
+    }
+
+    fn iface_for<T>(
+        &self,
+        node: NodeId,
+        graph: &Graph<T>,
+    ) -> Option<&crate::vendored::subgraph::Iface> {
+        let uid = graph.uid_of(node)?;
+        let def = graph.instance_def(uid)?;
+        self.ifaces.get(&def)
+    }
+}
+
+impl GraphWidget {
+    /// Render one level of a nested document.
+    ///
+    /// Which level is UI state, held in Mara memory beside the viewport
+    /// transform. Double-clicking an instance descends; `Esc` or
+    /// `Backspace` on empty canvas ascends.
+    ///
+    /// # Why the ids are salted
+    ///
+    /// `graph_id` keys the sublayer, the whole `GraphState`, every
+    /// node's measured size and the wire cache. Entering a child level
+    /// without re-keying would inherit the parent's pan, zoom,
+    /// selection and draw order — and, because `NodeId` is a per-graph
+    /// slab index, the parent's node 0 and the child's node 0 would
+    /// share one size cache and one collapse animation. Salting once
+    /// with the path re-keys all of them together, and exiting restores
+    /// the parent's camera for free.
+    pub fn show_doc<T, V>(
+        &self,
+        doc: &mut crate::vendored::subgraph::GraphDoc<T>,
+        viewer: &mut V,
+        mara: &mut mara_core::MaraUi<'_>,
+    ) -> GraphOutcome
+    where
+        T: Clone,
+        V: NodeViewer<T>,
+    {
+        use crate::vendored::nav::NodePath;
+
+        let ui = mara.__internal_raw_ui();
+        let base_id = self.get_id(ui.id());
+        let seam = mara_backend_egui::EguiCtx::new(ui.ctx());
+
+        // A saved path can outlive the instance it points through.
+        let mut nav = NavState::load(&seam, base_id);
+        nav.path = doc.prune_path(&nav.path);
+
+        let ifaces = doc.iface_snapshot();
+        // Instance counts once per frame, not once per node.
+        let counts: std::collections::HashMap<DefId, u32> = ifaces
+            .keys()
+            .map(|d| (*d, doc.instance_count(*d)))
+            .collect();
+        let breadcrumb = doc.breadcrumb(&nav.path);
+        let level_id = base_id.with(("lvl", nav.path.depth(), nav.path.last().map(|u| u.0)));
+
+        let (response, entered, exit_requested, selection) = {
+            let Some(level) = doc.level_mut(&nav.path) else {
+                // The path pruned to something unrenderable; fall back
+                // to the root rather than drawing nothing.
+                nav.path = NodePath::root();
+                let level = &mut doc.root;
+                let mut wrapped = DocViewer {
+                    inner: viewer,
+                    ifaces: &ifaces,
+                    counts: &counts,
+                };
+                let r = show_graph(
+                    base_id,
+                    self.style,
+                    self.min_size,
+                    self.max_size,
+                    level,
+                    &mut wrapped,
+                    ui,
+                );
+                nav.clone().save(&seam, base_id);
+                return GraphOutcome {
+                    response: r,
+                    path: NodePath::root(),
+                    breadcrumb: doc.breadcrumb(&NodePath::root()),
+                    selection: Vec::new(),
+                };
+            };
+
+            let mut wrapped = DocViewer {
+                inner: viewer,
+                ifaces: &ifaces,
+                counts: &counts,
+            };
+            let r = show_graph(
+                level_id,
+                self.style,
+                self.min_size,
+                self.max_size,
+                level,
+                &mut wrapped,
+                ui,
+            );
+
+            // Which instance was double-clicked, resolved to a stable
+            // id before the borrow ends.
+            let entered = ENTERED.with(|e| e.take()).and_then(|(node, rect)| {
+                let uid = level.uid_of(node)?;
+                level.instance_def(uid).map(|_| (uid, rect))
+            });
+
+            let exit = ui
+                .ctx()
+                .input(|i| i.key_pressed(egui::Key::Escape) || i.key_pressed(egui::Key::Backspace));
+
+            let selection: Vec<NodeUid> = GraphState::selection(&seam, level_id.into())
+                .iter()
+                .filter_map(|n| level.uid_of(*n))
+                .collect();
+
+            (r, entered, exit, selection)
+        };
+
+        // Structural edits run here, where the whole document is in
+        // hand. `T: Clone` is not required by `show_doc`, so the edits
+        // are attempted only when the payload type supports them — see
+        // the bound on the helper below.
+        if let Some(intent) = INTENT.with(std::cell::Cell::take) {
+            apply_intent(doc, &nav.path, &selection, intent, viewer);
+        }
+
+        if let Some((uid, instance_rect)) = entered {
+            let candidate = nav.path.child(uid);
+            if doc.resolve(&candidate).is_ok() {
+                nav.path = candidate;
+
+                // ── Portal dive ──
+                //
+                // Start the child's camera framed on the block that was
+                // just opened, then aim it at the interior fitted to the
+                // viewport. The spring runs the rest, so entering reads
+                // as going *into* something rather than as a page
+                // reload. Costs two pure calls and one target, because
+                // the spring already exists.
+                if self.style.camera_spring.is_some()
+                    && let Some(child) = doc.level(&nav.path)
+                {
+                    let mut interior = mara_core::vocab::Rect::NOTHING;
+                    for (id, _) in child.node_ids() {
+                        if let Some(info) = child.get_node_info(id) {
+                            interior = interior.union(mara_core::vocab::Rect::from_min_size(
+                                info.pos,
+                                mara_core::vocab::Vec2::new(160.0, 90.0),
+                            ));
+                        }
+                    }
+                    if interior.is_finite() {
+                        let viewport: mara_core::vocab::Rect = response.rect;
+                        let child_id =
+                            base_id.with(("lvl", nav.path.depth(), nav.path.last().map(|u| u.0)));
+                        let start =
+                            crate::vendored::camera::dive_target(instance_rect, interior, 8.0);
+                        let end = crate::vendored::camera::settled_target(
+                            interior.expand(80.0),
+                            viewport,
+                            0.1,
+                            2.0,
+                        );
+                        seed_camera(&seam, child_id, start, end);
+                    }
+                }
+            }
+        } else if exit_requested && let Some(up) = nav.path.parent() {
+            nav.path = up;
+        }
+
+        let path = nav.path.clone();
+        nav.save(&seam, base_id);
+
+        GraphOutcome {
+            response,
+            path,
+            breadcrumb,
+            selection,
+        }
+    }
+
+    /// Jump straight to a level, for a breadcrumb click or a deep link.
+    pub fn set_open_path(
+        mara: &mut mara_core::MaraUi<'_>,
+        id: mara_core::vocab::Id,
+        path: &crate::vendored::nav::NodePath,
+    ) {
+        let ui = mara.__internal_raw_ui();
+        let seam = mara_backend_egui::EguiCtx::new(ui.ctx());
+        NavState { path: path.clone() }.save(&seam, Id::from(id));
+    }
+}
+
+/// Plant a level's starting camera and its destination, so the first
+/// frame at that level opens from the block rather than cutting to it.
+fn seed_camera(
+    cx: &dyn mara_core::context::MaraCtx,
+    level_id: Id,
+    start: mara_core::transform::Transform,
+    end: mara_core::transform::Transform,
+) {
+    GraphState::seed_view(cx, level_id.into(), start, end);
+}
+
+thread_local! {
+    /// The instance double-clicked this pass.
+    ///
+    /// A thread-local rather than a return value because the signal
+    /// originates deep inside `draw_node`, which is shared by
+    /// `show`—which has no concept of levels—and `show_doc`. Widening
+    /// `show_graph`'s return type for a feature only one caller uses
+    /// would push the cost onto every other call site. Cleared on read.
+    static ENTERED: std::cell::Cell<Option<(NodeId, mara_core::vocab::Rect)>> =
+        const { std::cell::Cell::new(None) };
+}
+
+/// Carry out a structural gesture against the document.
+///
+/// Every failure is swallowed deliberately: a user pressing Ctrl+G on a
+/// selection that cannot be collapsed — one that spans levels, or whose
+/// viewer declines to mint a payload — should get nothing, not a panic
+/// and not a half-built definition. `collapse` and `expand` both leave
+/// the document untouched when they return `Err`.
+fn apply_intent<T, V>(
+    doc: &mut crate::vendored::subgraph::GraphDoc<T>,
+    path: &crate::vendored::nav::NodePath,
+    selection: &[NodeUid],
+    intent: StructuralIntent,
+    viewer: &mut V,
+) where
+    T: Clone,
+    V: NodeViewer<T>,
+{
+    if selection.is_empty() {
+        return;
+    }
+    let mut factory = ViewerFactory(viewer);
+    match intent {
+        StructuralIntent::Collapse => {
+            let _ = doc.collapse(
+                path,
+                selection,
+                crate::vendored::subgraph::DefScope::Local,
+                "Group",
+                &mut factory,
+            );
+        }
+        StructuralIntent::Expand => {
+            // Only meaningful for a single instance. Expanding several
+            // at once would be ambiguous about where their contents go.
+            if let [only] = selection {
+                let _ = doc.expand(path, *only);
+            }
+        }
+    }
+}
+
+/// What a structural gesture asked for, for `show_doc` to carry out.
+///
+/// Collapse needs the whole `GraphDoc`; the gesture is detected deep
+/// inside `show_graph`, which only ever holds one level. Rather than
+/// widen the return type of a function `show` also calls — and which
+/// has no concept of levels — the request travels the same way
+/// `ENTERED` does.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum StructuralIntent {
+    /// Fold the selection into a new definition.
+    Collapse,
+    /// Dissolve the selected instance back into this level.
+    Expand,
+}
+
+thread_local! {
+    static INTENT: std::cell::Cell<Option<StructuralIntent>> =
+        const { std::cell::Cell::new(None) };
+}
+
+/// Record a structural gesture, for `show_doc` to act on.
+pub(crate) fn note_intent(intent: StructuralIntent) {
+    INTENT.with(|i| i.set(Some(intent)));
+}
+
+/// Record that `node` was double-clicked, for `show_doc` to act on.
+///
+/// The rect travels with it because the dive animation needs to know
+/// where on screen the block was — by the time the child level renders,
+/// that is gone.
+pub(crate) fn note_entered(node: NodeId, rect: mara_core::vocab::Rect) {
+    ENTERED.with(|e| e.set(Some((node, rect))));
 }

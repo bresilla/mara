@@ -401,34 +401,33 @@ fn app_shell_calls_workspace_renderer_for_l1() {
         .push_module("graph-module");
     let mut called = false;
 
-    let (resolved, _) =
-        mara_backend_egui::__internal_show_app_shell_with_workspace_renderer_egui(
-            &egui_ctx,
-            &mut router,
-            &permanent_main_with_system_control(),
-            egui::Color32::WHITE,
-            |_ctx, ws| {
-                called = true;
-                ws.add_ribbon(RibbonSlotDef::new(
-                    MaraId::new("workspace.rendered.ribbon"),
-                    RibbonScope::WorkspaceLevel(level.id),
-                    RibbonEdge::Top,
-                    RibbonCluster::Middle,
-                    vec![RibbonSlot::new(
-                        RibbonSlotId::new("workspace.rendered.tool"),
-                        Some(RibbonSlotItem::new(
-                            MaraId::new("workspace.rendered.item"),
-                            "flowchart",
-                            "Graph",
-                            "Graph tool",
-                            RibbonAction::Command(MaraId::new("workspace.rendered.command")),
-                        )),
-                        RibbonOverridePolicy::Fixed,
-                    )],
-                ));
-            },
-        )
-        .unwrap();
+    let (resolved, _) = mara_backend_egui::__internal_show_app_shell_with_workspace_renderer_egui(
+        &egui_ctx,
+        &mut router,
+        &permanent_main_with_system_control(),
+        egui::Color32::WHITE,
+        |_ctx, ws| {
+            called = true;
+            ws.add_ribbon(RibbonSlotDef::new(
+                MaraId::new("workspace.rendered.ribbon"),
+                RibbonScope::WorkspaceLevel(level.id),
+                RibbonEdge::Top,
+                RibbonCluster::Middle,
+                vec![RibbonSlot::new(
+                    RibbonSlotId::new("workspace.rendered.tool"),
+                    Some(RibbonSlotItem::new(
+                        MaraId::new("workspace.rendered.item"),
+                        "flowchart",
+                        "Graph",
+                        "Graph tool",
+                        RibbonAction::Command(MaraId::new("workspace.rendered.command")),
+                    )),
+                    RibbonOverridePolicy::Fixed,
+                )],
+            ));
+        },
+    )
+    .unwrap();
 
     assert!(called);
     assert!(resolved.ribbons.iter().any(

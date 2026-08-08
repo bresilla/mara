@@ -51,7 +51,6 @@ fn shrink_region_by_ribbon_edges(region: MaraRect, edges: [bool; 4]) -> MaraRect
 }
 
 impl<'a> ViewCtx<'a> {
-
     /// Build a child context scoped to a fixed `rect` (one cell of a
     /// [`ViewNode`](crate::ViewNode)), with its own `workspace`. Its
     /// `content_rect`/`screen_rect` report that rect, so the hosted view
@@ -386,6 +385,7 @@ impl<'a> ViewCtx<'a> {
             modifiers_shift: snapshot.modifiers_shift,
             modifiers_ctrl: snapshot.modifiers_ctrl,
             modifiers_alt: snapshot.modifiers_alt,
+            modifiers_command: snapshot.modifiers_command,
         }
     }
 

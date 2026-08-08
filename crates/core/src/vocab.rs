@@ -9,6 +9,7 @@
 //! the reference backend, but it is no longer the public vocabulary.
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Vec2 {
     pub x: f32,
     pub y: f32,
@@ -173,6 +174,7 @@ pub const fn vec2(x: f32, y: f32) -> Vec2 {
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Pos2 {
     pub x: f32,
     pub y: f32,
@@ -266,6 +268,7 @@ pub const fn pos2(x: f32, y: f32) -> Pos2 {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Rect {
     pub min: Pos2,
     pub max: Pos2,
@@ -729,6 +732,29 @@ impl Color32 {
             (f32::from(b) * factor + 0.5) as u8,
             (f32::from(a) * factor + 0.5) as u8,
         ])
+    }
+
+    /// Mix toward `other`, `t` clamped to `0..=1`.
+    ///
+    /// A straight per-channel linear interpolation of the four
+    /// *premultiplied* bytes. That is the correct operation for the two
+    /// things callers actually want — a colour ramp along a shape, and
+    /// a feathered edge fading to nothing — because premultiplied
+    /// colour composites linearly. Interpolating in gamma space here
+    /// instead would leave a feathered edge brighter than its coverage
+    /// and produce a halo along it.
+    ///
+    /// Note the consequence for fades: `lerp(c, Color32::TRANSPARENT,
+    /// t)` scales all four channels by the same factor, so the colour
+    /// darkens as it fades. That is what premultiplied transparency
+    /// means, and it is what avoids a bright fringe.
+    #[must_use]
+    pub fn lerp(self, other: Self, t: f32) -> Self {
+        let t = t.clamp(0.0, 1.0);
+        let mix = |a: u8, b: u8| (f32::from(a) + (f32::from(b) - f32::from(a)) * t + 0.5) as u8;
+        let Self([ar, ag, ab, aa]) = self;
+        let Self([br, bg, bb, ba]) = other;
+        Self([mix(ar, br), mix(ag, bg), mix(ab, bb), mix(aa, ba)])
     }
 
     #[must_use]
@@ -1386,6 +1412,56 @@ mod tests {
                     "gamma_multiply({factor}) diverged on {channels:?}"
                 );
             }
+        }
+    }
+
+    #[test]
+    fn lerp_hits_both_endpoints_exactly() {
+        let a = Color32::from_rgba_premultiplied(10, 20, 30, 40);
+        let b = Color32::from_rgba_premultiplied(200, 150, 100, 250);
+        assert_eq!(a.lerp(b, 0.0), a);
+        assert_eq!(a.lerp(b, 1.0), b);
+    }
+
+    #[test]
+    fn lerp_clamps_rather_than_extrapolating() {
+        let a = Color32::from_rgba_premultiplied(10, 20, 30, 40);
+        let b = Color32::from_rgba_premultiplied(200, 150, 100, 250);
+        assert_eq!(a.lerp(b, -3.0), a);
+        assert_eq!(a.lerp(b, 7.5), b);
+    }
+
+    /// The property the feathered-edge case depends on: fading toward
+    /// `TRANSPARENT` must scale all four channels together. A lerp that
+    /// touched alpha alone would leave the RGB at full brightness under
+    /// zero coverage, which composites as a bright halo along every
+    /// feathered edge.
+    #[test]
+    fn lerp_toward_transparent_scales_all_four_channels_uniformly() {
+        let c = Color32::from_rgba_premultiplied(200, 160, 80, 240);
+        let half = c.lerp(Color32::TRANSPARENT, 0.5);
+
+        for (from, to) in [
+            (c.r(), half.r()),
+            (c.g(), half.g()),
+            (c.b(), half.b()),
+            (c.a(), half.a()),
+        ] {
+            let expected = (f32::from(from) * 0.5 + 0.5) as u8;
+            assert_eq!(to, expected, "channel {from} -> {to}, expected {expected}");
+        }
+    }
+
+    /// Interpolating between two opaque colours must keep the result
+    /// opaque — a midpoint that dips in alpha would show the canvas
+    /// through the middle of a gradient wire.
+    #[test]
+    fn lerp_between_opaque_colours_stays_opaque() {
+        let blue = Color32::from_rgba_premultiplied(0, 0, 255, 255);
+        let orange = Color32::from_rgba_premultiplied(255, 160, 0, 255);
+        for step in 0..=10 {
+            let t = step as f32 / 10.0;
+            assert_eq!(blue.lerp(orange, t).a(), 255, "alpha dipped at t={t}");
         }
     }
 

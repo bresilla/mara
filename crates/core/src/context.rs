@@ -62,6 +62,12 @@ pub struct OffscreenInput {
     pub modifiers_shift: bool,
     pub modifiers_ctrl: bool,
     pub modifiers_alt: bool,
+    /// The platform's "command" modifier — Cmd on macOS, Ctrl
+    /// elsewhere. Mirrors [`crate::mui::MaraInput::modifiers_command`];
+    /// forwarding only `modifiers_ctrl` and rebuilding `command` from
+    /// it inside the sub-context gets macOS wrong for every shortcut an
+    /// offscreen surface handles.
+    pub modifiers_command: bool,
 }
 
 /// How far content shifts, in surface-local points, when an offscreen

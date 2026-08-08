@@ -23,8 +23,8 @@ use mara::ui::shelf::{ShelfContainer, ShelfDef, ShelfEdge, ShelfLayout, ShelfSta
 use mara::ui::vocab::{Align2, Color32, Id, Pos2, Rect, Stroke, Vec2};
 use mara::ui::widget::{TreeIconKind, TreeIconSlot};
 use mara::ui::{
-    CellId, Layout, MaraModule, MaraUi, MaraView, ModuleInlineCtx, ModuleResponse,
-    RibbonAvoidance, ViewCtx, ViewId, ViewNode, WorkspaceCtx,
+    CellId, Layout, MaraModule, MaraUi, MaraView, ModuleInlineCtx, ModuleResponse, RibbonAvoidance,
+    ViewCtx, ViewId, ViewNode, WorkspaceCtx,
 };
 
 // ─── A sealed module: widgets + custom canvas drawing ─────────────
@@ -307,7 +307,10 @@ pub fn sealed_view_tree() -> ViewNode {
     const RIGHT: CellId = "right";
     let mut root = ViewNode::split(
         "sealed.split",
-        Layout::row(4.0, vec![(1.0, Layout::cell(LEFT)), (2.0, Layout::cell(RIGHT))]),
+        Layout::row(
+            4.0,
+            vec![(1.0, Layout::cell(LEFT)), (2.0, Layout::cell(RIGHT))],
+        ),
     );
     root.push_cell(LEFT, ViewNode::leaf(SealedView::new()));
     root.push_cell(RIGHT, ViewNode::leaf(SealedView::new()));

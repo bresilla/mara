@@ -480,9 +480,6 @@ pub fn title_font_family() -> TextFamily {
     }
 }
 
-
-
-
 /// Darker/muted version of an accent colour — used for "selected" row
 /// fills where the full-strength accent would be too loud.
 #[doc(hidden)]
@@ -2300,6 +2297,19 @@ pub fn interact_row_h() -> f32 {
     if touch_density() { 30.0 } else { 20.0 }
 }
 
+/// Default size of an interactive widget, in points.
+///
+/// The height is [`interact_row_h`]; the width is the conventional
+/// 40 pt the backend leaves at its default. Published for surfaces that
+/// need a size to lay out against *before* they have measured their own
+/// content — the node graph sizes a freshly-inserted node from this on
+/// its first frame, then re-measures. Reading it here rather than out of
+/// the backend's style is what keeps such a surface sealed.
+#[must_use]
+pub fn interact_size() -> crate::vocab::Vec2 {
+    crate::vocab::Vec2::new(40.0, interact_row_h())
+}
+
 /// Width of a widget icon, in points. Touch-scaled like
 /// [`interact_row_h`].
 #[must_use]
@@ -2624,6 +2634,12 @@ pub enum FrameRole {
     /// background, a plot field. The sealed replacement for a backend's
     /// "canvas" frame preset.
     Canvas,
+    /// A translucent box drawn *behind* a set of siblings to show they
+    /// belong together — a node-graph frame group, a region annotation.
+    /// Unlike [`FrameRole::Window`] it is background, not surface: the
+    /// fill is faint enough to read the canvas through, and the stroke
+    /// carries the identity.
+    Group,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -2953,6 +2969,15 @@ pub fn frame_for(role: FrameRole, accent: impl Into<MaraColor32>) -> FrameSpec {
             stroke_for(StrokeRole::WidgetBorder, accent),
             radius_for(RadiusRole::Section),
             MarginSpec::symmetric(2, 2),
+        ),
+        // Faint fill, visible stroke: a group box has to be readable as
+        // a boundary without hiding the canvas pattern inside it, and
+        // callers tint both from the group's own colour anyway.
+        FrameRole::Group => FrameSpec::new(
+            fill_for(FillRole::Track, accent).gamma_multiply(0.35),
+            stroke_for(StrokeRole::SectionBorder, accent),
+            radius_for(RadiusRole::Section),
+            MarginSpec::symmetric(8, 8),
         ),
     }
 }

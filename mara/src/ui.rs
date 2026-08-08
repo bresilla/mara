@@ -20,11 +20,11 @@ pub use mara_canvas;
 #[cfg(feature = "code")]
 pub use mara_code;
 pub use mara_core;
+pub use mara_core::*;
 /// Opaque GPU handles. Re-exported so an app can *name*
 /// `MaraRenderState` — `CreationContext::gpu()` hands one out at
 /// startup, and without this the type had no path through the facade.
 pub use mara_gpu;
-pub use mara_core::*;
 #[cfg(feature = "graph")]
 pub use mara_graph;
 #[cfg(feature = "image")]

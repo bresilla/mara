@@ -25,6 +25,21 @@ slab = { version = "0.4", features = ["serde"] }
 smallvec = { version = "1.15", features = ["const_new"] }
 serde = { version = "1", features = ["derive"], optional = true }
 
+[dev-dependencies]
+# Drives the serde round-trip tests. The `serde` feature had never
+# compiled before PLAN_NODE.md P2, so nothing had ever exercised the
+# document format; these are the first tests that do.
+serde_json = "1"
+
 [features]
 # Upstream cfg gates that survived vendoring.
-serde = ["dep:serde", "egui/serde"]
+#
+# This never compiled before PLAN_NODE.md P2: it enabled `egui/serde`
+# but not `mara_core/serde`, while everything this crate actually
+# serialises — `vocab::{Pos2, Vec2, Rect, Color32, Stroke}`,
+# `style::FrameSpec` — is a Mara type. `egui/serde` is gone because
+# nothing serialised here is an egui type.
+serde = ["dep:serde", "mara_core/serde", "slab/serde"]
+# Forwards `mara_core`'s offscreen-render surface. Nothing in the
+# workspace enables it by default; `mara/gpu` is the entry point.
+gpu = ["mara_core/gpu"]

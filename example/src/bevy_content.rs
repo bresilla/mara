@@ -11,11 +11,11 @@ use bevy::pbr::{DistanceFog, FogFalloff};
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 use mara::ui::mara_core;
-use mara_core::vocab::Color32 as MaraColor32;
 use mara::ui::modules::bevy::{
     BevyViewportInput, BevyViewportPickedColor, BevyViewportRenderTarget, BevyViewportSet,
     ChaseCamera, GroundGrid, apply_rig, apply_viewport_camera_input_system,
 };
+use mara_core::vocab::Color32 as MaraColor32;
 
 const PLANET_RADIUS: f32 = 6_371_000.0;
 const CLOUD_ALTITUDE_M: f32 = 4_000.0;

@@ -1,11 +1,11 @@
-use egui::{Context, Id, Pos2, Rect, Ui, Vec2, ahash::HashSet, emath::GuiRounding, style::Spacing};
+use std::collections::HashSet;
+
+use egui::{Id, Pos2, Rect, Vec2, emath::GuiRounding};
 use mara_core::context::MaraCtx;
 use mara_core::transform::Transform;
 use smallvec::{SmallVec, ToSmallVec, smallvec};
 
 use crate::vendored::{Graph, InPinId, NodeId, OutPinId};
-
-use super::GraphWidget;
 
 pub type RowHeights = SmallVec<[f32; 8]>;
 
@@ -32,11 +32,18 @@ struct NodeData {
 }
 
 impl NodeState {
-    pub fn load(cx: &Context, id: Id, spacing: &Spacing) -> Self {
-        cx.data(|d| d.get_temp::<NodeData>(id)).map_or_else(
+    /// Per-node measured geometry, from Mara memory.
+    ///
+    /// Ported off the raw `egui::Context` data store in PLAN_NODE.md
+    /// P2, matching what [`GraphState`] already did. The frame pre-pass
+    /// that P5 adds calls this from outside the render body, and doing
+    /// that through a backend context would have reintroduced an egui
+    /// reference in a file that is otherwise nearly free of them.
+    pub fn load(cx: &dyn MaraCtx, id: Id) -> Self {
+        cx.memory().get_temp::<NodeData>(mara_id(id)).map_or_else(
             || {
                 cx.request_discard("NodeState initialization");
-                Self::initial(id, spacing)
+                Self::initial(id)
             },
             |data| NodeState {
                 size: data.size,
@@ -49,23 +56,21 @@ impl NodeState {
         )
     }
 
-    pub fn clear(self, cx: &Context) {
-        cx.data_mut(|d| d.remove::<Self>(self.id));
+    pub fn clear(self, cx: &dyn MaraCtx) {
+        cx.memory().remove_temp::<NodeData>(mara_id(self.id));
     }
 
-    pub fn store(self, cx: &Context) {
+    pub fn store(self, cx: &dyn MaraCtx) {
         if self.dirty {
-            cx.data_mut(|d| {
-                d.insert_temp(
-                    self.id,
-                    NodeData {
-                        size: self.size,
-                        header_height: self.header_height,
-                        input_heights: self.input_heights,
-                        output_heights: self.output_heights,
-                    },
-                );
-            });
+            cx.memory().set_temp(
+                mara_id(self.id),
+                NodeData {
+                    size: self.size,
+                    header_height: self.header_height,
+                    input_heights: self.input_heights,
+                    output_heights: self.output_heights,
+                },
+            );
             cx.request_repaint();
         }
     }
@@ -129,10 +134,14 @@ impl NodeState {
         }
     }
 
-    const fn initial(id: Id, spacing: &Spacing) -> Self {
+    /// First-frame placeholder geometry, replaced as soon as the node
+    /// measures itself — [`NodeState::load`] calls `request_discard`
+    /// when it lands here, so this size is never what the user sees.
+    fn initial(id: Id) -> Self {
+        let interact = mara_core::style::interact_size();
         NodeState {
-            size: spacing.interact_size,
-            header_height: spacing.interact_size.y,
+            size: Vec2::new(interact.x, interact.y),
+            header_height: interact.y,
             input_heights: SmallVec::new_const(),
             output_heights: SmallVec::new_const(),
             id,
@@ -175,6 +184,9 @@ pub struct GraphState {
 
     /// List of currently selected nodes.
     selected_nodes: SmallVec<[NodeId; 8]>,
+
+    /// Pending camera destination — see [`GraphState::fly_to`].
+    camera_target: Option<Transform>,
 }
 
 #[derive(Clone, Default)]
@@ -191,7 +203,9 @@ impl DrawOrder {
     }
 
     fn load(cx: &dyn MaraCtx, id: Id) -> Self {
-        cx.memory().get_temp::<Self>(mara_id(id)).unwrap_or_default()
+        cx.memory()
+            .get_temp::<Self>(mara_id(id))
+            .unwrap_or_default()
     }
 }
 
@@ -212,7 +226,9 @@ impl SelectedNodes {
     }
 
     fn load(cx: &dyn MaraCtx, id: Id) -> Self {
-        cx.memory().get_temp::<Self>(mara_id(id)).unwrap_or_default()
+        cx.memory()
+            .get_temp::<Self>(mara_id(id))
+            .unwrap_or_default()
     }
 }
 
@@ -222,6 +238,9 @@ struct GraphStateData {
     new_wires: Option<NewWires>,
     new_wires_menu: bool,
     rect_selection: Option<RectSelect>,
+    /// Where the camera is heading, when a view change was requested
+    /// through the spring rather than applied outright.
+    camera_target: Option<Transform>,
 }
 
 impl GraphStateData {
@@ -273,6 +292,7 @@ impl GraphState {
             id,
             dirty,
             rect_selection: data.rect_selection,
+            camera_target: data.camera_target,
             draw_order,
             selected_nodes,
         }
@@ -307,6 +327,7 @@ impl GraphState {
             draw_order: Vec::new(),
             rect_selection: None,
             selected_nodes: SmallVec::new(),
+            camera_target: None,
         }
     }
 
@@ -320,6 +341,7 @@ impl GraphState {
                 new_wires: self.new_wires,
                 new_wires_menu: self.new_wires_menu,
                 rect_selection: self.rect_selection,
+                camera_target: self.camera_target,
             };
             data.save(cx, self.id);
 
@@ -352,24 +374,79 @@ impl GraphState {
     /// next `GraphState::load`, so writing here BEFORE
     /// `GraphWidget::show` runs makes the new translation take
     /// effect this frame.
-    pub fn nudge_saved_translation(cx: &dyn MaraCtx, id: Id, delta: egui::Vec2) {
+    pub fn nudge_saved_translation(
+        cx: &dyn MaraCtx,
+        id: mara_core::vocab::Id,
+        delta: mara_core::vocab::Vec2,
+    ) {
+        let id = Id::from(id);
         let Some(mut data) = GraphStateData::load(cx, id) else {
             return;
         };
-        data.to_global.translation += mara_core::vocab::Vec2::from(delta);
+        data.to_global.translation += delta;
         data.save(cx, id);
     }
 
     pub fn look_at(&mut self, view: Rect, ui_rect: Rect, min_scale: f32, max_scale: f32) {
-        let scaling2 = ui_rect.size() / view.size();
-        let scaling = scaling2.min_elem().clamp(min_scale, max_scale);
-
-        let to_global = fit_points(view.center(), ui_rect.center(), scaling);
-
+        let to_global = Self::fit_transform(view, ui_rect, min_scale, max_scale);
         if self.to_global != to_global {
             self.to_global = to_global;
+            self.camera_target = None;
             self.dirty = true;
         }
+    }
+
+    /// Ease the view to fit `view`, rather than jumping to it.
+    ///
+    /// The destination is stored and consumed by the renderer's camera
+    /// spring. Every "move the view somewhere" feature routes through
+    /// here — fit-to-content, fit-to-selection, breadcrumb jumps — so
+    /// each is a target rather than a bespoke animation.
+    pub fn fly_to(&mut self, view: Rect, ui_rect: Rect, min_scale: f32, max_scale: f32) {
+        let target = Self::fit_transform(view, ui_rect, min_scale, max_scale);
+        if self.camera_target != Some(target) {
+            self.camera_target = Some(target);
+            self.dirty = true;
+        }
+    }
+
+    /// The pending camera destination, if any.
+    #[must_use]
+    pub const fn camera_target(&self) -> Option<Transform> {
+        self.camera_target
+    }
+
+    /// Plant a level's camera before it has ever rendered: place it at
+    /// `from` and aim it at `to`.
+    ///
+    /// Used by the subgraph dive, which has to set up the child level's
+    /// view from the *parent's* pass — the child has no saved state yet,
+    /// and by the time it renders the information about where it was
+    /// opened from is gone.
+    pub fn seed_view(cx: &dyn MaraCtx, id: mara_core::vocab::Id, from: Transform, to: Transform) {
+        let id = Id::from(id);
+        let data = GraphStateData {
+            to_global: from,
+            new_wires: None,
+            new_wires_menu: false,
+            rect_selection: None,
+            camera_target: Some(to),
+        };
+        data.save(cx, id);
+    }
+
+    /// Clear the pending destination — the camera has arrived.
+    pub fn clear_camera_target(&mut self) {
+        if self.camera_target.is_some() {
+            self.camera_target = None;
+            self.dirty = true;
+        }
+    }
+
+    fn fit_transform(view: Rect, ui_rect: Rect, min_scale: f32, max_scale: f32) -> Transform {
+        let scaling2 = ui_rect.size() / view.size();
+        let scaling = scaling2.min_elem().clamp(min_scale, max_scale);
+        fit_points(view.center(), ui_rect.center(), scaling)
     }
 
     pub fn start_new_wire_in(&mut self, pin: InPinId) {
@@ -610,26 +687,29 @@ impl GraphState {
     }
 }
 
-impl GraphWidget {
-    /// Returns list of nodes selected in the UI for the `GraphWidget` with same id.
+impl GraphState {
+    /// The nodes currently selected in the graph stored under `id`,
+    /// readable from outside a render pass.
     ///
-    /// Use same `Ui` instance that was used in [`GraphWidget::show`].
+    /// Replaces `GraphWidget::get_selected_nodes{,_at}`, which were not
+    /// merely egui-typed but **wrong**: they read
+    /// `ctx.data(|d| d.get_temp::<SelectedNodes>(graph_id))` — egui's
+    /// store, keyed by the raw egui id — while [`SelectedNodes::save`]
+    /// writes to Mara memory under `mara_id(id)`. They returned an
+    /// empty list for every caller, which is why nothing noticed.
+    /// `id` is the id given to [`GraphWidget::id`], and the round trip
+    /// through it is deliberate: `vocab::Id -> egui::Id` re-hashes and
+    /// is documented in `mara_core` as **not** the inverse of
+    /// `egui::Id -> vocab::Id`. The widget converts on the way in, so a
+    /// reader must convert identically or it looks under a key nothing
+    /// ever wrote — which is a quieter version of the same bug that
+    /// made `get_selected_nodes` always return empty.
     #[must_use]
-    #[inline]
-    pub fn get_selected_nodes(self, ui: &Ui) -> Vec<NodeId> {
-        self.get_selected_nodes_at(ui.id(), ui.ctx())
-    }
-
-    /// Returns list of nodes selected in the UI for the `GraphWidget` with same id.
-    ///
-    /// `ui_id` must be the Id of the `Ui` instance that was used in [`GraphWidget::show`].
-    #[must_use]
-    #[inline]
-    pub fn get_selected_nodes_at(self, ui_id: Id, ctx: &Context) -> Vec<NodeId> {
-        let graph_id = self.get_id(ui_id);
-
-        ctx.data(|d| d.get_temp::<SelectedNodes>(graph_id).unwrap_or_default().0)
-            .into_vec()
+    pub fn selection(cx: &dyn MaraCtx, id: mara_core::vocab::Id) -> SmallVec<[NodeId; 8]> {
+        cx.memory()
+            .get_temp::<SelectedNodes>(mara_id(Id::from(id)))
+            .unwrap_or_default()
+            .0
     }
 }
 

@@ -929,12 +929,7 @@ impl View3d {
         )
     }
 
-    fn paint_scene_gizmos(
-        &self,
-        painter: &egui::Painter,
-        rect: MaraRect,
-        camera: &PreviewCamera,
-    ) {
+    fn paint_scene_gizmos(&self, painter: &egui::Painter, rect: MaraRect, camera: &PreviewCamera) {
         for gizmo in &self.scene.gizmos {
             if !gizmo.visible {
                 continue;

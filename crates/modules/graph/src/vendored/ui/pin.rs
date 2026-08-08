@@ -52,12 +52,7 @@ pub trait NodePin {
     ///
     /// Returns the color
     #[must_use]
-    fn draw(
-        self,
-        graph_style: &GraphStyle,
-        rect: Rect,
-        painter: &MaraPainter,
-    ) -> PinWireInfo;
+    fn draw(self, graph_style: &GraphStyle, rect: Rect, painter: &MaraPainter) -> PinWireInfo;
 }
 
 /// Shape of a pin.
@@ -202,12 +197,7 @@ impl PinInfo {
     ///
     /// Wires are drawn with returned color by default.
     #[must_use]
-    pub fn draw(
-        &self,
-        graph_style: &GraphStyle,
-        rect: Rect,
-        painter: &MaraPainter,
-    ) -> PinWireInfo {
+    pub fn draw(&self, graph_style: &GraphStyle, rect: Rect, painter: &MaraPainter) -> PinWireInfo {
         let shape = self.get_shape(graph_style);
         let fill = self.get_fill(graph_style);
         let stroke = self.get_stroke(graph_style);
@@ -245,12 +235,7 @@ impl PinInfo {
 }
 
 impl NodePin for PinInfo {
-    fn draw(
-        self,
-        graph_style: &GraphStyle,
-        rect: Rect,
-        painter: &MaraPainter,
-    ) -> PinWireInfo {
+    fn draw(self, graph_style: &GraphStyle, rect: Rect, painter: &MaraPainter) -> PinWireInfo {
         Self::draw(&self, graph_style, rect, painter)
     }
 }

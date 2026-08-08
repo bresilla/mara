@@ -396,7 +396,12 @@ impl<'a> MaraHostCtx<'a> {
                 d.insert_temp(egui::Id::new("mara_gpu_target_format"), state.target_format);
             });
         }
-        mara_backend_egui::theme::__internal_view_ctx(self.egui, workspace, accent, ribbon_avoidance)
+        mara_backend_egui::theme::__internal_view_ctx(
+            self.egui,
+            workspace,
+            accent,
+            ribbon_avoidance,
+        )
     }
 
     /// Publish the layout rectangle left after structural shelves reserve

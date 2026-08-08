@@ -652,6 +652,8 @@ pub(crate) fn egui_cursor_icon(cursor: CursorIcon) -> egui::CursorIcon {
         CursorIcon::Grabbing => egui::CursorIcon::Grabbing,
         CursorIcon::ResizeHorizontal => egui::CursorIcon::ResizeHorizontal,
         CursorIcon::ResizeVertical => egui::CursorIcon::ResizeVertical,
+        CursorIcon::ResizeNwSe => egui::CursorIcon::ResizeNwSe,
+        CursorIcon::ResizeNeSw => egui::CursorIcon::ResizeNeSw,
     }
 }
 
@@ -995,7 +997,13 @@ pub fn __internal_show_app_shell_with_workspace_renderer_egui<F>(
     permanent_ribbons: &[mara_core::ribbon::RibbonSlotDef],
     accent: impl Into<vocab::Color32>,
     render_workspace: F,
-) -> Result<(mara_core::AppShellResolution, Vec<mara_core::RibbonActionResult>), mara_core::AppShellError>
+) -> Result<
+    (
+        mara_core::AppShellResolution,
+        Vec<mara_core::RibbonActionResult>,
+    ),
+    mara_core::AppShellError,
+>
 where
     F: FnOnce(&egui::Context, &mut mara_core::WorkspaceCtx<'_>),
 {
@@ -1636,6 +1644,7 @@ pub(crate) fn input_snapshot(ctx: &egui::Context) -> MaraInput {
         modifiers_shift: i.modifiers.shift,
         modifiers_ctrl: i.modifiers.ctrl,
         modifiers_alt: i.modifiers.alt,
+        modifiers_command: i.modifiers.command,
         keys_pressed: MaraKey::ALL
             .into_iter()
             .filter(|&key| i.key_pressed(egui_key(key)))
@@ -2067,7 +2076,10 @@ fn svg_stable_hash(svg: &str) -> u64 {
     h
 }
 
-fn egui_mesh_from_mara(vertices: Vec<mara_core::paint::PaintVertex>, indices: Vec<u32>) -> egui::Mesh {
+fn egui_mesh_from_mara(
+    vertices: Vec<mara_core::paint::PaintVertex>,
+    indices: Vec<u32>,
+) -> egui::Mesh {
     let vertices = vertices
         .into_iter()
         .map(|vertex| egui::epaint::Vertex {
@@ -2511,7 +2523,7 @@ mod offscreen {
                 shift: input.modifiers_shift,
                 ctrl: input.modifiers_ctrl,
                 alt: input.modifiers_alt,
-                command: input.modifiers_ctrl,
+                command: input.modifiers_command,
                 mac_cmd: false,
             },
             ..Default::default()
@@ -2585,7 +2597,6 @@ mod offscreen {
         Some(parent_texture.into())
     }
 
-
     /// Translate [`OffscreenInput`] into the event stream the sub-context
     /// expects. Buttons become press/release pairs around the pointer
     /// position, which is what an immediate-mode context needs to see.
@@ -2600,7 +2611,7 @@ mod offscreen {
             shift: input.modifiers_shift,
             ctrl: input.modifiers_ctrl,
             alt: input.modifiers_alt,
-            command: input.modifiers_ctrl,
+            command: input.modifiers_command,
             mac_cmd: false,
         };
         events.push(egui::Event::PointerMoved(pos));
@@ -2755,6 +2766,7 @@ mod offscreen_input_parity {
             modifiers_shift: false,
             modifiers_ctrl: false,
             modifiers_alt: false,
+            modifiers_command: false,
         };
         let kinds = kinds(&full);
         for expected in [
@@ -2796,7 +2808,6 @@ mod offscreen_input_parity {
         assert!(!kinds.contains(&"Touch"), "got {kinds:?}");
     }
 }
-
 
 // ─── The context seam (PLAN.md WS-E3) ─────────────────────────────
 //
@@ -2949,7 +2960,10 @@ impl mara_core::context::MaraCtx for EguiCtx {
         spec: mara_core::layout::AreaSlotSpec,
         body: &mut dyn FnMut(&mut mara_core::MaraUi<'_>),
     ) -> vocab::Rect {
-        let accent = spec.host.accent.unwrap_or_else(mara_core::style::active_accent);
+        let accent = spec
+            .host
+            .accent
+            .unwrap_or_else(mara_core::style::active_accent);
         show_area_slot(self, spec, |ui| {
             let mut backend = EguiUiBackend::new(ui);
             let mut mara = mara_core::MaraUi::over(&mut backend, accent);

@@ -56,9 +56,6 @@ pub struct NodeViewState {
     /// (`pixels_per_point` is per-context, so we need a fresh one
     /// to compensate for zoom independently of the host's UI).
     sub_ctx: egui::Context,
-    /// Reserved for future use — currently unread. The visible pan
-    /// lives in `GraphWidget`'s `TSTransform.translation` instead.
-    pan: Vec2,
     /// Visible zoom factor — the value driving sub_ppp +
     /// screen_rect each frame. Smoothly chases `zoom_target` so a
     /// wheel notch produces an animated zoom rather than a jump
@@ -109,7 +106,6 @@ impl NodeViewState {
     pub fn new() -> Self {
         Self {
             sub_ctx: egui::Context::default(),
-            pan: Vec2::ZERO,
             zoom: 1.0,
             zoom_target: 1.0,
             target: None,
@@ -146,16 +142,8 @@ impl NodeViewState {
         v
     }
 
-    pub fn pan(&self) -> Vec2 {
-        self.pan
-    }
-
     pub fn zoom(&self) -> f32 {
         self.zoom
-    }
-
-    pub fn set_pan(&mut self, p: Vec2) {
-        self.pan = p;
     }
 
     /// Clamped to `[0.1, 10.0]` so the user can't zoom into a
@@ -170,11 +158,11 @@ impl NodeViewState {
     }
 
     /// Adjust zoom multiplicatively. `factor > 1` zooms IN
-    /// (matches the natural-convention `zoom` field). The
-    /// `anchor_in_graph` arg is currently unused — anchoring at
-    /// cursor would require nudging the embedded widget's
-    /// `TSTransform.translation`, which lives outside this state.
-    pub fn adjust_zoom(&mut self, factor: f32, _anchor_in_graph: Vec2) {
+    /// (matches the natural-convention `zoom` field). Cursor
+    /// anchoring is not this state's job — it needs the embedded
+    /// widget's `TSTransform.translation`, so it is driven from
+    /// [`show_with_anchor`]'s callback instead.
+    pub fn adjust_zoom(&mut self, factor: f32) {
         self.set_zoom(self.zoom * factor);
     }
 
@@ -715,17 +703,9 @@ mod state_characterisation {
     use super::*;
 
     #[test]
-    fn a_fresh_state_is_unzoomed_and_unpanned() {
+    fn a_fresh_state_is_unzoomed() {
         let state = NodeViewState::new();
         assert_eq!(state.zoom(), 1.0);
-        assert_eq!(state.pan(), Vec2::ZERO);
-    }
-
-    #[test]
-    fn pan_round_trips() {
-        let mut state = NodeViewState::new();
-        state.set_pan(Vec2::new(12.0, -30.0));
-        assert_eq!(state.pan(), Vec2::new(12.0, -30.0));
     }
 
     #[test]
@@ -747,10 +727,10 @@ mod state_characterisation {
         let mut state = NodeViewState::new();
         state.set_zoom(2.0);
 
-        state.adjust_zoom(1.5, Vec2::ZERO);
+        state.adjust_zoom(1.5);
         assert_eq!(state.zoom(), 3.0);
 
-        state.adjust_zoom(0.5, Vec2::ZERO);
+        state.adjust_zoom(0.5);
         assert_eq!(state.zoom(), 1.5);
     }
 
@@ -765,7 +745,7 @@ mod state_characterisation {
         state.set_zoom(100.0);
         assert_eq!(state.zoom(), 10.0);
 
-        state.adjust_zoom(0.5, Vec2::ZERO);
+        state.adjust_zoom(0.5);
         assert_eq!(state.zoom(), 5.0, "the discarded 90x must not come back");
     }
 
@@ -773,7 +753,7 @@ mod state_characterisation {
     fn repeated_zoom_out_saturates_rather_than_underflowing() {
         let mut state = NodeViewState::new();
         for _ in 0..50 {
-            state.adjust_zoom(0.5, Vec2::ZERO);
+            state.adjust_zoom(0.5);
         }
         assert_eq!(state.zoom(), 0.1);
         assert!(state.zoom() > 0.0, "zoom must never reach a degenerate 0");

@@ -424,7 +424,6 @@ fn shelf_augmented_ribbons(
     )
 }
 
-
 #[allow(clippy::too_many_arguments)]
 #[doc(hidden)]
 pub fn augment_shelf_buttons_with_chrome(

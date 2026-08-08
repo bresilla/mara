@@ -138,7 +138,6 @@ pub(crate) fn icon_paint_cmd(
 mod tests {
     use super::*;
 
-
     #[test]
     fn icon_payload_validation_does_not_depend_on_runtime_font_install() {
         ICONFLOW_FONTS_READY.store(false, Ordering::Relaxed);

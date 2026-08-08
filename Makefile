@@ -27,7 +27,7 @@ $(info ------------------------------------------)
 
 build:
 	@if [ "$(TARGET)" = "native" ]; then \
-		$(CARGO) build $(APP_TARGET); \
+		$(CARGO) build --release $(APP_TARGET); \
 	elif [ "$(TARGET)" = "web" ]; then \
 		cd $(WEB_DIR) && env -u NO_COLOR trunk build --release; \
 	elif [ "$(TARGET)" = "apk" ]; then \
@@ -47,7 +47,7 @@ compile:
 c: compile
 
 run:
-	@WINIT_UNIX_BACKEND=$(BACKEND) $(RUN_WITH) $(CARGO) run $(APP_TARGET)
+	@WINIT_UNIX_BACKEND=$(BACKEND) $(RUN_WITH) $(CARGO) run --release $(APP_TARGET)
 
 WEB_DIR := example
 
@@ -64,6 +64,10 @@ t: test
 
 test-all:
 	@$(CARGO) test --workspace --all-targets
+# The graph's document-format tests are behind its `serde` feature, so a
+# plain workspace run compiles them out entirely. Run them explicitly —
+# they are the only coverage the saved format has.
+	@$(CARGO) test -p mara_graph --features serde
 
 check:
 	@$(CARGO) check --workspace --all-targets
@@ -80,6 +84,11 @@ check:
 # workspace check never turns it on.
 	@$(CARGO) check -p mara_core --features gpu
 	@$(CARGO) check -p mara_backend_egui --features gpu
+# Same masking again, and this one had been broken since it was written:
+# `mara_graph`'s serde feature enabled `egui/serde` but not
+# `mara_core/serde`, so it failed with 46 errors and nothing ran it.
+# PLAN_NODE.md P2 fixed the feature edge; this keeps it fixed.
+	@$(CARGO) check -p mara_graph --features serde
 # PLAN.md's goal, asserted rather than greped: with the conversion feature
 # off, `mara_core` must have no egui edge at all. This is what makes
 # `mara_backend_egui` the one crate that names the backend — a stray
@@ -115,6 +124,27 @@ check:
 # blind to it. Ban the accessors themselves in the sealed tier.
 	@! grep -RInE '__internal_raw_ui|__internal_egui_ui_mut|__internal_backend_from_raw' \
 		$$(ls -d crates/modules/*/src | grep -vE 'modules/graph/')
+# `mara_graph` is exempt from the blanket sealed-tier bans above pending
+# its WS-D1 split, but the files PLAN_NODE.md adds are written sealed
+# from the first commit and must stay that way — otherwise the grouping
+# work quietly enlarges the egui surface the split has to remove.
+# Listed explicitly rather than by directory so a new file is a
+# deliberate addition here, not an accidental exemption.
+	@for f in vendored/frames.rs vendored/subgraph.rs vendored/nav.rs \
+		vendored/chrome.rs vendored/camera.rs vendored/ui/frame_paint.rs \
+		vendored/ui/lod.rs vendored/ui/port_paint.rs \
+		render/mod.rs render/spec.rs render/layout.rs render/paint.rs \
+		render/view.rs render/doc.rs; do \
+		p="crates/modules/graph/src/$$f"; \
+		[ -f "$$p" ] || continue; \
+		! grep -InE '\begui[_-]?[a-z]*::|\bwgpu::' "$$p" || \
+			{ echo "sealed-from-birth violation in $$p"; exit 1; }; \
+	done
+# Two export lists that nothing compares is how `PinWireInfo`,
+# `WireStyle`, `WireLayer`, `SelectionStyle` and `NodeLayoutKind` became
+# unnameable from the demo while the build stayed green. The facade now
+# globs `mara_graph::prelude`, so assert the glob is what it uses.
+	@grep -q 'pub use mara_graph::prelude::\*;' mara/src/extras/graph.rs
 	@! grep -n 'raw-egui' example/Cargo.toml
 	@! grep -n 'raw-egui' crates/core/Cargo.toml mara/Cargo.toml
 	@! grep -RInE 'cfg[(]feature[[:space:]]*=[[:space:]]*"raw-egui"|^[[:space:]]*pub[[:space:]]+use[[:space:]]+egui([:;]|$$)|^[[:space:]]*pub[[:space:]]+fn[[:space:]]+(from_raw|raw_ui_mut|raw|egui|egui_ctx)[(]' crates/core/src mara/src

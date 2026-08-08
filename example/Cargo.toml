@@ -100,3 +100,11 @@ path = "src/host/enforced.rs"
 [[bin]]
 name = "web"
 path = "src/host/web.rs"
+
+# Test-only. `render_snapshot` rasterises a real headless pass to a PNG
+# so the graph's appearance can be reviewed without launching the app —
+# that needs the backend's `UiBackend` impl to build a `MaraUi`. A
+# dev-dependency, so the demo itself stays a sealed consumer.
+[dev-dependencies]
+mara_backend_egui = { workspace = true }
+image = { version = "0.25", default-features = false, features = ["png"] }

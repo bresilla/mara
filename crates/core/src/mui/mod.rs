@@ -235,6 +235,14 @@ pub struct MaraInput {
     pub modifiers_shift: bool,
     pub modifiers_ctrl: bool,
     pub modifiers_alt: bool,
+    /// The platform's "command" modifier — Cmd on macOS, Ctrl
+    /// elsewhere.
+    ///
+    /// Distinct from [`MaraInput::modifiers_ctrl`], which is the
+    /// physical Ctrl key on every platform. A shortcut that should read
+    /// as Cmd+G to a Mac user and Ctrl+G to everyone else wants this
+    /// one; reconstructing it from `modifiers_ctrl` gets macOS wrong.
+    pub modifiers_command: bool,
     /// Keys that went down this frame. Surfaces that own their own
     /// key handling (map, 3D, canvas) read this instead of reaching
     /// for the backend's input state.
