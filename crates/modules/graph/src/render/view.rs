@@ -358,6 +358,7 @@ pub fn show_graph<T, V: GraphView<T>>(
 
     let hit = pointer.and_then(|p| hit_test(&placed, p, &node_spec));
     let band_hit = pointer.and_then(|p| band_at(&frames, p));
+    let hot_pin = hit.and_then(|(id, pin)| pin.map(|k| (id, k)));
 
     // ── gestures ────────────────────────────────────────────────
     let ctx_pointer = response.interact_pointer.or(pointer);
@@ -514,12 +515,22 @@ pub fn show_graph<T, V: GraphView<T>>(
     }
 
     let wire_w = spec.wire_width;
+    // A wire touching the selection is brighter and heavier. Following
+    // one connection out of a busy graph is the commonest thing anyone
+    // does here, and until now every wire looked the same.
     let wires: Vec<(OutPinId, InPinId)> = graph.wires().collect();
     for (from, to) in wires {
         if let Some((a, b)) = anchors(&placed, from, to) {
+            let live =
+                state.selection.contains(&from.node) || state.selection.contains(&to.node);
             let src = view.output_color(from, graph).unwrap_or(spec.palette.wire);
             let dst = view.input_color(to, graph).unwrap_or(src);
-            paint_wire(&p, a, b, src, dst, wire_w, spec);
+            let (src, dst, w) = if live {
+                (boost(src), boost(dst), wire_w * 1.5)
+            } else {
+                (src, dst, wire_w)
+            };
+            paint_wire(&p, a, b, src, dst, w, spec);
         }
     }
 
@@ -541,6 +552,7 @@ pub fn show_graph<T, V: GraphView<T>>(
                 *at,
                 col,
                 !graph.in_pin(pin).remotes.is_empty(),
+                hot_pin == Some((pl.id, PinHit::In(i))),
                 &pl.layout.spec,
                 &spec.palette,
             );
@@ -556,6 +568,7 @@ pub fn show_graph<T, V: GraphView<T>>(
                 *at,
                 col,
                 !graph.out_pin(pin).remotes.is_empty(),
+                hot_pin == Some((pl.id, PinHit::Out(i))),
                 &pl.layout.spec,
                 &spec.palette,
             );
@@ -685,6 +698,12 @@ fn hit_test(
 enum PinHit {
     In(usize),
     Out(usize),
+}
+
+/// Push a colour toward white, for wires that need to come forward.
+fn boost(c: Color32) -> Color32 {
+    let mix = |v: u8| (f32::from(v) + (255.0 - f32::from(v)) * 0.35) as u8;
+    Color32::from_rgba_unmultiplied(mix(c.r()), mix(c.g()), mix(c.b()), c.a())
 }
 
 fn near(a: Pos2, b: Pos2, r: f32) -> bool {

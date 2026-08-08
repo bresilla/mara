@@ -279,10 +279,17 @@ pub fn paint_pin(
     at: Pos2,
     color: Color32,
     filled: bool,
+    hot: bool,
     m: &NodeSpec,
     palette: &GraphPalette,
 ) {
-    let r = m.pin_r;
+    let r = if hot { m.pin_r * 1.35 } else { m.pin_r };
+    // A halo under the pin the pointer is about to grab. Wiring is done
+    // by aim, and a target that acknowledges the aim is far easier to
+    // hit than one that stays inert until the click lands.
+    if hot {
+        p.circle_filled(at, r + m.pin_ring * 2.2, with_alpha(color, 60));
+    }
     // A collar of body colour, then a dark rim. The collar stops the
     // node's outline cutting the pin in half; the rim keeps the pin
     // legible where it overhangs the canvas.

@@ -3737,6 +3737,13 @@ const LAB_NODE_W: f32 = NODE_W;
 /// wide as its widest sibling.
 const NODE_W: f32 = 210.0;
 
+/// Usable width inside a node body.
+///
+/// The renderer fixes node width, so a body widget can fill it rather
+/// than guessing. Widgets that guessed low are most of why nodes used
+/// to look like mostly-empty boxes.
+const BODY_W: f32 = 220.0;
+
 /// Column origins. One node width plus a fixed gutter apart, so a wire
 /// always has the same run and the bands stack into a grid.
 const LAB_COL: [f32; 4] = [40.0, 320.0, 600.0, 880.0];
@@ -7163,7 +7170,6 @@ fn eval_input(graph: &Graph<GraphNode>, time: f64, pin: &InPin) -> Value {
         .unwrap_or(Value::Number(0.0))
 }
 
-#[derive(Default)]
 pub struct DemoViewer {
     /// Wall-clock seconds since startup, refreshed each frame by
     /// the editor pane. Threaded into `eval_output` so `Time` /
@@ -7176,6 +7182,24 @@ pub struct DemoViewer {
     /// library — and an empty table is exactly the right answer there,
     /// because a graph with no definitions has no instances either.
     defs: std::collections::HashMap<mara::extras::graph::DefId, DefLook>,
+    /// Width of the body area the renderer is currently offering, in
+    /// screen points.
+    ///
+    /// Set per node, immediately before the body is drawn. Body widgets
+    /// sized from a constant instead were either narrower than the node
+    /// — leaving it looking mostly empty — or wider, and clipped to a
+    /// stub at the edge, depending on the zoom.
+    body_w: f32,
+}
+
+impl Default for DemoViewer {
+    fn default() -> Self {
+        Self {
+            time: 0.0,
+            defs: std::collections::HashMap::new(),
+            body_w: BODY_W,
+        }
+    }
 }
 
 /// How one definition dresses its instances.
@@ -7326,6 +7350,7 @@ impl DemoViewer {
         Self {
             time,
             defs: std::collections::HashMap::new(),
+            body_w: BODY_W,
         }
     }
 }
@@ -7387,10 +7412,11 @@ impl mara::extras::graph::render::GraphView<GraphNode> for DemoViewer {
     fn body(
         &mut self,
         id: NodeId,
-        _rect: mara_core::vocab::Rect,
+        rect: mara_core::vocab::Rect,
         ui: &mut mara_core::MaraUi<'_>,
         g: &mut Graph<GraphNode>,
     ) {
+        self.body_w = rect.width();
         NodeViewer::show_body(self, id, &[], &[], ui, g);
     }
 
@@ -7632,6 +7658,7 @@ impl NodeViewer<GraphNode> for DemoViewer {
         // grow per-frame when a value changes.
 
         let time = self.time;
+        let body_w = self.body_w;
         let Some(n) = graph.get_node_mut(node) else {
             return;
         };
@@ -7640,7 +7667,7 @@ impl NodeViewer<GraphNode> for DemoViewer {
             GraphNode::Number(v) => {
                 let h = mara_core::widget::drag_value::DRAG_VALUE_ROW_H;
                 ui.row(
-                    MaraVec2::new(125.0, h),
+                    MaraVec2::new(body_w, h),
                     mara_core::CrossAlign::Center,
                     |ui| {
                         ui.drag_value("", v, 0.05, f64::MIN..=f64::MAX, 2, "");
@@ -7651,7 +7678,7 @@ impl NodeViewer<GraphNode> for DemoViewer {
                 let h = mara_core::widget::drag_value::DRAG_VALUE_ROW_H;
                 let mut tmp = *i as f64;
                 ui.row(
-                    MaraVec2::new(125.0, h),
+                    MaraVec2::new(body_w, h),
                     mara_core::CrossAlign::Center,
                     |ui| {
                         ui.drag_value("", &mut tmp, 1.0, f64::MIN..=f64::MAX, 0, "");
@@ -7663,7 +7690,7 @@ impl NodeViewer<GraphNode> for DemoViewer {
                 let h = mara_core::widget::drag_value::DRAG_VALUE_ROW_H;
                 for (axis, comp) in ["x", "y", "z"].iter().zip(v.iter_mut()) {
                     ui.row(
-                        MaraVec2::new(125.0, h),
+                        MaraVec2::new(body_w, h),
                         mara_core::CrossAlign::Center,
                         |ui| {
                             ui.drag_value(axis, comp, 0.05, f64::MIN..=f64::MAX, 2, "");
@@ -7691,7 +7718,7 @@ impl NodeViewer<GraphNode> for DemoViewer {
             GraphNode::Bool(b) => {
                 let h = mara_core::widget::toggle::TOGGLE_ROW_H;
                 ui.row(
-                    MaraVec2::new(125.0, h),
+                    MaraVec2::new(body_w, h),
                     mara_core::CrossAlign::Center,
                     |ui| {
                         ui.toggle("", b);
@@ -7860,7 +7887,7 @@ impl NodeViewer<GraphNode> for DemoViewer {
                 buf.push(v);
                 ui.memory().set_temp(key, buf.clone());
 
-                let (painter, _) = ui.canvas(MaraVec2::new(220.0, 80.0));
+                let (painter, _) = ui.canvas(MaraVec2::new(body_w, 80.0));
                 let rect = painter.clip_rect();
                 paint_line_chart(
                     &painter,
@@ -7871,7 +7898,7 @@ impl NodeViewer<GraphNode> for DemoViewer {
             }
             GraphNode::Preview => {
                 let c = eval_input_at(graph, time, node, 0).as_color();
-                let (painter, __resp) = ui.canvas(MaraVec2::new(96.0, 40.0));
+                let (painter, __resp) = ui.canvas(MaraVec2::new(body_w, 40.0));
                 let rect = __resp.rect;
                 painter.rect_filled(rect, mara_core::vocab::CornerRadius::same(4), c);
                 painter.rect_stroke(
@@ -8130,14 +8157,14 @@ impl NodeViewer<GraphNode> for DemoViewer {
                     .map(|(values, color)| (values.as_slice(), color))
                     .collect();
 
-                let (painter, _) = ui.canvas(MaraVec2::new(260.0, 110.0));
+                let (painter, _) = ui.canvas(MaraVec2::new(body_w, 92.0));
                 let rect = painter.clip_rect();
                 paint_line_chart(&painter, rect, &series);
                 ui.request_repaint();
             }
             GraphNode::VectorPreview => {
                 let v = eval_input_at(graph, time, node, 0).as_vector();
-                let (painter, resp) = ui.canvas(MaraVec2::new(140.0, 40.0));
+                let (painter, resp) = ui.canvas(MaraVec2::new(body_w, 40.0));
                 let rect = resp.rect;
                 painter.rect_filled(
                     rect,
