@@ -762,14 +762,26 @@ impl<'ui, 'spec> PaneBodyNodeGraphExt<'spec> for mara_core::pane::PaneBody<'ui, 
             icon,
             move |mara| {
                 let accent = mara_core::style::active_accent();
+                // Take the height the pane is offering rather than a
+                // constant. `maximizable` sizes its inline body from
+                // `min_size.y` alone, so a fixed value pins the graph to
+                // that height however tall the pane grows.
+                let offered = mara.available_rect().height().max(GRAPH_MIN_HEIGHT);
                 // Same maximise chip the old graph container had: click
-                // it and the graph takes the whole window. Losing it was
-                // the most visible thing the rewrite dropped.
-                mara_core::embed::__internal_maximizable_egui(
+                // it and the graph takes the whole window.
+                //
+                // With ribbon avoidance on every edge. The overlay's
+                // backdrop still paints edge to edge, but the *content*
+                // — and the restore chip anchored to its corner — lay
+                // out clear of the rails. Without it both slide under
+                // the app's own bars, which is the misalignment that
+                // shows up the moment the container is maximised.
+                mara_core::embed::__internal_maximizable_with_opts_egui(
                     mara,
                     GRAPH_VIEW_FULLSCREEN_SALT,
                     accent,
-                    MaraVec2::new(0.0, GRAPH_MIN_HEIGHT),
+                    MaraVec2::new(0.0, offered),
+                    OverlayOpts::default().avoid_ribbons(mara_core::RibbonAvoidance::all()),
                     |mara| {
                         let avail = mara.available_rect();
                         let size =

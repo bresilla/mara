@@ -361,10 +361,17 @@ pub fn __internal_maximizable_with_opts_egui(
             .memory()
             .get_temp(suppress_fullscreen_minimize_chip_key())
             .unwrap_or(false);
+        // Anchored to `content`, not `screen`. The backdrop covers the
+        // window, but the chip has to land where the content actually
+        // is — anchoring it to the raw screen rect parks it underneath
+        // whichever ribbon rail occupies that corner, which reads as a
+        // button that failed to move when the widget went full-window.
+        // With the default `RibbonAvoidance::none()` the two rects are
+        // identical, so callers that never opted in are unaffected.
         if !suppress_minimize_chip
             && fullscreen_minimize_button(
                 mara.ctx(),
-                screen,
+                content,
                 opts,
                 overlay.fullscreen_button_size,
                 overlay.fullscreen_edge_gap,
@@ -878,6 +885,30 @@ fn arrowhead_paint_cmd(from: MaraPos2, tip: MaraPos2, color: MaraColor32) -> Pai
 mod tests {
     use super::*;
     use crate::vocab::{Color32, Pos2, Rect, Vec2};
+
+    /// The restore chip must sit inside the rect the content was laid
+    /// out in, not the raw window. Anchored to the window it parks
+    /// under whichever ribbon rail owns that corner, and reads as a
+    /// button that failed to move when the widget went full-window.
+    #[test]
+    fn the_restore_chip_follows_the_avoided_content_rect() {
+        let screen = Rect::from_min_size(Pos2::new(0.0, 0.0), Vec2::new(1600.0, 900.0));
+        let content = OverlayOpts::default()
+            .avoid_ribbons(crate::RibbonAvoidance::all())
+            .content_avoidance
+            .apply_to_rect(screen);
+        assert!(
+            content.width() < screen.width() && content.height() < screen.height(),
+            "avoidance should actually inset the content"
+        );
+
+        let at = |r: Rect| compute_chip_pos(r, RibbonEdge::Right, RibbonCluster::Start, 28.0, 8.0);
+        let (on_content, on_screen) = (at(content), at(screen));
+        assert!(on_content.x < on_screen.x, "chip did not move off the rail");
+        assert!(on_content.y > on_screen.y);
+        assert!(on_content.x + 28.0 <= content.max.x + 0.01);
+        assert!(on_content.y >= content.min.y - 0.01);
+    }
 
     #[test]
     fn maximize_placeholder_lowers_to_mara_text_command() {

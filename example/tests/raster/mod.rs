@@ -144,6 +144,53 @@ fn draw_mesh(
     }
 }
 
+/// Drive a Mara surface through a scripted sequence of input frames.
+///
+/// One entry per pass. Nothing is rasterised — this exists to prove
+/// that gestures actually reach the widget, which is the half of the
+/// node editor a picture cannot check.
+pub fn drive(frames: Vec<egui::RawInput>, mut body: impl FnMut(&mut MaraUi<'_>)) {
+    let ctx = egui::Context::default();
+    let accent = mara_core::vocab::Color32::from_rgb(120, 160, 220);
+    for _ in 0..2 {
+        mara_backend_egui::theme::__internal_apply_theme(
+            &ctx,
+            mara_core::style::AccentColor(accent),
+            mara_core::style::GlassOpacity::default(),
+        );
+    }
+    let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(W as f32, H as f32));
+    for mut input in frames {
+        input.screen_rect = Some(screen);
+        ctx.begin_pass(input);
+        #[allow(deprecated)]
+        egui::CentralPanel::default().show(&ctx, |ui| {
+            let mut b = mara_backend_egui::EguiUiBackend::new(ui);
+            MaraUi::__internal_over_backend_ret(&mut b, accent, |mara| body(mara));
+        });
+        let _ = ctx.end_pass();
+    }
+}
+
+/// A pass where the pointer is at `p` with the primary button in state
+/// `down`, and `pressed` says whether that is a change this frame.
+#[must_use]
+pub fn pointer_frame(p: egui::Pos2, down: bool, changed: bool) -> egui::RawInput {
+    let mut events = vec![egui::Event::PointerMoved(p)];
+    if changed {
+        events.push(egui::Event::PointerButton {
+            pos: p,
+            button: egui::PointerButton::Primary,
+            pressed: down,
+            modifiers: egui::Modifiers::default(),
+        });
+    }
+    egui::RawInput {
+        events,
+        ..Default::default()
+    }
+}
+
 /// Run `body` for four passes and write the last one to `path`.
 ///
 /// Four passes because the first is laid out against a stale or empty
