@@ -153,13 +153,7 @@ pub struct GraphPalette {
     /// The header's second line — dimmer than the title, or the two
     /// lines fight and neither reads first.
     pub subtitle: Color32,
-    /// Hairline just inside the node's top edge.
-    ///
-    /// One light line along the top is what makes a flat rectangle read
-    /// as a raised card. It costs one draw call and does more for the
-    /// look than anything else here.
-    pub specular: Color32,
-    /// Hairline between the header and the body.
+    /// Rule under the header when a node has no colour of its own.
     pub divider: Color32,
     /// Brighter dots on the grid's major intervals, so the canvas has a
     /// sense of scale instead of an even field of noise.
@@ -205,8 +199,7 @@ impl GraphPalette {
             } else {
                 Color32::from_gray(24)
             },
-            specular: Color32::from_rgba_unmultiplied(255, 255, 255, if dark { 26 } else { 130 }),
-            divider: Color32::from_rgba_unmultiplied(0, 0, 0, if dark { 90 } else { 34 }),
+            divider: shift(canvas, 0.36),
             grid_major: shift(canvas, 0.22),
             subtitle: if dark {
                 Color32::from_gray(150)
@@ -279,9 +272,9 @@ impl GraphSpec {
             wire_width: 2.0,
             wire_slack: 0.5,
             shadow: Some(ShadowSpec {
-                offset: Vec2::new(0.0, 3.0),
-                blur: 14,
-                color: Color32::from_black_alpha(130),
+                offset: Vec2::new(0.0, 2.0),
+                blur: 12,
+                color: Color32::from_black_alpha(95),
             }),
         }
     }

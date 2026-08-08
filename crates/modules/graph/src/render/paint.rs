@@ -12,14 +12,20 @@
 //! This file is checked by `make check` to contain no backend types.
 
 use mara_core::mui::MaraPainter;
-use mara_core::paint::PaintVertex;
 use mara_core::vocab::{Align2, Color32, CornerRadius, Pos2, Rect, Stroke};
 
 use super::layout::{NodeLayout, NodeShape};
-use super::spec::{GraphPalette, GraphSpec, NodeSpec};
+use super::spec::{GraphSpec, NodeSpec};
 
 /// Point size below which text is dropped rather than drawn.
 const MIN_LEGIBLE_PT: f32 = 7.0;
+
+/// How much of a node's own colour bleeds into its body surface.
+///
+/// Small on purpose. Enough that a row of nodes from one family reads
+/// as related; not enough that the body stops being a neutral place to
+/// put widgets.
+const SURFACE_TINT: f32 = 0.07;
 
 /// How a node is being interacted with this frame.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -48,83 +54,58 @@ pub fn paint_node(
     let m = l.spec;
     let corner = CornerRadius::same(m.corner);
 
+    // Shadow only. On a dark canvas a drop shadow barely registers, so
+    // it is not carrying the elevation here — the tonal step between
+    // canvas and body is. The shadow just stops two overlapping nodes
+    // fusing into one shape.
     if let Some(sh) = spec.shadow {
-        // A hovered node lifts. The shadow doing the lifting rather
-        // than a colour change is what makes it feel physical.
-        let lift = if state.hovered { 1.6 } else { 1.0 };
         p.shadow(
-            Rect::from_min_size(l.rect.min + sh.offset * lift, l.rect.size()),
+            Rect::from_min_size(l.rect.min + sh.offset, l.rect.size()),
             corner,
             [0, 0],
-            (f32::from(sh.blur) * lift) as u8,
+            sh.blur,
             0,
             sh.color,
         );
     }
 
-    // Selection is a halo, not a fatter border. Two rings fading
-    // outwards read as the node glowing; a thick outline just reads as
-    // a thick outline.
-    if state.selected {
-        for (i, alpha) in [(1.0_f32, 110_u8), (2.6, 46), (4.6, 20)] {
-            let g = l.rect.expand(i * 1.6);
-            p.rect_stroke(
-                g,
-                CornerRadius::same(m.corner.saturating_add((i * 1.6) as u8)),
-                Stroke::new(2.0, with_alpha(spec.palette.selection, alpha)),
-            );
-        }
-    }
+    // The body carries a trace of the node's own colour — a flat tonal
+    // overlay, not a shade. This is how a dark flat system expresses
+    // that two surfaces are related without reaching for a gradient,
+    // and it makes a family of nodes read as a family from across the
+    // canvas while every one of them stays a single flat tone.
+    p.rect_filled(l.rect, corner, body_color(spec.palette.node_fill, tint));
 
-    p.rect_filled(l.rect, corner, spec.palette.node_fill);
-
-    // The body falls off very slightly toward its foot, under the same
-    // light the header gradient implies. Two surfaces lit from two
-    // directions is what makes a card look assembled rather than made.
-    if l.content.height() > 2.0 {
-        let foot = darken(spec.palette.node_fill, 0.16);
-        let top = with_alpha(foot, 0);
-        let y0 = l.header.max.y;
-        let y1 = l.rect.max.y - f32::from(m.corner);
-        if y1 > y0 {
-            p.mesh(
-                vec![
-                    PaintVertex {
-                        pos: Pos2::new(l.rect.min.x, y0),
-                        color: top,
-                    },
-                    PaintVertex {
-                        pos: Pos2::new(l.rect.max.x, y0),
-                        color: top,
-                    },
-                    PaintVertex {
-                        pos: Pos2::new(l.rect.max.x, y1),
-                        color: foot,
-                    },
-                    PaintVertex {
-                        pos: Pos2::new(l.rect.min.x, y1),
-                        color: foot,
-                    },
-                ],
-                vec![0, 1, 2, 0, 2, 3],
-            );
-        }
-    }
-
+    // Flat block of the node's colour. No gradient, no sheen: the
+    // header is a label, and a label that pretends to be a lit surface
+    // is doing something other than labelling.
     if let Some(tint) = tint {
-        paint_header(p, l.header, tint, m.corner, spec);
+        p.rect_filled(
+            l.header,
+            CornerRadius::from_corners(m.corner, m.corner, 0, 0),
+            tint,
+        );
     }
 
-    // The hairline that separates header from body. Without it the
-    // tint bleeds into the body and the node loses its architecture.
+    // A solid rule under the header in a brighter cut of the same
+    // colour. This is the flat replacement for the old bevel: it gives
+    // the node an edge to read against without implying a light source.
+    let rule_h = (m.border * 2.0).max(2.0);
     p.rect_filled(
         Rect::from_min_max(
-            Pos2::new(l.rect.min.x, l.header.max.y - m.border),
+            Pos2::new(l.rect.min.x, l.header.max.y - rule_h),
             Pos2::new(l.rect.max.x, l.header.max.y),
         ),
         CornerRadius::same(0),
-        spec.palette.divider,
+        tint.map_or(spec.palette.divider, |t| lighten(t, 0.34)),
     );
+
+    // Selection is a solid ring plus a flat wash — no glow. Both are
+    // the accent at full saturation, so the state reads instantly at
+    // any zoom instead of dissolving as the halo shrinks.
+    if state.selected {
+        p.rect_filled(l.rect, corner, with_alpha(spec.palette.selection, 26));
+    }
 
     let (border_col, border_w) = if state.selected {
         (spec.palette.selection, m.border_selected)
@@ -134,18 +115,6 @@ pub fn paint_node(
         (spec.palette.node_border, m.border)
     };
     p.rect_stroke(l.rect, corner, Stroke::new(border_w, border_col));
-
-    // One light line just inside the top edge. Cheapest possible
-    // depth cue and the one that does the most work.
-    let inset = f32::from(m.corner) * 0.7;
-    p.rect_filled(
-        Rect::from_min_max(
-            Pos2::new(l.rect.min.x + inset, l.rect.min.y + border_w),
-            Pos2::new(l.rect.max.x - inset, l.rect.min.y + border_w + 1.0),
-        ),
-        CornerRadius::same(0),
-        spec.palette.specular,
-    );
 
     // Text below the legibility floor is not small text, it is a grey
     // smear that makes a zoomed-out graph look dirty. Dropping it also
@@ -183,14 +152,30 @@ pub fn paint_node(
         m.title_size,
         spec.palette.title,
     );
+    // Uppercase and letter-spaced. Flat design has no gloss to build
+    // hierarchy with, so the hierarchy has to come from the type: a
+    // wide, small, quiet second line reads as a label under a title
+    // rather than as a competing sentence.
     if !shape.subtitle.is_empty() && m.subtitle_size >= MIN_LEGIBLE_PT {
-        p.text(
-            Pos2::new(l.subtitle.min.x, l.subtitle.min.y),
-            Align2::LEFT_TOP,
-            fit(p, &shape.subtitle, l.subtitle.width(), m.subtitle_size),
+        let text = fit(
+            p,
+            &shape.subtitle.to_uppercase(),
+            l.subtitle.width(),
             m.subtitle_size,
-            spec.palette.subtitle,
         );
+        p.paint_cmd(mara_core::paint::PaintCmd::TextRuns {
+            pos: Pos2::new(l.subtitle.min.x, l.subtitle.min.y),
+            anchor: Align2::LEFT_TOP,
+            angle: 0.0,
+            runs: vec![mara_core::paint::TextRun {
+                text,
+                size: m.subtitle_size,
+                color: spec.palette.subtitle,
+                family: mara_core::paint::TextFamily::Proportional,
+                extra_letter_spacing: (m.subtitle_size * 0.09).max(0.4),
+                leading_space: 0.0,
+            }],
+        });
     }
 
     if m.label_size < MIN_LEGIBLE_PT {
@@ -217,56 +202,18 @@ pub fn paint_node(
     }
 }
 
-/// Paint the header as a vertical gradient.
+/// The body surface for a node of colour `tint`.
 ///
-/// A flat band of colour is the single most dated thing a node can
-/// wear. Falling from the tint at the top to a darker, part-transparent
-/// version at the divider makes the header read as lit from above and
-/// ties it into the body instead of sitting on top of it.
-///
-/// The rounded band stays flat colour and only the square remainder
-/// below it carries the gradient, so the top corners survive.
-fn paint_header(p: &MaraPainter, header: Rect, tint: Color32, corner: u8, spec: &GraphSpec) {
-    let top = lighten(tint, 0.15);
-    let bottom = darken(tint, 0.28);
-
-    // The rounded part is flat colour. Only the square remainder below
-    // the corner radius carries the gradient, which is what lets a
-    // single seamless quad do the job: stacked strips leave a
-    // half-transparent antialiased seam at every boundary, and seven of
-    // those across a header look like corduroy.
-    p.rect_filled(
-        header,
-        CornerRadius::from_corners(corner, corner, 0, 0),
-        top,
-    );
-
-    let y0 = (header.min.y + f32::from(corner)).min(header.max.y);
-    if y0 >= header.max.y {
-        return;
+/// Public so hit-testing, pins and the app all use the same value.
+/// A pin collar painted in the untinted fill sits a shade off the body
+/// it is supposed to be cut out of, and at these sizes that reads as a
+/// dirty edge.
+#[must_use]
+pub fn body_color(node_fill: Color32, tint: Option<Color32>) -> Color32 {
+    match tint {
+        Some(t) => lerp_color(node_fill, t, SURFACE_TINT),
+        None => node_fill,
     }
-    let t0 = (y0 - header.min.y) / header.height().max(1.0);
-    let c0 = lerp_color(top, bottom, t0);
-    let verts = vec![
-        PaintVertex {
-            pos: Pos2::new(header.min.x, y0),
-            color: c0,
-        },
-        PaintVertex {
-            pos: Pos2::new(header.max.x, y0),
-            color: c0,
-        },
-        PaintVertex {
-            pos: Pos2::new(header.max.x, header.max.y),
-            color: bottom,
-        },
-        PaintVertex {
-            pos: Pos2::new(header.min.x, header.max.y),
-            color: bottom,
-        },
-    ];
-    p.mesh(verts, vec![0, 1, 2, 0, 2, 3]);
-    let _ = spec;
 }
 
 /// Paint one pin disc.
@@ -281,36 +228,25 @@ pub fn paint_pin(
     filled: bool,
     hot: bool,
     m: &NodeSpec,
-    palette: &GraphPalette,
+    body: Color32,
 ) {
-    let r = if hot { m.pin_r * 1.35 } else { m.pin_r };
-    // A halo under the pin the pointer is about to grab. Wiring is done
-    // by aim, and a target that acknowledges the aim is far easier to
-    // hit than one that stays inert until the click lands.
-    if hot {
-        p.circle_filled(at, r + m.pin_ring * 2.2, with_alpha(color, 60));
-    }
-    // A collar of body colour, then a dark rim. The collar stops the
-    // node's outline cutting the pin in half; the rim keeps the pin
-    // legible where it overhangs the canvas.
-    p.circle_filled(at, r + m.pin_ring, palette.node_fill);
-    p.circle_stroke(
-        at,
-        r + m.pin_ring * 0.5,
-        Stroke::new(1.0, Color32::from_black_alpha(70)),
-    );
+    let r = if hot { m.pin_r * 1.3 } else { m.pin_r };
+    // A collar of body colour so the node's outline cannot cut the pin
+    // in half. Flat, no rim shading.
+    p.circle_filled(at, r + m.pin_ring, body);
     if filled {
         p.circle_filled(at, r, color);
-        // A small bright cap on the upper-left, the highlight that
-        // makes a flat disc read as a bead.
-        p.circle_filled(
-            Pos2::new(at.x - r * 0.28, at.y - r * 0.28),
-            r * 0.34,
-            with_alpha(lighten(color, 0.55), 150),
-        );
     } else {
-        p.circle_filled(at, r, palette.node_fill);
+        // Hollow means unconnected — a ring of the type colour on the
+        // body, which is the same information the filled disc carries
+        // without adding a second shape language.
+        p.circle_filled(at, r, body);
         p.circle_stroke(at, r - 0.5, Stroke::new((m.pin_ring * 0.7).max(1.0), color));
+    }
+    // Under the pointer the pin gains a flat ring rather than a glow:
+    // wiring is done by aim, and the target has to acknowledge the aim.
+    if hot {
+        p.circle_stroke(at, r + m.pin_ring * 1.6, Stroke::new(1.5, color));
     }
 }
 
@@ -333,14 +269,6 @@ pub fn paint_wire(
     spec: &GraphSpec,
 ) {
     let pts = wire_points(from, to, spec.wire_slack);
-
-    // A dark pass underneath, slightly wider. The wire then reads as
-    // lying on the canvas rather than being painted into it, and stays
-    // legible where it crosses a node.
-    p.polyline(
-        pts.clone(),
-        Stroke::new(width + 2.0, Color32::from_black_alpha(60)),
-    );
 
     const SEGS: usize = 8;
     let per = pts.len() / SEGS;
@@ -445,10 +373,6 @@ fn lighten(c: Color32, t: f32) -> Color32 {
     lerp_color(c, Color32::from_rgba_unmultiplied(255, 255, 255, c.a()), t)
 }
 
-fn darken(c: Color32, t: f32) -> Color32 {
-    lerp_color(c, Color32::from_rgba_unmultiplied(0, 0, 0, c.a()), t)
-}
-
 fn with_alpha(c: Color32, a: u8) -> Color32 {
     Color32::from_rgba_unmultiplied(c.r(), c.g(), c.b(), a)
 }
@@ -486,6 +410,38 @@ fn fit(p: &MaraPainter, text: &str, budget: f32, size: f32) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The body takes a trace of the node's colour and stays opaque and
+    /// close to the neutral fill. This is the flat system's only depth
+    /// cue besides the shadow, so it has to be a *tone*, not a wash you
+    /// can see through and not a colour that swamps the widgets on it.
+    #[test]
+    fn the_body_is_tinted_but_stays_a_neutral_surface() {
+        let fill = Color32::from_gray(60);
+        let tint = Color32::from_rgb(200, 40, 40);
+        let body = body_color(fill, Some(tint));
+
+        assert_eq!(body.a(), 255, "the body must stay opaque");
+        assert!(body.r() > fill.r(), "the tint should be detectable");
+        assert!(
+            body.r() - fill.r() < 25,
+            "the tint should be a trace, not a colour wash"
+        );
+        assert_eq!(body_color(fill, None), fill);
+    }
+
+    /// The rule under the header is brighter than the header itself, so
+    /// it reads as a deliberate edge rather than as a shadow.
+    #[test]
+    fn the_header_rule_is_brighter_than_the_header() {
+        let tint = Color32::from_rgb(60, 90, 140);
+        let rule = lighten(tint, 0.34);
+        let luma = |c: Color32| {
+            let [r, g, b, _] = c.to_srgba_unmultiplied();
+            0.299 * f32::from(r) + 0.587 * f32::from(g) + 0.114 * f32::from(b)
+        };
+        assert!(luma(rule) > luma(tint) + 20.0);
+    }
 
     /// A wire must start and end exactly on the pins it joins. If the
     /// sampled curve missed its endpoints, every wire would appear to

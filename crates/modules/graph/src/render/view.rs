@@ -28,7 +28,9 @@ use mara_core::layout::{ChildRegion, CursorIcon, Sense, StackAlign};
 use mara_core::vocab::{Color32, CornerRadius, PointerButton, Pos2, Rect, Stroke, Vec2};
 
 use super::layout::{NodeLayout, NodeShape, layout_node};
-use super::paint::{NodeState, paint_canvas, paint_node, paint_pin, paint_wire, wire_points};
+use super::paint::{
+    NodeState, body_color, paint_canvas, paint_node, paint_pin, paint_wire, wire_points,
+};
 use super::group::{band_at, move_frame, paint_frame, place_frames};
 use super::spec::GraphSpec;
 use crate::{FrameId, Graph, InPinId, NodeId, OutPinId};
@@ -535,6 +537,7 @@ pub fn show_graph<T, V: GraphView<T>>(
     }
 
     for pl in &placed {
+        let pin_body = body_color(spec.palette.node_fill, pl.tint);
         let st = NodeState {
             selected: state.selection.contains(&pl.id),
             hovered: hit.is_some_and(|(id, _)| id == pl.id),
@@ -554,7 +557,7 @@ pub fn show_graph<T, V: GraphView<T>>(
                 !graph.in_pin(pin).remotes.is_empty(),
                 hot_pin == Some((pl.id, PinHit::In(i))),
                 &pl.layout.spec,
-                &spec.palette,
+                pin_body,
             );
         }
         for (i, at) in pl.layout.outputs.iter().enumerate() {
@@ -570,7 +573,7 @@ pub fn show_graph<T, V: GraphView<T>>(
                 !graph.out_pin(pin).remotes.is_empty(),
                 hot_pin == Some((pl.id, PinHit::Out(i))),
                 &pl.layout.spec,
-                &spec.palette,
+                pin_body,
             );
         }
     }

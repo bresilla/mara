@@ -94,24 +94,6 @@ pub fn paint_frame(
         CornerRadius::from_corners(spec.node.corner, spec.node.corner, 0, 0),
         with_alpha(f.color, 120),
     );
-    // The band falls off into the box, the same light the node headers
-    // use, so a frame and a node look like they were drawn by the same
-    // hand rather than by two.
-    if pf.band.height() > 2.0 {
-        let fade = with_alpha(f.color, 0);
-        let y0 = pf.band.min.y + f32::from(spec.node.corner);
-        if y0 < pf.band.max.y {
-            p.mesh(
-                vec![
-                    vtx(Pos2::new(pf.band.min.x, y0), with_alpha(f.color, 40)),
-                    vtx(Pos2::new(pf.band.max.x, y0), with_alpha(f.color, 40)),
-                    vtx(Pos2::new(pf.band.max.x, pf.band.max.y), fade),
-                    vtx(Pos2::new(pf.band.min.x, pf.band.max.y), fade),
-                ],
-                vec![0, 1, 2, 0, 2, 3],
-            );
-        }
-    }
     p.rect_stroke(
         pf.rect,
         corner,
@@ -165,10 +147,6 @@ pub fn move_frame<T>(graph: &mut Graph<T>, frame: FrameId, delta: Vec2) {
     if let Some(f) = graph.frame_mut(frame) {
         f.bounds = f.bounds.translate(delta);
     }
-}
-
-fn vtx(pos: Pos2, color: Color32) -> mara_core::paint::PaintVertex {
-    mara_core::paint::PaintVertex { pos, color }
 }
 
 fn with_alpha(c: Color32, a: u8) -> Color32 {
