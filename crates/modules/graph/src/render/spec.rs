@@ -71,10 +71,10 @@ pub struct NodeSpec {
 impl Default for NodeSpec {
     fn default() -> Self {
         Self {
-            width: 240.0,
-            row_h: 22.0,
-            header_h: 36.0,
-            icon_size: 15.0,
+            width: 196.0,
+            row_h: 21.0,
+            header_h: 38.0,
+            icon_size: 14.0,
             subtitle_size: 9.5,
             pad_x: 10.0,
             pad_y: 6.0,
@@ -82,8 +82,8 @@ impl Default for NodeSpec {
             corner: 9,
             pin_r: 5.0,
             pin_ring: 2.5,
-            title_size: 12.5,
-            label_size: 11.0,
+            title_size: 13.5,
+            label_size: 11.5,
             border: 1.0,
             border_selected: 2.0,
         }
@@ -184,7 +184,7 @@ impl GraphPalette {
         let canvas = sink(surface, 0.35);
         Self {
             canvas,
-            grid: shift(canvas, 0.10),
+            grid: shift(canvas, 0.17),
             // The lift that makes a node an object. Opaque on purpose:
             // a translucent body lets the canvas through and no amount
             // of lightening then separates the two.
@@ -200,14 +200,14 @@ impl GraphPalette {
                 Color32::from_gray(24)
             },
             divider: shift(canvas, 0.36),
-            grid_major: shift(canvas, 0.22),
+            grid_major: shift(canvas, 0.36),
             subtitle: if dark {
-                Color32::from_gray(150)
+                Color32::from_gray(190)
             } else {
-                Color32::from_gray(110)
+                Color32::from_gray(96)
             },
             label: if dark {
-                Color32::from_gray(176)
+                Color32::from_gray(205)
             } else {
                 Color32::from_gray(84)
             },

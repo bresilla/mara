@@ -33,7 +33,7 @@ pub use doc::{DocResponse, DocViewState, go_up, show_doc};
 pub use group::{PlacedFrame, move_frame, place_frames};
 pub use layout::{NodeLayout, NodeShape, layout_node};
 pub use paint::{
-    NodeState, body_color, paint_canvas, paint_node, paint_pin, paint_wire, wire_points,
+    NodeState, body_color, ink_on, paint_canvas, paint_node, paint_pin, paint_wire, wire_points,
 };
 pub use spec::{GraphPalette, GraphSpec, NodeSpec, ShadowSpec};
 pub use view::{Camera, GraphResponse, GraphView, GraphViewState, distance_to_wire, show_graph};

@@ -59,7 +59,7 @@ impl Camera {
 
     /// Below this, node titles fall under the renderer's legibility
     /// floor and stop being drawn.
-    pub const LEGIBLE_ZOOM: f32 = 0.75;
+    pub const LEGIBLE_ZOOM: f32 = 0.85;
 
     #[must_use]
     pub fn to_screen(self, g: Pos2) -> Pos2 {

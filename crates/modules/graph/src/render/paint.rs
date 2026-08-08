@@ -97,7 +97,7 @@ pub fn paint_node(
             Pos2::new(l.rect.max.x, l.header.max.y),
         ),
         CornerRadius::same(0),
-        tint.map_or(spec.palette.divider, |t| lighten(t, 0.34)),
+        tint.map_or(spec.palette.divider, |t| lighten(t, 0.22)),
     );
 
     // Selection is a solid ring plus a flat wash — no glow. Both are
@@ -123,21 +123,38 @@ pub fn paint_node(
         return;
     }
 
-    // Icon glyphs go through ordinary text, not a named family: the
-    // icon font is merged into the default family, and asking for it by
-    // name in a context that never registered it yields `.notdef` —
-    // a white box on every node.
+    // Header text is derived from the header's own colour rather than
+    // taken from the palette. A fixed light grey is legible on a dark
+    // node colour and invisible on a bright one, and an app is free to
+    // colour its nodes however it likes.
+    let (title_col, subtitle_col, icon_col) = match tint {
+        Some(t) => {
+            let ink = ink_on(t);
+            (ink, with_alpha(ink, 205), with_alpha(ink, 225))
+        }
+        None => (
+            spec.palette.title,
+            spec.palette.subtitle,
+            with_alpha(spec.palette.title, 220),
+        ),
+    };
+
+    // Icon glyphs live in their own font family and must be asked for
+    // by name — the same lowering `mara_core::icons` does everywhere
+    // else. Drawing them as ordinary text yields `.notdef`: a white box
+    // on every node.
     if let Some(icon) = &shape.icon
         && m.icon_size >= MIN_LEGIBLE_PT
-        && let Some((glyph, _)) = mara_core::icons::icon_glyph(icon)
+        && let Some((glyph, family)) = mara_core::icons::icon_glyph(icon)
     {
-        p.text(
-            l.icon.center(),
-            Align2::CENTER_CENTER,
-            glyph,
-            m.icon_size,
-            with_alpha(spec.palette.title, 225),
-        );
+        p.paint_cmd(mara_core::paint::PaintCmd::TextWithFamily {
+            pos: l.icon.center(),
+            anchor: Align2::CENTER_CENTER,
+            text: glyph.to_string(),
+            size: m.icon_size,
+            color: icon_col,
+            family: mara_core::paint::TextFamily::Named(family),
+        });
     }
 
     let title_anchor = if shape.subtitle.is_empty() {
@@ -150,7 +167,7 @@ pub fn paint_node(
         title_anchor.1,
         fit(p, &shape.title, l.title.width(), m.title_size),
         m.title_size,
-        spec.palette.title,
+        title_col,
     );
     // Uppercase and letter-spaced. Flat design has no gloss to build
     // hierarchy with, so the hierarchy has to come from the type: a
@@ -170,7 +187,7 @@ pub fn paint_node(
             runs: vec![mara_core::paint::TextRun {
                 text,
                 size: m.subtitle_size,
-                color: spec.palette.subtitle,
+                color: subtitle_col,
                 family: mara_core::paint::TextFamily::Proportional,
                 extra_letter_spacing: (m.subtitle_size * 0.09).max(0.4),
                 leading_space: 0.0,
@@ -199,6 +216,23 @@ pub fn paint_node(
             m.label_size,
             spec.palette.label,
         );
+    }
+}
+
+/// Text colour that reads on `bg`.
+///
+/// Near-white on a dark header, near-black on a light one. Deciding
+/// this from the colour rather than fixing it in the palette is what
+/// lets an app pick any node colour it likes and still get a legible
+/// header — including the pale ones a fixed light grey disappears on.
+#[must_use]
+pub fn ink_on(bg: Color32) -> Color32 {
+    let [r, g, b, _] = bg.to_srgba_unmultiplied();
+    let luma = 0.299 * f32::from(r) + 0.587 * f32::from(g) + 0.114 * f32::from(b);
+    if luma > 150.0 {
+        Color32::from_gray(18)
+    } else {
+        Color32::from_gray(246)
     }
 }
 
@@ -410,6 +444,27 @@ fn fit(p: &MaraPainter, text: &str, budget: f32, size: f32) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Header text is chosen against the header colour, so an app can
+    /// pick any node colour and still get a legible title — including
+    /// the pale ones a fixed light grey vanishes on.
+    #[test]
+    fn header_text_flips_to_stay_legible_on_any_node_colour() {
+        let luma = |c: Color32| {
+            let [r, g, b, _] = c.to_srgba_unmultiplied();
+            0.299 * f32::from(r) + 0.587 * f32::from(g) + 0.114 * f32::from(b)
+        };
+        for bg in [
+            Color32::from_rgb(30, 40, 60),
+            Color32::from_rgb(130, 40, 60),
+            Color32::from_rgb(240, 220, 90),
+            Color32::WHITE,
+            Color32::BLACK,
+        ] {
+            let gap = (luma(ink_on(bg)) - luma(bg)).abs();
+            assert!(gap > 95.0, "ink on {bg:?} only contrasts by {gap:.0}");
+        }
+    }
 
     /// The body takes a trace of the node's colour and stays opaque and
     /// close to the neutral fill. This is the flat system's only depth
