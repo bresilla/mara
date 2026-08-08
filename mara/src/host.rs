@@ -485,6 +485,15 @@ impl<'a> MaraHostCtx<'a> {
         mara_core::embed::__internal_restore_fullscreen(&self.seam())
     }
 
+    /// Did `key` go down this frame?
+    ///
+    /// For host-level shortcuts that must work whatever surface has
+    /// focus — the escape hatch out of a full-window widget, above all.
+    #[must_use]
+    pub fn key_pressed(&self, key: mara_core::mui::MaraKey) -> bool {
+        mara_core::context::MaraCtx::input(&self.seam()).key_pressed(key)
+    }
+
     /// Apply the current Mara theme with default host state.
     ///
     /// A bare `mara::window::WindowApp` should look like Mara without

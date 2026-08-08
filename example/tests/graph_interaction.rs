@@ -150,6 +150,41 @@ fn panning_leaves_the_nodes_where_they_were() {
     assert!((after.x - before.x).abs() < 0.01 && (after.y - before.y).abs() < 0.01);
 }
 
+/// The view only takes input inside the rect it was handed.
+///
+/// It registers ONE interaction over its whole area, so a host that
+/// hands it more than the graph's own viewport hands it every control
+/// in that strip too — which is how the Graph Lab's graph ended up
+/// eating its own shelf's fold buttons.
+#[test]
+fn the_view_ignores_pointers_outside_its_area() {
+    let (mut g, id, mut state) = one_node();
+    let mut view = View;
+    let spec = spec();
+    let before = g.get_node_info(id).expect("node").pos;
+
+    // A viewport that stops well short of the window, as a shelf
+    // layout's does.
+    let viewport = Rect::from_min_size(Pos2::new(0.0, 0.0), Vec2::new(600.0, 400.0));
+    let outside = egui::pos2(1200.0, 800.0);
+    let frames = vec![
+        raster::pointer_frame(outside, false, false),
+        raster::pointer_frame(outside, true, true),
+        raster::pointer_frame(egui::pos2(outside.x - 150.0, outside.y), true, false),
+    ];
+    let pan_before = state.camera.pan;
+    raster::drive(frames, |ui| {
+        show_graph(ui, viewport, &mut g, &mut view, &mut state, &spec);
+    });
+
+    assert_eq!(
+        state.camera.pan, pan_before,
+        "a drag outside the graph's viewport must not pan it"
+    );
+    let after = g.get_node_info(id).expect("node").pos;
+    assert!((after.x - before.x).abs() < 0.01 && (after.y - before.y).abs() < 0.01);
+}
+
 /// Clicking a node selects it; clicking empty canvas clears.
 #[test]
 fn clicking_selects_and_deselects() {

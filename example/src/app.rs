@@ -2828,11 +2828,19 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
             PANE_EDITOR,
             "code_state",
         )));
+    // A container maximised from inside a pane keeps its own restore
+    // chip. The main bar owns restore for *module* fullscreen, where it
+    // always carries a restore item; a container can be maximised from
+    // any view, including ones whose rails carry no restore at all, and
+    // then there is no way back at all.
+    let container_fs = fullscreen_owner == Some(mara::extras::graph::graph_view_fullscreen_key());
     if fs_active {
-        // The persistent main bar owns module restore in L1/fullscreen.
-        // Suppress the old floating restore chip so it does not stack
-        // above the top-right system-control slot.
-        host.set_fullscreen_minimize_chip_visible(false);
+        host.set_fullscreen_minimize_chip_visible(container_fs);
+    }
+    // Escape always restores. A widget that can be made full-window
+    // needs one exit that does not depend on finding a button.
+    if fs_active && host.key_pressed(mara_core::mui::MaraKey::Escape) {
+        host.restore_fullscreen();
     }
     let allow_persistent_panes_over_fullscreen = fs_active
         && open.get(RIBBON_TOP).is_some_and(|id| {
@@ -4106,7 +4114,12 @@ fn graph_lab_root_view(
     let layout = host.layout_shelves(&shelves, shelf_state);
 
     host.show_root_body(accent, |mui, _screen| {
-        let area = mui.available_rect();
+        // The shelf viewport, not the whole body. `available_rect()`
+        // includes the strip the shelves occupy, so the graph painted
+        // under them and — because it takes one interaction over its
+        // whole area — swallowed their fold buttons. The canvas view
+        // has always used `layout.viewport` for exactly this reason.
+        let area = layout.viewport;
         let spec = mara::extras::graph::mara_graph_spec(accent);
         let out = mara::extras::graph::render::show_doc(
             mui,

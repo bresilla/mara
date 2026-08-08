@@ -784,7 +784,15 @@ impl<'ui, 'spec> PaneBodyNodeGraphExt<'spec> for mara_core::pane::PaneBody<'ui, 
                     GRAPH_VIEW_FULLSCREEN_SALT,
                     accent,
                     MaraVec2::new(0.0, offered),
-                    OverlayOpts::default().avoid_ribbons(mara_core::RibbonAvoidance::all()),
+                    // Bottom-right. The top-right corner is where the
+                    // host's system-control slot lives, and a restore
+                    // chip stacked under it is a restore chip nobody
+                    // can find.
+                    OverlayOpts::minimize_at(
+                        mara_core::ribbon::RibbonEdge::Right,
+                        mara_core::ribbon::RibbonCluster::End,
+                    )
+                    .avoid_ribbons(mara_core::RibbonAvoidance::all()),
                     |mara| {
                         let avail = mara.available_rect();
                         let size =
