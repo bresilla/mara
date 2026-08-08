@@ -68,6 +68,9 @@ pub struct NodeLayout {
     pub input_labels: Vec<Rect>,
     /// Baseline rect for each output label.
     pub output_labels: Vec<Rect>,
+    /// Where an unconnected input's value editor goes. Zero-width for
+    /// rows that have no room for one.
+    pub input_editors: Vec<Rect>,
     /// Rect reserved for app-drawn body content; empty when none.
     pub body: Rect,
     /// The metrics these rects were computed from.
@@ -112,29 +115,52 @@ pub fn layout_node(pos: Pos2, shape: &NodeShape, spec: &NodeSpec) -> NodeLayout 
         .map(|i| Pos2::new(rect.max.x, row_centre(i)))
         .collect();
 
-    let label_rect = |i: usize, left: bool| {
+    // Each row is three zones: input label, editor band, output label.
+    // The bands are at fixed offsets rather than sized to content, so a
+    // node that grows an editor stays exactly as wide as one that does
+    // not — the ragged-column problem, in miniature.
+    let half = spec.row_h * 0.5;
+    let inner_l = rect.min.x + spec.pad_x;
+    let inner_r = rect.max.x - spec.pad_x;
+    let editor_w = spec.width * spec.editor_frac;
+    let editor_l = inner_r - editor_w;
+
+    let band = |x0: f32, x1: f32, i: usize| {
         let y = row_centre(i);
-        let half = spec.row_h * 0.5;
-        // Labels stop halfway across so an input and an output on the
-        // same row can never overlap, whatever they are called.
-        let mid = rect.center().x;
-        if left {
-            Rect::from_min_max(
-                Pos2::new(rect.min.x + spec.pad_x, y - half),
-                Pos2::new(mid, y + half),
-            )
-        } else {
-            Rect::from_min_max(
-                Pos2::new(mid, y - half),
-                Pos2::new(rect.max.x - spec.pad_x, y + half),
-            )
-        }
+        Rect::from_min_max(Pos2::new(x0, y - half), Pos2::new(x1.max(x0), y + half))
     };
 
-    let input_labels = (0..shape.inputs.len()).map(|i| label_rect(i, true)).collect();
-    let output_labels = (0..shape.outputs.len())
-        .map(|i| label_rect(i, false))
-        .collect();
+    let (n_in, n_out) = (shape.inputs.len(), shape.outputs.len());
+    let mut input_labels = Vec::with_capacity(n_in);
+    let mut input_editors = Vec::with_capacity(n_in);
+    let mut output_labels = Vec::with_capacity(n_out);
+
+    for i in 0..rows {
+        let has_in = i < n_in;
+        let has_out = i < n_out;
+        // An editor band is only reserved where an input could use it,
+        // and never where an output label would have to share the row.
+        let editor = has_in && !has_out;
+        if has_in {
+            let end = if editor {
+                editor_l - spec.pad_x
+            } else if has_out {
+                rect.center().x
+            } else {
+                inner_r
+            };
+            input_labels.push(band(inner_l, end, i));
+            input_editors.push(if editor {
+                band(editor_l, inner_r, i)
+            } else {
+                band(inner_r, inner_r, i)
+            });
+        }
+        if has_out {
+            let start = if has_in { rect.center().x } else { inner_l };
+            output_labels.push(band(start, inner_r, i));
+        }
+    }
 
     let body = if shape.body_h > 0.0 {
         Rect::from_min_max(
@@ -156,6 +182,7 @@ pub fn layout_node(pos: Pos2, shape: &NodeShape, spec: &NodeSpec) -> NodeLayout 
         outputs,
         input_labels,
         output_labels,
+        input_editors,
         body,
         spec: *spec,
     }
@@ -244,6 +271,34 @@ mod tests {
             assert!(lo.max.x <= l.rect.max.x - s.pad_x + 0.01, "output {i} ends outside");
             assert!(li.max.x <= lo.min.x + 0.01, "row {i} labels overlap");
         }
+    }
+
+    /// An editor band is reserved only where an input can actually use
+    /// it, and never where it would sit under an output label.
+    #[test]
+    fn editor_bands_appear_only_on_rows_that_can_hold_one() {
+        let s = spec();
+        let l = layout_node(Pos2::new(0.0, 0.0), &shape(3, 1), &s);
+        assert!(
+            l.input_editors[0].width() < 0.01,
+            "row 0 shares with an output and must not reserve an editor"
+        );
+        for i in 1..3 {
+            assert!(l.input_editors[i].width() > 20.0, "row {i} has no editor");
+            assert!(l.input_editors[i].max.x <= l.rect.max.x - s.pad_x + 0.01);
+            assert!(l.input_labels[i].max.x <= l.input_editors[i].min.x + 0.01);
+        }
+    }
+
+    /// An editor never changes the node's size. That is the whole
+    /// reason the band is a fixed fraction rather than content-sized.
+    #[test]
+    fn an_editor_band_does_not_change_the_node_size() {
+        let s = spec();
+        let with_editor = layout_node(Pos2::new(0.0, 0.0), &shape(2, 0), &s);
+        let without = layout_node(Pos2::new(0.0, 0.0), &shape(2, 2), &s);
+        assert!((with_editor.rect.width() - without.rect.width()).abs() < 0.01);
+        assert!((with_editor.rect.height() - without.rect.height()).abs() < 0.01);
     }
 
     /// Every pin sits exactly on the body edge, so a wire meets the

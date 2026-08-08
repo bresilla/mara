@@ -147,7 +147,6 @@ impl GraphView<Demo> for View {
         g.get_node(pin.node).map(|n| n.tint)
     }
 
-    fn body(&mut self, _id: NodeId, _rect: Rect, _ui: &mut mara_core::MaraUi<'_>) {}
 }
 
 #[test]

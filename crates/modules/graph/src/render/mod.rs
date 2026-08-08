@@ -23,12 +23,14 @@
 //! the crate carries no backend dependency at all.
 
 pub mod doc;
+pub mod group;
 pub mod layout;
 pub mod paint;
 pub mod spec;
 pub mod view;
 
 pub use doc::{DocResponse, DocViewState, go_up, show_doc};
+pub use group::{PlacedFrame, move_frame, place_frames};
 pub use layout::{NodeLayout, NodeShape, layout_node};
 pub use paint::{NodeState, paint_canvas, paint_node, paint_pin, paint_wire, wire_points};
 pub use spec::{GraphPalette, GraphSpec, NodeSpec, ShadowSpec};

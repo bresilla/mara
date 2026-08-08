@@ -6405,6 +6405,37 @@ impl GraphNode {
         }
     }
 
+    /// Height this node's body needs, in graph points.
+    ///
+    /// The rebuilt renderer decides geometry before anything is drawn,
+    /// so a node declares what its body needs instead of growing to fit
+    /// whatever came out. That is what stops two `Add` nodes ending up
+    /// different sizes because one of them had a value typed into it.
+    fn body_height(&self) -> f32 {
+        const ROW: f32 = 22.0;
+        match self {
+            GraphNode::Number(_) | GraphNode::Integer(_) | GraphNode::Bool(_) => ROW,
+            GraphNode::Vector(_) => 3.0 * ROW,
+            GraphNode::Color(_) => ROW + 4.0,
+            GraphNode::ScalarMath(_)
+            | GraphNode::Trig(_)
+            | GraphNode::Compare(_)
+            | GraphNode::VectorMath(_)
+            | GraphNode::BooleanMath(_)
+            | GraphNode::Wave(_) => ROW + 8.0,
+            GraphNode::Perlin { .. } => 2.0 * ROW + 8.0,
+            GraphNode::WhiteNoise { .. } => ROW + 4.0,
+            GraphNode::Display => 44.0,
+            GraphNode::Plot => 60.0,
+            GraphNode::PlotXY => 88.0,
+            GraphNode::Preview | GraphNode::VectorPreview => 46.0,
+            GraphNode::NoiseImage { .. } | GraphNode::NoiseField => 100.0,
+            GraphNode::MultiPlot => 96.0,
+            GraphNode::Output => ROW + 4.0,
+            _ => 0.0,
+        }
+    }
+
     /// Which colour family the node belongs to.
     ///
     /// A chip's own colour is its definition's, resolved in
@@ -7329,7 +7360,7 @@ impl mara::extras::graph::render::GraphView<GraphNode> for DemoViewer {
                 payload.map(GraphNode::outputs).unwrap_or_default(),
                 def.map(|d| &d.outputs),
             ),
-            body_h: 0.0,
+            body_h: payload.map_or(0.0, GraphNode::body_height),
         }
     }
 
@@ -7345,6 +7376,39 @@ impl mara::extras::graph::render::GraphView<GraphNode> for DemoViewer {
     fn output_color(&mut self, pin: OutPinId, g: &Graph<GraphNode>) -> Option<MaraColor32> {
         let n = g.get_node(pin.node)?;
         n.outputs().get(pin.output).map(|(_, t)| t.color())
+    }
+
+    /// The value editors, plots, swatches and noise previews that make
+    /// this demo a widget gallery rather than a diagram. Delegates to
+    /// the same `show_body` the previous renderer called, so nothing
+    /// had to be rewritten to move renderers.
+    fn body(
+        &mut self,
+        id: NodeId,
+        _rect: mara_core::vocab::Rect,
+        ui: &mut mara_core::MaraUi<'_>,
+        g: &mut Graph<GraphNode>,
+    ) {
+        NodeViewer::show_body(self, id, &[], &[], ui, g);
+    }
+
+    /// The default-value editor on a disconnected input, the way the
+    /// previous renderer put one in the pin row.
+    fn input_editor(
+        &mut self,
+        pin: InPinId,
+        _rect: mara_core::vocab::Rect,
+        ui: &mut mara_core::MaraUi<'_>,
+        g: &mut Graph<GraphNode>,
+    ) {
+        let Some((_, ty)) = g
+            .get_node(pin.node)
+            .and_then(|n| n.inputs().get(pin.input).copied())
+        else {
+            return;
+        };
+        let in_pin = g.in_pin(pin);
+        inline_input_editor(g, &in_pin, ty, ui);
     }
 }
 

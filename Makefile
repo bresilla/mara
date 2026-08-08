@@ -134,7 +134,7 @@ check:
 		vendored/chrome.rs vendored/camera.rs vendored/ui/frame_paint.rs \
 		vendored/ui/lod.rs vendored/ui/port_paint.rs \
 		render/mod.rs render/spec.rs render/layout.rs render/paint.rs \
-		render/view.rs render/doc.rs; do \
+		render/view.rs render/doc.rs render/group.rs; do \
 		p="crates/modules/graph/src/$$f"; \
 		[ -f "$$p" ] || continue; \
 		! grep -InE '\begui[_-]?[a-z]*::|\bwgpu::' "$$p" || \

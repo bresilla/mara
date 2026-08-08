@@ -39,6 +39,10 @@ pub struct NodeSpec {
     pub pad_x: f32,
     /// Gap above the first row and below the last.
     pub pad_y: f32,
+    /// Share of the node's width reserved for an unconnected input's
+    /// value editor. Fixed rather than content-sized, so growing an
+    /// editor never widens the node.
+    pub editor_frac: f32,
     /// Corner radius of the body.
     pub corner: u8,
     /// Radius of a pin disc.
@@ -59,10 +63,11 @@ pub struct NodeSpec {
 impl Default for NodeSpec {
     fn default() -> Self {
         Self {
-            width: 190.0,
+            width: 240.0,
             row_h: 22.0,
             pad_x: 10.0,
             pad_y: 6.0,
+            editor_frac: 0.42,
             corner: 6,
             pin_r: 4.5,
             pin_ring: 2.0,
@@ -89,6 +94,7 @@ impl NodeSpec {
             row_h: self.row_h * z,
             pad_x: self.pad_x * z,
             pad_y: self.pad_y * z,
+            editor_frac: self.editor_frac,
             corner: (f32::from(self.corner) * z).round().clamp(0.0, 255.0) as u8,
             pin_r: self.pin_r * z,
             pin_ring: self.pin_ring * z,

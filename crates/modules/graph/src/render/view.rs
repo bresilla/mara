@@ -23,13 +23,15 @@
 use std::collections::BTreeSet;
 
 use mara_core::MaraUi;
-use mara_core::layout::{CursorIcon, Sense};
+use mara_core::mui::MaraKey;
+use mara_core::layout::{ChildRegion, CursorIcon, Sense, StackAlign};
 use mara_core::vocab::{Color32, CornerRadius, PointerButton, Pos2, Rect, Stroke, Vec2};
 
 use super::layout::{NodeLayout, NodeShape, layout_node};
 use super::paint::{NodeState, paint_canvas, paint_node, paint_pin, paint_wire, wire_points};
+use super::group::{band_at, move_frame, paint_frame, place_frames};
 use super::spec::GraphSpec;
-use crate::{Graph, InPinId, NodeId, OutPinId};
+use crate::{FrameId, Graph, InPinId, NodeId, OutPinId};
 
 /// Where the graph is being looked at from.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -134,6 +136,8 @@ enum Gesture {
     WireFromInput(InPinId),
     /// Dragging the canvas itself.
     Pan,
+    /// Moving a frame and everything inside it; anchor in graph space.
+    MoveFrame { frame: FrameId, last: Pos2 },
 }
 
 /// Everything the view remembers between frames.
@@ -217,8 +221,28 @@ pub trait GraphView<T> {
     }
 
     /// Draw into the body area a node reserved via [`NodeShape::body_h`].
-    fn body(&mut self, id: NodeId, rect: Rect, ui: &mut MaraUi<'_>) {
-        let _ = (id, rect, ui);
+    ///
+    /// The graph is passed mutably because a node body is usually where
+    /// a value lives — a number to drag, a colour to pick, an operator
+    /// to choose — and an editor that cannot write back is decoration.
+    fn body(&mut self, id: NodeId, rect: Rect, ui: &mut MaraUi<'_>, graph: &mut Graph<T>) {
+        let _ = (id, rect, ui, graph);
+    }
+
+    /// Draw the value editor for an unconnected input, in the free half
+    /// of its pin row.
+    ///
+    /// A disconnected input with no default to set is the commonest
+    /// dead end in a node editor: the node wants a number and there is
+    /// nowhere to type one.
+    fn input_editor(
+        &mut self,
+        pin: InPinId,
+        rect: Rect,
+        ui: &mut MaraUi<'_>,
+        graph: &mut Graph<T>,
+    ) {
+        let _ = (pin, rect, ui, graph);
     }
 }
 
@@ -237,6 +261,8 @@ pub struct GraphResponse {
     pub node_context_menu: Option<NodeId>,
     /// Whether the pointer is over the viewport.
     pub hovered: bool,
+    /// A node or a frame was dragged this frame.
+    pub moved: bool,
 }
 
 /// One laid-out node, kept for the frame so hit-testing and painting
@@ -257,6 +283,7 @@ pub fn show_graph<T, V: GraphView<T>>(
     state: &mut GraphViewState,
     spec: &GraphSpec,
 ) -> GraphResponse {
+    let base_spec = *spec;
     let response = ui.interact(area, canvas_id(ui, area), Sense::ClickAndDrag);
     let mut out = GraphResponse {
         hovered: response.hovered,
@@ -311,7 +338,26 @@ pub fn show_graph<T, V: GraphView<T>>(
     // Selected nodes paint last, and are therefore hit-tested first.
     placed.sort_by_key(|p| u8::from(state.selection.contains(&p.id)));
 
+    // Frames are laid out from the same node rects the nodes use, so an
+    // auto-fitting box never disagrees with what it encloses.
+    let shapes: Vec<(NodeId, Rect)> = placed
+        .iter()
+        .map(|pl| {
+            let g_min = state.camera.to_graph(pl.layout.rect.min);
+            let g_max = state.camera.to_graph(pl.layout.rect.max);
+            (pl.id, Rect::from_two_pos(g_min, g_max))
+        })
+        .collect();
+    let node_rect = move |id: NodeId| {
+        shapes
+            .iter()
+            .find(|(n, _)| *n == id)
+            .map_or_else(|| Rect::from_min_size(Pos2::new(0.0, 0.0), Vec2::new(0.0, 0.0)), |(_, r)| *r)
+    };
+    let frames = place_frames(graph, state.camera, &base_spec, &node_rect);
+
     let hit = pointer.and_then(|p| hit_test(&placed, p, &node_spec));
+    let band_hit = pointer.and_then(|p| band_at(&frames, p));
 
     // ── gestures ────────────────────────────────────────────────
     let ctx_pointer = response.interact_pointer.or(pointer);
@@ -319,10 +365,31 @@ pub fn show_graph<T, V: GraphView<T>>(
         // Middle-drag always pans, whatever is under it. Every node
         // editor works this way, and it is the only pan gesture that
         // does not have to compete with selection.
-        state.gesture = if response.dragged_by(PointerButton::Middle) {
+        state.gesture = if response.dragged_by(PointerButton::Middle)
+            || response.dragged_by(PointerButton::Secondary)
+        {
             Some(Gesture::Pan)
         } else {
-            ctx_pointer.and_then(|p| begin_gesture(p, &placed, graph, state, &node_spec))
+            ctx_pointer.and_then(|p| {
+                // A frame's title band wins over everything, because it
+                // is the only handle the box has.
+                if hit.is_none()
+                    && let Some(frame) = band_at(&frames, p)
+                {
+                    return Some(Gesture::MoveFrame {
+                        frame,
+                        last: state.camera.to_graph(p),
+                    });
+                }
+                begin_gesture(
+                    p,
+                    &placed,
+                    graph,
+                    state,
+                    &node_spec,
+                    input.modifiers_shift,
+                )
+            })
         };
     }
 
@@ -339,6 +406,7 @@ pub fn show_graph<T, V: GraphView<T>>(
                         }
                     }
                     state.gesture = Some(Gesture::MoveNodes { last: now });
+                    out.moved = true;
                     // The layout above is now stale by one frame's drag;
                     // shifting it keeps the node under the pointer.
                     for pl in &mut placed {
@@ -346,6 +414,12 @@ pub fn show_graph<T, V: GraphView<T>>(
                             shift_layout(&mut pl.layout, input.pointer_delta);
                         }
                     }
+                }
+                Gesture::MoveFrame { frame, last } => {
+                    let now = state.camera.to_graph(p);
+                    move_frame(graph, frame, Vec2::new(now.x - last.x, now.y - last.y));
+                    state.gesture = Some(Gesture::MoveFrame { frame, last: now });
+                    out.moved = true;
                 }
                 _ => {}
             }
@@ -387,6 +461,33 @@ pub fn show_graph<T, V: GraphView<T>>(
         ui.set_cursor_icon(CursorIcon::PointingHand);
     }
 
+    // ── keyboard ────────────────────────────────────────────────
+    if response.hovered || !state.selection.is_empty() {
+        if input.key_pressed(MaraKey::Delete) || input.key_pressed(MaraKey::Backspace) {
+            for id in std::mem::take(&mut state.selection) {
+                if graph.contains(id) {
+                    for (from, to) in graph.wires_of(id).collect::<Vec<_>>() {
+                        out.disconnected.push((from, to));
+                    }
+                    graph.remove_node(id);
+                }
+            }
+        }
+        if input.modifiers_command && input.key_pressed(MaraKey::A) {
+            state.selection = graph.node_ids().map(|(id, _)| id).collect();
+        }
+        if input.key_pressed(MaraKey::Escape) {
+            state.selection.clear();
+        }
+        // Frame everything, the universal "I am lost" key in every
+        // node editor and 3D viewport.
+        if input.key_pressed(MaraKey::F) && !input.modifiers_command {
+            if let Some(b) = graph_bounds(graph, view, &base_spec) {
+                state.camera.frame_initial(b, area, 48.0);
+            }
+        }
+    }
+
     // ── paint ───────────────────────────────────────────────────
     let (p, _) = ui.canvas_at(area);
     let origin = state.camera.to_screen(Pos2::new(0.0, 0.0));
@@ -403,6 +504,14 @@ pub fn show_graph<T, V: GraphView<T>>(
             .and_then(|pl| pl.layout.inputs.get(in_pin.input).copied());
         a.zip(b)
     };
+
+    // Frames sit under the wires, which is what makes a group read as
+    // the surface the graph is drawn on rather than as a pane over it.
+    for pf in &frames {
+        if let Some(f) = graph.frame(pf.id) {
+            paint_frame(&p, pf, f, band_hit == Some(pf.id), state.camera.zoom, spec);
+        }
+    }
 
     let wire_w = spec.wire_width;
     for (from, to) in graph.wires() {
@@ -480,11 +589,35 @@ pub fn show_graph<T, V: GraphView<T>>(
         }
     }
 
-    // Bodies draw last and through the ui, because an app may put real
-    // widgets there.
+    // Bodies and inline editors draw last and through the ui, because
+    // they are real widgets: they take input, and they must land on top
+    // of the node they belong to.
     for pl in &placed {
+        for (i, r) in pl.layout.input_editors.iter().enumerate() {
+            let pin = InPinId {
+                node: pl.id,
+                input: i,
+            };
+            if r.width() > 8.0 && graph.in_pin(pin).remotes.is_empty() {
+                let r = *r;
+                ui.clipped(r, |ui| {
+                    ui.in_region(ChildRegion::top_down(r, StackAlign::Min), &mut |inner| {
+                        view.input_editor(pin, r, inner, graph);
+                    });
+                });
+            }
+        }
+        // Clipped to the rect the layout assigned. An app's body widget
+        // has no idea how big the node is, and an unclipped one paints
+        // its plot straight out through the node's edge and across the
+        // canvas — which is exactly what happened.
         if pl.layout.body.height() > 0.0 {
-            view.body(pl.id, pl.layout.body, ui);
+            let body = pl.layout.body;
+            ui.clipped(body, |ui| {
+                ui.in_region(ChildRegion::top_down(body, StackAlign::Min), &mut |inner| {
+                    view.body(pl.id, body, inner, graph);
+                });
+            });
         }
     }
 
@@ -577,9 +710,10 @@ fn pin_anchor_in(placed: &[Placed], pin: InPinId) -> Option<Pos2> {
 fn begin_gesture<T>(
     p: Pos2,
     placed: &[Placed],
-    graph: &Graph<T>,
+    graph: &mut Graph<T>,
     state: &mut GraphViewState,
     spec: &super::spec::NodeSpec,
+    additive: bool,
 ) -> Option<Gesture> {
     match hit_test(placed, p, spec) {
         Some((id, Some(PinHit::Out(i)))) => Some(Gesture::WireFromOutput(OutPinId {
@@ -589,15 +723,21 @@ fn begin_gesture<T>(
         Some((id, Some(PinHit::In(i)))) => {
             // Dragging a connected input picks the existing wire up by
             // its far end, the gesture every node editor has taught
-            // people to expect.
+            // people to expect. The wire is detached now, so letting go
+            // over empty canvas deletes it.
             let pin = InPinId { node: id, input: i };
-            match graph.in_pin(pin).remotes.first() {
-                Some(src) => Some(Gesture::WireFromOutput(*src)),
+            match graph.in_pin(pin).remotes.first().copied() {
+                Some(src) => {
+                    graph.disconnect(src, pin);
+                    Some(Gesture::WireFromOutput(src))
+                }
                 None => Some(Gesture::WireFromInput(pin)),
             }
         }
         Some((id, None)) => {
-            if !state.selection.contains(&id) {
+            if additive {
+                state.selection.insert(id);
+            } else if !state.selection.contains(&id) {
                 state.selection.clear();
                 state.selection.insert(id);
             }
@@ -605,10 +745,20 @@ fn begin_gesture<T>(
                 last: state.camera.to_graph(p),
             })
         }
-        None => Some(Gesture::BoxSelect {
-            from: p,
-            additive: false,
-        }),
+        // Empty canvas. Dragging it moves the canvas — the gesture
+        // everyone reaches for first, and the one this renderer shipped
+        // without. Rubber-band selection moves to Shift, where it does
+        // not have to compete.
+        None => {
+            if additive {
+                Some(Gesture::BoxSelect {
+                    from: p,
+                    additive: true,
+                })
+            } else {
+                Some(Gesture::Pan)
+            }
+        }
     }
 }
 
@@ -654,7 +804,7 @@ fn finish_gesture<T, V: GraphView<T>>(
                 }
             }
         }
-        Gesture::MoveNodes { .. } | Gesture::Pan => {}
+        Gesture::MoveNodes { .. } | Gesture::MoveFrame { .. } | Gesture::Pan => {}
     }
 }
 

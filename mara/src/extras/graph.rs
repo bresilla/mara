@@ -761,13 +761,39 @@ impl<'ui, 'spec> PaneBodyNodeGraphExt<'spec> for mara_core::pane::PaneBody<'ui, 
             title,
             icon,
             move |mara| {
-                let avail = mara.available_rect();
-                let size = MaraVec2::new(avail.width(), avail.height().max(GRAPH_MIN_HEIGHT));
-                let rect = mara.reserve_space(size);
-                render::show_graph(mara, rect, graph, view, state, &spec);
+                let accent = mara_core::style::active_accent();
+                // Same maximise chip the old graph container had: click
+                // it and the graph takes the whole window. Losing it was
+                // the most visible thing the rewrite dropped.
+                mara_core::embed::__internal_maximizable_egui(
+                    mara,
+                    GRAPH_VIEW_FULLSCREEN_SALT,
+                    accent,
+                    MaraVec2::new(0.0, GRAPH_MIN_HEIGHT),
+                    |mara| {
+                        let avail = mara.available_rect();
+                        let size =
+                            MaraVec2::new(avail.width(), avail.height().max(GRAPH_MIN_HEIGHT));
+                        let rect = mara.reserve_space(size);
+                        render::show_graph(mara, rect, graph, view, state, &spec);
+                    },
+                );
             },
         ))
     }
+}
+
+/// Maximise-state salt for [`PaneBodyNodeGraphExt::add_graph_view`].
+///
+/// Pair with [`mara_core::embed::maximize_state_key`] to ask, from
+/// outside, whether the graph is the surface currently full-window.
+pub const GRAPH_VIEW_FULLSCREEN_SALT: &str = "mara_graph_view";
+
+/// The maximise-state key [`PaneBodyNodeGraphExt::add_graph_view`]
+/// registers, for hosts that route shortcuts by fullscreen owner.
+#[must_use]
+pub fn graph_view_fullscreen_key() -> mara_core::vocab::Id {
+    mara_core::embed::maximize_state_key(GRAPH_VIEW_FULLSCREEN_SALT)
 }
 
 /// Floor for a graph container's height, so a graph in a short pane is
