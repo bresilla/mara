@@ -22,6 +22,8 @@ struct Demo {
     inputs: &'static [&'static str],
     outputs: &'static [&'static str],
     tint: Color32,
+    subtitle: &'static str,
+    icon: &'static str,
     body_h: f32,
 }
 
@@ -39,6 +41,8 @@ fn sample() -> Graph<Demo> {
             inputs: &[],
             outputs: &["images", "labels"],
             tint: SKY,
+            subtitle: "",
+            icon: "circle",
             body_h: 0.0,
         },
     );
@@ -49,6 +53,8 @@ fn sample() -> Graph<Demo> {
             inputs: &["images"],
             outputs: &["out"],
             tint: MOSS,
+            subtitle: "",
+            icon: "circle",
             body_h: 0.0,
         },
     );
@@ -59,6 +65,8 @@ fn sample() -> Graph<Demo> {
             inputs: &["image", "weights", "mask"],
             outputs: &["logits"],
             tint: PLUM,
+            subtitle: "",
+            icon: "circle",
             body_h: 0.0,
         },
     );
@@ -69,6 +77,8 @@ fn sample() -> Graph<Demo> {
             inputs: &["image"],
             outputs: &[],
             tint: RUST,
+            subtitle: "",
+            icon: "circle",
             body_h: 90.0,
         },
     );
@@ -79,6 +89,8 @@ fn sample() -> Graph<Demo> {
             inputs: &[],
             outputs: &["w"],
             tint: SKY,
+            subtitle: "",
+            icon: "circle",
             body_h: 0.0,
         },
     );
@@ -135,6 +147,8 @@ impl GraphView<Demo> for View {
             title: v.title.to_string(),
             inputs: v.inputs.iter().map(|s| (*s).to_string()).collect(),
             outputs: v.outputs.iter().map(|s| (*s).to_string()).collect(),
+            subtitle: v.subtitle.to_string(),
+            icon: Some(v.icon.to_string()),
             body_h: v.body_h,
         }
     }

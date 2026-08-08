@@ -30,11 +30,19 @@ pub struct NodeSpec {
     /// only align if they share an edge. Letting content decide width
     /// is what produced the ragged columns this renderer replaces.
     pub width: f32,
-    /// Height of the header band, and of every pin row.
-    ///
-    /// One rhythm for both, so a pin on one node lines up with a pin on
-    /// its neighbour whatever their titles are.
+    /// Height of every pin row.
     pub row_h: f32,
+    /// Height of the header band.
+    ///
+    /// The same on every node whether or not it has a subtitle. A
+    /// header that grew for a second line would give a row of nodes
+    /// with mixed subtitles a ragged top edge — the exact effect this
+    /// renderer exists to remove.
+    pub header_h: f32,
+    /// Size of the header icon glyph.
+    pub icon_size: f32,
+    /// Size of the header's second line.
+    pub subtitle_size: f32,
     /// Padding inside the body, left and right.
     pub pad_x: f32,
     /// Gap above the first row and below the last.
@@ -65,13 +73,16 @@ impl Default for NodeSpec {
         Self {
             width: 240.0,
             row_h: 22.0,
+            header_h: 36.0,
+            icon_size: 15.0,
+            subtitle_size: 9.5,
             pad_x: 10.0,
             pad_y: 6.0,
             editor_frac: 0.42,
-            corner: 6,
-            pin_r: 4.5,
-            pin_ring: 2.0,
-            title_size: 13.0,
+            corner: 9,
+            pin_r: 5.0,
+            pin_ring: 2.5,
+            title_size: 12.5,
             label_size: 11.0,
             border: 1.0,
             border_selected: 2.0,
@@ -92,6 +103,9 @@ impl NodeSpec {
         Self {
             width: self.width * z,
             row_h: self.row_h * z,
+            header_h: self.header_h * z,
+            icon_size: self.icon_size * z,
+            subtitle_size: self.subtitle_size * z,
             pad_x: self.pad_x * z,
             pad_y: self.pad_y * z,
             editor_frac: self.editor_frac,
@@ -136,6 +150,20 @@ pub struct GraphPalette {
     pub title: Color32,
     /// Pin label text.
     pub label: Color32,
+    /// The header's second line — dimmer than the title, or the two
+    /// lines fight and neither reads first.
+    pub subtitle: Color32,
+    /// Hairline just inside the node's top edge.
+    ///
+    /// One light line along the top is what makes a flat rectangle read
+    /// as a raised card. It costs one draw call and does more for the
+    /// look than anything else here.
+    pub specular: Color32,
+    /// Hairline between the header and the body.
+    pub divider: Color32,
+    /// Brighter dots on the grid's major intervals, so the canvas has a
+    /// sense of scale instead of an even field of noise.
+    pub grid_major: Color32,
 }
 
 impl GraphPalette {
@@ -166,7 +194,7 @@ impl GraphPalette {
             // The lift that makes a node an object. Opaque on purpose:
             // a translucent body lets the canvas through and no amount
             // of lightening then separates the two.
-            node_fill: shift(canvas, 0.16),
+            node_fill: shift(canvas, 0.19),
             node_border: shift(canvas, 0.30),
             node_border_hovered: shift(canvas, 0.48),
             selection: accent,
@@ -176,6 +204,14 @@ impl GraphPalette {
                 Color32::from_gray(238)
             } else {
                 Color32::from_gray(24)
+            },
+            specular: Color32::from_rgba_unmultiplied(255, 255, 255, if dark { 26 } else { 130 }),
+            divider: Color32::from_rgba_unmultiplied(0, 0, 0, if dark { 90 } else { 34 }),
+            grid_major: shift(canvas, 0.22),
+            subtitle: if dark {
+                Color32::from_gray(150)
+            } else {
+                Color32::from_gray(110)
             },
             label: if dark {
                 Color32::from_gray(176)
@@ -240,12 +276,12 @@ impl GraphSpec {
             node: NodeSpec::default(),
             palette: GraphPalette::from_surface(surface, accent, dark),
             grid_spacing: Some(28.0),
-            wire_width: 1.6,
+            wire_width: 2.0,
             wire_slack: 0.5,
             shadow: Some(ShadowSpec {
-                offset: Vec2::new(0.0, 2.0),
-                blur: 8,
-                color: Color32::from_black_alpha(110),
+                offset: Vec2::new(0.0, 3.0),
+                blur: 14,
+                color: Color32::from_black_alpha(130),
             }),
         }
     }

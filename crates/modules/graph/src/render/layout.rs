@@ -33,10 +33,28 @@ use super::spec::NodeSpec;
 #[derive(Clone, Debug, PartialEq)]
 pub struct NodeShape {
     pub title: String,
+    /// Second header line — what the node currently *is*, as opposed to
+    /// what it is called. Empty centres the title instead.
+    pub subtitle: String,
+    /// Name of a bundled icon for the header, e.g. `"flowchart"`.
+    pub icon: Option<String>,
     pub inputs: Vec<String>,
     pub outputs: Vec<String>,
     /// Extra height reserved under the pin rows for app-drawn content.
     pub body_h: f32,
+}
+
+impl Default for NodeShape {
+    fn default() -> Self {
+        Self {
+            title: String::new(),
+            subtitle: String::new(),
+            icon: None,
+            inputs: Vec::new(),
+            outputs: Vec::new(),
+            body_h: 0.0,
+        }
+    }
 }
 
 impl NodeShape {
@@ -58,6 +76,12 @@ pub struct NodeLayout {
     pub rect: Rect,
     /// The header band, along the top.
     pub header: Rect,
+    /// Where the header icon is centred. Zero-sized when there is none.
+    pub icon: Rect,
+    /// The title line inside the header.
+    pub title: Rect,
+    /// The subtitle line. Zero-height when the node has no subtitle.
+    pub subtitle: Rect,
     /// The area under the header, holding pin rows and any body.
     pub content: Rect,
     /// Anchor point of each input pin, on the left edge.
@@ -89,18 +113,49 @@ pub struct NodeLayout {
 #[must_use]
 pub fn layout_node(pos: Pos2, shape: &NodeShape, spec: &NodeSpec) -> NodeLayout {
     let rows = shape.pin_rows();
-    let height = spec.row_h
+    let height = spec.header_h
         + spec.pad_y
         + rows as f32 * spec.row_h
         + if shape.body_h > 0.0 { shape.body_h } else { 0.0 }
         + spec.pad_y;
 
     let rect = Rect::from_min_size(pos, Vec2::new(spec.width, height));
-    let header = Rect::from_min_size(pos, Vec2::new(spec.width, spec.row_h));
+    let header = Rect::from_min_size(pos, Vec2::new(spec.width, spec.header_h));
     let content = Rect::from_min_max(
         Pos2::new(rect.min.x, header.max.y + spec.pad_y),
         Pos2::new(rect.max.x, rect.max.y - spec.pad_y),
     );
+
+    // Header slots. The icon column is reserved whether or not there is
+    // an icon, so titles start at the same x on every node — a column
+    // of nodes where some titles are indented and some are not looks
+    // accidental, however good each node is on its own.
+    let gutter = spec.pad_x;
+    let icon_col = spec.icon_size * 1.4;
+    let icon = Rect::from_center_size(
+        Pos2::new(header.min.x + gutter + icon_col * 0.5, header.center().y),
+        Vec2::new(icon_col, icon_col),
+    );
+    let text_l = icon.max.x + gutter * 0.5;
+    let text_r = header.max.x - gutter;
+    let (title, subtitle) = if shape.subtitle.is_empty() {
+        (
+            Rect::from_min_max(
+                Pos2::new(text_l, header.min.y),
+                Pos2::new(text_r, header.max.y),
+            ),
+            Rect::from_min_max(
+                Pos2::new(text_l, header.max.y),
+                Pos2::new(text_r, header.max.y),
+            ),
+        )
+    } else {
+        let split = header.min.y + spec.header_h * 0.55;
+        (
+            Rect::from_min_max(Pos2::new(text_l, header.min.y + spec.pad_y * 0.4), Pos2::new(text_r, split)),
+            Rect::from_min_max(Pos2::new(text_l, split), Pos2::new(text_r, header.max.y - spec.pad_y * 0.4)),
+        )
+    };
 
     let row_centre = |i: usize| content.min.y + (i as f32 + 0.5) * spec.row_h;
 
@@ -177,6 +232,9 @@ pub fn layout_node(pos: Pos2, shape: &NodeShape, spec: &NodeSpec) -> NodeLayout 
     NodeLayout {
         rect,
         header,
+        icon,
+        title,
+        subtitle,
         content,
         inputs,
         outputs,
@@ -201,7 +259,7 @@ mod tests {
             title: "node".into(),
             inputs: (0..ins).map(|i| format!("in{i}")).collect(),
             outputs: (0..outs).map(|i| format!("out{i}")).collect(),
-            body_h: 0.0,
+            ..Default::default()
         }
     }
 
@@ -270,6 +328,53 @@ mod tests {
             assert!(li.min.x >= l.rect.min.x + s.pad_x - 0.01, "input {i} starts outside");
             assert!(lo.max.x <= l.rect.max.x - s.pad_x + 0.01, "output {i} ends outside");
             assert!(li.max.x <= lo.min.x + 0.01, "row {i} labels overlap");
+        }
+    }
+
+    /// A subtitle must not make the header taller. Otherwise a row of
+    /// nodes where only some carry a subtitle has a ragged top edge,
+    /// which is the same complaint that started this rewrite.
+    #[test]
+    fn a_subtitle_does_not_change_the_header_height() {
+        let s = spec();
+        let plain = layout_node(Pos2::new(0.0, 0.0), &shape(1, 1), &s);
+        let mut with_sub = shape(1, 1);
+        with_sub.subtitle = "float".into();
+        let subbed = layout_node(Pos2::new(0.0, 0.0), &with_sub, &s);
+
+        assert!((plain.header.height() - subbed.header.height()).abs() < 0.01);
+        assert!((plain.rect.height() - subbed.rect.height()).abs() < 0.01);
+        assert!(subbed.subtitle.height() > 1.0, "subtitle has no room");
+        assert!(subbed.subtitle.max.y <= subbed.header.max.y + 0.01);
+        assert!(subbed.title.max.y <= subbed.subtitle.min.y + 0.01);
+    }
+
+    /// The icon column is reserved whether or not there is an icon, so
+    /// titles line up down a column of mixed nodes.
+    #[test]
+    fn titles_start_at_the_same_x_with_or_without_an_icon() {
+        let s = spec();
+        let mut with_icon = shape(1, 1);
+        with_icon.icon = Some("circle".into());
+        let a = layout_node(Pos2::new(0.0, 0.0), &shape(1, 1), &s);
+        let b = layout_node(Pos2::new(0.0, 0.0), &with_icon, &s);
+        assert!((a.title.min.x - b.title.min.x).abs() < 0.01);
+        assert!(a.title.min.x > a.rect.min.x + s.pad_x);
+    }
+
+    /// Header text stays inside the header, whatever it says.
+    #[test]
+    fn header_text_never_leaves_the_header() {
+        let s = spec();
+        let mut long = shape(2, 2);
+        long.title = "An extremely long node title that will not fit".into();
+        long.subtitle = "and a second line that is also far too long".into();
+        long.icon = Some("circle".into());
+        let l = layout_node(Pos2::new(0.0, 0.0), &long, &s);
+        for r in [l.icon, l.title, l.subtitle] {
+            assert!(r.min.y >= l.header.min.y - 0.01);
+            assert!(r.max.y <= l.header.max.y + 0.01);
+            assert!(r.max.x <= l.header.max.x - s.pad_x + 0.01);
         }
     }
 

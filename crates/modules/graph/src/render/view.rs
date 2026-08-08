@@ -514,13 +514,12 @@ pub fn show_graph<T, V: GraphView<T>>(
     }
 
     let wire_w = spec.wire_width;
-    for (from, to) in graph.wires() {
+    let wires: Vec<(OutPinId, InPinId)> = graph.wires().collect();
+    for (from, to) in wires {
         if let Some((a, b)) = anchors(&placed, from, to) {
-            let col = view
-                .output_color(from, graph)
-                .or_else(|| view.input_color(to, graph))
-                .unwrap_or(spec.palette.wire);
-            paint_wire(&p, a, b, col, wire_w, spec);
+            let src = view.output_color(from, graph).unwrap_or(spec.palette.wire);
+            let dst = view.input_color(to, graph).unwrap_or(src);
+            paint_wire(&p, a, b, src, dst, wire_w, spec);
         }
     }
 
@@ -568,12 +567,12 @@ pub fn show_graph<T, V: GraphView<T>>(
         match g {
             Gesture::WireFromOutput(pin) => {
                 if let Some(a) = pin_anchor_out(&placed, pin) {
-                    paint_wire(&p, a, cursor, spec.palette.selection, wire_w, spec);
+                    paint_wire(&p, a, cursor, spec.palette.selection, spec.palette.selection, wire_w, spec);
                 }
             }
             Gesture::WireFromInput(pin) => {
                 if let Some(b) = pin_anchor_in(&placed, pin) {
-                    paint_wire(&p, cursor, b, spec.palette.selection, wire_w, spec);
+                    paint_wire(&p, cursor, b, spec.palette.selection, spec.palette.selection, wire_w, spec);
                 }
             }
             Gesture::BoxSelect { from, .. } => {
@@ -934,7 +933,7 @@ mod tests {
             title: "n".into(),
             inputs: vec!["a".into()],
             outputs: vec!["b".into()],
-            body_h: 0.0,
+            ..Default::default()
         };
         let layout = layout_node(Pos2::new(0.0, 0.0), &shape, &spec);
         let pin = layout.inputs[0];

@@ -7352,6 +7352,8 @@ impl mara::extras::graph::render::GraphView<GraphNode> for DemoViewer {
         };
         mara::extras::graph::render::NodeShape {
             title: look.title,
+            subtitle: look.subtitle,
+            icon: Some(look.icon.to_string()),
             inputs: labels(
                 payload.map(GraphNode::inputs).unwrap_or_default(),
                 def.map(|d| &d.inputs),
