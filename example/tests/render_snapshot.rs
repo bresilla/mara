@@ -60,3 +60,26 @@ fn snapshot_the_graph_lab() {
         show_doc(ui, area, &mut doc, &mut viewer, &mut nav, &spec);
     });
 }
+
+/// The light-theme palette, which the code supports and nobody had
+/// ever looked at. A palette derived for two themes is only derived
+/// for two themes if both have been seen.
+#[test]
+#[ignore = "writes a PNG; run by hand to look at the result"]
+fn snapshot_the_editor_graph_light() {
+    let accent = Color32::from_rgb(40, 90, 170);
+    let mut graph = default_graph();
+    let mut viewer = DemoViewer::for_graph(1.75);
+    let mut state = GraphViewState::default();
+    let spec = GraphSpec::from_surface(Color32::from_gray(238), accent, false);
+
+    let path = std::env::var("MARA_SNAPSHOT")
+        .unwrap_or_else(|_| "/tmp/mara_demo_graph_light.png".to_string());
+    raster::snapshot(&path, accent, |ui| {
+        let area = Rect::from_min_size(
+            Pos2::new(0.0, 0.0),
+            Vec2::new(raster::W as f32, raster::H as f32),
+        );
+        show_graph(ui, area, &mut graph, &mut viewer, &mut state, &spec);
+    });
+}

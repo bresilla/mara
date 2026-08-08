@@ -163,44 +163,51 @@ pub struct GraphPalette {
 impl GraphPalette {
     /// Derive a palette from a base surface colour and an accent.
     ///
-    /// `dark` picks the direction every lift and recession moves in, so
-    /// one function serves both themes instead of a light theme getting
-    /// a muddy canvas from a hard-coded darkening.
+    /// A raised surface is always *lighter* than what it sits on — in
+    /// both themes. That is not symmetric with "dark themes lighten,
+    /// light themes darken": a light UI puts white cards on a grey
+    /// page, it does not put grey cards on a white page. Deriving the
+    /// node fill by darkening in light mode made every card read as a
+    /// hole, the same failure this renderer was built to remove, just
+    /// in the theme nobody had looked at.
+    ///
+    /// What *does* flip with the theme is the direction of contrast for
+    /// lines and text: away from the surface, toward black or white.
     #[must_use]
     pub fn from_surface(surface: Color32, accent: Color32, dark: bool) -> Self {
-        let shift = |c: Color32, amount: f32| -> Color32 {
+        let mix = |c: Color32, target: f32, amount: f32| -> Color32 {
             let [r, g, b, a] = c.to_srgba_unmultiplied();
-            let target = if dark { 255.0 } else { 0.0 };
-            let mix = |v: u8| (f32::from(v) + (target - f32::from(v)) * amount) as u8;
-            Color32::from_rgba_unmultiplied(mix(r), mix(g), mix(b), a)
+            let f = |v: u8| (f32::from(v) + (target - f32::from(v)) * amount).clamp(0.0, 255.0) as u8;
+            Color32::from_rgba_unmultiplied(f(r), f(g), f(b), a)
         };
-        let sink = |c: Color32, amount: f32| -> Color32 {
-            let [r, g, b, a] = c.to_srgba_unmultiplied();
-            let target = if dark { 0.0 } else { 255.0 };
-            let mix = |v: u8| (f32::from(v) + (target - f32::from(v)) * amount) as u8;
-            Color32::from_rgba_unmultiplied(mix(r), mix(g), mix(b), a)
-        };
+        // Direction of "more contrast" against the surfaces.
+        let ink = if dark { 255.0 } else { 0.0 };
+        let lift = |c: Color32, amount: f32| mix(c, 255.0, amount);
+        let contrast = |c: Color32, amount: f32| mix(c, ink, amount);
 
-        let canvas = sink(surface, 0.35);
+        // The canvas is recessed from the host surface in both themes.
+        let canvas = mix(surface, 0.0, if dark { 0.35 } else { 0.07 });
+        // The lift that makes a node an object. Opaque on purpose: a
+        // translucent body lets the canvas through and no amount of
+        // lightening then separates the two.
+        let node_fill = lift(canvas, if dark { 0.16 } else { 0.85 });
+
         Self {
             canvas,
-            grid: shift(canvas, 0.17),
-            // The lift that makes a node an object. Opaque on purpose:
-            // a translucent body lets the canvas through and no amount
-            // of lightening then separates the two.
-            node_fill: shift(canvas, 0.19),
-            node_border: shift(canvas, 0.30),
-            node_border_hovered: shift(canvas, 0.48),
+            grid: contrast(canvas, 0.17),
+            grid_major: contrast(canvas, 0.36),
+            node_fill,
+            node_border: contrast(node_fill, if dark { 0.14 } else { 0.13 }),
+            node_border_hovered: contrast(node_fill, if dark { 0.34 } else { 0.30 }),
             selection: accent,
             selection_fill: Color32::from_rgba_unmultiplied(accent.r(), accent.g(), accent.b(), 36),
-            wire: shift(canvas, 0.42),
+            wire: contrast(canvas, 0.45),
+            divider: contrast(node_fill, 0.20),
             title: if dark {
                 Color32::from_gray(238)
             } else {
                 Color32::from_gray(24)
             },
-            divider: shift(canvas, 0.36),
-            grid_major: shift(canvas, 0.36),
             subtitle: if dark {
                 Color32::from_gray(190)
             } else {
@@ -304,14 +311,12 @@ mod tests {
                 gap >= 12.0,
                 "node/canvas separation is only {gap:.1} levels (dark={dark})"
             );
-            if dark {
-                assert!(
-                    luma(p.node_fill) > luma(p.canvas),
-                    "in a dark theme the node must be the lighter of the two"
-                );
-            } else {
-                assert!(luma(p.node_fill) < luma(p.canvas));
-            }
+            // In BOTH themes, not just dark. A light UI is white cards
+            // on a grey page; grey cards on a white page read as holes.
+            assert!(
+                luma(p.node_fill) > luma(p.canvas),
+                "a node must be lighter than the canvas (dark={dark})"
+            );
         }
     }
 
