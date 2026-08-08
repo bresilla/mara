@@ -316,7 +316,14 @@ pub fn __internal_maximizable_with_opts_egui(
         // Fullscreen within the current view node's region (a cell), or
         // the whole window when no node is scoping (the root / host).
         let screen = current_node_region(mara.ctx()).unwrap_or_else(|| mara.ctx().content_rect());
-        let content = opts.content_avoidance.apply_to_rect(screen);
+        // Gate each requested edge on a rail actually being there this
+        // frame, the same way `ribbon_avoiding_rect` does for every
+        // other surface. Applying the clearance unconditionally insets
+        // edges that have no rail — so the restore chip floats away
+        // from a bare corner on one side and stays buried under the
+        // rail on another. Gating is what makes it land *beside* the
+        // rail, which is where a maximised widget's button belongs.
+        let content = gated_avoidance(mara.ctx(), opts.content_avoidance).apply_to_rect(screen);
         crate::context::MaraCtx::area(
             mara.ctx(),
             AreaHost::new(
@@ -536,6 +543,23 @@ fn minimize_chip_icon_paint_cmd(
 /// * Cluster `Start` ⇒ corner closest to `(left, top)` along the edge.
 /// * Cluster `End`   ⇒ opposite corner.
 /// * Cluster `Middle`⇒ centred along the edge.
+/// Narrow `want` to the edges that carry a window rail this frame.
+///
+/// Avoidance reserves clearance for rails that exist, not for every
+/// edge a caller optimistically listed.
+fn gated_avoidance(
+    ctx: &dyn crate::context::MaraCtx,
+    want: crate::RibbonAvoidance,
+) -> crate::RibbonAvoidance {
+    let [left, right, top, bottom] = crate::pane::published_ribbon_edges(ctx);
+    crate::RibbonAvoidance {
+        left: want.left && left,
+        right: want.right && right,
+        top: want.top && top,
+        bottom: want.bottom && bottom,
+    }
+}
+
 fn compute_chip_pos(
     screen: MaraRect,
     edge: RibbonEdge,
@@ -885,6 +909,35 @@ fn arrowhead_paint_cmd(from: MaraPos2, tip: MaraPos2, color: MaraColor32) -> Pai
 mod tests {
     use super::*;
     use crate::vocab::{Color32, Pos2, Rect, Vec2};
+
+    /// Avoidance only applies where a rail actually is. Insetting an
+    /// edge with no rail pushes the chip away from a bare corner for no
+    /// reason; skipping the gate on an edge that has one leaves it
+    /// buried underneath.
+    #[test]
+    fn avoidance_is_narrowed_to_edges_that_have_a_rail() {
+        let want = crate::RibbonAvoidance::all();
+        let narrow = |present: [bool; 4]| crate::RibbonAvoidance {
+            left: want.left && present[0],
+            right: want.right && present[1],
+            top: want.top && present[2],
+            bottom: want.bottom && present[3],
+        };
+
+        let only_right = narrow([false, true, false, false]);
+        assert!(only_right.right && !only_right.left && !only_right.top);
+
+        let screen = Rect::from_min_size(Pos2::new(0.0, 0.0), Vec2::new(1600.0, 900.0));
+        let inset = only_right.apply_to_rect(screen);
+        assert!(
+            (inset.min.x - screen.min.x).abs() < 0.01,
+            "an edge with no rail must not be inset"
+        );
+        assert!(inset.max.x < screen.max.x, "the rail edge must be inset");
+
+        let none = narrow([false; 4]);
+        assert_eq!(none.apply_to_rect(screen), screen);
+    }
 
     /// The restore chip must sit inside the rect the content was laid
     /// out in, not the raw window. Anchored to the window it parks

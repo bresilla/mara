@@ -2072,6 +2072,22 @@ impl<'a> MaraUi<'a> {
         (painter, response)
     }
 
+    /// A painter clipped to exactly `rect`, without allocating it and
+    /// without registering an interaction.
+    ///
+    /// [`MaraUi::painter`] is anchored to whatever layout space is
+    /// still *unclaimed*, so once a surface has reserved its own rect
+    /// that painter no longer covers it — and `with_clip` only ever
+    /// shrinks, so clipping it back to the reserved rect yields
+    /// nothing. [`MaraUi::canvas_at`] gets this right but also
+    /// registers a widget, which steals the interaction from a caller
+    /// that already has one. This is the drawing half on its own.
+    #[must_use]
+    pub fn painter_at(&self, rect: impl Into<vocab::Rect>) -> MaraPainter {
+        self.backend
+            .make_painter(PaintSurfaceSpec::clipped(rect.into()))
+    }
+
     /// A painter over the remaining available rect, without
     /// allocating it (drawing only, no interaction).
     #[must_use]
@@ -2099,6 +2115,36 @@ mod tests {
 
     fn rect(x: f32, y: f32, w: f32, h: f32) -> vocab::Rect {
         vocab::Rect::from_min_size(vocab::Pos2::new(x, y), vocab::Vec2::new(w, h))
+    }
+
+    /// A surface that reserves its own rect and then paints into it
+    /// must still get a painter that covers that rect.
+    ///
+    /// `painter()` is anchored to *unclaimed* layout space, so after
+    /// `reserve_space` it sits below the reserved rect — and `with_clip`
+    /// only ever shrinks, so clipping it back to the reserved rect
+    /// leaves nothing. The node graph rendered into exactly that empty
+    /// intersection and drew nothing at all inside a pane container,
+    /// while the same code worked in a root view that never reserves.
+    #[test]
+    fn painter_at_covers_its_rect_after_layout_has_been_claimed() {
+        let area = rect(0.0, 0.0, 400.0, 300.0);
+        let mut backend = crate::backend::record::RecordingBackend::at(area);
+        let mut ui = MaraUi::over(&mut backend, vocab::Color32::WHITE);
+
+        let claimed = ui.reserve_space(vocab::Vec2::new(400.0, 300.0));
+        assert_eq!(claimed, area);
+
+        assert_eq!(
+            ui.painter_at(area).clip_rect(),
+            area,
+            "painter_at must cover the rect it was given"
+        );
+        assert!(
+            ui.painter().with_clip(area).clip_rect().area() < area.area(),
+            "painter() after reserve_space no longer covers the reserved rect \
+             — this is the trap painter_at exists to avoid"
+        );
     }
 
     #[test]

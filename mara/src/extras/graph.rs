@@ -762,11 +762,14 @@ impl<'ui, 'spec> PaneBodyNodeGraphExt<'spec> for mara_core::pane::PaneBody<'ui, 
             icon,
             move |mara| {
                 let accent = mara_core::style::active_accent();
-                // Take the height the pane is offering rather than a
-                // constant. `maximizable` sizes its inline body from
-                // `min_size.y` alone, so a fixed value pins the graph to
-                // that height however tall the pane grows.
-                let offered = mara.available_rect().height().max(GRAPH_MIN_HEIGHT);
+                // Bounded. `available_rect()` inside a pane body can be
+                // the whole remaining panel, so feeding it straight into
+                // `min_size` lets the graph swallow the pane and shove
+                // every sibling container off the bottom.
+                let offered = mara
+                    .available_rect()
+                    .height()
+                    .clamp(GRAPH_MIN_HEIGHT, GRAPH_MAX_HEIGHT);
                 // Same maximise chip the old graph container had: click
                 // it and the graph takes the whole window.
                 //
@@ -811,6 +814,12 @@ pub fn graph_view_fullscreen_key() -> mara_core::vocab::Id {
 /// Floor for a graph container's height, so a graph in a short pane is
 /// still a graph rather than a sliver.
 const GRAPH_MIN_HEIGHT: f32 = 220.0;
+
+/// Ceiling for the inline graph container's height.
+///
+/// A pane body reports the whole remaining panel as available, so an
+/// unbounded graph takes all of it and pushes its siblings out of view.
+const GRAPH_MAX_HEIGHT: f32 = 520.0;
 
 // ─── View + Module bridge ──────────────────────────────────────────
 //

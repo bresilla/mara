@@ -492,11 +492,12 @@ pub fn show_graph<T, V: GraphView<T>>(
     }
 
     // ── paint ───────────────────────────────────────────────────
-    // A clipped painter, NOT `canvas_at`. `canvas_at` registers its own
-    // interaction over the same rect, and the later registration wins —
-    // which starved the response taken above of every drag and click.
-    // The whole view deliberately has exactly one interaction id.
-    let p = ui.painter().with_clip(area);
+    // `painter_at`, not `canvas_at` and not `painter`. `canvas_at`
+    // registers a second interaction over the same rect and the later
+    // registration wins, starving the response taken above of every
+    // drag and click; `painter` is anchored to unclaimed layout space,
+    // so once a host has reserved this rect it no longer covers it.
+    let p = ui.painter_at(area);
     let origin = state.camera.to_screen(Pos2::new(0.0, 0.0));
     paint_canvas(&p, area, origin, spec.grid_spacing.unwrap_or(0.0), spec);
 
