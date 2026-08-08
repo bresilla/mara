@@ -1284,6 +1284,47 @@ fn find_ribbon<'a>(ribbons: &'a [RibbonSpec], id: &'static str) -> Option<&'a Ri
 mod tests {
     use super::*;
 
+    /// A shelf-fold command must reach the shelf of the view that is
+    /// on screen. Routed to one view's state unconditionally, the fold
+    /// buttons look live on every view and work on exactly one — which
+    /// is what happened on the graph lab: the button toggled a shelf
+    /// belonging to a view nobody was looking at.
+    #[test]
+    fn shelf_fold_commands_reach_the_view_on_screen() {
+        let mut canvas = ShelfState::default();
+        let mut lab = ShelfState::default();
+
+        shelf_state_for(DemoRootView::GraphLab, &mut canvas, &mut lab)
+            .toggle_edge_visible(ShelfEdge::Left);
+        assert!(
+            !lab.edge_visible(ShelfEdge::Left),
+            "the graph lab's shelf should have folded"
+        );
+        assert!(
+            canvas.edge_visible(ShelfEdge::Left),
+            "another view's shelf must not move"
+        );
+
+        shelf_state_for(DemoRootView::Canvas, &mut canvas, &mut lab)
+            .toggle_edge_visible(ShelfEdge::Left);
+        assert!(!canvas.edge_visible(ShelfEdge::Left));
+        assert!(!lab.edge_visible(ShelfEdge::Left), "still folded");
+    }
+
+    /// The graph lab's shelf is togglable at all. A shelf built with
+    /// `without_toggle_button` is pinned open, and the fold command
+    /// silently does nothing however it is routed.
+    #[test]
+    fn the_graph_lab_shelf_opts_in_to_folding() {
+        let lab = GraphLabState::default();
+        let shelves = graph_lab_shelves(MaraColor32::from_rgb(120, 160, 220), &lab);
+        assert!(!shelves.is_empty());
+        assert!(
+            shelves.iter().all(|s| s.toggle_button),
+            "a shelf with no toggle button can never be folded"
+        );
+    }
+
     /// One payload of every shape the demo can put on screen.
     ///
     /// Spelled out rather than derived, because the point is to fail
@@ -1783,6 +1824,24 @@ struct TintRgba(pub [f32; 4]);
 impl Default for TintRgba {
     fn default() -> Self {
         Self([0.5, 0.7, 0.9, 0.6])
+    }
+}
+
+
+/// Which view's shelf state a shelf-fold command should act on.
+///
+/// Every view that carries shelves owns its own `ShelfState`. The
+/// fold commands are global, so they have to be routed to whichever
+/// state is on screen; routing them all to one view's state makes the
+/// buttons dead everywhere else while still looking live.
+fn shelf_state_for<'a>(
+    root_view: DemoRootView,
+    canvas: &'a mut ShelfState,
+    graph_lab: &'a mut ShelfState,
+) -> &'a mut ShelfState {
+    match root_view {
+        DemoRootView::GraphLab => graph_lab,
+        _ => canvas,
     }
 }
 
@@ -3120,27 +3179,38 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
             host.request_repaint();
             continue;
         }
+        // Shelf toggles act on the shelf state of the view that is
+        // actually on screen. These were hardcoded to the canvas view's
+        // state, so on every other view with shelves — the graph lab
+        // above all — the fold buttons toggled a shelf nobody could see
+        // and did nothing visible at all.
         if click.action == RibbonAction::Command(mara_core::left_shelf_command_id()) {
-            canvas_shelves.0.toggle_edge_visible(ShelfEdge::Left);
+            let shelf = shelf_state_for(*root_view, &mut canvas_shelves.0, &mut graph_lab_shelf.0);
+            shelf.toggle_edge_visible(ShelfEdge::Left);
             // Phone: a small screen shows only one side shelf at a time.
             if mara_core::screen_class() == mara_core::Breakpoint::Phone
-                && canvas_shelves.0.edge_visible(ShelfEdge::Left)
+                && shelf.edge_visible(ShelfEdge::Left)
             {
-                canvas_shelves.0.set_edge_visible(ShelfEdge::Right, false);
+                shelf.set_edge_visible(ShelfEdge::Right, false);
             }
+            host.request_repaint();
             continue;
         }
         if click.action == RibbonAction::Command(mara_core::right_shelf_command_id()) {
-            canvas_shelves.0.toggle_edge_visible(ShelfEdge::Right);
+            let shelf = shelf_state_for(*root_view, &mut canvas_shelves.0, &mut graph_lab_shelf.0);
+            shelf.toggle_edge_visible(ShelfEdge::Right);
             if mara_core::screen_class() == mara_core::Breakpoint::Phone
-                && canvas_shelves.0.edge_visible(ShelfEdge::Right)
+                && shelf.edge_visible(ShelfEdge::Right)
             {
-                canvas_shelves.0.set_edge_visible(ShelfEdge::Left, false);
+                shelf.set_edge_visible(ShelfEdge::Left, false);
             }
+            host.request_repaint();
             continue;
         }
         if click.action == RibbonAction::Command(mara_core::bottom_shelf_command_id()) {
-            canvas_shelves.0.toggle_edge_visible(ShelfEdge::Bottom);
+            let shelf = shelf_state_for(*root_view, &mut canvas_shelves.0, &mut graph_lab_shelf.0);
+            shelf.toggle_edge_visible(ShelfEdge::Bottom);
+            host.request_repaint();
             continue;
         }
         if item_is(ACTION_VIEW_BEVY) {
