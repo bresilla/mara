@@ -626,6 +626,23 @@ impl Pane {
         region: MaraRect,
         body: impl FnOnce(&mut PaneBody<'_, 'spec>),
     ) {
+        // A pane floats over the whole window; it is not part of
+        // whichever view node happens to be rendering when it is
+        // raised. Leaving that node's region in scope makes anything
+        // inside the pane that asks "how big is my screen?" — a
+        // maximised widget and its restore button, above all — answer
+        // with the node's cell instead of the window.
+        crate::embed::__internal_without_node_region(ctx, || {
+            self.__internal_show_inner(ctx, region, body);
+        });
+    }
+
+    fn __internal_show_inner<'spec>(
+        self,
+        ctx: &dyn crate::context::MaraCtx,
+        region: MaraRect,
+        body: impl FnOnce(&mut PaneBody<'_, 'spec>),
+    ) {
         ctx.enforce_defaults();
         if !pane_has_ribbon_button(ctx, self.id) {
             return;

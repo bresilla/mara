@@ -149,6 +149,35 @@ pub fn __internal_with_node_region<R>(
     out
 }
 
+/// Run `body` with no node region in scope, restoring whatever was
+/// there afterwards.
+///
+/// For surfaces that float over the whole window rather than living
+/// inside a view node's cell. A floating pane rendered while a view
+/// node's region was published inherited that region, so maximising a
+/// widget inside the pane scoped its overlay — and the restore chip
+/// anchored to its corner — to the *cell*. With a shelf occupying one
+/// side of the view, "full window" landed the button in the middle of
+/// the screen.
+#[doc(hidden)]
+pub fn __internal_without_node_region<R>(
+    ctx: &dyn crate::context::MaraCtx,
+    body: impl FnOnce() -> R,
+) -> R {
+    let key = current_node_region_key();
+    let prev = {
+        let mut memory = ctx.memory();
+        let prev = memory.get_temp::<MaraRect>(key);
+        memory.remove_temp::<MaraRect>(key);
+        prev
+    };
+    let out = body();
+    if let Some(rect) = prev {
+        ctx.memory().set_temp(key, rect);
+    }
+    out
+}
+
 /// Internal fullscreen-owner read for first-party host adapters.
 ///
 /// Public app code should reach this through a sealed host/view
@@ -909,6 +938,37 @@ fn arrowhead_paint_cmd(from: MaraPos2, tip: MaraPos2, color: MaraColor32) -> Pai
 mod tests {
     use super::*;
     use crate::vocab::{Color32, Pos2, Rect, Vec2};
+
+    /// A floating pane must not inherit the region of whichever view
+    /// node happened to be rendering. It inherited it, so a widget
+    /// maximised inside a pane scoped its overlay to that node's cell;
+    /// with a shelf down one side of the view, "full window" put the
+    /// restore button in the middle of the screen.
+    #[test]
+    fn a_pane_does_not_inherit_the_view_node_region() {
+        let ctx = crate::backend::record::RecordingBackend::at(Rect::from_min_size(
+            Pos2::new(0.0, 0.0),
+            Vec2::new(1600.0, 900.0),
+        ));
+        let cell = Rect::from_min_size(Pos2::new(0.0, 40.0), Vec2::new(900.0, 500.0));
+
+        __internal_with_node_region(&ctx, cell, || {
+            assert_eq!(current_node_region(&ctx), Some(cell), "region should be set");
+            __internal_without_node_region(&ctx, || {
+                assert_eq!(
+                    current_node_region(&ctx),
+                    None,
+                    "a pane must see the whole window, not the cell"
+                );
+            });
+            assert_eq!(
+                current_node_region(&ctx),
+                Some(cell),
+                "the node's region must come back afterwards"
+            );
+        });
+        assert_eq!(current_node_region(&ctx), None);
+    }
 
     /// Avoidance only applies where a rail actually is. Insetting an
     /// edge with no rail pushes the chip away from a bare corner for no
