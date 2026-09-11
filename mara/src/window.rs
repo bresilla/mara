@@ -476,7 +476,8 @@ impl<A: WindowApp> ApplicationHandler<MaraUserEvent> for NativeWinitApp<A> {
         let mut repaint_after_event = None;
         match &event {
             WindowEvent::CloseRequested => {
-                event_loop.exit();
+                self.egui_ctx.send_viewport_cmd(ViewportCommand::Close);
+                self.schedule_repaint(event_loop, Instant::now());
                 return;
             }
             WindowEvent::CursorMoved { position, .. } => {
