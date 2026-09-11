@@ -28,6 +28,7 @@ pub struct MaraBevyViewport {
     resize_target_pixels: [u32; 2],
     resize_settle_until: f64,
     last_render_time: f64,
+    continuous_rendering: bool,
     last_pointer_pos: Option<egui::Pos2>,
     primary_drag_active: bool,
     native_texture: Option<egui::TextureId>,
@@ -57,6 +58,7 @@ impl MaraBevyViewport {
             resize_target_pixels: [0, 0],
             resize_settle_until: f64::NEG_INFINITY,
             last_render_time: f64::NEG_INFINITY,
+            continuous_rendering: false,
             last_pointer_pos: None,
             primary_drag_active: false,
             native_texture: None,
@@ -75,6 +77,7 @@ impl MaraBevyViewport {
             resize_target_pixels: [0, 0],
             resize_settle_until: f64::NEG_INFINITY,
             last_render_time: f64::NEG_INFINITY,
+            continuous_rendering: false,
             last_pointer_pos: None,
             primary_drag_active: false,
             native_texture: None,
@@ -100,6 +103,7 @@ impl MaraBevyViewport {
             resize_target_pixels: [0, 0],
             resize_settle_until: f64::NEG_INFINITY,
             last_render_time: f64::NEG_INFINITY,
+            continuous_rendering: false,
             last_pointer_pos: None,
             primary_drag_active: false,
             native_texture: None,
@@ -131,6 +135,7 @@ impl MaraBevyViewport {
             resize_target_pixels: [0, 0],
             resize_settle_until: f64::NEG_INFINITY,
             last_render_time: f64::NEG_INFINITY,
+            continuous_rendering: false,
             last_pointer_pos: None,
             primary_drag_active: false,
             native_texture: None,
@@ -155,6 +160,11 @@ impl MaraBevyViewport {
     #[must_use]
     pub fn is_active(&self) -> bool {
         self.bevy.rendering_enabled()
+    }
+
+    /// Use the active frame rate for animated content without pointer input.
+    pub fn set_continuous_rendering(&mut self, enabled: bool) {
+        self.continuous_rendering = enabled;
     }
 
     pub fn show(
@@ -338,15 +348,10 @@ impl MaraBevyViewport {
                     let active_interval = 1.0 / 30.0;
                     #[cfg(not(target_arch = "wasm32"))]
                     let active_interval = 1.0 / 60.0;
-                    let target_interval = if input_active
+                    let target_interval = frame_interval(self.continuous_rendering, input_active
                         || resize_pending
                         || texture_needs_committed_frame
-                        || !has_texture
-                    {
-                        active_interval
-                    } else {
-                        idle_interval
-                    };
+                        || !has_texture, active_interval, idle_interval);
                     let elapsed = now - self.last_render_time;
                     let should_render = resize_pending
                         || !has_texture
@@ -513,6 +518,10 @@ impl MaraBevyViewport {
     }
 }
 
+fn frame_interval(continuous: bool, interactive: bool, active: f64, idle: f64) -> f64 {
+    if continuous || interactive { active } else { idle }
+}
+
 fn repaint_delay(seconds: f64, predicted_dt: f32) -> Duration {
     let interval = Duration::try_from_secs_f64(seconds).unwrap_or_default();
     if interval.is_zero() {
@@ -523,6 +532,15 @@ fn repaint_delay(seconds: f64, predicted_dt: f32) -> Duration {
 
 #[cfg(test)]
 mod pacing_tests {
+    #[test]
+    fn animation_uses_active_rate_without_input() {
+        for (active, idle) in [(1.0 / 60.0, 1.0 / 24.0), (1.0 / 30.0, 1.0 / 12.0)] {
+            assert_eq!(super::frame_interval(false, false, active, idle), idle);
+            assert_eq!(super::frame_interval(true, false, active, idle), active);
+            assert_eq!(super::frame_interval(false, true, active, idle), active);
+            assert_eq!(super::frame_interval(true, true, active, idle), active);
+        }
+    }
     use super::*;
 
     #[test]
