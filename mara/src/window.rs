@@ -166,6 +166,8 @@ impl<A: WindowApp> NativeWinitApp<A> {
             present_mode: wgpu::PresentMode::AutoNoVsync,
             ..egui_wgpu::WgpuConfiguration::default()
         };
+        #[cfg(feature = "bevy")]
+        let wgpu_config = bevy_gpu_configuration(wgpu_config);
         let mut painter = pollster::block_on(Painter::new(
             self.egui_ctx.clone(),
             wgpu_config,
@@ -528,6 +530,52 @@ impl<A: WindowApp> ApplicationHandler<MaraUserEvent> for NativeWinitApp<A> {
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         self.pump_scheduled_repaint(event_loop);
+    }
+}
+
+#[cfg(feature = "bevy")]
+fn bevy_gpu_configuration(mut config: egui_wgpu::WgpuConfiguration) -> egui_wgpu::WgpuConfiguration {
+    if let egui_wgpu::WgpuSetup::CreateNew(setup) = &mut config.wgpu_setup {
+        let descriptor = setup.device_descriptor.clone();
+        setup.device_descriptor = Arc::new(move |adapter| {
+            let mut device = descriptor(adapter);
+            let formats = wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES;
+            if adapter.features().contains(formats) {
+                bevy_storage_limits(&mut device.required_limits, &adapter.limits());
+                device.required_features |= formats;
+            }
+            device
+        });
+    }
+    config
+}
+
+#[cfg(feature = "bevy")]
+fn bevy_storage_limits(requested: &mut wgpu::Limits, supported: &wgpu::Limits) {
+    requested.max_storage_textures_per_shader_stage = requested
+        .max_storage_textures_per_shader_stage
+        .max(supported.max_storage_textures_per_shader_stage.min(6));
+}
+
+#[cfg(all(test, feature = "bevy"))]
+mod bevy_gpu_tests {
+    #[test]
+    fn storage_request_is_bounded_and_preserves_other_limits() {
+        for available in [4, 5, 6, 8, 32] {
+            let mut requested = wgpu::Limits::default();
+            let supported = wgpu::Limits {
+                max_storage_textures_per_shader_stage: available,
+                ..wgpu::Limits::default()
+            };
+            let mut expected = requested.clone();
+            expected.max_storage_textures_per_shader_stage = available.min(6);
+            super::bevy_storage_limits(&mut requested, &supported);
+            assert_eq!(requested, expected);
+        }
+        let mut requested = wgpu::Limits::downlevel_webgl2_defaults();
+        let supported = requested.clone();
+        super::bevy_storage_limits(&mut requested, &supported);
+        assert_eq!(requested, supported);
     }
 }
 
