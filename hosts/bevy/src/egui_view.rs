@@ -469,7 +469,10 @@ impl MaraBevyViewport {
                         next = next.min((self.resize_settle_until - now).max(0.0));
                     }
                     ui.ctx()
-                        .request_repaint_after(Duration::from_secs_f64(next));
+                        .request_repaint_after(repaint_delay(
+                            next,
+                            ui.ctx().input(|input| input.predicted_dt),
+                        ));
                 });
         }
         picked_color
@@ -507,6 +510,44 @@ impl MaraBevyViewport {
             egui::FontId::proportional(13.0),
             mara_core::style::on_panel().into(),
         );
+    }
+}
+
+fn repaint_delay(seconds: f64, predicted_dt: f32) -> Duration {
+    let interval = Duration::try_from_secs_f64(seconds).unwrap_or_default();
+    if interval.is_zero() {
+        return Duration::ZERO;
+    }
+    interval.saturating_add(Duration::try_from_secs_f32(predicted_dt).unwrap_or_default())
+}
+
+#[cfg(test)]
+mod pacing_tests {
+    use super::*;
+
+    #[test]
+    fn repaint_interval_survives_egui_prediction() {
+        for predicted_dt in [0.0, 1.0 / 60.0, 1.0 / 144.0] {
+            let ctx = egui::Context::default();
+            let mut output = egui::FullOutput::default();
+            for _ in 0..5 {
+                output = ctx.run_ui(egui::RawInput { predicted_dt, ..Default::default() }, |ui| {
+                    ui.ctx().request_repaint_after(repaint_delay(1.0 / 60.0, predicted_dt));
+                });
+            }
+            let delay = output.viewport_output[&egui::ViewportId::ROOT].repaint_delay;
+            assert!((Duration::from_millis(16)..=Duration::from_millis(17)).contains(&delay));
+        }
+    }
+
+    #[test]
+    fn immediate_and_invalid_intervals_remain_immediate() {
+        for seconds in [0.0, -1.0, f64::NAN, f64::INFINITY] {
+            assert_eq!(repaint_delay(seconds, 1.0 / 60.0), Duration::ZERO);
+        }
+        for predicted in [-1.0, f32::NAN, f32::INFINITY] {
+            assert_eq!(repaint_delay(0.1, predicted), Duration::from_millis(100));
+        }
     }
 }
 
