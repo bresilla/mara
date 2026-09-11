@@ -432,7 +432,15 @@ impl<A: WindowApp> NativeWinitApp<A> {
             clear_color,
             &clipped_primitives,
             &textures_delta,
-            Vec::new(),
+            viewport_output
+                .get(&ViewportId::ROOT)
+                .into_iter()
+                .flat_map(|output| &output.commands)
+                .filter_map(|command| match command {
+                    ViewportCommand::Screenshot(data) => Some(data.clone()),
+                    _ => None,
+                })
+                .collect(),
         );
         if frame_timing {
             let paint_ms = paint_t0.elapsed().as_secs_f32() * 1000.0;
