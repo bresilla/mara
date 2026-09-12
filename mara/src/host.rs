@@ -559,6 +559,38 @@ impl<'a> MaraHostCtx<'a> {
 }
 
 impl MaraHostCtx<'_> {
+    /// Whether `pane` is the open pane of the rail `rail`.
+    #[must_use]
+    pub fn rail_pane_open(&self, rail: &'static str, pane: &'static str) -> bool {
+        let key = egui::Id::new(("mara_host_ribbon_rail_state", rail));
+        self.egui
+            .data_mut(|data| data.get_persisted::<HostRibbonRailState>(key))
+            .is_some_and(|state| state.open.is_open(rail, pane))
+    }
+
+    /// Open or close `pane` on the rail `rail` from app code (a hotkey, a
+    /// selection made in the scene). Takes effect at the rail's next show.
+    pub fn set_rail_pane_open(&self, rail: &'static str, pane: &'static str, open: bool) {
+        let key = egui::Id::new(("mara_host_ribbon_rail_state", rail));
+        let mut state = self
+            .egui
+            .data_mut(|data| data.get_persisted::<HostRibbonRailState>(key))
+            .unwrap_or_default();
+        state.initialized = true;
+        if open {
+            state.open.set(rail, pane);
+        } else if state.open.is_open(rail, pane) {
+            state.open.per_ribbon.remove(rail);
+        }
+        self.egui.data_mut(|data| data.insert_persisted(key, state));
+    }
+
+    /// Toggle `pane` on the rail `rail`; see [`Self::set_rail_pane_open`].
+    pub fn toggle_rail_pane(&self, rail: &'static str, pane: &'static str) {
+        let open = self.rail_pane_open(rail, pane);
+        self.set_rail_pane_open(rail, pane, !open);
+    }
+
     /// Show a high-level rail declaration.
     ///
     /// This paints open panes first, then the ribbon rail, because the

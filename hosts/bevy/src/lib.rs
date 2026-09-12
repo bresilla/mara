@@ -362,6 +362,11 @@ impl Default for BevyViewportBridge {
 }
 
 impl BevyViewportBridge {
+    /// The embedded app's world, `None` until the renderer is created.
+    pub fn world_mut(&mut self) -> Option<&mut World> {
+        self.renderer.as_mut().map(BevyViewportRenderer::world_mut)
+    }
+
     pub fn new(texture: BevyViewportTexture) -> Self {
         Self {
             frame: 0,
@@ -698,6 +703,10 @@ struct EmbeddedViewportSceneState {
 }
 
 impl BevyViewportRenderer {
+    pub fn world_mut(&mut self) -> &mut World {
+        self.app.world_mut()
+    }
+
     pub fn new(
         texture: BevyViewportTexture,
         resources: Option<BevyViewportWgpuResources>,
@@ -1285,6 +1294,10 @@ pub struct BevyEmbeddedView {
 impl BevyEmbeddedView {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn world_mut(&mut self) -> Option<&mut World> {
+        self.bridge.world_mut()
     }
 
     pub fn with_app_config(configure_app: impl Fn(&mut App) + Send + Sync + 'static) -> Self {

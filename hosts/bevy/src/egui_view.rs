@@ -162,6 +162,12 @@ impl MaraBevyViewport {
         self.bevy.rendering_enabled()
     }
 
+    /// The embedded app's world, once the renderer exists (after the
+    /// first `show`). Hosts drive their panes against it between frames.
+    pub fn world_mut(&mut self) -> Option<&mut bevy::prelude::World> {
+        self.bevy.world_mut()
+    }
+
     /// Use the active frame rate for animated content without pointer input.
     pub fn set_continuous_rendering(&mut self, enabled: bool) {
         self.continuous_rendering = enabled;
