@@ -544,6 +544,11 @@ fn bevy_gpu_configuration(mut config: egui_wgpu::WgpuConfiguration) -> egui_wgpu
                 bevy_storage_limits(&mut device.required_limits, &adapter.limits());
                 device.required_features |= formats;
             }
+            // Wireframe rendering in an embedded Bevy app needs line polygons.
+            let lines = wgpu::Features::POLYGON_MODE_LINE;
+            if adapter.features().contains(lines) {
+                device.required_features |= lines;
+            }
             device
         });
     }
