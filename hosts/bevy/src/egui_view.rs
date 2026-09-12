@@ -168,6 +168,21 @@ impl MaraBevyViewport {
         self.bevy.world_mut()
     }
 
+    /// Like [`Self::with_render_state_and_content`], with a hook that adjusts
+    /// the embedded app's `DefaultPlugins` before they are added.
+    pub fn with_render_state_plugins_and_content(
+        render_state: Option<&egui_wgpu::RenderState>,
+        configure_plugins: impl Fn(bevy::app::PluginGroupBuilder) -> bevy::app::PluginGroupBuilder
+        + Send
+        + Sync
+        + 'static,
+        configure_app: impl Fn(&mut bevy::prelude::App) + Send + Sync + 'static,
+    ) -> Self {
+        let mut view = Self::with_render_state_and_content(render_state, configure_app);
+        view.bevy.set_plugins_config(configure_plugins);
+        view
+    }
+
     /// Use the active frame rate for animated content without pointer input.
     pub fn set_continuous_rendering(&mut self, enabled: bool) {
         self.continuous_rendering = enabled;

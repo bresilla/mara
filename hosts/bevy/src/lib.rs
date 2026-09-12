@@ -17,6 +17,7 @@ use std::sync::{
     atomic::{AtomicBool, AtomicU64, Ordering},
 };
 
+use bevy::app::PluginGroupBuilder;
 #[cfg(not(target_arch = "wasm32"))]
 use bevy::app::TerminalCtrlCHandlerPlugin;
 use bevy::asset::RenderAssetUsages;
@@ -314,6 +315,12 @@ pub enum BevyViewportSet {
 /// windowless Bevy app owned by the viewport renderer.
 pub type BevyViewportAppConfigure = Arc<dyn Fn(&mut App) + Send + Sync + 'static>;
 
+/// Hook that adjusts the embedded app's `DefaultPlugins` before they are
+/// added, for settings that only take effect at plugin build time (an
+/// `AssetPlugin` root, for one).
+pub type BevyViewportPluginsConfigure =
+    Arc<dyn Fn(PluginGroupBuilder) -> PluginGroupBuilder + Send + Sync + 'static>;
+
 /// Existing wgpu resources supplied by an egui/eframe host.
 ///
 /// Passing these keeps the embedded Bevy renderer on the same adapter
@@ -352,6 +359,7 @@ pub struct BevyViewportBridge {
     latest_frame: Option<CapturedBevyFrame>,
     input: BevyViewportInput,
     scene_state: Option<EmbeddedViewportSceneState>,
+    configure_plugins: Option<BevyViewportPluginsConfigure>,
     configure_app: Option<BevyViewportAppConfigure>,
 }
 
@@ -379,8 +387,18 @@ impl BevyViewportBridge {
             latest_frame: None,
             input: BevyViewportInput::default(),
             scene_state: None,
+            configure_plugins: None,
             configure_app: None,
         }
+    }
+
+    /// Install a hook that adjusts `DefaultPlugins` before the embedded app
+    /// is built. Must be set before the first frame creates the renderer.
+    pub fn set_plugins_config(
+        &mut self,
+        configure_plugins: impl Fn(PluginGroupBuilder) -> PluginGroupBuilder + Send + Sync + 'static,
+    ) {
+        self.configure_plugins = Some(Arc::new(configure_plugins));
     }
 
     pub fn with_app_config(
@@ -515,6 +533,7 @@ impl BevyViewportBridge {
                 BevyViewportRenderer::new(
                     texture,
                     self.external_wgpu.clone(),
+                    self.configure_plugins.clone(),
                     self.configure_app.clone(),
                 )
             });
@@ -525,6 +544,7 @@ impl BevyViewportBridge {
                     *renderer = BevyViewportRenderer::new(
                         texture,
                         self.external_wgpu.clone(),
+                        self.configure_plugins.clone(),
                         self.configure_app.clone(),
                     );
                     if let Some(scene_state) = scene_state {
@@ -578,6 +598,7 @@ impl BevyViewportBridge {
                 BevyViewportRenderer::new(
                     texture,
                     self.external_wgpu.clone(),
+                    self.configure_plugins.clone(),
                     self.configure_app.clone(),
                 )
             });
@@ -588,6 +609,7 @@ impl BevyViewportBridge {
                     *renderer = BevyViewportRenderer::new(
                         texture,
                         self.external_wgpu.clone(),
+                        self.configure_plugins.clone(),
                         self.configure_app.clone(),
                     );
                     if let Some(scene_state) = scene_state {
@@ -710,6 +732,7 @@ impl BevyViewportRenderer {
     pub fn new(
         texture: BevyViewportTexture,
         resources: Option<BevyViewportWgpuResources>,
+        configure_plugins: Option<BevyViewportPluginsConfigure>,
         configure_app: Option<BevyViewportAppConfigure>,
     ) -> Self {
         let mut app = App::new();
@@ -738,6 +761,10 @@ impl BevyViewportRenderer {
         let default_plugins = default_plugins.disable::<LogPlugin>();
         #[cfg(not(target_arch = "wasm32"))]
         let default_plugins = default_plugins.disable::<TerminalCtrlCHandlerPlugin>();
+        let default_plugins = match configure_plugins {
+            Some(configure) => configure(default_plugins),
+            None => default_plugins,
+        };
 
         app.insert_resource(EmbeddedViewportConfig { texture })
             .init_resource::<BevyViewportPickedColor>()
@@ -1298,6 +1325,13 @@ impl BevyEmbeddedView {
 
     pub fn world_mut(&mut self) -> Option<&mut World> {
         self.bridge.world_mut()
+    }
+
+    pub fn set_plugins_config(
+        &mut self,
+        configure_plugins: impl Fn(PluginGroupBuilder) -> PluginGroupBuilder + Send + Sync + 'static,
+    ) {
+        self.bridge.set_plugins_config(configure_plugins);
     }
 
     pub fn with_app_config(configure_app: impl Fn(&mut App) + Send + Sync + 'static) -> Self {
