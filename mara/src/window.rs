@@ -551,6 +551,16 @@ fn bevy_gpu_configuration(mut config: egui_wgpu::WgpuConfiguration) -> egui_wgpu
                     device.required_features |= feature;
                 }
             }
+            // GPU timestamps let Bevy's render diagnostics report pass times.
+            if adapter.features().contains(wgpu::Features::TIMESTAMP_QUERY) {
+                device.required_features |= wgpu::Features::TIMESTAMP_QUERY;
+            }
+            // Material extensions with several textures exceed wgpu's default
+            // of 16 sampled textures per stage; take what the adapter offers.
+            device.required_limits.max_sampled_textures_per_shader_stage = adapter
+                .limits()
+                .max_sampled_textures_per_shader_stage
+                .min(64);
             device
         });
     }
