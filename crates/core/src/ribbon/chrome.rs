@@ -1052,6 +1052,7 @@ pub fn draw_unified_ribbon_chrome(
             insets_for_ribbon(ribbons, ribbon, insets),
         ));
         button_rects.push(resting);
+        crate::pane::publish_rail_button_rect(ctx, ribbon.edge, cluster_eff, resting);
         let dragging_this = drag.item == Some(*iid);
         let paint_pos = if dragging_this {
             let center = drag.cursor.unwrap_or_else(|| resting.center());

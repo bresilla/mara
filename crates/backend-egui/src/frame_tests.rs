@@ -1522,3 +1522,102 @@ mod icons {
         );
     }
 }
+
+mod pane_fit {
+    use mara_core::memory::MaraMemoryCtx;
+    use mara_core::pane::{Pane, PaneAnchor, RailZone};
+    use mara_core::pod::Pod;
+    use mara_core::vocab::{Color32 as MaraColor32, Id, Pos2 as MaraPos2, Rect as MaraRect, Vec2 as MaraVec2};
+
+    const W: f32 = 1400.0;
+    const H: f32 = 900.0;
+    /// Smallest gap a pane keeps from the window edge it grows toward.
+    const EDGE_CLEARANCE: f32 = 8.0;
+    const PASSES: usize = 40;
+
+    fn container_id(c: usize) -> Id {
+        Id::new(("fit.container", c))
+    }
+
+    #[allow(deprecated)]
+    fn show_pane(raw: &egui::Context, sections: usize, rows: usize) -> egui::FullOutput {
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(W, H))),
+            ..Default::default()
+        };
+        raw.run(input, |ctx| {
+            let ctx = crate::EguiCtx::new(ctx);
+            // Left rail plus top bar, no bottom ribbon: the gearbox layout.
+            MaraMemoryCtx::new(&ctx).set_temp::<[bool; 4]>(
+                Id::new("mara_published_ribbon_edges"),
+                [true, false, true, false],
+            );
+            let region = MaraRect::from_min_size(MaraPos2::ZERO, MaraVec2::new(W, H));
+            let pane = Pane::new(
+                Id::new("fit.pane"),
+                "Fit",
+                PaneAnchor::LeftRail(RailZone::Start),
+                MaraColor32::WHITE,
+            );
+            pane.__internal_show(&ctx, region, |body| {
+                for c in 0..sections {
+                    let mut pod = Pod::new(Id::new(("fit.pod", c)));
+                    for r in 0..rows {
+                        pod = pod.with_readout(format!("row {r}"), "value");
+                    }
+                    body.add_normal(container_id(c), format!("Section {c}"), "list", vec![pod]);
+                }
+                let _ = body.render();
+            });
+        })
+    }
+
+    /// Lowest visible pixel over every clipped shape of the pass.
+    fn painted_bottom(out: &egui::FullOutput) -> f32 {
+        out.shapes
+            .iter()
+            .map(|s| s.shape.visual_bounding_rect().intersect(s.clip_rect))
+            .filter(|r| r.is_positive())
+            .map(|r| r.max.y)
+            .fold(f32::NEG_INFINITY, f32::max)
+    }
+
+    fn body_open(raw: &egui::Context, c: usize) -> bool {
+        MaraMemoryCtx::new(&crate::EguiCtx::new(raw))
+            .get_persisted::<bool>(container_id(c).with("body_open"))
+            .unwrap_or(true)
+    }
+
+    #[test]
+    fn left_rail_start_pane_folds_sections_to_fit_the_window() {
+        let raw = egui::Context::default();
+        let mut out = show_pane(&raw, 6, 12);
+        for _ in 0..PASSES {
+            out = show_pane(&raw, 6, 12);
+        }
+        let bottom = painted_bottom(&out);
+        assert!(
+            bottom <= H - EDGE_CLEARANCE,
+            "pane painted down to y={bottom}, past the window limit {}",
+            H - EDGE_CLEARANCE
+        );
+        assert!(body_open(&raw, 0), "the first section must stay open");
+        assert!(!body_open(&raw, 5), "an older section must fold to make room");
+    }
+
+    #[test]
+    fn left_rail_start_pane_scrolls_a_single_tall_section() {
+        let raw = egui::Context::default();
+        let mut out = show_pane(&raw, 1, 80);
+        for _ in 0..PASSES {
+            out = show_pane(&raw, 1, 80);
+        }
+        let bottom = painted_bottom(&out);
+        assert!(
+            bottom <= H - EDGE_CLEARANCE,
+            "tall section painted down to y={bottom}, past the window limit {}",
+            H - EDGE_CLEARANCE
+        );
+        assert!(body_open(&raw, 0), "a lone section stays open and scrolls");
+    }
+}
