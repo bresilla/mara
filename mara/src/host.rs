@@ -311,14 +311,17 @@ impl<'a> MaraHostCtx<'a> {
         mara_core::layout_shelves(self.content_rect(), shelves, state, &shelf_theme)
     }
 
-    /// Paint shelves through the current host backend.
+    /// Paint shelves through the current host backend; returns every
+    /// shelf-hosted pod's response, keyed the same way
+    /// [`crate::pane::PaneBody::render`] keys a floating pane's — by the
+    /// container id passed to [`mara_core::shelf::ShelfContainer::tabbed`].
     pub fn show_shelves(
         &self,
         layout: mara_core::ShelfLayout,
         shelves: Vec<mara_core::ShelfDef<'_>>,
         state: &mut mara_core::ShelfState,
-    ) {
-        mara_core::shelf::__internal_show_shelves_egui(&self.seam(), layout, shelves, state);
+    ) -> std::collections::HashMap<mara_core::vocab::Id, Vec<mara_core::pod::PodResponse>> {
+        mara_core::shelf::__internal_show_shelves_egui(&self.seam(), layout, shelves, state)
     }
 
     /// Show a root-level Mara body in the host content panel.

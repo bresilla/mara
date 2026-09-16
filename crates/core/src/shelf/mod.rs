@@ -17,6 +17,7 @@ use crate::layout::{
 };
 use crate::paint::PaintCmd;
 use crate::pane::{self, PaneAnchor, RailZone, TitleSide, active_pane_key};
+use crate::pod::PodResponse;
 use crate::ribbon::RibbonEdge;
 use crate::style::{self, ShelfTheme};
 use crate::vocab::{
@@ -666,7 +667,7 @@ pub fn __internal_show_shelves_egui<'a>(
     layout: ShelfLayout,
     shelves: Vec<ShelfDef<'a>>,
     state: &mut ShelfState,
-) {
+) -> HashMap<Id, Vec<PodResponse>> {
     ctx.enforce_defaults();
     assert_unique_shelf_ids(&shelves);
     __internal_publish_shelf_layout(ctx, layout);
@@ -683,6 +684,7 @@ pub fn __internal_show_shelves_egui<'a>(
         }
     }
     let tab_routing_id = shelf_tab_routing_id();
+    let mut all_responses: HashMap<Id, Vec<PodResponse>> = HashMap::new();
 
     for shelf in shelves {
         let Some(rect) = layout.rect_for(shelf.edge) else {
@@ -731,7 +733,7 @@ pub fn __internal_show_shelves_egui<'a>(
                 state.cancel_drag();
             }
 
-            render_shelf_body(
+            let shelf_responses = render_shelf_body(
                 mara,
                 ShelfBodyInput {
                     content_rect,
@@ -744,6 +746,9 @@ pub fn __internal_show_shelves_egui<'a>(
                     tab_scope: &mut tab_scope,
                 },
             );
+            for (id, pods) in shelf_responses {
+                all_responses.entry(id).or_default().extend(pods);
+            }
 
             let pointer_on_resize = resize_response
                 .interact_pointer
@@ -777,6 +782,7 @@ pub fn __internal_show_shelves_egui<'a>(
     publish_container_move_preview_layout(ctx, layout, state, &shelf_theme);
     paint_shelf_move_ghost(ctx, layout, state, &shelf_theme);
     paint_container_move_ghost(ctx, layout, state, &shelf_theme);
+    all_responses
 }
 
 fn top_ribbon_clearance() -> f32 {
@@ -987,7 +993,11 @@ struct ShelfBodyInput<'state, 'scope, 'a> {
     tab_scope: &'scope mut pane::TabRoutingScope,
 }
 
-fn render_shelf_body(mara: &mut crate::MaraUi<'_>, input: ShelfBodyInput<'_, '_, '_>) {
+fn render_shelf_body(
+    mara: &mut crate::MaraUi<'_>,
+    input: ShelfBodyInput<'_, '_, '_>,
+) -> HashMap<Id, Vec<PodResponse>> {
+    let mut all_responses: HashMap<Id, Vec<PodResponse>> = HashMap::new();
     let ShelfBodyInput {
         content_rect,
         shelf_rect,
@@ -1146,6 +1156,9 @@ fn render_shelf_body(mara: &mut crate::MaraUi<'_>, input: ShelfBodyInput<'_, '_,
                 &declared_order,
                 |id| responses.contains_key(&id),
             );
+            for (id, pods) in responses {
+                all_responses.entry(id).or_default().extend(pods);
+            }
             if let Some(container_id) = effective_active {
                 state.set_active_container_for_group(active_key, container_id);
             }
@@ -1361,6 +1374,7 @@ fn render_shelf_body(mara: &mut crate::MaraUi<'_>, input: ShelfBodyInput<'_, '_,
             }
         });
     });
+    all_responses
 }
 
 fn shelf_body_child_region(rect: Rect, horizontal_stack: bool, edge: ShelfEdge) -> ChildRegion {
