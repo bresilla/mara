@@ -299,6 +299,20 @@ impl Normal {
     /// v1 supports top-title containers (strip projects upward).
     /// Other anchors fall back to plain [`Normal::show`] of the
     /// active tab; full strip support per anchor will land later.
+    /// The tab `show_tabs` will render for this container, so a caller
+    /// can file the returned pod responses under that tab's id.
+    pub(crate) fn active_tab_id(
+        ctx: &dyn crate::context::MaraCtx,
+        pane_id: Id,
+        tab_ids: &[Id],
+    ) -> Option<Id> {
+        if tab_ids.is_empty() {
+            return None;
+        }
+        let idx = resolve_active_tab_idx(ctx, pane_id.with("mara_normal_active_tab"), tab_ids);
+        tab_ids.get(idx).copied()
+    }
+
     pub(crate) fn show_tabs(
         self,
         mara: &mut crate::MaraUi<'_>,
@@ -636,8 +650,19 @@ impl Normal {
             .iter()
             .map(|p| p.natural_h() + pod_chrome_each)
             .sum::<f32>()
-            + separator_total_h
-            + nested_natural_h(mara, &self.nested);
+            + separator_total_h;
+        // Last frame's measured extent wins over the estimate: the nested
+        // chrome has margins the estimate can only approximate.
+        let nested_measured_key = self.pane_id.with("mara_nested_measured_h");
+        let nested_h = if self.nested.is_empty() {
+            0.0
+        } else {
+            mara.ctx()
+                .memory()
+                .get_temp::<f32>(nested_measured_key)
+                .unwrap_or_else(|| nested_natural_h(mara, &self.nested))
+        };
+        let pods_natural_total_h = pods_natural_total_h + nested_h;
         let body_flow_floor = pods_natural_total_h.max(self.min_body_flow.unwrap_or(0.0));
         let nested = std::mem::take(&mut self.nested);
         let nested_anchor = self.anchor;
@@ -649,7 +674,7 @@ impl Normal {
                 }
                 others_h += p.natural_h() + pod_chrome_each;
             }
-            others_h += separator_total_h;
+            others_h += separator_total_h + nested_h;
             (pods[fi].egui_id(), others_h)
         });
         // When a fill pod is present, stash the natural total for
@@ -808,6 +833,8 @@ impl Normal {
                     );
                 }
             }
+            let nested_any = !nested.is_empty();
+            let nested_top = body_ui.cursor().y;
             for container in nested {
                 let responses = Normal::new(
                     container.title,
@@ -818,6 +845,13 @@ impl Normal {
                 .icon(container.icon)
                 .show(body_ui, container.pods);
                 out.extend(responses);
+            }
+            if nested_any {
+                let measured = body_ui.cursor().y - nested_top;
+                body_ui
+                    .ctx()
+                    .memory()
+                    .set_temp(nested_measured_key, measured);
             }
         });
         out
@@ -3397,7 +3431,9 @@ fn nested_natural_h(mara: &crate::MaraUi<'_>, nested: &[super::TabContainer]) ->
     let theme = style::theme();
     let pod_chrome_each = (theme.container.pod_pad_y as f32) * 2.0;
     let sep_h = crate::container::separator::separator_strip_h();
-    let chrome = theme.section_outer_margin_flow_title as f32 * 2.0
+    let chrome = theme.section_outer_margin_flow_title as f32
+        + theme.section_outer_margin_flow_body as f32
+        + theme.section_body_inner_top_pad
         + theme.container.title_zone_thickness
         + theme.container.title_body_gap_half * 2.0;
     let memory = mara.ctx().memory();

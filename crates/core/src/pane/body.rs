@@ -481,7 +481,15 @@ pub fn render_containers_with_tab_scope<'a>(
             if let Some(side) = tabbed_strip_side {
                 normal = normal.tabbed_strip_side(side);
             }
+            // The responses belong to whichever tab is showing; file them
+            // under that tab's id as well as the container's, so an app
+            // with several tabs can tell whose pods answered.
+            let routed_tab_ids: Vec<Id> = routed_tabs.iter().map(|t| t.id().into()).collect();
+            let active_tab = Normal::active_tab_id(body_ui.ctx(), cid, &routed_tab_ids);
             let resp = normal.show_tabs(body_ui, routed_tabs);
+            if let Some(tab_id) = active_tab.filter(|tab_id| *tab_id != cid) {
+                responses.insert(tab_id, resp.clone());
+            }
             responses.insert(cid, resp);
             let dragging_self = active_drag(body_ui.ctx())
                 .and_then(|(_, s)| s.item)
