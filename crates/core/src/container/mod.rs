@@ -19,7 +19,7 @@ pub use body::Body;
 pub use normal::Normal;
 pub use separator::{SeparatorOrient, SeparatorStyle};
 pub(crate) use separator::{paint_separator, paint_separator_resize};
-pub use tabbed::Tab;
+pub use tabbed::{Tab, TabContainer};
 
 use crate::vocab::Id;
 

@@ -141,6 +141,9 @@ pub struct Normal {
     /// containers so a short active tab body cannot collapse the
     /// container until side/top tab buttons are clipped away.
     min_body_flow: Option<f32>,
+    /// Collapsible containers rendered in the body after the pods —
+    /// the active tab's [`super::TabContainer`]s.
+    nested: Vec<super::TabContainer>,
 }
 
 impl Normal {
@@ -164,6 +167,7 @@ impl Normal {
             suppress_banner: false,
             reserve_tab_strip_in_parent: true,
             min_body_flow: None,
+            nested: Vec::new(),
         }
     }
 
@@ -358,6 +362,7 @@ impl Normal {
         let me = Self {
             title: active_title,
             icon: Some(active_icon),
+            nested: std::mem::take(&mut tabs[active_idx].containers),
             tabbed_strip_side: Some(strip_side),
             min_body_flow: Some(
                 self.min_body_flow
@@ -549,6 +554,7 @@ impl Normal {
         let me = Self {
             title: String::new(),
             icon: None,
+            nested: std::mem::take(&mut tabs[active_idx].containers),
             tabbed_strip_side: None,
             title_thickness_override: Some(
                 theme_now.container.title_zone_thickness * title_multiplier,
@@ -593,7 +599,7 @@ impl Normal {
     }
 
     fn show_inner(
-        self,
+        mut self,
         mara: &mut crate::MaraUi<'_>,
         pods: impl IntoIterator<Item = crate::pod::Pod>,
     ) -> Vec<crate::pod::PodResponse> {
@@ -630,8 +636,11 @@ impl Normal {
             .iter()
             .map(|p| p.natural_h() + pod_chrome_each)
             .sum::<f32>()
-            + separator_total_h;
+            + separator_total_h
+            + nested_natural_h(mara, &self.nested);
         let body_flow_floor = pods_natural_total_h.max(self.min_body_flow.unwrap_or(0.0));
+        let nested = std::mem::take(&mut self.nested);
+        let nested_anchor = self.anchor;
         let fill_pod_id_and_others_h: Option<(Id, f32)> = fill_pod_idx.map(|fi| {
             let mut others_h = 0.0_f32;
             for (i, p) in pods.iter().enumerate() {
@@ -798,6 +807,17 @@ impl Normal {
                         format!("separator[{:?}]", separator_after),
                     );
                 }
+            }
+            for container in nested {
+                let responses = Normal::new(
+                    container.title,
+                    nested_anchor,
+                    pods_accent,
+                    container.id,
+                )
+                .icon(container.icon)
+                .show(body_ui, container.pods);
+                out.extend(responses);
             }
         });
         out
@@ -3371,6 +3391,33 @@ fn corner_tick_paint_cmds(
 /// shorter tabs leave trailing whitespace; the body's own clip
 /// rect handles any rare case where a tab's content exceeds the
 /// max (it shouldn't, since max is by definition ≥ every tab).
+/// Height the nested containers need in their host body: title chrome
+/// each, plus the pod stack for those not folded.
+fn nested_natural_h(mara: &crate::MaraUi<'_>, nested: &[super::TabContainer]) -> f32 {
+    let theme = style::theme();
+    let pod_chrome_each = (theme.container.pod_pad_y as f32) * 2.0;
+    let sep_h = crate::container::separator::separator_strip_h();
+    let chrome = theme.section_outer_margin_flow_title as f32 * 2.0
+        + theme.container.title_zone_thickness
+        + theme.container.title_body_gap_half * 2.0;
+    let memory = mara.ctx().memory();
+    nested
+        .iter()
+        .map(|c| {
+            let id: Id = c.id.into();
+            let open = memory
+                .get_persisted::<bool>(id.with("body_open"))
+                .unwrap_or(true);
+            if !open {
+                return chrome;
+            }
+            let n = c.pods.len();
+            let pods_h: f32 = c.pods.iter().map(|p| p.natural_h() + pod_chrome_each).sum();
+            chrome + pods_h + n.saturating_sub(1) as f32 * sep_h
+        })
+        .sum()
+}
+
 fn max_tab_natural_body_h(tabs: &[super::Tab]) -> f32 {
     let container_theme = style::theme().container;
     let pod_chrome_each = (container_theme.pod_pad_y as f32) * 2.0;

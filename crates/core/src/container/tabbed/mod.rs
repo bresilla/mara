@@ -26,6 +26,33 @@ pub struct Tab {
     pub(crate) title: String,
     pub(crate) icon: Icon<'static>,
     pub(crate) pods: Vec<Pod>,
+    pub(crate) containers: Vec<TabContainer>,
+}
+
+/// A collapsible titled container nested inside a [`Tab`]'s body,
+/// below the tab's own pods. Its pod responses are appended to the
+/// tab's response list in declaration order.
+pub struct TabContainer {
+    pub(crate) id: MaraId,
+    pub(crate) title: String,
+    pub(crate) icon: Icon<'static>,
+    pub(crate) pods: Vec<Pod>,
+}
+
+impl TabContainer {
+    pub fn new(
+        id: impl Into<MaraId>,
+        title: impl Into<String>,
+        icon: impl Into<Icon<'static>>,
+        pods: impl IntoIterator<Item = Pod>,
+    ) -> Self {
+        Self {
+            id: id.into(),
+            title: title.into(),
+            icon: icon.into(),
+            pods: pods.into_iter().collect(),
+        }
+    }
 }
 
 impl Tab {
@@ -49,7 +76,14 @@ impl Tab {
             title,
             icon,
             pods: Vec::new(),
+            containers: Vec::new(),
         }
+    }
+
+    /// Collapsible containers shown in this tab's body, after its pods.
+    pub fn containers(mut self, containers: impl IntoIterator<Item = TabContainer>) -> Self {
+        self.containers = containers.into_iter().collect();
+        self
     }
 
     pub fn pods(mut self, pods: impl IntoIterator<Item = Pod>) -> Self {
