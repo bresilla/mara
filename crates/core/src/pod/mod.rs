@@ -1833,7 +1833,7 @@ fn paint_widgets(
                         .min(cfg.options.len().saturating_sub(1));
                     let opts: Vec<&str> = cfg.options.iter().map(String::as_str).collect();
                     let resp = backend.dropdown(
-                        Id::new(("mara_pod_dropdown", dropdown_idx)),
+                        Id::new((pod_id, "mara_pod_dropdown", dropdown_idx)),
                         &mut sel,
                         &opts,
                         cfg.accent,
@@ -1861,7 +1861,7 @@ fn paint_widgets(
                         .unwrap_or(cfg.selected_initial);
                     let resp = select_row_backend(
                         &mut backend,
-                        ("mara_pod_select", select_idx),
+                        (pod_id, "mara_pod_select", select_idx),
                         &cfg.label,
                         cfg.trailing.as_deref(),
                         selected,
@@ -1901,7 +1901,7 @@ fn paint_widgets(
                         .unwrap_or(cfg.radio_initial);
                     let resp = hybrid_select_row_backend(
                         &mut backend,
-                        ("mara_pod_hybrid", hybrid_select_idx),
+                        (pod_id, "mara_pod_hybrid", hybrid_select_idx),
                         &cfg.label,
                         cfg.trailing.as_deref(),
                         selected,
@@ -2001,7 +2001,7 @@ fn paint_widgets(
                         let trailing = cfg.trailing.as_ref().map(|t| t[i].as_str());
                         let resp = select_row_backend(
                             &mut backend,
-                            ("mara_pod_select_list", select_list_idx, i),
+                            (pod_id, "mara_pod_select_list", select_list_idx, i),
                             label,
                             trailing,
                             selected == Some(i),
@@ -2048,7 +2048,7 @@ fn paint_widgets(
                         let trailing = cfg.trailing.as_ref().map(|t| t[i].as_str());
                         let resp = hybrid_select_row_backend(
                             &mut backend,
-                            ("mara_pod_hybrid_select_list", hybrid_select_list_idx, i),
+                            (pod_id, "mara_pod_hybrid_select_list", hybrid_select_list_idx, i),
                             label,
                             trailing,
                             selected == Some(i),
