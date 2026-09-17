@@ -22,12 +22,15 @@ pub enum Surface {
 /// Window options for a Mara-owned runner.
 ///
 /// `borderless` is honored by the desktop runner; on Android the OS
-/// owns the surface fullscreen, so it is ignored there.
+/// owns the surface fullscreen, so it is ignored there. `position` is
+/// desktop-only too, and best-effort — some window managers ignore an
+/// app's requested initial position.
 #[derive(Debug, Clone)]
 pub struct NativeOptions {
     pub title: String,
     pub width: f32,
     pub height: f32,
+    pub position: Option<(f32, f32)>,
     pub borderless: bool,
     pub surface: Surface,
 }
@@ -38,6 +41,7 @@ impl Default for NativeOptions {
             title: "Mara".to_owned(),
             width: 1440.0,
             height: 920.0,
+            position: None,
             borderless: true,
             surface: Surface::Egui,
         }
@@ -94,4 +98,15 @@ pub trait WindowApp: Sized + 'static {
     /// shelf toggle). The runner handles the window actions
     /// (close/maximize) itself, so those never reach here.
     fn on_shell_event(&mut self, _event: ShellEvent, _ctx: &mut MaraHostCtx<'_>) {}
+
+    /// The native window was resized (desktop only; never fires on
+    /// Android). Logical size — the same units `NativeOptions::size`
+    /// takes, so a value saved here can be handed straight back on the
+    /// next launch with no scale-factor conversion.
+    fn on_window_resized(&mut self, _width: f32, _height: f32) {}
+
+    /// The native window moved (desktop only; never fires on Android).
+    /// Physical pixel position, matching `NativeOptions::position` and
+    /// winit's own `WindowEvent::Moved`.
+    fn on_window_moved(&mut self, _x: f32, _y: f32) {}
 }

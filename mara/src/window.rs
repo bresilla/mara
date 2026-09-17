@@ -49,6 +49,13 @@ impl AppRunner {
         self
     }
 
+    /// Requested initial window position, in physical pixels. Best-effort
+    /// — some window managers ignore it.
+    pub fn position(mut self, x: f32, y: f32) -> Self {
+        self.options.position = Some((x, y));
+        self
+    }
+
     pub fn borderless(mut self, borderless: bool) -> Self {
         self.options.borderless = borderless;
         self
@@ -138,10 +145,13 @@ impl<A: WindowApp> NativeWinitApp<A> {
             return;
         }
 
-        let attrs = WindowAttributes::default()
+        let mut attrs = WindowAttributes::default()
             .with_title(self.options.title.clone())
             .with_inner_size(LogicalSize::new(self.options.width, self.options.height))
             .with_decorations(!self.options.borderless);
+        if let Some((x, y)) = self.options.position {
+            attrs = attrs.with_position(winit::dpi::PhysicalPosition::new(x, y));
+        }
         let window = Arc::new(
             event_loop
                 .create_window(attrs)
@@ -507,6 +517,15 @@ impl<A: WindowApp> ApplicationHandler<MaraUserEvent> for NativeWinitApp<A> {
                 ) {
                     painter.on_window_resized(ViewportId::ROOT, width, height);
                     repaint_after_event = Some(Instant::now() + Duration::from_millis(16));
+                }
+                if let Some(app) = self.app.as_mut() {
+                    let ppp = window.scale_factor() as f32;
+                    app.on_window_resized(size.width as f32 / ppp, size.height as f32 / ppp);
+                }
+            }
+            WindowEvent::Moved(position) => {
+                if let Some(app) = self.app.as_mut() {
+                    app.on_window_moved(position.x as f32, position.y as f32);
                 }
             }
             WindowEvent::RedrawRequested => {
