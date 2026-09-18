@@ -570,6 +570,28 @@ fn bevy_gpu_configuration(mut config: egui_wgpu::WgpuConfiguration) -> egui_wgpu
                     device.required_features |= feature;
                 }
             }
+            // Bevy's light textures, clustered decals and light probes index arrays
+            // of textures; without these it switches all three off without a word.
+            let arrays = wgpu::Features::TEXTURE_BINDING_ARRAY
+                | wgpu::Features::SAMPLED_TEXTURE_AND_STORAGE_BUFFER_ARRAY_NON_UNIFORM_INDEXING;
+            if adapter.features().contains(arrays) {
+                device.required_features |= arrays;
+                let partial = wgpu::Features::PARTIALLY_BOUND_BINDING_ARRAY;
+                if adapter.features().contains(partial) {
+                    device.required_features |= partial;
+                }
+                let offered = adapter.limits();
+                let limits = &mut device.required_limits;
+                limits.max_binding_array_elements_per_shader_stage =
+                    offered.max_binding_array_elements_per_shader_stage;
+                limits.max_binding_array_sampler_elements_per_shader_stage =
+                    offered.max_binding_array_sampler_elements_per_shader_stage;
+                limits.max_storage_textures_per_shader_stage =
+                    offered.max_storage_textures_per_shader_stage;
+                // Those arrays bring samplers of their own, past the default 16.
+                limits.max_samplers_per_shader_stage =
+                    offered.max_samplers_per_shader_stage.min(64);
+            }
             // GPU timestamps let Bevy's render diagnostics report pass times.
             if adapter.features().contains(wgpu::Features::TIMESTAMP_QUERY) {
                 device.required_features |= wgpu::Features::TIMESTAMP_QUERY;
