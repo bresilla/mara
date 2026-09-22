@@ -178,6 +178,7 @@ impl<A: WindowApp> NativeWinitApp<A> {
         };
         #[cfg(feature = "bevy")]
         let wgpu_config = bevy_gpu_configuration(wgpu_config);
+        let wgpu_config = crate::runner::app_gpu_configuration::<A>(wgpu_config);
         let mut painter = pollster::block_on(Painter::new(
             self.egui_ctx.clone(),
             wgpu_config,

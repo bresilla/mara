@@ -147,6 +147,7 @@ impl<A: WindowApp> AndroidWinitApp<A> {
                 present_mode: wgpu::PresentMode::AutoNoVsync,
                 ..egui_wgpu::WgpuConfiguration::default()
             };
+            let wgpu_config = crate::runner::app_gpu_configuration::<A>(wgpu_config);
             let painter = pollster::block_on(Painter::new(
                 self.egui_ctx.clone(),
                 wgpu_config,
