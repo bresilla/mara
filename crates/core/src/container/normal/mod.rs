@@ -665,6 +665,9 @@ impl Normal {
         let pods_natural_total_h = pods_natural_total_h + nested_h;
         let body_flow_floor = pods_natural_total_h.max(self.min_body_flow.unwrap_or(0.0));
         let nested = std::mem::take(&mut self.nested);
+        // One response per pod, nested containers' pods included, even
+        // while the body is folded: callers address pods by position.
+        let responses_total = pods_total + nested.iter().map(|c| c.pods.len()).sum::<usize>();
         let nested_anchor = self.anchor;
         let fill_pod_id_and_others_h: Option<(Id, f32)> = fill_pod_idx.map(|fi| {
             let mut others_h = 0.0_f32;
@@ -854,6 +857,7 @@ impl Normal {
                     .set_temp(nested_measured_key, measured);
             }
         });
+        out.resize_with(responses_total.max(out.len()), Default::default);
         out
     }
 
