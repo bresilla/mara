@@ -564,6 +564,15 @@ fn bevy_gpu_configuration(mut config: egui_wgpu::WgpuConfiguration) -> egui_wgpu
                 bevy_storage_limits(&mut device.required_limits, &adapter.limits());
                 device.required_features |= formats;
             }
+            // GPU pass timing for profiling, only on request.
+            let timestamps = wgpu::Features::TIMESTAMP_QUERY
+                | wgpu::Features::TIMESTAMP_QUERY_INSIDE_ENCODERS
+                | wgpu::Features::TIMESTAMP_QUERY_INSIDE_PASSES;
+            if std::env::var_os("MARA_GPU_TIMESTAMPS").is_some()
+                && adapter.features().contains(timestamps)
+            {
+                device.required_features |= timestamps;
+            }
             // Wireframe rendering in an embedded Bevy app needs line polygons
             // and immediates.
             for feature in [wgpu::Features::POLYGON_MODE_LINE, wgpu::Features::IMMEDIATES] {
@@ -603,6 +612,16 @@ fn bevy_gpu_configuration(mut config: egui_wgpu::WgpuConfiguration) -> egui_wgpu
                 .limits()
                 .max_sampled_textures_per_shader_stage
                 .min(64);
+            // A planet's heightmaps are one R32Float array, one layer per
+            // resident tile: thousands of layers, filtered where the terrain
+            // shader samples between texels. Both are past wgpu's defaults —
+            // 256 layers, and no filtering of 32-bit floats at all — and
+            // without them the atlas cannot even be created.
+            if adapter.features().contains(wgpu::Features::FLOAT32_FILTERABLE) {
+                device.required_features |= wgpu::Features::FLOAT32_FILTERABLE;
+            }
+            device.required_limits.max_texture_array_layers =
+                adapter.limits().max_texture_array_layers.min(2048);
             device
         });
     }
