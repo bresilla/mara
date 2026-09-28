@@ -1587,18 +1587,21 @@ pub fn mara_response_from(inner: &egui::Response) -> MaraResponse {
 
 pub(crate) fn remember_response(response: &egui::Response) -> vocab::Id {
     let rect = response.rect;
-    let key = response.id.with((
-        "mara_response",
-        response.ctx.cumulative_frame_nr(),
-        rect.min.x.to_bits(),
-        rect.min.y.to_bits(),
-        rect.max.x.to_bits(),
-        rect.max.y.to_bits(),
-    ));
+    let key: vocab::Id = response
+        .id
+        .with((
+            "mara_response",
+            response.ctx.cumulative_frame_nr(),
+            rect.min.x.to_bits(),
+            rect.min.y.to_bits(),
+            rect.max.x.to_bits(),
+            rect.max.y.to_bits(),
+        ))
+        .into();
     response
         .ctx
-        .data_mut(|data| data.insert_temp(key, response.clone()));
-    key.into()
+        .data_mut(|data| data.insert_temp(key.into(), response.clone()));
+    key
 }
 
 pub(crate) fn with_response<R>(
