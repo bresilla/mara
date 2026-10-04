@@ -56,9 +56,6 @@ pub struct NodeViewState {
     /// (`pixels_per_point` is per-context, so we need a fresh one
     /// to compensate for zoom independently of the host's UI).
     sub_ctx: egui::Context,
-    /// Reserved for future use — currently unread. The visible pan
-    /// lives in `GraphWidget`'s `TSTransform.translation` instead.
-    pan: Vec2,
     /// Visible zoom factor — the value driving sub_ppp +
     /// screen_rect each frame. Smoothly chases `zoom_target` so a
     /// wheel notch produces an animated zoom rather than a jump
@@ -109,7 +106,6 @@ impl NodeViewState {
     pub fn new() -> Self {
         Self {
             sub_ctx: egui::Context::default(),
-            pan: Vec2::ZERO,
             zoom: 1.0,
             zoom_target: 1.0,
             target: None,
@@ -146,16 +142,8 @@ impl NodeViewState {
         v
     }
 
-    pub fn pan(&self) -> Vec2 {
-        self.pan
-    }
-
     pub fn zoom(&self) -> f32 {
         self.zoom
-    }
-
-    pub fn set_pan(&mut self, p: Vec2) {
-        self.pan = p;
     }
 
     /// Clamped to `[0.1, 10.0]` so the user can't zoom into a
@@ -170,11 +158,11 @@ impl NodeViewState {
     }
 
     /// Adjust zoom multiplicatively. `factor > 1` zooms IN
-    /// (matches the natural-convention `zoom` field). The
-    /// `anchor_in_graph` arg is currently unused — anchoring at
-    /// cursor would require nudging the embedded widget's
-    /// `TSTransform.translation`, which lives outside this state.
-    pub fn adjust_zoom(&mut self, factor: f32, _anchor_in_graph: Vec2) {
+    /// (matches the natural-convention `zoom` field). Cursor
+    /// anchoring is not this state's job — it needs the embedded
+    /// widget's `TSTransform.translation`, so it is driven from
+    /// [`show_with_anchor`]'s callback instead.
+    pub fn adjust_zoom(&mut self, factor: f32) {
         self.set_zoom(self.zoom * factor);
     }
 
@@ -280,6 +268,19 @@ pub trait NodeViewBackend {
     /// render pass. wgpu 27's `Device`/`Queue` are cheap to clone
     /// (internally `Arc`-counted), so callers return clones.
     fn wgpu(&self) -> (wgpu::Device, wgpu::Queue);
+
+    /// The host's opaque GPU handle, when it has one.
+    ///
+    /// `None` by default. A host that already owns a
+    /// [`MaraRenderState`](mara_gpu::MaraRenderState) — every
+    /// egui-wgpu host does — should return it, because that is the
+    /// handle `MaraCtx::render_offscreen` needs and the one thing
+    /// `wgpu()` + `target_format()` cannot be reassembled into
+    /// (PLAN.md WS-D1.4). Supplying it is what lets a graph move off
+    /// `node_view`'s bespoke offscreen path onto the seam's.
+    fn gpu(&self) -> Option<mara_gpu::MaraRenderState<'_>> {
+        None
+    }
 
     /// The texture format the PARENT egui renderer outputs to —
     /// the offscreen target uses the same format so colours match
@@ -686,5 +687,95 @@ fn translate_event_to_sub(ev: &mut egui::Event, rect: Rect, pos_scale: f32) {
             *delta *= pos_scale;
         }
         _ => {}
+    }
+}
+
+/// Characterisation tests for the pan/zoom state machine.
+///
+/// PLAN.md WS-D1.4 replaces `node_view::show` wholesale with
+/// `ViewCtx::offscreen`, and D1.1 notes the migration was unverifiable
+/// for want of a harness — this crate ships one test for 4 457 lines.
+/// Rendering cannot be characterised cheaply, but `NodeViewState` can:
+/// it is pure state, and every behaviour below is one the replacement
+/// has to reproduce or knowingly change.
+#[cfg(test)]
+mod state_characterisation {
+    use super::*;
+
+    #[test]
+    fn a_fresh_state_is_unzoomed() {
+        let state = NodeViewState::new();
+        assert_eq!(state.zoom(), 1.0);
+    }
+
+    #[test]
+    fn zoom_clamps_to_the_usable_range() {
+        let mut state = NodeViewState::new();
+
+        state.set_zoom(1000.0);
+        assert_eq!(state.zoom(), 10.0, "zoom in saturates at 10x");
+
+        state.set_zoom(0.0001);
+        assert_eq!(state.zoom(), 0.1, "zoom out saturates at 0.1x");
+
+        state.set_zoom(-5.0);
+        assert_eq!(state.zoom(), 0.1, "a negative zoom is not a flip");
+    }
+
+    #[test]
+    fn adjust_zoom_is_multiplicative_and_factor_above_one_zooms_in() {
+        let mut state = NodeViewState::new();
+        state.set_zoom(2.0);
+
+        state.adjust_zoom(1.5);
+        assert_eq!(state.zoom(), 3.0);
+
+        state.adjust_zoom(0.5);
+        assert_eq!(state.zoom(), 1.5);
+    }
+
+    /// The subtle one. Clamping happens on *each* `set_zoom`, not on a
+    /// separately-tracked ideal, so an over-zoom is lost rather than
+    /// remembered: 100x clamps to 10x, and halving from there gives 5x,
+    /// not 50x. A reimplementation that keeps an unclamped accumulator
+    /// would pass every other test here and fail this one.
+    #[test]
+    fn clamping_is_not_recoverable() {
+        let mut state = NodeViewState::new();
+        state.set_zoom(100.0);
+        assert_eq!(state.zoom(), 10.0);
+
+        state.adjust_zoom(0.5);
+        assert_eq!(state.zoom(), 5.0, "the discarded 90x must not come back");
+    }
+
+    #[test]
+    fn repeated_zoom_out_saturates_rather_than_underflowing() {
+        let mut state = NodeViewState::new();
+        for _ in 0..50 {
+            state.adjust_zoom(0.5);
+        }
+        assert_eq!(state.zoom(), 0.1);
+        assert!(state.zoom() > 0.0, "zoom must never reach a degenerate 0");
+    }
+
+    #[test]
+    fn the_first_frame_gate_opens_exactly_once() {
+        let mut state = NodeViewState::new();
+        assert!(state.take_first_frame(), "first call gates setup in");
+        assert!(!state.take_first_frame());
+        assert!(!state.take_first_frame());
+    }
+
+    /// `set_zoom` moves the smoothing target too, so an external caller
+    /// (the resize-fit reset) snaps instead of animating. Observable
+    /// only through the absence of drift: nothing further changes the
+    /// zoom once set.
+    #[test]
+    fn set_zoom_snaps_rather_than_animating() {
+        let mut state = NodeViewState::new();
+        state.set_zoom(4.0);
+        assert_eq!(state.zoom(), 4.0);
+        assert_eq!(state.zoom(), 4.0, "no interpolation without a frame");
     }
 }

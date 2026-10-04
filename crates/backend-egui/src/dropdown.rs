@@ -36,7 +36,6 @@ use mara_core::{
     vocab::{Align2, Color32, Id, Pos2, Rect, Stroke, Vec2},
 };
 
-
 /// Render a dropdown at the default [`DROPDOWN_ROW_H`] height.
 /// `id_salt` disambiguates this dropdown's popup id from siblings in
 /// the same `Ui` (a string, an enum value, an index — anything
@@ -304,6 +303,101 @@ mod tests {
     use mara_core::vocab::Id;
 
     use mara_core::backend::record::RecordingBackend;
+
+    fn dropdown_frame(
+        ctx: &egui::Context,
+        selected: &mut usize,
+        events: Vec<egui::Event>,
+    ) -> (MaraResponse, bool, egui::FullOutput) {
+        ctx.begin_pass(egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(400.0, 300.0),
+            )),
+            events,
+            ..Default::default()
+        });
+        let mut root = egui::Ui::new(ctx.clone(), egui::Id::new("root"), egui::UiBuilder::new());
+        let inner = egui::CentralPanel::default().show_inside(&mut root, |ui| {
+            ui.set_width(200.0);
+            let response = dropdown(ui, "test", selected, &["First", "Second"], Color32::WHITE);
+            let popup_id = crate::ui_id(ui).with(("mara_dropdown", &"test"));
+            let store = crate::store_for_ui(ui);
+            let memory = mara_core::memory::MaraMemoryCtx::new(&store);
+            let open = mara_core::popup::PopupState::load(&memory, popup_id).is_open();
+            (response, open)
+        });
+        (inner.inner.0, inner.inner.1, ctx.end_pass())
+    }
+
+    fn pointer_button(pos: egui::Pos2, pressed: bool) -> Vec<egui::Event> {
+        vec![
+            egui::Event::PointerMoved(pos),
+            egui::Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Primary,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            },
+        ]
+    }
+
+    #[test]
+    fn dropdown_click_opens_paints_selects_and_dismisses() {
+        let ctx = egui::Context::default();
+        let mut selected = 0;
+        let (response, open, _) = dropdown_frame(&ctx, &mut selected, vec![]);
+        assert!(!open);
+        let pos: egui::Pos2 = response.rect.center().into();
+        dropdown_frame(&ctx, &mut selected, pointer_button(pos, true));
+        let (response, open, _) = dropdown_frame(&ctx, &mut selected, pointer_button(pos, false));
+        assert!(response.clicked());
+        assert!(open, "click must open the dropdown");
+        let (_, open, output) = dropdown_frame(&ctx, &mut selected, vec![]);
+        assert!(open, "dropdown must stay open across frames");
+        let option_pos = output
+            .shapes
+            .iter()
+            .find_map(|shape| match &shape.shape {
+                egui::Shape::Text(text) if text.galley.job.text == "Second" => {
+                    Some(text.pos + text.galley.size() * 0.5)
+                }
+                _ => None,
+            })
+            .expect("open dropdown must paint its options");
+        dropdown_frame(&ctx, &mut selected, pointer_button(option_pos, true));
+        let (response, open, _) =
+            dropdown_frame(&ctx, &mut selected, pointer_button(option_pos, false));
+        assert_eq!(selected, 1);
+        assert!(response.changed());
+        assert!(!open, "selecting an option must close the dropdown");
+
+        dropdown_frame(&ctx, &mut selected, vec![]);
+        dropdown_frame(&ctx, &mut selected, pointer_button(pos, true));
+        let (_, open, _) = dropdown_frame(&ctx, &mut selected, pointer_button(pos, false));
+        assert!(open);
+        dropdown_frame(&ctx, &mut selected, vec![]);
+        let outside = egui::pos2(350.0, 250.0);
+        dropdown_frame(&ctx, &mut selected, pointer_button(outside, true));
+        let (_, open, _) = dropdown_frame(&ctx, &mut selected, pointer_button(outside, false));
+        assert!(!open, "clicking outside must close the dropdown");
+    }
+
+    #[test]
+    fn response_handle_recovers_original_backend_response() {
+        let ctx = egui::Context::default();
+        ctx.begin_pass(egui::RawInput::default());
+        let mut root = egui::Ui::new(ctx.clone(), egui::Id::new("root"), egui::UiBuilder::new());
+        egui::CentralPanel::default().show_inside(&mut root, |ui| {
+            let raw = ui.button("Trigger");
+            let response = crate::mara_response_from(&raw);
+            let recovered = crate::with_response(&ctx, response.backend_response_id(), |stored| {
+                (stored.id, stored.rect)
+            });
+            assert_eq!(recovered, Some((raw.id, raw.rect)));
+        });
+        let _ = ctx.end_pass();
+    }
 
     #[test]
     fn dropdown_trigger_backend_emits_chrome_selected_text_and_chevron() {

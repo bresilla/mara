@@ -8,7 +8,14 @@
 
 use std::time::Duration;
 
-use mara_core::{ViewCtx, vocab::Color32 as MaraColor32};
+use mara_backend_egui::EguiCtx;
+use mara_core::MaraPainter;
+use mara_core::context::MaraCtx;
+use mara_core::layout::Layer;
+use mara_core::vocab::{
+    Align2 as MaraAlign2, Pos2 as MaraPos2, Stroke as MaraStroke, TextureId as MaraTextureId,
+};
+use mara_core::{ViewCtx, vocab::Color32 as MaraColor32, vocab::Rect as MaraRect};
 
 use crate::{BevyEmbeddedView, BevyViewportInput, BevyViewportWgpuResources};
 
@@ -85,9 +92,16 @@ impl MaraBevyViewport {
         }
     }
 
-    pub fn with_render_state(render_state: Option<&egui_wgpu::RenderState>) -> Self {
+    /// A viewport that takes its wgpu resources at construction.
+    ///
+    /// Takes the opaque [`MaraRenderState`](mara_gpu::MaraRenderState)
+    /// rather than a raw `egui_wgpu::RenderState` (PLAN.md WS-C1.4), so
+    /// an app can build one at startup from
+    /// `CreationContext::gpu()` without naming a backend type.
+    pub fn with_render_state(render_state: Option<mara_gpu::MaraRenderState<'_>>) -> Self {
         let bevy = render_state
             .map(|render_state| {
+                let render_state = render_state.__internal_raw();
                 BevyEmbeddedView::with_wgpu_resources(BevyViewportWgpuResources::new(
                     render_state.device.clone(),
                     render_state.queue.clone(),
@@ -111,11 +125,14 @@ impl MaraBevyViewport {
         }
     }
 
+    /// [`with_render_state`](Self::with_render_state) with an app
+    /// configurator, for a viewport whose Bevy world needs setting up.
     pub fn with_render_state_and_content(
-        render_state: Option<&egui_wgpu::RenderState>,
+        render_state: Option<mara_gpu::MaraRenderState<'_>>,
         configure_app: impl Fn(&mut bevy::prelude::App) + Send + Sync + 'static,
     ) -> Self {
         let bevy = if let Some(render_state) = render_state {
+            let render_state = render_state.__internal_raw();
             BevyEmbeddedView::with_wgpu_resources_and_app_config(
                 BevyViewportWgpuResources::new(
                     render_state.device.clone(),
@@ -171,7 +188,7 @@ impl MaraBevyViewport {
     /// Like [`Self::with_render_state_and_content`], with a hook that adjusts
     /// the embedded app's `DefaultPlugins` before they are added.
     pub fn with_render_state_plugins_and_content(
-        render_state: Option<&egui_wgpu::RenderState>,
+        render_state: Option<mara_gpu::MaraRenderState<'_>>,
         configure_plugins: impl Fn(bevy::app::PluginGroupBuilder) -> bevy::app::PluginGroupBuilder
         + Send
         + Sync
@@ -201,25 +218,45 @@ impl MaraBevyViewport {
         let mut picked_color = None;
         let region_rect: egui::Rect = ctx.screen_rect().into();
         {
-            egui::Area::new(egui::Id::new(("mara_bevy_viewport_area", self.instance)))
-                .order(egui::Order::Background)
-                .fixed_pos(region_rect.min)
-                .show(ctx.__internal_egui_ctx(), |ui| {
-                    ui.set_clip_rect(region_rect);
+            // The surface comes from `ViewCtx::body_at` rather than a
+            // hand-built `egui::Area` (PLAN.md WS-C1.3). `Layer::Background`
+            // maps to `Order::Background`, the origin is still fixed at the
+            // region's min, and areas stay interactable — the body below
+            // relies on that for its own `interact` call.
+            //
+            // One deliberate difference: the area id is now scoped to the
+            // workspace (`body_at` salts with `workspace.current().id`), so
+            // two workspaces each showing a viewport no longer share one
+            // area's state. `movable` also goes explicitly false, which the
+            // fixed position already made true in practice.
+            //
+            // The body still takes a raw `Ui`: it registers wgpu textures
+            // and drives an `egui_wgpu` render state, host-tier work the
+            // seam deliberately does not model.
+            ctx.body_at(
+                ("mara_bevy_viewport_area", self.instance),
+                MaraRect::from(region_rect),
+                Layer::Background,
+                |mara| {
                     let rect = region_rect;
-                    let painter = ui.painter_at(rect);
+                    // Taken before the raw `Ui`, which borrows `mara` for
+                    // the rest of the body. `with_clip` is the seam's
+                    // `painter_at`.
+                    let painter = mara.painter().with_clip(MaraRect::from(rect));
+                    let ui = mara.__internal_raw_ui();
+                    ui.set_clip_rect(region_rect);
                     let theme = mara_core::style::theme();
                     painter.rect_filled(rect, 0.0, theme.palette.bg_panel);
                     if rect.width() < 16.0 || rect.height() < 16.0 {
                         if let Some(texture_id) = self.native_texture {
                             paint_texture_id_cover(
                                 &painter,
-                                texture_id,
+                                texture_id.into(),
                                 self.native_texture_size,
-                                rect,
+                                rect.into(),
                             );
                         } else if let Some(texture) = &self.texture {
-                            paint_texture_cover(&painter, texture, rect);
+                            paint_texture_cover(&painter, texture, rect.into());
                         }
                         ui.ctx()
                             .request_repaint_after(Duration::from_secs_f64(1.0 / 12.0));
@@ -242,7 +279,7 @@ impl MaraBevyViewport {
                         egui::Sense::click_and_drag(),
                     );
                     let ppp = ui.ctx().pixels_per_point();
-                    let now = ui.ctx().input(|i| i.time);
+                    let now = MaraCtx::now(&EguiCtx::new(ui.ctx()));
                     let target_pixels = internal_render_pixels(rect.size(), ppp);
                     if self.resize_target_pixels != target_pixels {
                         self.resize_target_pixels = target_pixels;
@@ -273,24 +310,28 @@ impl MaraBevyViewport {
                     // UI clicks into the Bevy camera/picker below.
                     let viewport_hovered = response.hovered();
                     let pointer_pos = if viewport_hovered || self.primary_drag_active {
-                        ui.ctx().input(|i| i.pointer.interact_pos())
+                        MaraCtx::input(&EguiCtx::new(ui.ctx()))
+                            .interact_pointer
+                            .map(Into::into)
                     } else {
                         response.hover_pos()
                     };
-                    let (primary_down, primary_pressed, middle_down, middle_pressed, scroll_delta) =
-                        ui.ctx().input(|i| {
-                            (
-                                i.pointer.primary_down(),
-                                i.pointer.button_pressed(egui::PointerButton::Primary),
-                                i.pointer.middle_down(),
-                                i.pointer.button_pressed(egui::PointerButton::Middle),
-                                if viewport_hovered {
-                                    i.smooth_scroll_delta.y / 120.0
-                                } else {
-                                    0.0
-                                },
-                            )
-                        });
+                    // Through `MaraInput` rather than a raw egui input
+                    // closure — every flag this used to hand-roll now
+                    // exists on the seam (PLAN.md WS-C1.3). The `/120.0`
+                    // stays explicit: `MaraInput::scroll_delta` is the
+                    // raw smooth delta in points, and this viewport wants
+                    // wheel *notches*.
+                    let seam_input = MaraCtx::input(&EguiCtx::new(ui.ctx()));
+                    let primary_down = seam_input.primary_down;
+                    let primary_pressed = seam_input.primary_pressed;
+                    let middle_down = seam_input.middle_down;
+                    let middle_pressed = seam_input.middle_pressed;
+                    let scroll_delta = if viewport_hovered {
+                        seam_input.scroll_delta.y / 120.0
+                    } else {
+                        0.0
+                    };
                     let viewport_drag_started =
                         viewport_hovered && (primary_pressed || middle_pressed);
                     if viewport_drag_started {
@@ -350,6 +391,9 @@ impl MaraBevyViewport {
                     let input_active = viewport_dragged
                         || primary_clicked
                         || response.hovered() && viewport_input.scroll_delta.abs() > f32::EPSILON
+                        // Still raw: `MaraInput` has no `any_down`, and
+                        // composing it from primary/secondary/middle would
+                        // silently drop egui's Extra1/Extra2 buttons.
                         || response.hovered() && ui.ctx().input(|i| i.pointer.any_down());
                     let target_size = [pixels[0] as usize, pixels[1] as usize];
                     let native_texture_needs_committed_frame =
@@ -382,6 +426,10 @@ impl MaraBevyViewport {
 
                     if should_render {
                         self.last_render_time = now;
+                        // Still raw: `MaraCtx::dt()` is egui's
+                        // *unstable* dt. This is a render-pacing value
+                        // and wants the smoothed one, so substituting
+                        // would change behaviour rather than relocate it.
                         let dt = ui.ctx().input(|i| i.stable_dt);
                         let render_attempts = 1;
                         for attempt in 0..render_attempts {
@@ -472,14 +520,14 @@ impl MaraBevyViewport {
                     if let Some(texture_id) = self.native_texture {
                         paint_texture_id_cover(
                             &painter,
-                            texture_id,
+                            texture_id.into(),
                             self.native_texture_size,
-                            rect,
+                            rect.into(),
                         );
                     } else if let Some(texture) = &self.texture {
-                        paint_texture_cover(&painter, texture, rect);
+                        paint_texture_cover(&painter, texture, rect.into());
                     } else if self.texture.is_none() {
-                        self.paint_warmup(ui, rect, accent);
+                        self.paint_warmup(&painter, rect.into(), accent);
                     }
 
                     picked_color = self.bevy.picked_color();
@@ -499,42 +547,48 @@ impl MaraBevyViewport {
                             next,
                             ui.ctx().input(|input| input.predicted_dt),
                         ));
-                });
+                },
+            );
         }
         picked_color
     }
 
-    fn paint_warmup(&self, ui: &egui::Ui, rect: egui::Rect, accent: MaraColor32) {
-        let painter = ui.painter_at(rect);
+    /// The placeholder grid shown until Bevy's first frame lands.
+    ///
+    /// Entirely `MaraPainter` (PLAN.md WS-C1.3) — lines, text and a
+    /// colour, none of which needs a backend type.
+    fn paint_warmup(&self, painter: &MaraPainter, rect: MaraRect, accent: MaraColor32) {
         let grid = 36.0;
-        let grid_col =
-            egui::Color32::from_rgba_unmultiplied(accent.r(), accent.g(), accent.b(), 28);
+        let grid_col = MaraColor32::from_rgba_unmultiplied(accent.r(), accent.g(), accent.b(), 28);
+        let stroke = MaraStroke::new(1.0, grid_col);
         let mut x = rect.left();
         while x < rect.right() {
             painter.line_segment(
-                [egui::pos2(x, rect.top()), egui::pos2(x, rect.bottom())],
-                egui::Stroke::new(1.0, grid_col),
+                MaraPos2::new(x, rect.top()),
+                MaraPos2::new(x, rect.bottom()),
+                stroke,
             );
             x += grid;
         }
         let mut y = rect.top();
         while y < rect.bottom() {
             painter.line_segment(
-                [egui::pos2(rect.left(), y), egui::pos2(rect.right(), y)],
-                egui::Stroke::new(1.0, grid_col),
+                MaraPos2::new(rect.left(), y),
+                MaraPos2::new(rect.right(), y),
+                stroke,
             );
             y += grid;
         }
         painter.text(
             rect.center(),
-            egui::Align2::CENTER_CENTER,
+            MaraAlign2::CENTER_CENTER,
             if self.bevy.renderer_failed() {
                 "embedded Bevy renderer unavailable: no wgpu adapter"
             } else {
                 "warming up embedded Bevy renderer…"
             },
-            egui::FontId::proportional(13.0),
-            mara_core::style::on_panel().into(),
+            13.0,
+            mara_core::style::on_panel(),
         );
     }
 }
@@ -632,18 +686,24 @@ fn resize_settle_seconds() -> f64 {
     }
 }
 
-fn paint_texture_cover(painter: &egui::Painter, texture: &egui::TextureHandle, rect: egui::Rect) {
-    paint_texture_id_cover(painter, texture.id(), texture.size(), rect);
+/// Draw `texture` filling `rect`, cropping rather than stretching.
+fn paint_texture_cover(painter: &MaraPainter, texture: &egui::TextureHandle, rect: MaraRect) {
+    paint_texture_id_cover(painter, texture.id().into(), texture.size(), rect);
 }
 
+/// [`paint_texture_cover`] for a texture the host registered itself.
+///
+/// Through `MaraPainter` (PLAN.md WS-C1.3): the aspect-fit maths was
+/// already backend-neutral, and `MaraPainter::image` takes the same
+/// texture/uv/tint triple the raw painter did.
 fn paint_texture_id_cover(
-    painter: &egui::Painter,
-    texture_id: egui::TextureId,
+    painter: &MaraPainter,
+    texture_id: MaraTextureId,
     texture_size: [usize; 2],
-    rect: egui::Rect,
+    rect: MaraRect,
 ) {
     let [texture_width, texture_height] = texture_size;
-    if texture_width == 0 || texture_height == 0 || !rect.is_positive() {
+    if texture_width == 0 || texture_height == 0 || !(rect.width() > 0.0 && rect.height() > 0.0) {
         return;
     }
 
@@ -654,14 +714,14 @@ fn paint_texture_id_cover(
         // cropping top/bottom instead of stretching.
         let visible_v = (texture_aspect / rect_aspect).clamp(0.0, 1.0);
         let pad_v = (1.0 - visible_v) * 0.5;
-        egui::Rect::from_min_max(egui::pos2(0.0, pad_v), egui::pos2(1.0, 1.0 - pad_v))
+        MaraRect::from_min_max(MaraPos2::new(0.0, pad_v), MaraPos2::new(1.0, 1.0 - pad_v))
     } else {
         // The viewport is taller/narrower than the old frame. Cover
         // the rect by cropping left/right instead of stretching.
         let visible_u = (rect_aspect / texture_aspect).clamp(0.0, 1.0);
         let pad_u = (1.0 - visible_u) * 0.5;
-        egui::Rect::from_min_max(egui::pos2(pad_u, 0.0), egui::pos2(1.0 - pad_u, 1.0))
+        MaraRect::from_min_max(MaraPos2::new(pad_u, 0.0), MaraPos2::new(1.0 - pad_u, 1.0))
     };
 
-    painter.image(texture_id, rect, uv, egui::Color32::WHITE);
+    painter.image(texture_id, rect, uv, MaraColor32::WHITE);
 }

@@ -1,4 +1,3 @@
-use egui::{Painter, Style};
 use mara_core::MaraUi;
 use mara_core::vocab::{Pos2, Rect};
 
@@ -57,31 +56,6 @@ pub trait NodeViewer<T> {
         let _ = (node, inputs, outputs, graph);
         default
     }
-    /// Checks if node has a custom egui style.
-    #[inline]
-    fn has_node_style(
-        &mut self,
-        node: NodeId,
-        inputs: &[InPin],
-        outputs: &[OutPin],
-        graph: &Graph<T>,
-    ) -> bool {
-        let _ = (node, inputs, outputs, graph);
-        false
-    }
-
-    /// Modifies the node's egui style
-    fn apply_node_style(
-        &mut self,
-        style: &mut Style,
-        node: NodeId,
-        inputs: &[InPin],
-        outputs: &[OutPin],
-        graph: &Graph<T>,
-    ) {
-        let _ = (style, node, inputs, outputs, graph);
-    }
-
     /// Returns elements layout for the node.
     ///
     /// Node consists of 5 parts: header, body, footer, input pins and output pins.
@@ -121,10 +95,134 @@ pub trait NodeViewer<T> {
         ui.label(&self.title(&graph[node]));
     }
 
+    /// How this node should be dressed — accent, status, badges,
+    /// thumbnail, silhouette.
+    ///
+    /// The crate supplies the machinery and never the meaning: a logic
+    /// simulator returns a status here, an automation editor returns a
+    /// run state, an ML pipeline returns a preview texture, and the
+    /// crate draws all three the same way. `tier` says how far the view
+    /// is zoomed out, so an app-drawn body can degrade in step rather
+    /// than rendering a full chart onto a 12-pixel rectangle.
+    ///
+    /// Called once per visible node per frame; keep it cheap.
+    #[inline]
+    fn node_chrome(
+        &mut self,
+        node: NodeId,
+        tier: crate::vendored::chrome::DetailTier,
+        graph: &Graph<T>,
+    ) -> crate::vendored::chrome::NodeChrome {
+        let _ = (node, tier, graph);
+        crate::vendored::chrome::NodeChrome::lit()
+    }
+
+    /// How this wire should be drawn — colours at each end, width,
+    /// routing, flow animation, label.
+    #[inline]
+    fn wire_fx(
+        &mut self,
+        from: &OutPinId,
+        to: &InPinId,
+        graph: &Graph<T>,
+    ) -> crate::vendored::chrome::WireFx {
+        let _ = (from, to, graph);
+        crate::vendored::chrome::WireFx::lit()
+    }
+
+    /// Paint over a node, after its body and pins.
+    ///
+    /// The escape hatch for anything [`NodeViewer::node_chrome`] cannot
+    /// express — a probe readout, a per-node overlay, a measurement.
+    /// `rect` is the node's final rect in graph space.
+    #[inline]
+    fn decorate_node(
+        &mut self,
+        node: NodeId,
+        rect: Rect,
+        tier: crate::vendored::chrome::DetailTier,
+        painter: &mara_core::mui::MaraPainter,
+        graph: &Graph<T>,
+    ) {
+        let _ = (node, rect, tier, painter, graph);
+    }
+
+    /// Override the box drawn for a frame group.
+    #[inline]
+    fn frame_spec(
+        &mut self,
+        default: mara_core::style::FrameSpec,
+        frame: crate::vendored::frames::FrameId,
+        depth: u32,
+        graph: &Graph<T>,
+    ) -> mara_core::style::FrameSpec {
+        let _ = (frame, depth, graph);
+        default
+    }
+
+    /// Mint the payload for a subgraph instance node.
+    ///
+    /// Collapsing a selection creates a node the app never asked for,
+    /// and `Graph<T>` carries no bound that would let the crate build a
+    /// `T` itself. Returning `None` — the default — declines, which
+    /// aborts the collapse and leaves the document untouched, so an app
+    /// that has no notion of subgraphs simply cannot trigger one.
+    #[inline]
+    fn make_instance_node(
+        &mut self,
+        def: crate::vendored::subgraph::DefId,
+        name: &str,
+        ports: &crate::vendored::subgraph::Ports,
+    ) -> Option<T> {
+        let _ = (def, name, ports);
+        None
+    }
+
+    /// Mint the payload for a boundary node — one per derived port,
+    /// living inside the definition and standing for the outside world.
+    ///
+    /// Same contract as [`NodeViewer::make_instance_node`].
+    #[inline]
+    fn make_port_node(&mut self, spec: &crate::vendored::subgraph::PortSpec<'_>) -> Option<T> {
+        let _ = spec;
+        None
+    }
+
     /// Returns number of input pins of the node.
     ///
     /// [`NodeViewer::show_input`] will be called for each input in range `0..inputs()`.
     fn inputs(&mut self, node: &T) -> usize;
+
+    /// [`NodeViewer::inputs`], but told *which* node it is asking about.
+    ///
+    /// The renderer calls this rather than the payload-only form, and
+    /// the default just forwards — so an existing viewer is unaffected.
+    /// It exists because some nodes are not the app's at all: a
+    /// subgraph instance's pin count comes from its definition's
+    /// interface, and a wrapper cannot answer that from `&T` alone
+    /// since `&T` does not say which node it belongs to.
+    #[inline]
+    fn inputs_of(&mut self, node: NodeId, graph: &Graph<T>) -> usize {
+        self.inputs(&graph[node])
+    }
+
+    /// See [`NodeViewer::inputs_of`].
+    #[inline]
+    fn outputs_of(&mut self, node: NodeId, graph: &Graph<T>) -> usize {
+        self.outputs(&graph[node])
+    }
+
+    /// See [`NodeViewer::inputs_of`].
+    #[inline]
+    fn title_of(&mut self, node: NodeId, graph: &Graph<T>) -> String {
+        self.title(&graph[node])
+    }
+
+    /// See [`NodeViewer::inputs_of`].
+    #[inline]
+    fn has_body_of(&mut self, node: NodeId, graph: &Graph<T>) -> bool {
+        self.has_body(&graph[node])
+    }
 
     /// Renders one specified node's input element and returns drawer for the corresponding pin.
     fn show_input(
@@ -345,25 +443,20 @@ pub trait NodeViewer<T> {
         background: Option<&BackgroundPattern>,
         viewport: &Rect,
         graph_style: &GraphStyle,
-        style: &Style,
-        painter: &Painter,
+        painter: &mara_core::mui::MaraPainter,
         graph: &Graph<T>,
     ) {
         let _ = graph;
 
         if let Some(background) = background {
-            // The background pattern is fully ported to `MaraPainter`
-            // (WS-D1.3); the surrounding renderer is not yet, so the
-            // stroke resolves and the painter wraps here, at the seam
-            // that shrinks as the rest of the port lands.
-            let stroke = graph_style.get_bg_pattern_stroke(style);
+            let stroke = graph_style.get_bg_pattern_stroke();
             background.draw(
-                &(*viewport).into(),
+                viewport,
                 mara_core::vocab::Stroke::new(
                     stroke.width,
                     mara_core::vocab::Color32::from(stroke.color),
                 ),
-                &mara_backend_egui::__internal_painter_from_egui(painter.clone()),
+                painter,
             );
         }
     }

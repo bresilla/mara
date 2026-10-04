@@ -480,9 +480,6 @@ pub fn title_font_family() -> TextFamily {
     }
 }
 
-
-
-
 /// Darker/muted version of an accent colour — used for "selected" row
 /// fills where the full-strength accent would be too loud.
 #[doc(hidden)]
@@ -2243,6 +2240,83 @@ pub fn touch_density() -> bool {
     ((flags >> 8) & 0x1) != 0
 }
 
+/// Fill behind selected content.
+///
+/// The backend installs this into its own selection visuals, and
+/// surfaces that draw their own selection — a node graph's marquee, for
+/// one — read it from here rather than back out of the backend's style.
+/// Same reasoning as [`interact_row_h`].
+#[must_use]
+pub fn selection_fill() -> MaraColor32 {
+    tinted_surface(theme_accent())
+}
+
+/// Outline around selected content.
+#[must_use]
+pub fn selection_stroke() -> MaraStroke {
+    MaraStroke::new(theme().stroke.border_width.max(1.0), theme_accent())
+}
+
+/// The accent after mode adaptation — what the theme actually paints
+/// with, as opposed to the raw accent the app supplied.
+#[must_use]
+pub fn theme_accent() -> MaraColor32 {
+    let th = theme();
+    let raw = raw_accent();
+    if th.pastel_accent {
+        adapt_accent_to_mode(raw, th.is_light)
+    } else {
+        raw
+    }
+}
+
+/// Gap between consecutive items in a flow, in points.
+///
+/// Touch-scaled like [`interact_row_h`]. Published here so a surface
+/// laying out its own rows — the node graph's ports, for one — spaces
+/// them the same as Mara's widgets, without reading the spacing back out
+/// of the backend's style.
+#[must_use]
+pub fn item_spacing() -> crate::vocab::Vec2 {
+    if touch_density() {
+        crate::vocab::Vec2::new(8.0, 8.0)
+    } else {
+        crate::vocab::Vec2::new(6.0, 3.0)
+    }
+}
+
+/// Height of an interactive row, in points.
+///
+/// Larger at touch density, where a finger needs a bigger target than a
+/// cursor does. Lives here rather than in the backend's theme
+/// application so that surfaces which size themselves against it — the
+/// node graph's pins, for one — read the same number the backend
+/// installs, instead of reading it back out of the backend's style.
+#[must_use]
+pub fn interact_row_h() -> f32 {
+    if touch_density() { 30.0 } else { 20.0 }
+}
+
+/// Default size of an interactive widget, in points.
+///
+/// The height is [`interact_row_h`]; the width is the conventional
+/// 40 pt the backend leaves at its default. Published for surfaces that
+/// need a size to lay out against *before* they have measured their own
+/// content — the node graph sizes a freshly-inserted node from this on
+/// its first frame, then re-measures. Reading it here rather than out of
+/// the backend's style is what keeps such a surface sealed.
+#[must_use]
+pub fn interact_size() -> crate::vocab::Vec2 {
+    crate::vocab::Vec2::new(40.0, interact_row_h())
+}
+
+/// Width of a widget icon, in points. Touch-scaled like
+/// [`interact_row_h`].
+#[must_use]
+pub fn icon_width() -> f32 {
+    if touch_density() { 18.0 } else { 14.0 }
+}
+
 /// Read the full per-frame screen metrics snapshot.
 #[must_use]
 pub fn screen_metrics() -> ScreenMetrics {
@@ -2560,6 +2634,12 @@ pub enum FrameRole {
     /// background, a plot field. The sealed replacement for a backend's
     /// "canvas" frame preset.
     Canvas,
+    /// A translucent box drawn *behind* a set of siblings to show they
+    /// belong together — a node-graph frame group, a region annotation.
+    /// Unlike [`FrameRole::Window`] it is background, not surface: the
+    /// fill is faint enough to read the canvas through, and the stroke
+    /// carries the identity.
+    Group,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -2889,6 +2969,15 @@ pub fn frame_for(role: FrameRole, accent: impl Into<MaraColor32>) -> FrameSpec {
             stroke_for(StrokeRole::WidgetBorder, accent),
             radius_for(RadiusRole::Section),
             MarginSpec::symmetric(2, 2),
+        ),
+        // Faint fill, visible stroke: a group box has to be readable as
+        // a boundary without hiding the canvas pattern inside it, and
+        // callers tint both from the group's own colour anyway.
+        FrameRole::Group => FrameSpec::new(
+            fill_for(FillRole::Track, accent).gamma_multiply(0.35),
+            stroke_for(StrokeRole::SectionBorder, accent),
+            radius_for(RadiusRole::Section),
+            MarginSpec::symmetric(8, 8),
         ),
     }
 }

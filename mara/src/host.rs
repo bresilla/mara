@@ -253,15 +253,6 @@ impl<'a> MaraHostCtx<'a> {
         self.egui
     }
 
-    /// Internal first-party accessor — exposes the raw egui-wgpu render
-    /// state, so it is hidden and not semver-stable. Sealed consumers
-    /// get GPU wiring through the published context state
-    /// (`view_ctx` publishes the target format) instead.
-    #[doc(hidden)]
-    pub fn __internal_render_state(&self) -> Option<&'a egui_wgpu::RenderState> {
-        self.render_state
-    }
-
     /// Opaque GPU handle for GPU-module `show` calls (Bevy viewport,
     /// 3D). Sealed: the app passes it through without ever seeing the
     /// underlying egui-wgpu types (ADR 0002).
@@ -408,7 +399,12 @@ impl<'a> MaraHostCtx<'a> {
                 d.insert_temp(egui::Id::new("mara_gpu_target_format"), state.target_format);
             });
         }
-        mara_backend_egui::theme::__internal_view_ctx(self.egui, workspace, accent, ribbon_avoidance)
+        mara_backend_egui::theme::__internal_view_ctx(
+            self.egui,
+            workspace,
+            accent,
+            ribbon_avoidance,
+        )
     }
 
     /// Publish the layout rectangle left after structural shelves reserve
@@ -490,6 +486,15 @@ impl<'a> MaraHostCtx<'a> {
     /// toggled off.
     pub fn restore_fullscreen(&self) -> bool {
         mara_core::embed::__internal_restore_fullscreen(&self.seam())
+    }
+
+    /// Did `key` go down this frame?
+    ///
+    /// For host-level shortcuts that must work whatever surface has
+    /// focus — the escape hatch out of a full-window widget, above all.
+    #[must_use]
+    pub fn key_pressed(&self, key: mara_core::mui::MaraKey) -> bool {
+        mara_core::context::MaraCtx::input(&self.seam()).key_pressed(key)
     }
 
     /// Apply the current Mara theme with default host state.
@@ -792,6 +797,13 @@ impl<'a> EframeNodeViewBackend<'a> {
 
 #[cfg(feature = "graph")]
 impl<'a> mara_graph::node_view::NodeViewBackend for EframeNodeViewBackend<'a> {
+    /// This host was *built* from a `MaraRenderState`, so handing one
+    /// back costs nothing and is what lets the graph use the seam's
+    /// offscreen path (PLAN.md WS-D1.4).
+    fn gpu(&self) -> Option<mara_gpu::MaraRenderState<'_>> {
+        Some(mara_gpu::MaraRenderState::__internal_new(self.render_state))
+    }
+
     fn wgpu(&self) -> (wgpu::Device, wgpu::Queue) {
         (
             self.render_state.device.clone(),

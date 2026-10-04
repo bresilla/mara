@@ -51,7 +51,6 @@ fn shrink_region_by_ribbon_edges(region: MaraRect, edges: [bool; 4]) -> MaraRect
 }
 
 impl<'a> ViewCtx<'a> {
-
     /// Build a child context scoped to a fixed `rect` (one cell of a
     /// [`ViewNode`](crate::ViewNode)), with its own `workspace`. Its
     /// `content_rect`/`screen_rect` report that rect, so the hosted view
@@ -346,8 +345,7 @@ impl<'a> ViewCtx<'a> {
         mut body: impl FnMut(&mut MaraUi<'_>),
     ) -> Option<crate::vocab::TextureId> {
         let origin = origin.into();
-        crate::backend::egui::render_offscreen(
-            self.egui_ctx,
+        self.seam.render_offscreen(
             gpu,
             self.workspace.current().id.with(salt),
             origin.size(),
@@ -366,21 +364,28 @@ impl<'a> ViewCtx<'a> {
     /// surface-local; a pointer outside `origin` reads as absent, so the
     /// surface does not react to clicks that landed elsewhere.
     #[cfg(feature = "gpu")]
-    fn offscreen_input(&self, origin: MaraRect) -> crate::backend::egui::OffscreenInput {
+    fn offscreen_input(&self, origin: MaraRect) -> crate::context::OffscreenInput {
         let snapshot = self.input();
         let pointer = snapshot
             .pointer
             .filter(|p| origin.contains(*p))
             .map(|p| crate::vocab::Pos2::new(p.x - origin.min.x, p.y - origin.min.y));
-        crate::backend::egui::OffscreenInput {
+        crate::context::OffscreenInput {
             pointer,
             primary_down: snapshot.primary_down,
             secondary_down: snapshot.secondary_down,
             middle_down: snapshot.middle_down,
             scroll_delta: snapshot.scroll_delta,
+            pointer_delta: snapshot.pointer_delta,
+            // `MaraInput` carries no touch yet — a host that forwards
+            // one sets this itself. Left `None` rather than synthesised
+            // from the pointer: a fake touch is worse than no touch,
+            // because gesture code cannot tell it from a real one.
+            touch: None,
             modifiers_shift: snapshot.modifiers_shift,
             modifiers_ctrl: snapshot.modifiers_ctrl,
             modifiers_alt: snapshot.modifiers_alt,
+            modifiers_command: snapshot.modifiers_command,
         }
     }
 

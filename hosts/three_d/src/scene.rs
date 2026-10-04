@@ -1654,7 +1654,7 @@ pub struct Scene3d {
 impl Scene3d {
     #[must_use]
     pub fn new(title: impl Into<String>) -> Self {
-        let accent: egui::Color32 = mara_core::style::active_accent().into();
+        let accent = mara_core::style::active_accent();
         Self {
             title: title.into(),
             camera: Camera3d::default(),
@@ -1689,60 +1689,60 @@ impl Scene3d {
     #[must_use]
     pub fn demo(title: impl Into<String>) -> Self {
         let mut scene = Self::new(title);
-        let accent: egui::Color32 = mara_core::style::active_accent().into();
+        let accent = mara_core::style::active_accent();
         let mint = scene.add_material(
             "Mint",
-            tint_color(egui::Color32::from_rgb(68, 230, 160), accent, 0.14),
+            tint_color(MaraColor32::from_rgb(68, 230, 160), accent, 0.14),
         );
         let sky = scene.add_material(
             "Sky",
-            tint_color(egui::Color32::from_rgb(76, 166, 255), accent, 0.12),
+            tint_color(MaraColor32::from_rgb(76, 166, 255), accent, 0.12),
         );
         let amber = scene.add_material(
             "Amber",
-            tint_color(egui::Color32::from_rgb(255, 184, 72), accent, 0.12),
+            tint_color(MaraColor32::from_rgb(255, 184, 72), accent, 0.12),
         );
         let violet = scene.add_material(
             "Violet",
-            tint_color(egui::Color32::from_rgb(178, 116, 255), accent, 0.14),
+            tint_color(MaraColor32::from_rgb(178, 116, 255), accent, 0.14),
         );
         let rose = scene.add_material(
             "Rose",
-            tint_color(egui::Color32::from_rgb(255, 92, 172), accent, 0.12),
+            tint_color(MaraColor32::from_rgb(255, 92, 172), accent, 0.12),
         );
         let lime = scene.add_material(
             "Lime",
-            tint_color(egui::Color32::from_rgb(172, 245, 80), accent, 0.12),
+            tint_color(MaraColor32::from_rgb(172, 245, 80), accent, 0.12),
         );
         let cyan = scene.add_material(
             "Cyan",
-            tint_color(egui::Color32::from_rgb(64, 220, 245), accent, 0.12),
+            tint_color(MaraColor32::from_rgb(64, 220, 245), accent, 0.12),
         );
         let graphite = scene.add_material(
             "Graphite",
-            tint_color(egui::Color32::from_rgb(112, 128, 152), accent, 0.18),
+            tint_color(MaraColor32::from_rgb(112, 128, 152), accent, 0.18),
         );
         let crystal_blue = scene.add_material(
             "Crystal blue",
-            tint_color(egui::Color32::from_rgb(65, 210, 255), accent, 0.10),
+            tint_color(MaraColor32::from_rgb(65, 210, 255), accent, 0.10),
         );
         let crystal_purple = scene.add_material(
             "Crystal purple",
-            tint_color(egui::Color32::from_rgb(185, 105, 255), accent, 0.12),
+            tint_color(MaraColor32::from_rgb(185, 105, 255), accent, 0.12),
         );
         let crystal_gold = scene.add_material(
             "Crystal gold",
-            tint_color(egui::Color32::from_rgb(255, 190, 70), accent, 0.10),
+            tint_color(MaraColor32::from_rgb(255, 190, 70), accent, 0.10),
         );
         let checker_texture = scene.add_checker_texture(
             "Checker texture",
             [512, 512],
-            tint_color(egui::Color32::from_rgb(245, 245, 245), accent, 0.10),
-            tint_color(egui::Color32::from_rgb(38, 45, 58), accent, 0.25),
+            tint_color(MaraColor32::from_rgb(245, 245, 245), accent, 0.10),
+            tint_color(MaraColor32::from_rgb(38, 45, 58), accent, 0.25),
             16,
         );
         let checker =
-            scene.add_material_with_texture("Checker mesh", egui::Color32::WHITE, checker_texture);
+            scene.add_material_with_texture("Checker mesh", MaraColor32::WHITE, checker_texture);
         let cube = scene.add_object("Cube", Primitive3d::cube(1.0), MaterialId(1));
         if let Some(object) = scene.object_mut(cube) {
             object.transform.translation = [-0.75, 0.55, 0.0];
@@ -2068,7 +2068,7 @@ impl Scene3d {
                 ],
             },
             Gizmo3dStyle::new(tint_color(
-                egui::Color32::from_rgb(255, 210, 72),
+                MaraColor32::from_rgb(255, 210, 72),
                 accent,
                 0.18,
             ))
@@ -2081,7 +2081,7 @@ impl Scene3d {
                 radius: 0.24,
             },
             Gizmo3dStyle::new(tint_color(
-                egui::Color32::from_rgb(255, 90, 128),
+                MaraColor32::from_rgb(255, 90, 128),
                 accent,
                 0.14,
             ))
@@ -2093,7 +2093,7 @@ impl Scene3d {
                 position: [-2.8, 0.82, -0.65],
             },
             Gizmo3dStyle::new(tint_color(
-                egui::Color32::from_rgb(80, 235, 170),
+                MaraColor32::from_rgb(80, 235, 170),
                 accent,
                 0.12,
             ))
@@ -2111,7 +2111,7 @@ impl Scene3d {
                 closed: true,
             },
             Gizmo3dStyle::new(tint_color(
-                egui::Color32::from_rgb(120, 180, 255),
+                MaraColor32::from_rgb(120, 180, 255),
                 accent,
                 0.18,
             ))

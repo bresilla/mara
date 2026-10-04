@@ -143,22 +143,20 @@ mod enforce {
 mod ribbon_chrome {
     use mara_core::context::MaraCtx;
     use mara_core::ribbon::chrome::*;
-    use mara_core::ribbon::*;
     use mara_core::ribbon::chrome::{RibbonCluster, RibbonOpen, RibbonPlacement};
-    use mara_core::vocab::{Pos2 as MaraPos2, Rect as MaraRect};
+    use mara_core::ribbon::*;
     use mara_core::ribbon::{RibbonAction, RibbonScope};
+    use mara_core::vocab::{Pos2 as MaraPos2, Rect as MaraRect};
 
     fn test_ctx_with_chrome(rect: egui::Rect) -> crate::EguiCtx {
         let raw = egui::Context::default();
         let ctx = crate::EguiCtx::new(&raw);
-        mara_core::memory::MaraMemoryCtx::new(&ctx).set_temp(chrome_bounds_key(), MaraRect::from(rect));
+        mara_core::memory::MaraMemoryCtx::new(&ctx)
+            .set_temp(chrome_bounds_key(), MaraRect::from(rect));
         ctx
     }
 
-    fn test_ctx_with_screen_and_chrome(
-        screen: egui::Rect,
-        chrome: egui::Rect,
-    ) -> crate::EguiCtx {
+    fn test_ctx_with_screen_and_chrome(screen: egui::Rect, chrome: egui::Rect) -> crate::EguiCtx {
         let raw = egui::Context::default();
         let ctx = crate::EguiCtx::new(&raw);
         ctx.begin_pass(egui::RawInput {
@@ -486,9 +484,9 @@ mod ribbon_chrome {
 }
 
 mod shell {
-    use mara_core::shell::*;
     use mara_core::ribbon::chrome::{RibbonCluster, RibbonDrag, RibbonOpen, RibbonPlacement};
     use mara_core::shell::ShellBar;
+    use mara_core::shell::*;
 
     /// Rendering a bar with an app-menu + views must build valid slot
     /// items (non-empty label/tooltip) and not panic. Regression for
@@ -596,36 +594,38 @@ mod shell {
 }
 
 mod ribbon_slot_paint {
-pub fn augment_shelf_buttons(
-    ribbons: &[ResolvedSlotRibbon],
-    presence: mara_core::shelf::ShelfPresence,
-    left_visible: bool,
-    right_visible: bool,
-    bottom_visible: bool,
-    order: ShelfButtonOrder,
-) -> Option<Vec<ResolvedSlotRibbon>> {
-    augment_shelf_buttons_with_chrome(
-        ribbons,
-        mara_core::window_chrome::WindowChromeHostCapabilities {
-            system_maximize: false,
-            system_close: false,
-            ..Default::default()
-        },
-        presence,
-        left_visible,
-        right_visible,
-        bottom_visible,
-        order,
-        false,
-        false,
-    )
-}
+    pub fn augment_shelf_buttons(
+        ribbons: &[ResolvedSlotRibbon],
+        presence: mara_core::shelf::ShelfPresence,
+        left_visible: bool,
+        right_visible: bool,
+        bottom_visible: bool,
+        order: ShelfButtonOrder,
+    ) -> Option<Vec<ResolvedSlotRibbon>> {
+        augment_shelf_buttons_with_chrome(
+            ribbons,
+            mara_core::window_chrome::WindowChromeHostCapabilities {
+                system_maximize: false,
+                system_close: false,
+                ..Default::default()
+            },
+            presence,
+            left_visible,
+            right_visible,
+            bottom_visible,
+            order,
+            false,
+            false,
+        )
+    }
 
+    use mara_core::ribbon::chrome::RibbonCluster;
+    use mara_core::ribbon::slot_paint::ShelfButtonOrder;
     use mara_core::ribbon::slot_paint::*;
     use mara_core::ribbon::*;
-    use mara_core::ribbon::slot_paint::ShelfButtonOrder;
-    use mara_core::ribbon::chrome::{RibbonCluster};
-    use mara_core::vocab::{Color32 as MaraColor32, Id as MaraId, Pos2 as MaraPos2, Rect as MaraRect, Vec2 as MaraVec2};
+    use mara_core::vocab::{
+        Color32 as MaraColor32, Id as MaraId, Pos2 as MaraPos2, Rect as MaraRect, Vec2 as MaraVec2,
+    };
 
     #[test]
     fn resolve_leaf_ribbon_none_when_no_items() {
@@ -1034,10 +1034,10 @@ pub fn augment_shelf_buttons(
 
 mod pane_body {
     #![allow(deprecated)]
-    use mara_core::pane::body::*;
-    use mara_core::vocab::Id;
     use mara_core::container::Tab;
+    use mara_core::pane::body::*;
     use mara_core::pane::{ContainerSpec, PaneAnchor, TabRoutingScope};
+    use mara_core::vocab::Id;
     use mara_core::vocab::{Color32 as MaraColor32, Id as MaraId};
 
     use mara_core::pane::{RailZone, tab_drag};
@@ -1141,7 +1141,8 @@ mod pane_body {
                 mara_core::memory::MaraMemoryCtx::new(&crate::store_for_ui(ui))
                     .set_temp(mara_core::pane::__internal_active_pane_key(), pane_id);
                 let mut backend = crate::EguiUiBackend::new(ui);
-                let mut mara = mara_core::MaraUi::over(&mut backend, mara_core::vocab::Color32::WHITE);
+                let mut mara =
+                    mara_core::MaraUi::over(&mut backend, mara_core::vocab::Color32::WHITE);
                 let _ = render_containers(
                     &mut mara,
                     pane_id,
@@ -1189,7 +1190,8 @@ mod pane_body {
                 mara_core::memory::MaraMemoryCtx::new(&crate::store_for_ui(ui))
                     .set_temp(mara_core::pane::__internal_active_pane_key(), pane_id);
                 let mut backend = crate::EguiUiBackend::new(ui);
-                let mut mara = mara_core::MaraUi::over(&mut backend, mara_core::vocab::Color32::WHITE);
+                let mut mara =
+                    mara_core::MaraUi::over(&mut backend, mara_core::vocab::Color32::WHITE);
                 let _ = render_containers(
                     &mut mara,
                     pane_id,
@@ -1241,10 +1243,8 @@ mod pane_body {
                 )],
             );
             assert!(responses.contains_key(&container_id));
-            let strips =
-                tab_drag::strip_cache(&crate::store_for_ui(ui), pane_id.into());
-            let buttons =
-                tab_drag::button_cache(&crate::store_for_ui(ui), pane_id.into());
+            let strips = tab_drag::strip_cache(&crate::store_for_ui(ui), pane_id.into());
+            let buttons = tab_drag::button_cache(&crate::store_for_ui(ui), pane_id.into());
             assert_eq!(
                 strips
                     .iter()
@@ -1504,7 +1504,8 @@ mod icons {
 
         crate::theme::install_iconflow_fonts(&mut fonts);
 
-        let (_, family) = mara_core::icons::icon_glyph("search").expect("search icon should be bundled");
+        let (_, family) =
+            mara_core::icons::icon_glyph("search").expect("search icon should be bundled");
         let icon_family = egui::FontFamily::Name(family.into());
         let icon_chain = fonts
             .families
@@ -1619,5 +1620,193 @@ mod pane_fit {
             H - EDGE_CLEARANCE
         );
         assert!(body_open(&raw, 0), "a lone section stays open and scrolls");
+    }
+}
+
+/// The in-place texture update behind `vocab::TextureHandle::set`.
+mod retained_texture {
+    use mara_core::context::MaraCtx;
+    use mara_core::vocab::{Color32, ColorImage, TextureOptions};
+
+    fn image(size: [usize; 2], fill: Color32) -> ColorImage {
+        ColorImage::from_rgba_pixels(size, &vec![fill; size[0] * size[1]])
+    }
+
+    /// `set` reuses the texture; `load_texture` allocates another.
+    ///
+    /// This is the whole reason the seam grew `RetainedTexture` — a
+    /// preview that re-rasterises every frame must not mint a texture
+    /// per frame (PLAN.md WS-C2.4).
+    #[test]
+    fn set_keeps_the_id_where_a_reload_does_not() {
+        let raw = egui::Context::default();
+        let ctx = crate::EguiCtx::new(&raw);
+        raw.begin_pass(egui::RawInput::default());
+
+        let handle = MaraCtx::load_texture(
+            &ctx,
+            "retained",
+            image([2, 2], Color32::from_rgb(255, 0, 0)),
+            TextureOptions::NEAREST,
+        )
+        .expect("egui backend has a texture store");
+        let first = handle.id();
+
+        handle.set(
+            image([2, 2], Color32::from_rgb(0, 255, 0)),
+            TextureOptions::NEAREST,
+        );
+        assert_eq!(
+            handle.id(),
+            first,
+            "set replaces contents in place, so the id must survive"
+        );
+
+        let reloaded = MaraCtx::load_texture(
+            &ctx,
+            "retained",
+            image([2, 2], Color32::from_rgb(0, 0, 255)),
+            TextureOptions::NEAREST,
+        )
+        .expect("egui backend has a texture store");
+        assert_ne!(
+            reloaded.id(),
+            first,
+            "load_texture allocates a fresh texture — that is what set avoids"
+        );
+
+        let _ = raw.end_pass();
+    }
+
+    /// The size a handle reports is the size it was uploaded at; `set`
+    /// does not resize, because backends may not reallocate under a
+    /// live id.
+    #[test]
+    fn set_does_not_change_the_reported_size() {
+        let raw = egui::Context::default();
+        let ctx = crate::EguiCtx::new(&raw);
+        raw.begin_pass(egui::RawInput::default());
+
+        let handle = MaraCtx::load_texture(
+            &ctx,
+            "sized",
+            image([4, 2], Color32::from_rgb(255, 0, 0)),
+            TextureOptions::LINEAR,
+        )
+        .expect("egui backend has a texture store");
+        assert_eq!(handle.size(), [4, 2]);
+
+        handle.set(
+            image([4, 2], Color32::from_rgb(0, 255, 0)),
+            TextureOptions::LINEAR,
+        );
+        assert_eq!(handle.size(), [4, 2]);
+
+        let _ = raw.end_pass();
+    }
+}
+
+/// The touch-scaled widget metrics `mara_core::style` publishes.
+///
+/// They used to be literals inside `theme.rs`, which meant a surface
+/// wanting to match them had to read them back out of `egui::Style` —
+/// that is how `mara_graph` sized its pins, and it is why removing
+/// `&Style` there was not a substitution (PLAN.md WS-D1.3). Hoisting
+/// them into core gives one source of truth.
+///
+/// Asserted as *properties*, not against a live `egui::Style`: an
+/// earlier version of this test applied the theme to a fresh context and
+/// compared `spacing.interact_size.y`, and got egui's default back —
+/// theme application dedups per pass, so the read did not observe what
+/// the test thought it did.
+mod touch_scaled_metrics {
+    #[test]
+    fn both_metrics_are_positive_and_ordered() {
+        let row = mara_core::style::interact_row_h();
+        let icon = mara_core::style::icon_width();
+        assert!(row > 0.0 && icon > 0.0);
+        assert!(
+            row > icon,
+            "a row is taller than an icon is wide at either density: row={row} icon={icon}"
+        );
+    }
+
+    /// The touch branch grows both, and by the ratio the theme relied on
+    /// when these were literals (30/20 and 18/14).
+    #[test]
+    fn the_touch_branch_grows_both_metrics() {
+        // Exercised through the published globals rather than by
+        // toggling density mid-test: `touch_density` is process-wide and
+        // other tests in this binary share it.
+        let row = mara_core::style::interact_row_h();
+        let icon = mara_core::style::icon_width();
+        assert!(
+            row == 20.0 || row == 30.0,
+            "interact_row_h is one of the two documented densities, got {row}"
+        );
+        assert!(
+            icon == 14.0 || icon == 18.0,
+            "icon_width is one of the two documented densities, got {icon}"
+        );
+        assert_eq!(
+            row == 30.0,
+            icon == 18.0,
+            "both metrics must switch density together"
+        );
+    }
+}
+
+/// `mara_core::style::theme_accent` reproduces the adapted accent that
+/// `__internal_apply_theme` paints with.
+///
+/// The two are separate code paths — the theme derives it from its
+/// `accent` parameter, core derives it from the raw accent that same
+/// call published. They can only stay in agreement because
+/// `set_raw_accent` runs first (`theme.rs:138`, before the selection
+/// visuals at `:278`). This pins that ordering: reverse it and the
+/// selection colours silently come from the *previous* frame's accent.
+mod theme_accent_agreement {
+    #[test]
+    fn core_reproduces_the_accent_the_theme_adapts() {
+        let raw = egui::Context::default();
+        for accent in [
+            mara_core::vocab::Color32::from_rgb(0, 0, 0),
+            mara_core::vocab::Color32::from_rgb(255, 255, 255),
+            mara_core::vocab::Color32::from_rgb(64, 160, 255),
+        ] {
+            crate::theme::__internal_apply_theme(
+                &raw,
+                mara_core::style::AccentColor(accent),
+                mara_core::style::GlassOpacity::default(),
+            );
+
+            // Read the accent that is actually stored rather than
+            // assuming it is still the one applied two lines up. The
+            // accent is process-global and every test in this binary
+            // shares it, so a concurrent test applying its own theme
+            // between the write and the read made this fail about one
+            // run in ten — a race in the test, not in the code.
+            //
+            // The invariant is unchanged and is the one that matters:
+            // `theme_accent()` is the theme's own adaptation of
+            // `raw_accent()`, whatever `raw_accent()` currently is.
+            let stored = mara_core::style::raw_accent();
+            let from_core = mara_core::style::theme_accent();
+            let expected = if mara_core::style::theme().pastel_accent {
+                mara_core::style::adapt_accent_to_mode(stored, mara_core::style::theme().is_light)
+            } else {
+                stored
+            };
+            assert_eq!(
+                from_core, expected,
+                "theme_accent must be the theme's adaptation of the stored accent \
+                 (applied {accent:?}, stored {stored:?})"
+            );
+            assert_eq!(
+                mara_core::style::selection_stroke().color,
+                from_core,
+                "the selection outline is the adapted accent"
+            );
+        }
     }
 }

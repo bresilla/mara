@@ -63,8 +63,9 @@ Keep the seam, scoped honestly, and close it per `PLAN.md` Phases 0–3:
 ## Consequences
 
 - Contributors: reach for `UiBackend`/`MaraUi`/`MaraMemory` in all new
-  internal code; `backend/egui.rs` is the only place allowed to name
-  `egui::Ui`. The ratchet makes violations a CI failure, not a review nit.
+  internal code; the `mara_backend_egui` crate is the only place allowed
+  to name `egui::Ui`. *(Updated 2026-07-28: this was `backend/egui.rs`
+  inside `mara_core` until WS-G1 split it out into its own crate.)* The ratchet makes violations a CI failure, not a review nit.
 - Reviewers: a PR that lowers a ratchet baseline must contain the deletion
   of the code it counts; a PR that raises one is rejected.
 - The `raw-egui` feature + `__internal_*` hatch (sealed-API escape for

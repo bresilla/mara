@@ -25,7 +25,6 @@
 //! * `998` — INSPECTOR overlay (F10 debug paint).
 //! * `999..=1000` — RESERVED for future top-of-stack overlays.
 
-
 /// Pre-defined tiers used by the pane / container / chrome stack.
 /// Callers can pass any `u16` directly; these are just the
 /// canonical values the built-in widgets use, exposed so external
@@ -68,4 +67,3 @@ pub mod z {
     /// zones, not normal app content.
     pub const WINDOW_CHROME: u16 = 1000;
 }
-

@@ -24,8 +24,27 @@ cd "$(dirname "$0")/.."
 CORE=crates/core/src
 BASELINE_FILE=scripts/ratchet_baseline.txt
 
-live_egui_files()   { grep -rl 'egui::' "$CORE" --include='*.rs' | wc -l; }
-live_demo_egui()    { grep -rn 'egui::' example/src --include='*.rs' | wc -l; }
+# Files in core with egui in CODE, not prose. The earlier form counted
+# any file whose text contained `egui::`, which after WS-G1 meant it was
+# mostly counting doc comments: 21 files matched, 14 of them had no egui
+# code at all. That cuts both ways — writing a doc comment failed the
+# build, while the number looked like coupling that was already gone.
+# Comment lines are stripped before counting; the reference has to be
+# real code to count.
+live_egui_files()   { grep -rln 'egui::' "$CORE" --include='*.rs' \
+                        | while read -r f; do \
+                            grep -n 'egui::' "$f" \
+                              | sed 's/^[0-9]*://' \
+                              | grep -qvE '^[[:space:]]*(//|\*)' && echo "$f"; \
+                          done | wc -l; }
+# Host glue lives in `example/src/host/` and is *allowed* to name egui —
+# `eframe::App` is an egui-facing trait, so implementing it means naming
+# `egui::Ui`/`Context`/`Visuals` (PLAN.md WS-F6). Count everything else.
+live_demo_egui()    { grep -rn 'egui::' example/src --include='*.rs' \
+                        | grep -v '^example/src/host/' \
+                        | sed 's/^[^:]*:[0-9]*://' \
+                        | grep -vE '^[[:space:]]*(//|\*)' \
+                        | wc -l; }
 live_state_bypass() { grep -rEn '\.data\(\|d\||\.data_mut\(\|d\||ctx\.data\(|ctx\.data_mut\(|ctx\.animate_' "$CORE" --include='*.rs' | grep -v "$CORE/backend/" | grep -v "$CORE/memory.rs" | wc -l; }
 live_egui_ui_fns()  { grep -rEn ':[[:space:]]*&mut egui::Ui' "$CORE" --include='*.rs' | grep -v "$CORE/backend/" | wc -l; }
 live_ui_escapes()   { grep -rEn '\.ui_mut\(\)|backend\.ui\(\)|\.egui_ui\(\)|\.egui_ui_opt\(\)|\.egui_ui_readonly\(\)' "$CORE" --include='*.rs' | grep -v "$CORE/backend/" | wc -l; }

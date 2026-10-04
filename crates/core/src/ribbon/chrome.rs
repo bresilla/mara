@@ -316,6 +316,15 @@ pub fn chrome_bounds_key() -> crate::vocab::Id {
 }
 
 fn chrome_rect(ctx: &dyn crate::context::MaraCtx) -> MaraRect {
+    // A full-window widget owns the window, so its chrome lays out
+    // against the window. The shelf viewport published by whatever view
+    // is underneath describes a rect inset by that view's shelves, and
+    // laying fullscreen rails against it parks their buttons a shelf's
+    // width in from the edge — which reads as buttons stranded in the
+    // middle of the screen rather than aligned to it.
+    if crate::embed::__internal_is_any_fullscreen(ctx) {
+        return MaraCtx::content_rect(ctx);
+    }
     ctx.memory()
         .get_temp::<MaraRect>(chrome_bounds_key())
         .unwrap_or_else(|| MaraCtx::content_rect(ctx))
@@ -335,9 +344,15 @@ fn chrome_rect(ctx: &dyn crate::context::MaraCtx) -> MaraRect {
 /// stuck forever). See [`crate::shelf::__internal_publish_shelf_layout`].
 #[doc(hidden)]
 pub fn fresh_chrome_bounds(ctx: &dyn crate::context::MaraCtx) -> MaraRect {
-    let rect = crate::shelf::__internal_shelf_layout(ctx)
-        .map(|layout| layout.viewport)
-        .unwrap_or_else(|| MaraCtx::content_rect(ctx));
+    // Same reason as `chrome_rect`: while a widget is full-window the
+    // shelves beneath it are not the frame anything should align to.
+    let rect = if crate::embed::__internal_is_any_fullscreen(ctx) {
+        MaraCtx::content_rect(ctx)
+    } else {
+        crate::shelf::__internal_shelf_layout(ctx)
+            .map(|layout| layout.viewport)
+            .unwrap_or_else(|| MaraCtx::content_rect(ctx))
+    };
     // The enforced top bar is full-width and owns the top strip. Reserve
     // that strip in the chrome bounds so CONTENT positioned inside it
     // (panes, side rails) renders BELOW the bar and is never hidden under
@@ -1411,5 +1426,53 @@ fn resolve_drop(
                 placement.overrides.insert(id, (r, c_raw, n as u32));
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod fullscreen_chrome_tests {
+    use super::*;
+    use crate::vocab::{Pos2, Vec2};
+
+    fn ctx_with_window(w: f32, h: f32) -> crate::backend::record::RecordingBackend {
+        crate::backend::record::RecordingBackend::at(MaraRect::from_min_size(
+            Pos2::new(0.0, 0.0),
+            Vec2::new(w, h),
+        ))
+    }
+
+    /// Side rails follow the shelf viewport normally, and the WINDOW
+    /// while a widget is full-window.
+    ///
+    /// A view with a shelf publishes a viewport inset by that shelf.
+    /// Maximising a widget inside that view replaces the whole screen,
+    /// but the shelf's viewport is still the last thing published — and
+    /// laying the fullscreen rails against it stranded their buttons a
+    /// shelf's width in from the edge, in the middle of the screen.
+    #[test]
+    fn fullscreen_chrome_ignores_the_shelf_viewport_underneath() {
+        let ctx = ctx_with_window(1600.0, 900.0);
+        let window = MaraCtx::content_rect(&ctx);
+        let inset = MaraRect::from_min_size(Pos2::new(0.0, 0.0), Vec2::new(1200.0, 900.0));
+        ctx.memory().set_temp(chrome_bounds_key(), inset);
+
+        assert_eq!(
+            chrome_rect(&ctx),
+            inset,
+            "with nothing maximised the rails follow the shelf viewport"
+        );
+
+        // Mark a widget as the fullscreen owner for this pass.
+        ctx.memory().set_temp(
+            crate::vocab::Id::new("mara_maximize_global"),
+            (ctx.pass_nr(), crate::vocab::Id::new("some_widget")),
+        );
+
+        assert_eq!(
+            chrome_rect(&ctx),
+            window,
+            "a full-window widget's rails must align to the window edge"
+        );
+        assert!(chrome_rect(&ctx).max.x > inset.max.x);
     }
 }

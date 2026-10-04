@@ -8,11 +8,17 @@
 
 #![allow(clippy::too_many_arguments, clippy::question_mark)]
 
+use mara_backend_egui::EguiCtx;
+use mara_core::context::MaraCtx;
+use mara_core::vocab::{ColorImage as MaraColorImage, TextureOptions as MaraTextureOptions};
 use mara_core::{
     MaraModule, MaraView, ModuleInlineCtx, ModuleResponse, RibbonAction, RibbonCluster, RibbonEdge,
     RibbonOverridePolicy, RibbonScope, RibbonSlot, RibbonSlotDef, RibbonSlotId, RibbonSlotItem,
     ViewCtx, ViewId, WorkspaceBar, WorkspaceBarCluster, WorkspaceBarEdge, WorkspaceCtx,
-    vocab::{Color32 as MaraColor32, Pos2 as MaraPos2, Vec2 as MaraVec2},
+    vocab::{
+        Color32 as MaraColor32, Pos2 as MaraPos2, Rect as MaraRect, Stroke as MaraStroke,
+        Vec2 as MaraVec2,
+    },
 };
 
 const WORLD_UP: Vec3 = [0.0, 1.0, 0.0];
@@ -254,7 +260,7 @@ impl PreviewCamera {
         }
     }
 
-    fn project(&self, rect: egui::Rect, point: Vec3) -> Option<(egui::Pos2, f32)> {
+    fn project(&self, rect: MaraRect, point: Vec3) -> Option<(egui::Pos2, f32)> {
         let (x, y, z) = self.camera_space(point);
         if z <= self.near {
             return None;
@@ -271,7 +277,7 @@ impl PreviewCamera {
         }
     }
 
-    fn world_per_screen_point(&self, rect: egui::Rect, depth: f32) -> f32 {
+    fn world_per_screen_point(&self, rect: MaraRect, depth: f32) -> f32 {
         let focal = 0.5 * rect.height() / (self.fov_y * 0.5).tan();
         depth / focal.max(1.0)
     }
@@ -287,7 +293,7 @@ impl PreviewCamera {
 
     fn project_line_with_near(
         &self,
-        rect: egui::Rect,
+        rect: MaraRect,
         mut a: Vec3,
         mut b: Vec3,
         near: f32,
@@ -314,7 +320,7 @@ impl PreviewCamera {
         }
     }
 
-    fn ray_to_plane_y0(&self, rect: egui::Rect, pos: egui::Pos2) -> Option<Vec3> {
+    fn ray_to_plane_y0(&self, rect: MaraRect, pos: MaraPos2) -> Option<Vec3> {
         let direction = self.ray_direction(rect, pos);
         if direction[1].abs() <= 1.0e-5 {
             return None;
@@ -327,7 +333,7 @@ impl PreviewCamera {
         }
     }
 
-    fn ray_direction(&self, rect: egui::Rect, pos: egui::Pos2) -> Vec3 {
+    fn ray_direction(&self, rect: MaraRect, pos: MaraPos2) -> Vec3 {
         let focal = 0.5 * rect.height() / (self.fov_y * 0.5).tan();
         let sx = (pos.x - rect.center().x) / focal;
         let sy = -(pos.y - rect.center().y) / focal;
@@ -367,7 +373,7 @@ pub struct View3d {
     id: egui::Id,
     scene: Scene3d,
     orbit: Orbit3d,
-    preview_texture: Option<egui::TextureHandle>,
+    preview_texture: Option<mara_core::vocab::TextureHandle>,
     gizmo_drag: Option<GizmoDragState>,
     #[cfg(feature = "gpu-preview")]
     gpu_callback_id: u64,
@@ -395,22 +401,18 @@ impl View3d {
         }
     }
 
-    /// Enable GPU triangle fill for hosts backed by `egui-wgpu`.
+    /// Enable GPU triangle fill when the host already knows the egui-wgpu
+    /// output format.
     ///
     /// This only switches the filled mesh triangles to the GPU preview
     /// painter. Grid, dots, gizmo, camera math, and Mara's technical
     /// shading remain the same as the CPU preview path.
-    #[cfg(feature = "gpu-preview")]
-    #[doc(hidden)]
-    pub fn __internal_set_gpu_render_state(
-        &mut self,
-        render_state: Option<&egui_wgpu::RenderState>,
-    ) {
-        self.gpu_target_format = render_state.map(|state| state.target_format);
-    }
-
-    /// Enable GPU triangle fill when the host already knows the egui-wgpu
-    /// output format.
+    ///
+    /// The `__internal_set_gpu_render_state` sibling that took a raw
+    /// `&egui_wgpu::RenderState` is gone (PLAN.md WS-C2.6): it had no
+    /// callers anywhere, and the format it extracted is the one thing
+    /// this needs. The view also reads the format straight from the
+    /// context each frame, which is how the demo actually drives it.
     #[cfg(feature = "gpu-preview")]
     pub const fn set_gpu_target_format(&mut self, format: Option<wgpu::TextureFormat>) {
         self.gpu_target_format = format;
@@ -495,7 +497,7 @@ impl View3d {
         )
     }
 
-    fn paint_preview(&mut self, ui: &mut egui::Ui, rect: egui::Rect, response: &egui::Response) {
+    fn paint_preview(&mut self, ui: &mut egui::Ui, rect: MaraRect, response: &egui::Response) {
         let camera = PreviewCamera::from_orbit(self.orbit, &self.scene.camera);
         let gizmo_used = self.update_gizmo_interaction(ui, rect, response, &camera);
         if !gizmo_used {
@@ -509,11 +511,10 @@ impl View3d {
             ui.ctx().request_repaint();
         }
 
-        let painter = ui.painter_at(rect);
-        let accent: egui::Color32 = mara_core::style::active_accent().into();
-        let background: egui::Color32 =
-            mara_core::style::fill_for(mara_core::style::FillRole::Pane, accent).into();
-        painter.rect_filled(rect, 0.0, background);
+        let painter = ui.painter_at(rect.into());
+        let accent = mara_core::style::active_accent();
+        let background = mara_core::style::fill_for(mara_core::style::FillRole::Pane, accent);
+        painter.rect_filled(rect.into(), 0.0, background);
         let interactive_preview = gizmo_used
             || self.gizmo_drag.is_some()
             || response.dragged()
@@ -577,7 +578,7 @@ impl View3d {
     fn collect_preview_faces(
         &self,
         faces: &mut Vec<PreviewFace>,
-        rect: egui::Rect,
+        rect: MaraRect,
         camera: &PreviewCamera,
         interactive_preview: bool,
     ) {
@@ -623,7 +624,7 @@ impl View3d {
         }
     }
 
-    fn update_selection(&mut self, ui: &egui::Ui, rect: egui::Rect, response: &egui::Response) {
+    fn update_selection(&mut self, ui: &egui::Ui, rect: MaraRect, response: &egui::Response) {
         if response.clicked_by(egui::PointerButton::Primary) {
             response.request_focus();
             let camera = PreviewCamera::from_orbit(self.orbit, &self.scene.camera);
@@ -644,7 +645,7 @@ impl View3d {
     fn update_gizmo_interaction(
         &mut self,
         ui: &egui::Ui,
-        rect: egui::Rect,
+        rect: MaraRect,
         response: &egui::Response,
         camera: &PreviewCamera,
     ) -> bool {
@@ -697,7 +698,7 @@ impl View3d {
 
     fn pick_gizmo(
         &self,
-        rect: egui::Rect,
+        rect: MaraRect,
         camera: &PreviewCamera,
         pointer: egui::Pos2,
     ) -> Option<(ObjectId, GizmoOperation, egui::Pos2, Vec3, f32, f32)> {
@@ -797,7 +798,7 @@ impl View3d {
 
     fn apply_gizmo_drag(
         &mut self,
-        rect: egui::Rect,
+        rect: MaraRect,
         camera: &PreviewCamera,
         drag: &GizmoDragState,
         pointer: egui::Pos2,
@@ -921,19 +922,14 @@ impl View3d {
         }
     }
 
-    fn material_color(&self, material: MaterialId) -> egui::Color32 {
+    fn material_color(&self, material: MaterialId) -> MaraColor32 {
         self.scene.material(material).map_or_else(
             || mara_core::style::active_accent().into(),
             |material| material.base_color.into(),
         )
     }
 
-    fn paint_scene_gizmos(
-        &self,
-        painter: &egui::Painter,
-        rect: egui::Rect,
-        camera: &PreviewCamera,
-    ) {
+    fn paint_scene_gizmos(&self, painter: &egui::Painter, rect: MaraRect, camera: &PreviewCamera) {
         for gizmo in &self.scene.gizmos {
             if !gizmo.visible {
                 continue;
@@ -945,11 +941,11 @@ impl View3d {
     fn paint_scene_gizmo(
         &self,
         painter: &egui::Painter,
-        rect: egui::Rect,
+        rect: MaraRect,
         camera: &PreviewCamera,
         gizmo: &Gizmo3d,
     ) {
-        let stroke = egui::Stroke::new(gizmo.style.width.max(0.5), gizmo.style.color);
+        let stroke = MaraStroke::new(gizmo.style.width.max(0.5), gizmo.style.color);
         match &gizmo.kind {
             Gizmo3dKind::Dot { position } => {
                 if let Some((screen, _)) = camera.project(rect, *position) {
@@ -1040,7 +1036,7 @@ impl View3d {
     fn paint_transform_gizmo(
         &self,
         painter: &egui::Painter,
-        rect: egui::Rect,
+        rect: MaraRect,
         camera: &PreviewCamera,
         hover_operation: Option<GizmoOperation>,
         active_operation: Option<GizmoOperation>,
@@ -1211,7 +1207,7 @@ impl View3d {
     fn paint_gizmo_arrow(
         &self,
         painter: &egui::Painter,
-        rect: egui::Rect,
+        rect: MaraRect,
         camera: &PreviewCamera,
         origin: Vec3,
         world_per_point: f32,
@@ -1244,8 +1240,8 @@ impl View3d {
             camera.project(rect, scale_points[1]),
             camera.project(rect, scale_points[2]),
         ) {
-            painter.line_segment([a, b], egui::Stroke::new(scale_width, scale_color));
-            painter.line_segment([b, c], egui::Stroke::new(scale_width * 2.4, scale_color));
+            painter.line_segment([a, b], MaraStroke::new(scale_width, scale_color));
+            painter.line_segment([b, c], MaraStroke::new(scale_width * 2.4, scale_color));
         }
 
         // Translation handle: the original gizmo offsets movement arrows
@@ -1268,7 +1264,7 @@ impl View3d {
         ) else {
             return;
         };
-        painter.line_segment([a, b], egui::Stroke::new(translate_width, translate_color));
+        painter.line_segment([a, b], MaraStroke::new(translate_width, translate_color));
         paint_gizmo_arrow_head(painter, b, c, translate_color, translate_width);
     }
 
@@ -1276,7 +1272,7 @@ impl View3d {
     fn paint_gizmo_plane(
         &self,
         painter: &egui::Painter,
-        rect: egui::Rect,
+        rect: MaraRect,
         camera: &PreviewCamera,
         origin: Vec3,
         world_per_point: f32,
@@ -1313,14 +1309,14 @@ impl View3d {
         painter.add(egui::Shape::convex_polygon(
             projected,
             color,
-            egui::Stroke::new(
+            Into::<egui::Stroke>::into(MaraStroke::new(
                 if highlighted {
                     GIZMO_STROKE_WIDTH * 0.75
                 } else {
                     0.0
                 },
                 gizmo_axis_color(axis, visibility, highlighted),
-            ),
+            )),
         ));
     }
 
@@ -1328,7 +1324,7 @@ impl View3d {
     fn paint_gizmo_rotation_arc(
         &self,
         painter: &egui::Painter,
-        rect: egui::Rect,
+        rect: MaraRect,
         camera: &PreviewCamera,
         origin: Vec3,
         world_per_point: f32,
@@ -1364,10 +1360,10 @@ impl View3d {
         if screen_points.len() >= 2 {
             painter.add(egui::Shape::line(
                 screen_points,
-                egui::Stroke::new(
+                Into::<egui::Stroke>::into(MaraStroke::new(
                     highlighted_width(GIZMO_STROKE_WIDTH, highlighted),
                     gizmo_axis_color(axis, 1.0, highlighted),
-                ),
+                )),
             ));
         }
     }
@@ -1382,7 +1378,7 @@ impl View3d {
         painter.circle_stroke(
             origin,
             GIZMO_SIZE + GIZMO_STROKE_WIDTH + 5.0,
-            egui::Stroke::new(
+            MaraStroke::new(
                 highlighted_width(GIZMO_STROKE_WIDTH, rotate_highlighted),
                 gizmo_view_color(rotate_highlighted),
             ),
@@ -1390,7 +1386,7 @@ impl View3d {
         painter.circle_stroke(
             origin,
             GIZMO_SIZE * 0.2,
-            egui::Stroke::new(
+            MaraStroke::new(
                 highlighted_width(GIZMO_STROKE_WIDTH, translate_highlighted),
                 gizmo_view_color(translate_highlighted),
             ),
@@ -1400,7 +1396,7 @@ impl View3d {
     #[allow(clippy::too_many_arguments)]
     fn gizmo_axis_handle_distance(
         &self,
-        rect: egui::Rect,
+        rect: MaraRect,
         camera: &PreviewCamera,
         origin: Vec3,
         world_per_point: f32,
@@ -1435,7 +1431,7 @@ impl View3d {
 
     fn gizmo_plane_handle_distance(
         &self,
-        rect: egui::Rect,
+        rect: MaraRect,
         camera: &PreviewCamera,
         origin: Vec3,
         world_per_point: f32,
@@ -1481,7 +1477,7 @@ impl View3d {
 
     fn gizmo_rotation_arc_distance(
         &self,
-        rect: egui::Rect,
+        rect: MaraRect,
         camera: &PreviewCamera,
         origin: Vec3,
         world_per_point: f32,
@@ -1524,10 +1520,10 @@ impl View3d {
     fn paint_grid(
         &self,
         painter: &egui::Painter,
-        rect: egui::Rect,
+        rect: MaraRect,
         camera: &PreviewCamera,
         step: f32,
-        accent: egui::Color32,
+        accent: MaraColor32,
     ) {
         let base_step = step.max(0.001);
         let cam_dist = self.orbit.distance.max(0.1);
@@ -1615,9 +1611,9 @@ impl View3d {
             if alpha == 0 {
                 continue;
             }
-            let stroke = egui::Stroke::new(
+            let stroke = MaraStroke::new(
                 line.width,
-                egui::Color32::from_rgba_unmultiplied(
+                MaraColor32::from_rgba_unmultiplied(
                     grid_color.r(),
                     grid_color.g(),
                     grid_color.b(),
@@ -1650,14 +1646,14 @@ impl View3d {
     fn paint_grid_dots(
         &self,
         painter: &egui::Painter,
-        rect: egui::Rect,
+        rect: MaraRect,
         camera: &PreviewCamera,
         spacing: f32,
         min_x: i32,
         max_x: i32,
         min_z: i32,
         max_z: i32,
-        color: egui::Color32,
+        color: MaraColor32,
         fade: f32,
     ) {
         let stride = (self.orbit.distance / (spacing * 18.0)).ceil().max(1.0) as i32;
@@ -1676,7 +1672,7 @@ impl View3d {
                 let Some((screen, _)) = camera.project(rect, point) else {
                     continue;
                 };
-                if !rect.expand(8.0).contains(screen) {
+                if !rect.expand(8.0).contains(screen.into()) {
                     continue;
                 }
                 let base_world_radius = spacing * GLACIAL_DOT_RADIUS_FRAC * stride as f32;
@@ -1694,7 +1690,7 @@ impl View3d {
                 painter.circle_filled(
                     screen,
                     radius,
-                    egui::Color32::from_rgba_unmultiplied(
+                    MaraColor32::from_rgba_unmultiplied(
                         color.r(),
                         color.g(),
                         color.b(),
@@ -1708,11 +1704,11 @@ impl View3d {
     fn paint_grid_line(
         &self,
         painter: &egui::Painter,
-        rect: egui::Rect,
+        rect: MaraRect,
         camera: &PreviewCamera,
         a: Vec3,
         b: Vec3,
-        stroke: egui::Stroke,
+        stroke: MaraStroke,
     ) {
         let stable_near = camera.near.max(self.orbit.distance * 0.015);
         if let Some((a, b)) = camera
@@ -1728,7 +1724,7 @@ impl View3d {
     fn collect_mesh_faces(
         &self,
         faces: &mut Vec<PreviewFace>,
-        rect: egui::Rect,
+        rect: MaraRect,
         camera: &PreviewCamera,
         object: &Object3d,
         transform: &Transform3d,
@@ -1839,7 +1835,7 @@ impl View3d {
 
     fn pick_object(
         &self,
-        rect: egui::Rect,
+        rect: MaraRect,
         camera: &PreviewCamera,
         pos: egui::Pos2,
     ) -> Option<ObjectId> {
@@ -1867,7 +1863,7 @@ impl View3d {
 
     fn object_screen_radius(
         &self,
-        rect: egui::Rect,
+        rect: MaraRect,
         camera: &PreviewCamera,
         object: &Object3d,
     ) -> f32 {
@@ -1911,15 +1907,22 @@ impl MaraView for View3d {
         {
             self.gpu_target_format = Some(format);
         }
-        let region = ctx.screen_rect();
-        let rect: egui::Rect = region.into();
+        let rect = ctx.screen_rect();
+        // NOT converted to `ViewCtx::body_at` (PLAN.md WS-C2.3). The
+        // body needs a raw `Ui` — `paint_preview` drives an `egui_wgpu`
+        // callback and an egui texture — and `make check` bans this file
+        // from reaching one through `MaraUi`'s internal raw hatch. Going
+        // through the seam only to reach back through that hatch would
+        // trade a direct `egui::Area` for the sealed-tier escape, which
+        // is worse by the guard's own standard. Unblocked by C2.5, which
+        // ports the GPU preview off `egui_wgpu::CallbackTrait`.
         egui::Area::new(egui::Id::new(("mara_three_d_view", self.id)))
             .order(egui::Order::Background)
-            .fixed_pos(rect.min)
+            .fixed_pos(Into::<egui::Pos2>::into(rect.min))
             .show(ctx.__internal_egui_ctx(), |ui| {
-                ui.set_clip_rect(rect);
-                let response = ui.allocate_rect(rect, egui::Sense::click_and_drag());
-                self.paint_preview(ui, response.rect, &response);
+                ui.set_clip_rect(rect.into());
+                let response = ui.allocate_rect(rect.into(), egui::Sense::click_and_drag());
+                self.paint_preview(ui, response.rect.into(), &response);
             });
     }
 }
@@ -1968,7 +1971,7 @@ struct PreviewFace {
     depths: [f32; 3],
     uvs: Option<[[f32; 2]; 3]>,
     texture: Option<Texture3d>,
-    fills: [egui::Color32; 3],
+    fills: [MaraColor32; 3],
 }
 
 #[cfg(feature = "gpu-preview")]
@@ -2009,7 +2012,7 @@ struct GpuPreviewBatch {
 struct GpuPreviewTextureSource {
     id: TextureId,
     size: [u32; 2],
-    pixels: Vec<egui::Color32>,
+    pixels: Vec<MaraColor32>,
 }
 
 #[cfg(feature = "gpu-preview")]
@@ -2113,7 +2116,7 @@ impl GpuPreviewCallback {
     fn from_faces(
         id: u64,
         target_format: wgpu::TextureFormat,
-        rect: egui::Rect,
+        rect: MaraRect,
         faces: Vec<PreviewFace>,
     ) -> Self {
         let mut vertices = Vec::with_capacity(faces.len() * 3);
@@ -2182,7 +2185,7 @@ impl GpuSceneCallback {
     fn from_geometry(
         id: u64,
         target_format: wgpu::TextureFormat,
-        rect: egui::Rect,
+        rect: MaraRect,
         camera: &PreviewCamera,
         scene: &Scene3d,
         geometry: &GpuSceneGeometryCache,
@@ -2274,7 +2277,7 @@ fn build_gpu_scene_geometry(scene: &Scene3d, signature: u64) -> GpuSceneGeometry
 
 #[cfg(feature = "gpu-preview")]
 impl GpuSceneUniform {
-    fn new(rect: egui::Rect, camera: &PreviewCamera, scene: &Scene3d) -> Self {
+    fn new(rect: MaraRect, camera: &PreviewCamera, scene: &Scene3d) -> Self {
         let aspect = rect.width().max(1.0) / rect.height().max(1.0);
         let tan_half = (camera.fov_y * 0.5).tan().max(1.0e-4);
         let far = scene.camera.far.max(camera.near + 1.0);
@@ -2301,7 +2304,7 @@ fn append_gpu_scene_mesh(
     }
     let base = scene
         .material(object.material)
-        .map_or(egui::Color32::WHITE, |material| material.base_color.into());
+        .map_or(MaraColor32::WHITE, |material| material.base_color.into());
     for triangle in &mesh.indices {
         let triangle = triangle.map(|index| index as usize);
         if triangle.iter().any(|index| *index >= mesh.vertices.len()) {
@@ -3025,7 +3028,7 @@ impl GpuPreviewResources {
         let source = GpuPreviewTextureSource {
             id: TextureId(0),
             size: [1, 1],
-            pixels: vec![egui::Color32::WHITE],
+            pixels: vec![MaraColor32::WHITE],
         };
         self.white_bind_group = Some(create_texture_bind_group(device, queue, self, &source));
     }
@@ -3228,7 +3231,7 @@ fn gpu_preview_target_size(
 }
 
 #[cfg(feature = "gpu-preview")]
-fn texture_pixels_as_bytes(pixels: &[egui::Color32], width: usize, height: usize) -> Vec<u8> {
+fn texture_pixels_as_bytes(pixels: &[MaraColor32], width: usize, height: usize) -> Vec<u8> {
     let mut bytes = vec![255_u8; width * height * 4];
     for (i, pixel) in pixels.iter().take(width * height).enumerate() {
         let offset = i * 4;
@@ -3254,7 +3257,7 @@ fn texture_source_hash(source: &GpuPreviewTextureSource) -> u64 {
 
 #[cfg(feature = "gpu-preview")]
 #[allow(dead_code)]
-fn point_to_viewport_ndc(rect: egui::Rect, point: egui::Pos2) -> [f32; 2] {
+fn point_to_viewport_ndc(rect: MaraRect, point: egui::Pos2) -> [f32; 2] {
     [
         ((point.x - rect.left()) / rect.width().max(1.0)) * 2.0 - 1.0,
         1.0 - ((point.y - rect.top()) / rect.height().max(1.0)) * 2.0,
@@ -3268,7 +3271,7 @@ fn gpu_depth(depth: f32) -> f32 {
 }
 
 #[cfg(feature = "gpu-preview")]
-fn pack_color32(color: egui::Color32) -> u32 {
+fn pack_color32(color: MaraColor32) -> u32 {
     u32::from(color.r())
         | (u32::from(color.g()) << 8)
         | (u32::from(color.b()) << 16)
@@ -3293,8 +3296,8 @@ const GPU_PREVIEW_WGSL: &str = include_str!("gpu_preview.wgsl");
 fn paint_faces_supersampled(
     ui: &egui::Ui,
     painter: &egui::Painter,
-    rect: egui::Rect,
-    texture: &mut Option<egui::TextureHandle>,
+    rect: MaraRect,
+    texture: &mut Option<mara_core::vocab::TextureHandle>,
     faces: Vec<PreviewFace>,
 ) {
     let low_width = rect.width().round().max(1.0) as usize;
@@ -3304,7 +3307,7 @@ fn paint_faces_supersampled(
         .max(1);
     let width = low_width * scale;
     let height = low_height * scale;
-    let mut pixels = vec![egui::Color32::TRANSPARENT; width * height];
+    let mut pixels = vec![MaraColor32::TRANSPARENT; width * height];
     let mut depth = vec![f32::INFINITY; width * height];
     let scale = scale as f32;
 
@@ -3312,29 +3315,30 @@ fn paint_faces_supersampled(
         rasterize_face(rect, scale, width, height, &mut pixels, &mut depth, &face);
     }
 
-    let image = egui::ColorImage {
-        size: [width, height],
-        pixels,
-        source_size: egui::vec2(width as f32, height as f32),
-    };
+    let image = MaraColorImage::from_rgba_pixels([width, height], &pixels);
 
+    // Same size: replace the pixels in place, keeping one texture for
+    // the life of the preview. Only a resize allocates (PLAN.md
+    // WS-C2.4) — re-uploading every frame would mint a texture per
+    // frame in a render loop.
     match texture {
         Some(texture) if texture.size() == [width, height] => {
-            texture.set(image, egui::TextureOptions::LINEAR);
+            texture.set(image, MaraTextureOptions::LINEAR);
         }
         _ => {
-            *texture = Some(ui.ctx().load_texture(
+            *texture = MaraCtx::load_texture(
+                &EguiCtx::new(ui.ctx()),
                 "mara_3d_supersampled_preview",
                 image,
-                egui::TextureOptions::LINEAR,
-            ));
+                MaraTextureOptions::LINEAR,
+            );
         }
     }
 
     if let Some(texture) = texture {
         painter.image(
-            texture.id(),
-            rect,
+            texture.id().into(),
+            rect.into(),
             egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0)),
             egui::Color32::WHITE,
         );
@@ -3345,7 +3349,7 @@ fn paint_faces_supersampled(
 #[allow(dead_code)]
 fn paint_faces_gpu(
     painter: &egui::Painter,
-    rect: egui::Rect,
+    rect: MaraRect,
     callback_id: u64,
     target_format: wgpu::TextureFormat,
     faces: Vec<PreviewFace>,
@@ -3354,13 +3358,16 @@ fn paint_faces_gpu(
         return;
     }
     let callback = GpuPreviewCallback::from_faces(callback_id, target_format, rect, faces);
-    painter.add(egui_wgpu::Callback::new_paint_callback(rect, callback));
+    painter.add(egui_wgpu::Callback::new_paint_callback(
+        rect.into(),
+        callback,
+    ));
 }
 
 #[cfg(feature = "gpu-preview")]
 fn paint_scene_gpu(
     painter: &egui::Painter,
-    rect: egui::Rect,
+    rect: MaraRect,
     callback_id: u64,
     target_format: wgpu::TextureFormat,
     camera: &PreviewCamera,
@@ -3372,15 +3379,18 @@ fn paint_scene_gpu(
     if callback.vertices.is_empty() {
         return;
     }
-    painter.add(egui_wgpu::Callback::new_paint_callback(rect, callback));
+    painter.add(egui_wgpu::Callback::new_paint_callback(
+        rect.into(),
+        callback,
+    ));
 }
 
 fn rasterize_face(
-    rect: egui::Rect,
+    rect: MaraRect,
     scale: f32,
     width: usize,
     height: usize,
-    pixels: &mut [egui::Color32],
+    pixels: &mut [MaraColor32],
     depth: &mut [f32],
     face: &PreviewFace,
 ) {
@@ -3463,7 +3473,7 @@ fn edge_function(a: egui::Pos2, b: egui::Pos2, c: egui::Pos2) -> f32 {
     (c.x - a.x) * (b.y - a.y) - (c.y - a.y) * (b.x - a.x)
 }
 
-fn interpolate_color(colors: [egui::Color32; 3], weights: [f32; 3]) -> egui::Color32 {
+fn interpolate_color(colors: [MaraColor32; 3], weights: [f32; 3]) -> MaraColor32 {
     let channel = |values: [u8; 3]| -> u8 {
         (values[0] as f32 * weights[0]
             + values[1] as f32 * weights[1]
@@ -3471,7 +3481,7 @@ fn interpolate_color(colors: [egui::Color32; 3], weights: [f32; 3]) -> egui::Col
             .round()
             .clamp(0.0, 255.0) as u8
     };
-    egui::Color32::from_rgba_unmultiplied(
+    MaraColor32::from_rgba_unmultiplied(
         channel([colors[0].r(), colors[1].r(), colors[2].r()]),
         channel([colors[0].g(), colors[1].g(), colors[2].g()]),
         channel([colors[0].b(), colors[1].b(), colors[2].b()]),
@@ -3479,8 +3489,8 @@ fn interpolate_color(colors: [egui::Color32; 3], weights: [f32; 3]) -> egui::Col
     )
 }
 
-fn multiply_color(a: egui::Color32, b: egui::Color32) -> egui::Color32 {
-    egui::Color32::from_rgba_unmultiplied(
+fn multiply_color(a: MaraColor32, b: MaraColor32) -> MaraColor32 {
+    MaraColor32::from_rgba_unmultiplied(
         ((a.r() as u16 * b.r() as u16) / 255) as u8,
         ((a.g() as u16 * b.g() as u16) / 255) as u8,
         ((a.b() as u16 * b.b() as u16) / 255) as u8,
@@ -3492,7 +3502,7 @@ fn paint_gizmo_arrow_head(
     painter: &egui::Painter,
     base_start: egui::Pos2,
     tip: egui::Pos2,
-    color: egui::Color32,
+    color: MaraColor32,
     stroke_width: f32,
 ) {
     let screen_dir = tip - base_start;
@@ -3507,7 +3517,7 @@ fn paint_gizmo_arrow_head(
     painter.add(egui::Shape::convex_polygon(
         vec![tip, base + side * tip_width, base - side * tip_width],
         color,
-        egui::Stroke::NONE,
+        Into::<egui::Stroke>::into(MaraStroke::NONE),
     ));
 }
 
@@ -3541,7 +3551,7 @@ fn highlighted_width(width: f32, highlighted: bool) -> f32 {
 }
 
 fn project_screen_direction(
-    rect: egui::Rect,
+    rect: MaraRect,
     camera: &PreviewCamera,
     origin: Vec3,
     direction: Vec3,
@@ -3593,11 +3603,11 @@ fn point_in_screen_polygon(point: egui::Pos2, polygon: &[egui::Pos2]) -> bool {
 
 fn paint_projected_polyline(
     painter: &egui::Painter,
-    rect: egui::Rect,
+    rect: MaraRect,
     camera: &PreviewCamera,
     points: &[Vec3],
     closed: bool,
-    stroke: egui::Stroke,
+    stroke: MaraStroke,
 ) {
     if points.len() < 2 {
         return;
@@ -3612,7 +3622,10 @@ fn paint_projected_polyline(
         projected.push(projected[0]);
     }
     if projected.len() >= 2 {
-        painter.add(egui::Shape::line(projected, stroke));
+        painter.add(egui::Shape::line(
+            projected,
+            Into::<egui::Stroke>::into(stroke),
+        ));
     }
 }
 
@@ -3639,7 +3652,7 @@ fn sampled_gizmo_ellipse(
 
 fn paint_gizmo_axis_segment(
     painter: &egui::Painter,
-    rect: egui::Rect,
+    rect: MaraRect,
     camera: &PreviewCamera,
     a: Vec3,
     b: Vec3,
@@ -3648,7 +3661,7 @@ fn paint_gizmo_axis_segment(
 ) {
     if let (Some((a, _)), Some((b, _))) = (camera.project(rect, a), camera.project(rect, b)) {
         let color = gizmo_axis_color(axis, 1.0, true);
-        painter.line_segment([a, b], egui::Stroke::new(width.max(1.0), color));
+        painter.line_segment([a, b], MaraStroke::new(width.max(1.0), color));
         paint_gizmo_arrow_head(painter, a, b, color, width.max(1.0));
     }
 }
@@ -3678,7 +3691,7 @@ fn quat_mul(a: Quat, b: Quat) -> Quat {
     ])
 }
 
-fn triangle_screen_is_stable(rect: egui::Rect, points: [egui::Pos2; 3]) -> bool {
+fn triangle_screen_is_stable(rect: MaraRect, points: [egui::Pos2; 3]) -> bool {
     let diag = rect.size().length().max(1.0);
     let max_edge = points[0]
         .distance(points[1])
@@ -3782,7 +3795,7 @@ fn object_world_radius(object: &Object3d) -> f32 {
             .fold(0.0_f32, |acc, value| acc.max(value.abs()))
 }
 
-fn gizmo_axis_color(axis: GizmoAxis, visibility: f32, highlighted: bool) -> egui::Color32 {
+fn gizmo_axis_color(axis: GizmoAxis, visibility: f32, highlighted: bool) -> MaraColor32 {
     let (r, g, b) = match axis {
         GizmoAxis::X => (255, 0, 125),
         GizmoAxis::Y => (0, 255, 125),
@@ -3793,19 +3806,19 @@ fn gizmo_axis_color(axis: GizmoAxis, visibility: f32, highlighted: bool) -> egui
     } else {
         GIZMO_INACTIVE_ALPHA
     };
-    let color = egui::Color32::from_rgba_unmultiplied(r, g, b, 255);
+    let color = MaraColor32::from_rgba_unmultiplied(r, g, b, 255);
     let color = if highlighted {
-        tint_color(color, egui::Color32::WHITE, 0.22)
+        tint_color(color, MaraColor32::WHITE, 0.22)
     } else {
         color
     };
     let alpha = (255.0 * alpha_base * visibility.clamp(0.0, 1.0))
         .round()
         .clamp(0.0, 255.0) as u8;
-    egui::Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), alpha)
+    MaraColor32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), alpha)
 }
 
-fn gizmo_view_color(highlighted: bool) -> egui::Color32 {
+fn gizmo_view_color(highlighted: bool) -> MaraColor32 {
     let alpha = (255.0
         * if highlighted {
             1.0
@@ -3813,7 +3826,7 @@ fn gizmo_view_color(highlighted: bool) -> egui::Color32 {
             GIZMO_INACTIVE_ALPHA
         })
     .round() as u8;
-    egui::Color32::from_rgba_unmultiplied(255, 255, 255, alpha)
+    MaraColor32::from_rgba_unmultiplied(255, 255, 255, alpha)
 }
 
 fn gizmo_arrow_visibility(camera: &PreviewCamera, origin: Vec3, direction: Vec3) -> f32 {
@@ -3897,12 +3910,8 @@ fn glacial_level_fade(cam_dist: f32, step: f32, close_falloff: f32) -> f32 {
     (-0.5 * adjusted * adjusted).exp().clamp(0.0, 1.0)
 }
 
-fn grid_tint(accent: egui::Color32) -> egui::Color32 {
-    tint_color(
-        mara_core::style::on_panel_dim().into(),
-        accent,
-        GRID_ACCENT_MIX,
-    )
+fn grid_tint(accent: MaraColor32) -> MaraColor32 {
+    tint_color(mara_core::style::on_panel_dim(), accent, GRID_ACCENT_MIX)
 }
 
 fn face_normal(points: [Vec3; 3]) -> Vec3 {
@@ -3943,7 +3952,7 @@ fn flat_shaded_mesh(vertices: &[Vec3], indices: &[[u32; 3]]) -> TriangleMesh3d {
     TriangleMesh3d::with_normals(out_v, out_i, out_n)
 }
 
-fn shade_color(base: egui::Color32, normal: Vec3, camera: &PreviewCamera) -> egui::Color32 {
+fn shade_color(base: MaraColor32, normal: Vec3, camera: &PreviewCamera) -> MaraColor32 {
     let mut normal = normalize3(normal);
     if dot3(normal, camera.forward) > 0.0 {
         normal = mul3(normal, -1.0);
@@ -3969,22 +3978,22 @@ fn shade_color(base: egui::Color32, normal: Vec3, camera: &PreviewCamera) -> egu
     let value = ((1.0 - TECH_LIGHT_CONTRAST) + diffuse * TECH_LIGHT_CONTRAST).clamp(0.42, 1.12);
     let mut color = shade_scalar(base, value.min(1.0));
     if value > 1.0 {
-        color = tint_color(color, egui::Color32::WHITE, (value - 1.0) * 0.55);
+        color = tint_color(color, MaraColor32::WHITE, (value - 1.0) * 0.55);
     }
     tint_color(
         color,
-        egui::Color32::WHITE,
+        MaraColor32::WHITE,
         (specular + rim * 0.55).clamp(0.0, 0.22),
     )
 }
 
 fn shade_vertex_color(
-    base: egui::Color32,
+    base: MaraColor32,
     vertex_colors: &[Color],
     index: usize,
     normal: Vec3,
     camera: &PreviewCamera,
-) -> egui::Color32 {
+) -> MaraColor32 {
     let base = vertex_colors
         .get(index)
         .copied()
@@ -3993,10 +4002,10 @@ fn shade_vertex_color(
 }
 
 fn vertex_color_or_base(
-    shaded_base: egui::Color32,
+    shaded_base: MaraColor32,
     vertex_colors: &[Color],
     index: usize,
-) -> egui::Color32 {
+) -> MaraColor32 {
     vertex_colors
         .get(index)
         .copied()
@@ -4005,9 +4014,9 @@ fn vertex_color_or_base(
         })
 }
 
-fn shade_scalar(base: egui::Color32, value: f32) -> egui::Color32 {
+fn shade_scalar(base: MaraColor32, value: f32) -> MaraColor32 {
     let value = value.clamp(0.0, 1.0);
-    egui::Color32::from_rgba_unmultiplied(
+    MaraColor32::from_rgba_unmultiplied(
         ((base.r() as f32) * value).round().clamp(0.0, 255.0) as u8,
         ((base.g() as f32) * value).round().clamp(0.0, 255.0) as u8,
         ((base.b() as f32) * value).round().clamp(0.0, 255.0) as u8,
@@ -4056,7 +4065,7 @@ fn center_ray_dot_fade(camera: &PreviewCamera, point: Vec3, spacing: f32) -> f32
 }
 
 fn clip_screen_segment(
-    rect: egui::Rect,
+    rect: MaraRect,
     a: egui::Pos2,
     b: egui::Pos2,
 ) -> Option<(egui::Pos2, egui::Pos2)> {
@@ -4104,7 +4113,7 @@ fn clip_param(p: f32, q: f32, t0: &mut f32, t1: &mut f32) -> bool {
 }
 
 fn grid_visible_bounds(
-    rect: egui::Rect,
+    rect: MaraRect,
     camera: &PreviewCamera,
     spacing: f32,
     orbit_distance: f32,
@@ -4152,7 +4161,7 @@ fn grid_visible_bounds(
                     xi as f32 / (GRID_BOUND_SAMPLES - 1) as f32,
                 )
             };
-            let screen = egui::pos2(x, y);
+            let screen = MaraPos2::new(x, y);
             if let Some(hit) = camera.ray_to_plane_y0(rect, screen) {
                 let from_eye = sub3(hit, camera.eye);
                 let distance = dot3(from_eye, from_eye).sqrt();
@@ -4202,10 +4211,14 @@ fn grid_visible_bounds(
     ]
 }
 
-fn tint_color(a: egui::Color32, b: egui::Color32, amount: f32) -> egui::Color32 {
+/// Blend `a` toward `b` by `amount`, per channel.
+///
+/// Mara vocabulary rather than the backend's colour type (PLAN.md
+/// WS-C2.2) — it is channel arithmetic, and every caller is scene data.
+fn tint_color(a: MaraColor32, b: MaraColor32, amount: f32) -> MaraColor32 {
     let amount = amount.clamp(0.0, 1.0);
     let inv = 1.0 - amount;
-    egui::Color32::from_rgba_unmultiplied(
+    MaraColor32::from_rgba_unmultiplied(
         ((a.r() as f32) * inv + (b.r() as f32) * amount)
             .round()
             .clamp(0.0, 255.0) as u8,

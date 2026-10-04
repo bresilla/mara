@@ -272,8 +272,11 @@ pub fn __internal_apply_theme_to(
     // the accent is applied. `Linear` blends the coverage straight, so
     // the AA edge is a single 1-px transition between text and bg.
     visuals.text_options.alpha_from_coverage = egui::epaint::AlphaFromCoverage::Linear;
-    visuals.selection.bg_fill = tinted_surface(accent_col.into()).into();
-    visuals.selection.stroke = egui::Stroke::new(stroke_w.max(1.0), accent_col);
+    // From `mara_core::style` rather than computed here, so a surface
+    // drawing its own selection reads the same values instead of
+    // recovering them from `egui::Style` (PLAN.md WS-D1.3).
+    visuals.selection.bg_fill = mara_core::style::selection_fill().into();
+    visuals.selection.stroke = mara_core::style::selection_stroke().into();
     visuals.hyperlink_color = accent_col;
 
     let r = egui::CornerRadius::same(th.shape.radius_widget);
@@ -325,17 +328,17 @@ pub fn __internal_apply_theme_to(
     // Slightly roomier controls — interacts at 20 px (was 18) and
     // buttons get 8×4 padding (was 6×2) so rows don't feel cramped
     // against each other.
-    style.spacing.item_spacing = egui::vec2(6.0, 3.0);
+    style.spacing.item_spacing = mara_core::style::item_spacing().into();
     style.spacing.button_padding = egui::vec2(8.0, 4.0);
     style.spacing.indent = 14.0;
     style.spacing.window_margin = egui::Margin::ZERO;
-    style.spacing.interact_size.y = 20.0;
+    style.spacing.interact_size.y = mara_core::style::interact_row_h();
     // Tight slider track. Combined with no inline `.text(...)` label
     // and no `.show_value()` suffix, this leaves enough right-cell
     // space for the slider PLUS the current value without pushing
     // the section card wider than its pinned inner width.
     style.spacing.slider_width = 90.0;
-    style.spacing.icon_width = 14.0;
+    style.spacing.icon_width = mara_core::style::icon_width();
     style.spacing.icon_spacing = 6.0;
 
     // Touch density: on handheld/touch surfaces, grow hit targets and
@@ -345,10 +348,11 @@ pub fn __internal_apply_theme_to(
     // `set_screen_metrics`; the internal theme hook folds it into its dedup key
     // so the bump is re-pushed when the threshold is crossed.
     if touch_density() {
-        style.spacing.item_spacing = egui::vec2(8.0, 8.0);
+        // `item_spacing` comes from `mara_core::style`, which applies
+        // the same touch branch — set unconditionally above.
         style.spacing.button_padding = egui::vec2(12.0, 10.0);
-        style.spacing.interact_size.y = 30.0;
-        style.spacing.icon_width = 18.0;
+        // Both now come from `mara_core::style`, which applies the
+        // same touch-density branch — set unconditionally above.
         style.spacing.icon_spacing = 8.0;
         style.spacing.scroll.bar_width = 6.0;
         style.spacing.scroll.floating_width = 4.0;

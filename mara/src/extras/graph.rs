@@ -29,11 +29,14 @@
 
 use egui;
 
-pub use mara_graph::{
-    AnyPins, BackgroundPattern, Dots, Graph, GraphState, GraphStyle, GraphWidget, Grid, Hex, InPin,
-    InPinId, NodeHalo, NodeId, NodeLayout, NodePin, NodeViewBackend, NodeViewState, NodeViewer,
-    OutPin, OutPinId, PinInfo, PinPlacement, PinShape, WireColorMode,
-};
+// One glob rather than a second hand-maintained list. A name exported
+// from `mara_graph` but forgotten here is unreachable from the demo —
+// `example/Cargo.toml` may not name `mara_graph` — and the build stays
+// green either way, so the omission is invisible. PLAN_NODE.md P2.
+pub use mara_graph::prelude::*;
+/// The rebuilt renderer: pure layout, then paint, with the camera and
+/// selection owned by the caller. See `mara_graph::render`.
+pub use mara_graph::render;
 
 // `mara_node_graph` / `mara_node_graph_with_opts` route through
 // `mara_core::embed::maximizable_with_opts` for the fullscreen chip
@@ -44,7 +47,7 @@ use mara_core::style::{
     FrameRole, GraphCanvasPattern, RadiusRole, StrokeRole, frame_for, glass_alpha_window,
     glass_fill, radius_for, stroke_for,
 };
-use mara_core::vocab::{Color32 as MaraColor32, Vec2 as MaraVec2};
+use mara_core::vocab::{Color32 as MaraColor32, Id as MaraId, Vec2 as MaraVec2};
 
 /// Build a [`GraphStyle`] that inherits the mara palette + border
 /// language. Call per-frame with the current accent so the graph
@@ -65,6 +68,40 @@ use mara_core::vocab::{Color32 as MaraColor32, Vec2 as MaraVec2};
 ///
 /// Everything else stays at the library default so scroll / zoom /
 /// selection interactions remain familiar to upstream users.
+///
+/// **Colour budget — the rule new defaults are judged against.** A
+/// node AT REST shows at most two colours: the one the app owns (its
+/// category / chrome accent, painted by the viewer's `header_frame`
+/// or `node_chrome`) and the neutral body. Anything that would paint
+/// a third — a host-accent ring on every node, a second accent bar
+/// above the header band — defaults off here, because this style is
+/// shared by every graph in the app and it cannot know which colour
+/// the app already spent. Effects that cost no colour (the neutral
+/// drop shadow) or that only appear on interaction (the selection
+/// halo) are not against the budget and stay on.
+/// Pull a surface toward the viewer: lighter in a dark theme, darker in
+/// a light one, and fully opaque either way.
+fn raise(c: MaraColor32, is_light: bool) -> MaraColor32 {
+    let [r, g, b, _] = c.to_srgba_unmultiplied();
+    let target = if is_light { 0.0 } else { 255.0 };
+    let mix = |v: u8| (f32::from(v) + (target - f32::from(v)) * 0.14) as u8;
+    MaraColor32::from_rgba_unmultiplied(mix(r), mix(g), mix(b), 255)
+}
+
+/// The rebuilt renderer's visual system, themed for mara.
+///
+/// One function, one spec, used by every graph surface in the app.
+/// The previous renderer let each call site assemble its own
+/// `GraphStyle` from a dozen optional knobs, and two surfaces in the
+/// same app drifted apart — which is exactly what the graph looked
+/// like: two node editors that were plainly not the same widget.
+#[must_use]
+pub fn mara_graph_spec(accent: impl Into<MaraColor32>) -> render::GraphSpec {
+    let accent = accent.into();
+    let th = mara_core::style::theme();
+    render::GraphSpec::from_surface(th.bg_panel, accent, !th.is_light)
+}
+
 pub fn mara_node_graph_style(accent: impl Into<MaraColor32>) -> GraphStyle {
     let accent = mara_backend_egui::color32_for_backend(accent.into());
     // ── Blender-style geometry ──
@@ -97,6 +134,17 @@ pub fn mara_node_graph_style(accent: impl Into<MaraColor32>) -> GraphStyle {
     //     (PRO 6 px, GAME 0 px square).
     let node_frame = frame_for(FrameRole::Section, accent)
         .with_inner_margin([graph.node_pad_x, graph.node_pad_y]);
+    // Lift the body off the canvas. Measured, the section fill and the
+    // canvas fill land about eight levels apart — a node reads as a
+    // slightly-different patch of background rather than as an object
+    // sitting on one, and the header tint and title lose the contrast
+    // they were designed against. Opaque as well as lighter: a
+    // translucent body lets the canvas through, so lightening alone
+    // never separates them.
+    let node_frame = mara_core::style::FrameSpec {
+        fill: raise(node_frame.fill, mara_core::style::theme().is_light),
+        ..node_frame
+    };
     let body_radius = mara_core::style::theme().shape.radius_md;
 
     // Header — TRANSPARENT here. The category-coloured band is
@@ -194,8 +242,15 @@ pub fn mara_node_graph_style(accent: impl Into<MaraColor32>) -> GraphStyle {
         // (~1.0 / 0.85). Layered alpha-reduced strokes under
         // the crisp wire give a "post-process bloom" feel
         // without an actual GPU pass.
-        wire_glow: Some(graph.wire_glow),
-        pin_glow: Some(graph.pin_glow),
+        // Halved against the theme token. The pin palette is Unreal's
+        // literal one — full-saturation lime, gold, hot pink — and
+        // Unreal draws it on a mid-grey canvas. On a near-black canvas
+        // the same colours already sit at maximum contrast, so the
+        // bloom on top made the wiring the loudest thing on screen and
+        // pushed the nodes into the background. The glow still reads as
+        // a glow; it just stops competing with the content.
+        wire_glow: Some(graph.wire_glow * 0.5),
+        pin_glow: Some(graph.pin_glow * 0.5),
         // Pin glyph centre sits ON the body's border line — the
         // pin bisects the outline, half inside / half outside.
         // Reads as "above" / sitting on the border the way
@@ -203,18 +258,36 @@ pub fn mara_node_graph_style(accent: impl Into<MaraColor32>) -> GraphStyle {
         // arriving at the body's edge rather than past it.
         pin_placement: Some(PinPlacement::Edge),
         pin_inset: None,
-        // Accent halo close to the body, painted UNDER pin
-        // glyphs (graph reserves the painter slot before pins
-        // submit, so pins always render on top of the halo
-        // line). 3 px gap, 1.5 px stroke.
-        node_halo: Some(NodeHalo {
-            color: accent.into(),
-            gap: graph.node_halo_gap,
-            width: graph.node_halo_width,
-            // Halo follows the body's rounded corners — body
-            // radius + a bit of slack for the outset.
-            radius: body_radius.saturating_add(graph.node_halo_radius_outset),
+        // Resting ring — OFF. Rendered, it put a bright accent ring
+        // around EVERY node, so a graph read as if everything in it
+        // were selected and selection itself carried no information.
+        // The body's own `SectionBorder` stroke already separates a
+        // node from the canvas; the accent is spent on selection only.
+        node_halo: None,
+        // ── Every decorative default added later is OFF ──
+        //
+        // `node_shadow`, `select_halo`, `header_accent`, `lod` and
+        // `camera_spring` were switched on here together, and together
+        // they buried the node: up to eleven decorative layers in four
+        // colour systems, on a style shared by every graph in the app.
+        // A call site that wants one sets it; this function cannot know
+        // what colour the app has already spent on its own chrome.
+        // Separation from the canvas, without spending a colour. The
+        // body fill sits very close to the canvas fill by design (both
+        // are theme greys), so with no resting ring a node had nothing
+        // lifting it off the background at all.
+        node_shadow: Some(ShadowSpec {
+            offset: [0, 3],
+            blur: 10,
+            spread: 0,
+            color: MaraColor32::from_black_alpha(120),
+            drag_offset: [0, 9],
+            drag_blur: 22,
         }),
+        select_halo: Some(HaloSpec::default()),
+        header_accent: None,
+        lod: None,
+        camera_spring: None,
         downscale_wire_frame: Some(true),
         upscale_wire_frame: Some(true),
         // ── Outside-in zoom ──
@@ -327,9 +400,97 @@ pub fn mara_node_graph_with_opts<T, V: NodeViewer<T>>(
     desired_size: impl Into<MaraVec2>,
     fs_opts: OverlayOpts,
 ) {
+    sharp_zoom_graph(
+        ui,
+        state,
+        backend,
+        accent,
+        desired_size,
+        fs_opts,
+        MaraId::new("mara_node_graph_widget"),
+        |mara, id, size, accent| {
+            GraphWidget::new()
+                .id(id)
+                .style(mara_node_graph_style(accent))
+                .min_size(size)
+                .show(graph, viewer, mara);
+        },
+    );
+}
+
+/// A nested [`GraphDoc`] through the same sharp-zoom pipeline as
+/// [`mara_node_graph`].
+///
+/// The two must share this path, not merely share a `GraphStyle`.
+/// Everything that makes the editor's graph feel the way it does lives
+/// here rather than in the style: text is rasterised in a *secondary*
+/// context at zoom-compensated pixels-per-point and composited from a
+/// wgpu texture, which is why glyphs stay crisp when magnified; the
+/// widget's own transform is pinned to 1.0 so it cannot stretch the
+/// glyph atlas underneath that; and the view re-fits itself when the
+/// surface is resized or maximised.
+///
+/// A consumer that calls `GraphWidget::show_doc` directly gets none of
+/// it and looks like a different product — which is exactly what
+/// happened before this existed.
+///
+/// `id_base` must be unique per graph in the app. Everything saved
+/// across frames hangs off it: the viewport transform, the selection,
+/// the draw order, and the maximise state. Two graphs sharing one base
+/// id share all of that and fight over it every frame.
+pub fn mara_node_graph_doc<T, V>(
+    ui: &mut egui::Ui,
+    state: &mut NodeViewState,
+    backend: &mut dyn NodeViewBackend,
+    doc: &mut mara_graph::GraphDoc<T>,
+    viewer: &mut V,
+    accent: impl Into<MaraColor32>,
+    desired_size: impl Into<MaraVec2>,
+    fs_opts: OverlayOpts,
+    id_base: MaraId,
+) -> Option<mara_graph::GraphOutcome>
+where
+    T: Clone,
+    V: NodeViewer<T>,
+{
+    let mut outcome = None;
+    sharp_zoom_graph(
+        ui,
+        state,
+        backend,
+        accent,
+        desired_size,
+        fs_opts,
+        id_base,
+        |mara, id, size, accent| {
+            outcome = Some(
+                GraphWidget::new()
+                    .id(id)
+                    .style(mara_node_graph_style(accent))
+                    .min_size(size)
+                    .show_doc(doc, viewer, mara),
+            );
+        },
+    );
+    outcome
+}
+
+/// The shared body: maximise chip, resize-driven re-fit, sub-context
+/// theming, and the sharp-zoom render. `render` is the only part that
+/// differs between a flat graph and a document.
+#[allow(clippy::too_many_arguments)]
+fn sharp_zoom_graph(
+    ui: &mut egui::Ui,
+    state: &mut NodeViewState,
+    backend: &mut dyn NodeViewBackend,
+    accent: impl Into<MaraColor32>,
+    desired_size: impl Into<MaraVec2>,
+    fs_opts: OverlayOpts,
+    id_for_graph_base: MaraId,
+    mut render: impl FnMut(&mut mara_core::MaraUi<'_>, MaraId, MaraVec2, MaraColor32),
+) {
     let accent = accent.into();
     let desired_size = desired_size.into();
-    let id_for_graph_base = egui::Id::new("mara_node_graph_widget");
     // Auto-recentre bookkeeping. The `version` is folded into the
     // GraphWidget's id below; bumping it invalidates egui-graph's
     // saved transform so `GraphState::initial` runs again and
@@ -449,14 +610,22 @@ pub fn mara_node_graph_with_opts<T, V: NodeViewer<T>>(
                 // the updated translation and the scene point
                 // under the cursor stays under the cursor.
                 |sub_ctx, delta| {
-                    mara_graph::GraphState::nudge_saved_translation(sub_ctx, id_for_graph, delta);
+                    // The graph's saved transform lives in Mara's store;
+                    // wrap the sub-context to reach it.
+                    let seam = mara_backend_egui::EguiCtx::new(sub_ctx);
+                    mara_graph::GraphState::nudge_saved_translation(
+                        &seam,
+                        id_for_graph,
+                        delta.into(),
+                    );
                 },
                 |sub_ui| {
-                    GraphWidget::new()
-                        .id(id_for_graph)
-                        .style(mara_node_graph_style(accent))
-                        .min_size(size_egui.into())
-                        .show(graph, viewer, sub_ui);
+                    // The vendored renderer still needs a backend
+                    // surface inside; the *widget* no longer does.
+                    let mut backend = mara_backend_egui::EguiUiBackend::new(sub_ui);
+                    mara_core::MaraUi::__internal_over_backend_ret(&mut backend, accent, |mara| {
+                        render(mara, id_for_graph, size_egui.into(), accent);
+                    });
                 },
             );
         },
@@ -493,6 +662,25 @@ pub trait PaneBodyNodeGraphExt<'spec> {
     ) -> &mut Self
     where
         V: NodeViewer<T>;
+
+    /// Append a node graph drawn by the rebuilt renderer.
+    ///
+    /// Unlike [`Self::add_node_graph`] this needs no offscreen backend:
+    /// the renderer scales its whole spec with the camera, so text is
+    /// rasterised at the size it is drawn and stays sharp without a
+    /// second context to render into.
+    fn add_graph_view<T, V>(
+        &mut self,
+        id: impl Into<mara_core::vocab::Id>,
+        title: impl Into<String>,
+        icon: &'static str,
+        graph: &'spec mut Graph<T>,
+        view: &'spec mut V,
+        state: &'spec mut render::GraphViewState,
+        spec: render::GraphSpec,
+    ) -> &mut Self
+    where
+        V: render::GraphView<T>;
 }
 
 impl<'ui, 'spec> PaneBodyNodeGraphExt<'spec> for mara_core::pane::PaneBody<'ui, 'spec> {
@@ -525,7 +713,7 @@ impl<'ui, 'spec> PaneBodyNodeGraphExt<'spec> for mara_core::pane::PaneBody<'ui, 
         V: NodeViewer<T>,
         T: 'spec,
     {
-        let id: egui::Id = id.into().into();
+        let id: MaraId = id.into().into();
         // Enqueue as a `ContainerSpec::raw_internal` so the graph
         // participates in the same drag-reorder flow as `add_normal`
         // / `add_tabbed` (snapshot push, inline ghost gap, section
@@ -552,7 +740,94 @@ impl<'ui, 'spec> PaneBodyNodeGraphExt<'spec> for mara_core::pane::PaneBody<'ui, 
             },
         ))
     }
+
+    fn add_graph_view<T, V>(
+        &mut self,
+        id: impl Into<mara_core::vocab::Id>,
+        title: impl Into<String>,
+        icon: &'static str,
+        graph: &'spec mut Graph<T>,
+        view: &'spec mut V,
+        state: &'spec mut render::GraphViewState,
+        spec: render::GraphSpec,
+    ) -> &mut Self
+    where
+        V: render::GraphView<T>,
+        T: 'spec,
+    {
+        let id: MaraId = id.into().into();
+        self.add(mara_core::pane::ContainerSpec::raw_internal(
+            id,
+            title,
+            icon,
+            move |mara| {
+                let accent = mara_core::style::active_accent();
+                // Bounded. `available_rect()` inside a pane body can be
+                // the whole remaining panel, so feeding it straight into
+                // `min_size` lets the graph swallow the pane and shove
+                // every sibling container off the bottom.
+                let offered = mara
+                    .available_rect()
+                    .height()
+                    .clamp(GRAPH_MIN_HEIGHT, GRAPH_MAX_HEIGHT);
+                // Same maximise chip the old graph container had: click
+                // it and the graph takes the whole window.
+                //
+                // With ribbon avoidance on every edge. The overlay's
+                // backdrop still paints edge to edge, but the *content*
+                // — and the restore chip anchored to its corner — lay
+                // out clear of the rails. Without it both slide under
+                // the app's own bars, which is the misalignment that
+                // shows up the moment the container is maximised.
+                mara_core::embed::__internal_maximizable_with_opts_egui(
+                    mara,
+                    GRAPH_VIEW_FULLSCREEN_SALT,
+                    accent,
+                    MaraVec2::new(0.0, offered),
+                    // Bottom-right. The top-right corner is where the
+                    // host's system-control slot lives, and a restore
+                    // chip stacked under it is a restore chip nobody
+                    // can find.
+                    OverlayOpts::minimize_at(
+                        mara_core::ribbon::RibbonEdge::Right,
+                        mara_core::ribbon::RibbonCluster::End,
+                    )
+                    .avoid_ribbons(mara_core::RibbonAvoidance::all()),
+                    |mara| {
+                        let avail = mara.available_rect();
+                        let size =
+                            MaraVec2::new(avail.width(), avail.height().max(GRAPH_MIN_HEIGHT));
+                        let rect = mara.reserve_space(size);
+                        render::show_graph(mara, rect, graph, view, state, &spec);
+                    },
+                );
+            },
+        ))
+    }
 }
+
+/// Maximise-state salt for [`PaneBodyNodeGraphExt::add_graph_view`].
+///
+/// Pair with [`mara_core::embed::maximize_state_key`] to ask, from
+/// outside, whether the graph is the surface currently full-window.
+pub const GRAPH_VIEW_FULLSCREEN_SALT: &str = "mara_graph_view";
+
+/// The maximise-state key [`PaneBodyNodeGraphExt::add_graph_view`]
+/// registers, for hosts that route shortcuts by fullscreen owner.
+#[must_use]
+pub fn graph_view_fullscreen_key() -> mara_core::vocab::Id {
+    mara_core::embed::maximize_state_key(GRAPH_VIEW_FULLSCREEN_SALT)
+}
+
+/// Floor for a graph container's height, so a graph in a short pane is
+/// still a graph rather than a sliver.
+const GRAPH_MIN_HEIGHT: f32 = 220.0;
+
+/// Ceiling for the inline graph container's height.
+///
+/// A pane body reports the whole remaining panel as available, so an
+/// unbounded graph takes all of it and pushes its siblings out of view.
+const GRAPH_MAX_HEIGHT: f32 = 520.0;
 
 // ─── View + Module bridge ──────────────────────────────────────────
 //
@@ -565,7 +840,7 @@ impl<'ui, 'spec> PaneBodyNodeGraphExt<'spec> for mara_core::pane::PaneBody<'ui, 
 /// [`mara_core::MaraView`] or embedded as a [`mara_core::MaraModule`].
 #[derive(Clone, Debug)]
 pub struct GraphSurface<T, V> {
-    id: egui::Id,
+    id: MaraId,
     title: String,
     graph: Graph<T>,
     viewer: V,
@@ -581,7 +856,7 @@ impl<T, V> GraphSurface<T, V> {
         viewer: V,
     ) -> Self {
         Self {
-            id: egui::Id::new(id),
+            id: MaraId::new(id),
             title: title.into(),
             graph,
             viewer,
@@ -618,18 +893,18 @@ impl<T, V> GraphSurface<T, V>
 where
     V: NodeViewer<T>,
 {
-    fn show_graph(&mut self, ui: &mut egui::Ui) {
-        let size = ui.available_size_before_wrap();
+    fn show_graph(&mut self, mara: &mut mara_core::MaraUi<'_>) {
+        let size = mara.available_rect().size();
         GraphWidget::new()
-            .id(self.id)
+            .id(self.id.into())
             .style(mara_node_graph_style(mara_core::style::active_accent()))
             .min_size(size.into())
-            .show(&mut self.graph, &mut self.viewer, ui);
+            .show(&mut self.graph, &mut self.viewer, mara);
     }
 
     fn toolbar(&self, scope: mara_core::RibbonScope) -> mara_core::RibbonSlotDef {
         let add_node = mara_core::RibbonSlotItem::new(
-            egui::Id::new(("graph.add_node", self.id)),
+            MaraId::new(("graph.add_node", self.id)),
             "add",
             "Add Node",
             "Add a graph node",
@@ -639,7 +914,7 @@ where
             ))),
         );
         mara_core::RibbonSlotDef::new(
-            egui::Id::new(("graph.ribbon", self.id)),
+            MaraId::new(("graph.ribbon", self.id)),
             scope,
             mara_core::RibbonEdge::Top,
             mara_core::RibbonCluster::Middle,
@@ -677,12 +952,9 @@ where
     }
 
     fn show(&mut self, ctx: &mut mara_core::ViewCtx<'_>) {
-        #[allow(deprecated)]
-        {
-            egui::CentralPanel::default().show(ctx.__internal_egui_ctx(), |ui| {
-                self.show_graph(ui);
-            });
-        }
+        // Through the seam now that `GraphWidget::show` takes a
+        // `MaraUi` (PLAN.md WS-D1.4) — no hand-built `CentralPanel`.
+        ctx.body(|mara| self.show_graph(mara));
     }
 }
 
@@ -707,38 +979,44 @@ where
         mui: &mut mara_core::mui::MaraUi<'_>,
         ctx: mara_core::ModuleInlineCtx<'_>,
     ) -> mara_core::ModuleResponse {
-        let ui = mui.__internal_raw_ui();
-        ui.group(|ui| {
-            ui.horizontal(|ui| {
-                ui.label(format!("Graph: {}", self.title));
-            });
-            self.show_graph(ui);
-            if ctx.can_enter_workspace()
-                && ui
-                    .button(
-                        mara_core::style::theme()
-                            .modules
-                            .inline_workspace_button_label,
-                    )
-                    .clicked()
-            {
-                mara_core::ModuleResponse::enter_workspace()
-            } else {
-                mara_core::ModuleResponse::none()
-            }
-        })
-        .inner
+        // Entirely through `MaraUi` now: the graph widget takes one,
+        // so the raw-surface unwrap this used to need is gone.
+        let mut response = mara_core::ModuleResponse::none();
+        let title = self.title.clone();
+        let can_enter = ctx.can_enter_workspace();
+        mui.framed(
+            mara_core::style::frame_for(
+                mara_core::style::FrameRole::Section,
+                mara_core::style::active_accent(),
+            ),
+            |mara| {
+                mara.label(&format!("Graph: {title}"));
+                self.show_graph(mara);
+                if can_enter
+                    && mara
+                        .button(
+                            mara_core::style::theme()
+                                .modules
+                                .inline_workspace_button_label,
+                        )
+                        .clicked
+                {
+                    response = mara_core::ModuleResponse::enter_workspace();
+                }
+            },
+        );
+        response
     }
 
     fn workspace(&mut self, ws: &mut mara_core::WorkspaceCtx<'_>) {
         ws.add_bar(
             mara_core::WorkspaceBar::new(
-                egui::Id::new(("graph.workspace.bar", self.id)),
+                MaraId::new(("graph.workspace.bar", self.id)),
                 mara_core::WorkspaceBarEdge::Top,
                 mara_core::WorkspaceBarCluster::Middle,
             )
             .with_item(mara_core::WorkspaceBarItem::command(
-                egui::Id::new(("graph.workspace.add_node", self.id)),
+                MaraId::new(("graph.workspace.add_node", self.id)),
                 "Add Node",
                 Some("add"),
             )),
@@ -802,4 +1080,40 @@ mod view_module_bridge_tests {
         assert_eq!(mara_core::MaraView::title(&surface), "Graph");
         assert_eq!(mara_core::MaraModule::icon(&surface), "node_tree");
     }
+}
+
+/// Compile-time proof that a graph can render through the seam's
+/// offscreen path.
+///
+/// PLAN.md WS-D1.4 replaces `node_view.rs` with `ViewCtx::offscreen`.
+/// That was blocked by a type mismatch, not effort: the graph renders
+/// from a `ContainerSpec::raw_internal` closure holding a `MaraUi`,
+/// while `render_offscreen` wants a `MaraRenderState` — and
+/// `NodeViewBackend` exposed only `(Device, Queue)` + `TextureFormat`,
+/// which cannot be reassembled into one.
+///
+/// `NodeViewBackend::gpu()` closes that. This function is never called;
+/// it exists so the reachability is checked by the compiler on every
+/// build, rather than rediscovered when someone attempts the swap.
+#[cfg(feature = "gpu")]
+#[allow(dead_code)]
+fn _offscreen_path_is_reachable<T, V: NodeViewer<T>>(
+    mara: &mut mara_core::MaraUi<'_>,
+    backend: &dyn NodeViewBackend,
+    graph: &mut Graph<T>,
+    viewer: &mut V,
+) {
+    let Some(gpu) = backend.gpu() else { return };
+    let _ = mara_core::context::MaraCtx::render_offscreen(
+        mara.ctx(),
+        gpu,
+        MaraId::new("graph.offscreen"),
+        MaraVec2::new(320.0, 240.0),
+        1.0,
+        mara_core::style::active_accent(),
+        Default::default(),
+        &mut |sub| {
+            let _ = GraphWidget::new().show(graph, viewer, sub);
+        },
+    );
 }

@@ -10,11 +10,12 @@ use bevy::light::{CascadeShadowConfigBuilder, NotShadowCaster, NotShadowReceiver
 use bevy::pbr::{DistanceFog, FogFalloff};
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
-use egui;
+use mara::ui::mara_core;
 use mara::ui::modules::bevy::{
     BevyViewportInput, BevyViewportPickedColor, BevyViewportRenderTarget, BevyViewportSet,
     ChaseCamera, GroundGrid, apply_rig, apply_viewport_camera_input_system,
 };
+use mara_core::vocab::Color32 as MaraColor32;
 
 const PLANET_RADIUS: f32 = 6_371_000.0;
 const CLOUD_ALTITUDE_M: f32 = 4_000.0;
@@ -63,7 +64,7 @@ pub fn configure_bevy_host_app(app: &mut App) {
 
 #[derive(Component)]
 struct ColorCube {
-    egui_col: egui::Color32,
+    ui_color: MaraColor32,
     base_color: Color,
 }
 
@@ -211,7 +212,7 @@ fn setup_scene(
         let x = (col - (GRID_COLS as f32 - 1.0) * 0.5) * GRID_SPACING;
         let z = (row - 0.5) * GRID_SPACING;
         let bevy_col = Color::srgb(r, g, b);
-        let egui_col = egui::Color32::from_rgb(
+        let ui_color = MaraColor32::from_rgb(
             (r * 255.0).round() as u8,
             (g * 255.0).round() as u8,
             (b * 255.0).round() as u8,
@@ -228,7 +229,7 @@ fn setup_scene(
             Visibility::Inherited,
             BevyHostSceneObject,
             ColorCube {
-                egui_col,
+                ui_color,
                 base_color: bevy_col,
             },
         ));
@@ -315,14 +316,14 @@ fn pick_cube(
     };
     let origin = ray.origin;
     let direction = *ray.direction;
-    let mut best: Option<(f32, Entity, egui::Color32)> = None;
+    let mut best: Option<(f32, Entity, MaraColor32)> = None;
     for (entity, tr, cube) in &cubes {
         let min = tr.translation - Vec3::splat(0.5);
         let max = tr.translation + Vec3::splat(0.5);
         if let Some(t) = ray_aabb_hit(origin, direction, min, max) {
             match best {
                 Some((bt, _, _)) if bt <= t => {}
-                _ => best = Some((t, entity, cube.egui_col)),
+                _ => best = Some((t, entity, cube.ui_color)),
             }
         }
     }

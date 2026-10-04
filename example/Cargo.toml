@@ -88,15 +88,23 @@ label = "Mara Example"
 
 [[bin]]
 name = "native"
-path = "src/native.rs"
+path = "src/host/native.rs"
 
 # Minimal enforcement test: an eframe-hosted app that draws one Mara
 # surface and nothing else — the enforced theme/layout/top-bar must
 # appear on their own. `cargo run -p mara_example --bin enforced`.
 [[bin]]
 name = "enforced"
-path = "src/enforced.rs"
+path = "src/host/enforced.rs"
 
 [[bin]]
 name = "web"
-path = "src/web.rs"
+path = "src/host/web.rs"
+
+# Test-only. `render_snapshot` rasterises a real headless pass to a PNG
+# so the graph's appearance can be reviewed without launching the app —
+# that needs the backend's `UiBackend` impl to build a `MaraUi`. A
+# dev-dependency, so the demo itself stays a sealed consumer.
+[dev-dependencies]
+mara_backend_egui = { workspace = true }
+image = { version = "0.25", default-features = false, features = ["png"] }

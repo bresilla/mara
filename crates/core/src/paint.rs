@@ -201,7 +201,6 @@ impl PaintList {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;

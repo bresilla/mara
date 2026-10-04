@@ -435,11 +435,17 @@ mod tests {
             ),
             entry(
                 "dragged",
-                Rect::from_min_size(crate::vocab::pos2(0.0, 50.0), crate::vocab::vec2(80.0, 40.0)),
+                Rect::from_min_size(
+                    crate::vocab::pos2(0.0, 50.0),
+                    crate::vocab::vec2(80.0, 40.0),
+                ),
             ),
             entry(
                 "second",
-                Rect::from_min_size(crate::vocab::pos2(0.0, 100.0), crate::vocab::vec2(80.0, 40.0)),
+                Rect::from_min_size(
+                    crate::vocab::pos2(0.0, 100.0),
+                    crate::vocab::vec2(80.0, 40.0),
+                ),
             ),
         ];
 
@@ -454,11 +460,17 @@ mod tests {
         let cache = [
             entry(
                 "first",
-                Rect::from_min_size(crate::vocab::pos2(0.0, 100.0), crate::vocab::vec2(80.0, 40.0)),
+                Rect::from_min_size(
+                    crate::vocab::pos2(0.0, 100.0),
+                    crate::vocab::vec2(80.0, 40.0),
+                ),
             ),
             entry(
                 "dragged",
-                Rect::from_min_size(crate::vocab::pos2(0.0, 50.0), crate::vocab::vec2(80.0, 40.0)),
+                Rect::from_min_size(
+                    crate::vocab::pos2(0.0, 50.0),
+                    crate::vocab::vec2(80.0, 40.0),
+                ),
             ),
             entry(
                 "second",
@@ -481,11 +493,17 @@ mod tests {
             ),
             entry(
                 "dragged",
-                Rect::from_min_size(crate::vocab::pos2(50.0, 0.0), crate::vocab::vec2(40.0, 80.0)),
+                Rect::from_min_size(
+                    crate::vocab::pos2(50.0, 0.0),
+                    crate::vocab::vec2(40.0, 80.0),
+                ),
             ),
             entry(
                 "second",
-                Rect::from_min_size(crate::vocab::pos2(100.0, 0.0), crate::vocab::vec2(40.0, 80.0)),
+                Rect::from_min_size(
+                    crate::vocab::pos2(100.0, 0.0),
+                    crate::vocab::vec2(40.0, 80.0),
+                ),
             ),
         ];
 
@@ -517,7 +535,10 @@ mod tests {
         let pane_id = Id::new("pane");
         let dragged = Id::new("dragged");
         let still_rendered = Id::new("still-rendered");
-        let dragged_rect = Rect::from_min_size(crate::vocab::pos2(10.0, 20.0), crate::vocab::vec2(90.0, 60.0));
+        let dragged_rect = Rect::from_min_size(
+            crate::vocab::pos2(10.0, 20.0),
+            crate::vocab::vec2(90.0, 60.0),
+        );
 
         set_snapshot(
             &ctx,
@@ -562,7 +583,10 @@ mod tests {
         let dragged = Id::new("dragged");
         let live_new = Id::new("live-new");
         let stale = Id::new("stale");
-        let dragged_rect = Rect::from_min_size(crate::vocab::pos2(10.0, 20.0), crate::vocab::vec2(90.0, 60.0));
+        let dragged_rect = Rect::from_min_size(
+            crate::vocab::pos2(10.0, 20.0),
+            crate::vocab::vec2(90.0, 60.0),
+        );
 
         set_snapshot(
             &ctx,
@@ -575,7 +599,10 @@ mod tests {
                 },
                 RectEntry {
                     id: stale,
-                    rect: Rect::from_min_size(crate::vocab::pos2(100.0, 100.0), crate::vocab::vec2(20.0, 20.0)),
+                    rect: Rect::from_min_size(
+                        crate::vocab::pos2(100.0, 100.0),
+                        crate::vocab::vec2(20.0, 20.0),
+                    ),
                     frame: None,
                 },
             ],

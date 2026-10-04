@@ -149,6 +149,35 @@ pub fn __internal_with_node_region<R>(
     out
 }
 
+/// Run `body` with no node region in scope, restoring whatever was
+/// there afterwards.
+///
+/// For surfaces that float over the whole window rather than living
+/// inside a view node's cell. A floating pane rendered while a view
+/// node's region was published inherited that region, so maximising a
+/// widget inside the pane scoped its overlay — and the restore chip
+/// anchored to its corner — to the *cell*. With a shelf occupying one
+/// side of the view, "full window" landed the button in the middle of
+/// the screen.
+#[doc(hidden)]
+pub fn __internal_without_node_region<R>(
+    ctx: &dyn crate::context::MaraCtx,
+    body: impl FnOnce() -> R,
+) -> R {
+    let key = current_node_region_key();
+    let prev = {
+        let mut memory = ctx.memory();
+        let prev = memory.get_temp::<MaraRect>(key);
+        memory.remove_temp::<MaraRect>(key);
+        prev
+    };
+    let out = body();
+    if let Some(rect) = prev {
+        ctx.memory().set_temp(key, rect);
+    }
+    out
+}
+
 /// Internal fullscreen-owner read for first-party host adapters.
 ///
 /// Public app code should reach this through a sealed host/view
@@ -316,7 +345,14 @@ pub fn __internal_maximizable_with_opts_egui(
         // Fullscreen within the current view node's region (a cell), or
         // the whole window when no node is scoping (the root / host).
         let screen = current_node_region(mara.ctx()).unwrap_or_else(|| mara.ctx().content_rect());
-        let content = opts.content_avoidance.apply_to_rect(screen);
+        // Gate each requested edge on a rail actually being there this
+        // frame, the same way `ribbon_avoiding_rect` does for every
+        // other surface. Applying the clearance unconditionally insets
+        // edges that have no rail — so the restore chip floats away
+        // from a bare corner on one side and stays buried under the
+        // rail on another. Gating is what makes it land *beside* the
+        // rail, which is where a maximised widget's button belongs.
+        let content = gated_avoidance(mara.ctx(), opts.content_avoidance).apply_to_rect(screen);
         crate::context::MaraCtx::area(
             mara.ctx(),
             AreaHost::new(
@@ -361,10 +397,17 @@ pub fn __internal_maximizable_with_opts_egui(
             .memory()
             .get_temp(suppress_fullscreen_minimize_chip_key())
             .unwrap_or(false);
+        // Anchored to `content`, not `screen`. The backdrop covers the
+        // window, but the chip has to land where the content actually
+        // is — anchoring it to the raw screen rect parks it underneath
+        // whichever ribbon rail occupies that corner, which reads as a
+        // button that failed to move when the widget went full-window.
+        // With the default `RibbonAvoidance::none()` the two rects are
+        // identical, so callers that never opted in are unaffected.
         if !suppress_minimize_chip
             && fullscreen_minimize_button(
                 mara.ctx(),
-                screen,
+                content,
                 opts,
                 overlay.fullscreen_button_size,
                 overlay.fullscreen_edge_gap,
@@ -529,6 +572,23 @@ fn minimize_chip_icon_paint_cmd(
 /// * Cluster `Start` ⇒ corner closest to `(left, top)` along the edge.
 /// * Cluster `End`   ⇒ opposite corner.
 /// * Cluster `Middle`⇒ centred along the edge.
+/// Narrow `want` to the edges that carry a window rail this frame.
+///
+/// Avoidance reserves clearance for rails that exist, not for every
+/// edge a caller optimistically listed.
+fn gated_avoidance(
+    ctx: &dyn crate::context::MaraCtx,
+    want: crate::RibbonAvoidance,
+) -> crate::RibbonAvoidance {
+    let [left, right, top, bottom] = crate::pane::published_ribbon_edges(ctx);
+    crate::RibbonAvoidance {
+        left: want.left && left,
+        right: want.right && right,
+        top: want.top && top,
+        bottom: want.bottom && bottom,
+    }
+}
+
 fn compute_chip_pos(
     screen: MaraRect,
     edge: RibbonEdge,
@@ -878,6 +938,90 @@ fn arrowhead_paint_cmd(from: MaraPos2, tip: MaraPos2, color: MaraColor32) -> Pai
 mod tests {
     use super::*;
     use crate::vocab::{Color32, Pos2, Rect, Vec2};
+
+    /// A floating pane must not inherit the region of whichever view
+    /// node happened to be rendering. It inherited it, so a widget
+    /// maximised inside a pane scoped its overlay to that node's cell;
+    /// with a shelf down one side of the view, "full window" put the
+    /// restore button in the middle of the screen.
+    #[test]
+    fn a_pane_does_not_inherit_the_view_node_region() {
+        let ctx = crate::backend::record::RecordingBackend::at(Rect::from_min_size(
+            Pos2::new(0.0, 0.0),
+            Vec2::new(1600.0, 900.0),
+        ));
+        let cell = Rect::from_min_size(Pos2::new(0.0, 40.0), Vec2::new(900.0, 500.0));
+
+        __internal_with_node_region(&ctx, cell, || {
+            assert_eq!(current_node_region(&ctx), Some(cell), "region should be set");
+            __internal_without_node_region(&ctx, || {
+                assert_eq!(
+                    current_node_region(&ctx),
+                    None,
+                    "a pane must see the whole window, not the cell"
+                );
+            });
+            assert_eq!(
+                current_node_region(&ctx),
+                Some(cell),
+                "the node's region must come back afterwards"
+            );
+        });
+        assert_eq!(current_node_region(&ctx), None);
+    }
+
+    /// Avoidance only applies where a rail actually is. Insetting an
+    /// edge with no rail pushes the chip away from a bare corner for no
+    /// reason; skipping the gate on an edge that has one leaves it
+    /// buried underneath.
+    #[test]
+    fn avoidance_is_narrowed_to_edges_that_have_a_rail() {
+        let want = crate::RibbonAvoidance::all();
+        let narrow = |present: [bool; 4]| crate::RibbonAvoidance {
+            left: want.left && present[0],
+            right: want.right && present[1],
+            top: want.top && present[2],
+            bottom: want.bottom && present[3],
+        };
+
+        let only_right = narrow([false, true, false, false]);
+        assert!(only_right.right && !only_right.left && !only_right.top);
+
+        let screen = Rect::from_min_size(Pos2::new(0.0, 0.0), Vec2::new(1600.0, 900.0));
+        let inset = only_right.apply_to_rect(screen);
+        assert!(
+            (inset.min.x - screen.min.x).abs() < 0.01,
+            "an edge with no rail must not be inset"
+        );
+        assert!(inset.max.x < screen.max.x, "the rail edge must be inset");
+
+        let none = narrow([false; 4]);
+        assert_eq!(none.apply_to_rect(screen), screen);
+    }
+
+    /// The restore chip must sit inside the rect the content was laid
+    /// out in, not the raw window. Anchored to the window it parks
+    /// under whichever ribbon rail owns that corner, and reads as a
+    /// button that failed to move when the widget went full-window.
+    #[test]
+    fn the_restore_chip_follows_the_avoided_content_rect() {
+        let screen = Rect::from_min_size(Pos2::new(0.0, 0.0), Vec2::new(1600.0, 900.0));
+        let content = OverlayOpts::default()
+            .avoid_ribbons(crate::RibbonAvoidance::all())
+            .content_avoidance
+            .apply_to_rect(screen);
+        assert!(
+            content.width() < screen.width() && content.height() < screen.height(),
+            "avoidance should actually inset the content"
+        );
+
+        let at = |r: Rect| compute_chip_pos(r, RibbonEdge::Right, RibbonCluster::Start, 28.0, 8.0);
+        let (on_content, on_screen) = (at(content), at(screen));
+        assert!(on_content.x < on_screen.x, "chip did not move off the rail");
+        assert!(on_content.y > on_screen.y);
+        assert!(on_content.x + 28.0 <= content.max.x + 0.01);
+        assert!(on_content.y >= content.min.y - 0.01);
+    }
 
     #[test]
     fn maximize_placeholder_lowers_to_mara_text_command() {

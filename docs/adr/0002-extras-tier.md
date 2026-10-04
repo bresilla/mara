@@ -1,6 +1,18 @@
 # ADR 0002 — The extras tier: which module crates get sealed, and how
 
-Status: accepted (2026-07-23) · Relates to: PLAN.md WS6, ADR 0001
+Status: **SUPERSEDED (2026-07-28) by ADR 0003** · Relates to: PLAN.md WS6, ADR 0001
+
+> **Superseded.** The per-crate tier table below is void. Measurement
+> during WS-C showed renderer-owning crates cannot be sealed —
+> `mara_bevy` mints the Bevy render target and must name
+> `wgpu::TextureView` — so `mara_3d` and `mara_bevy` moved to a declared
+> **host** tier in `hosts/` instead of being driven to "(b) sealed".
+> `mara_map` was sealed and stays so. `mara_code` graduated from
+> "(a) declared unsealed"; its only dependency is now `serde`.
+> `mara_graph` remains the single exception.
+>
+> Kept for the reasoning, not the decision. See
+> [ADR 0003](0003-seal-tiers-and-backend-crate.md).
 
 ## Context
 

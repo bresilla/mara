@@ -1,7 +1,7 @@
 //! Small helpers around egui scroll areas.
 
-use mara_core::vocab::Id;
 use egui::Vec2;
+use mara_core::vocab::Id;
 
 #[derive(Clone, Copy)]
 pub(crate) enum StickyScrollAxis {

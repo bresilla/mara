@@ -10,7 +10,10 @@
 //! of a sealed module and makes the behaviour readable rather than
 //! derived.
 
-use super::{BackgroundPattern, GraphStyle, PinPlacement, SelectionStyle, WireStyle};
+use super::{
+    BackgroundPattern, GraphStyle, HaloSpec, NodeHalo, PinPlacement, SelectionStyle, ShadowSpec,
+    WireStyle,
+};
 
 /// Multiply every length-like field by `scale`.
 ///
@@ -165,8 +168,58 @@ impl Scale for BackgroundPattern {
     }
 }
 
+impl Scale for HaloSpec {
+    fn scale(&mut self, scale: f32) {
+        self.core_width.scale(scale);
+        for w in &mut self.widths {
+            w.scale(scale);
+        }
+        self.margin.scale(scale);
+        self.radius = (f32::from(self.radius) * scale) as u8;
+        // `alphas` are unitless opacities, deliberately not scaled —
+        // multiplying them by zoom would drive the halo to opaque when
+        // magnified rather than making it larger.
+    }
+}
+
+impl Scale for NodeHalo {
+    fn scale(&mut self, scale: f32) {
+        self.gap.scale(scale);
+        self.width.scale(scale);
+        self.radius = (f32::from(self.radius) * scale) as u8;
+    }
+}
+
+impl Scale for ShadowSpec {
+    fn scale(&mut self, scale: f32) {
+        let len = |v: i8| (f32::from(v) * scale) as i8;
+        let rad = |v: u8| (f32::from(v) * scale) as u8;
+        self.offset = [len(self.offset[0]), len(self.offset[1])];
+        self.blur = rad(self.blur);
+        self.spread = rad(self.spread);
+        self.drag_offset = [len(self.drag_offset[0]), len(self.drag_offset[1])];
+        self.drag_blur = rad(self.drag_blur);
+    }
+}
+
 impl Scale for GraphStyle {
     fn scale(&mut self, scale: f32) {
+        // `node_halo`, `pin_inset` and `wire_smoothness` were missing
+        // here before PLAN_NODE.md P2 — a pre-existing bug: they are
+        // lengths, so they silently stopped tracking zoom under
+        // `crisp_magnified_text`.
+        //
+        // Deliberately still absent: `wire_glow` and `pin_glow` are
+        // unitless alpha multipliers consumed as `a_mul * glow`, so
+        // scaling them by `max_scale` would drive the bloom to full
+        // opacity rather than enlarging it; and `wire_color_mode` is a
+        // fieldless enum with no length in it.
+        self.node_shadow.scale(scale);
+        self.select_halo.scale(scale);
+        self.header_accent.scale(scale);
+        self.node_halo.scale(scale);
+        self.pin_inset.scale(scale);
+        self.wire_smoothness.scale(scale);
         self.node_frame.scale(scale);
         self.header_frame.scale(scale);
         self.header_drag_space.scale(scale);

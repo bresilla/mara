@@ -384,9 +384,9 @@ impl<A: WindowApp> NativeWinitApp<A> {
         });
 
         if probe_this_frame {
-            let poses = mara_core::probe::__internal_drain(
-                &mara_backend_egui::EguiCtx::new(&self.egui_ctx),
-            );
+            let poses = mara_core::probe::__internal_drain(&mara_backend_egui::EguiCtx::new(
+                &self.egui_ctx,
+            ));
             eprintln!("{}", mara_core::probe::format(&poses));
             mara_core::probe::__internal_set_enabled(
                 &mara_backend_egui::EguiCtx::new(&self.egui_ctx),

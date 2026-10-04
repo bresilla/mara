@@ -46,7 +46,6 @@ use std::io::Cursor;
 // `egui` directly (not via `eframe`) so this file compiles on Android,
 // where the app does not depend on `eframe`. `eframe::egui` is the same
 // crate re-exported, so non-Android behavior is unchanged.
-use egui;
 
 use mara::ui::{mara_core, modules::map as mara_map};
 use mara_core::LabelSpec;
@@ -76,9 +75,9 @@ use mara_map::{
 use mara::extras::code::{PodCodeEditorExt, Syntax};
 use mara::extras::graph::PaneBodyNodeGraphExt;
 use mara::extras::graph::{
-    Graph, InPin, InPinId, NodePin, NodeViewState, NodeViewer, OutPin, OutPinId, PinInfo,
+    Graph, InPin, InPinId, NodeId, NodePin, NodeViewer, OutPin, OutPinId, PinInfo,
 };
-use mara::host::{EframeNodeViewBackend, MaraHostCtx};
+use mara::host::MaraHostCtx;
 use mara::ui::modules::bevy::MaraBevyViewport;
 use mara::ui::modules::board::{Board, BoardPaint};
 use mara::ui::modules::canvas::{CanvasDocument, CanvasSurface};
@@ -129,6 +128,30 @@ const PANE_COREVIZ_JSON: &str = "demo_coreviz_pane_json";
 const PANE_COREVIZ_SCHEDULER: &str = "demo_coreviz_pane_scheduler";
 const PANE_COREVIZ_TASKS: &str = "demo_coreviz_pane_tasks";
 const CANVAS_SHELF_LEFT: &str = "demo_canvas_shelf_left";
+const GRAPH_LAB_SHELF: &str = "demo_graph_lab_shelf";
+/// Every icon the Graph Lab names, in one place.
+///
+/// Listed as constants rather than spelled inline so the test below has
+/// something to check. An icon name that does not resolve panics inside
+/// the ribbon assert the first time the bar or shelf renders — after
+/// startup, so no compile-time check and no headless test would catch a
+/// typo here.
+const GRAPH_LAB_ICONS: &[&str] = &[
+    GRAPH_LAB_ICON_VIEW,
+    GRAPH_LAB_ICON_WHERE,
+    GRAPH_LAB_ICON_GROUPS,
+    GRAPH_LAB_ICON_SUBGRAPHS,
+    GRAPH_LAB_ICON_LIBRARY,
+    GRAPH_LAB_ICON_VISUALS,
+    GRAPH_LAB_ICON_LEGEND,
+];
+const GRAPH_LAB_ICON_VIEW: &str = "flowchart";
+const GRAPH_LAB_ICON_WHERE: &str = "location";
+const GRAPH_LAB_ICON_GROUPS: &str = "square-multiple";
+const GRAPH_LAB_ICON_SUBGRAPHS: &str = "branch";
+const GRAPH_LAB_ICON_LIBRARY: &str = "list";
+const GRAPH_LAB_ICON_VISUALS: &str = "eye";
+const GRAPH_LAB_ICON_LEGEND: &str = "color";
 
 const ACTION_PREV_CUBE: &str = "demo_action_prev_cube";
 const ACTION_NEXT_CUBE: &str = "demo_action_next_cube";
@@ -138,6 +161,7 @@ const ACTION_VIEW_CANVAS: &str = "demo_action_view_canvas";
 const ACTION_VIEW_3D: &str = "demo_action_view_3d";
 const ACTION_VIEW_BOARD: &str = "demo_action_view_board";
 const ACTION_VIEW_MULTI: &str = "demo_action_view_multi";
+const ACTION_VIEW_GRAPHLAB: &str = "demo_action_view_graphlab";
 const ACTION_COREVIZ_ZONES: &str = "demo_action_coreviz_zones";
 const ACTION_COREVIZ_MANAGEMENT: &str = "demo_action_coreviz_management";
 const ACTION_MAP_SELECT: &str = "demo_action_map_select";
@@ -1260,6 +1284,161 @@ fn find_ribbon<'a>(ribbons: &'a [RibbonSpec], id: &'static str) -> Option<&'a Ri
 mod tests {
     use super::*;
 
+    /// A shelf-fold command must reach the shelf of the view that is
+    /// on screen. Routed to one view's state unconditionally, the fold
+    /// buttons look live on every view and work on exactly one — which
+    /// is what happened on the graph lab: the button toggled a shelf
+    /// belonging to a view nobody was looking at.
+    #[test]
+    fn shelf_fold_commands_reach_the_view_on_screen() {
+        let mut canvas = ShelfState::default();
+        let mut lab = ShelfState::default();
+
+        shelf_state_for(DemoRootView::GraphLab, &mut canvas, &mut lab)
+            .toggle_edge_visible(ShelfEdge::Left);
+        assert!(
+            !lab.edge_visible(ShelfEdge::Left),
+            "the graph lab's shelf should have folded"
+        );
+        assert!(
+            canvas.edge_visible(ShelfEdge::Left),
+            "another view's shelf must not move"
+        );
+
+        shelf_state_for(DemoRootView::Canvas, &mut canvas, &mut lab)
+            .toggle_edge_visible(ShelfEdge::Left);
+        assert!(!canvas.edge_visible(ShelfEdge::Left));
+        assert!(!lab.edge_visible(ShelfEdge::Left), "still folded");
+    }
+
+    /// The graph lab's shelf is togglable at all. A shelf built with
+    /// `without_toggle_button` is pinned open, and the fold command
+    /// silently does nothing however it is routed.
+    #[test]
+    fn the_graph_lab_shelf_opts_in_to_folding() {
+        let lab = GraphLabState::default();
+        let shelves = graph_lab_shelves(MaraColor32::from_rgb(120, 160, 220), &lab);
+        assert!(!shelves.is_empty());
+        assert!(
+            shelves.iter().all(|s| s.toggle_button),
+            "a shelf with no toggle button can never be folded"
+        );
+    }
+
+    /// One payload of every shape the demo can put on screen.
+    ///
+    /// Spelled out rather than derived, because the point is to fail
+    /// when a variant is ADDED without a matching icon or title — and
+    /// anything derived from the enum would grow silently with it.
+    fn graph_node_samples() -> Vec<GraphNode> {
+        vec![
+            GraphNode::Subgraph,
+            GraphNode::Port {
+                out: false,
+                name: "signal".into(),
+            },
+            GraphNode::Port {
+                out: true,
+                name: "value".into(),
+            },
+            GraphNode::Number(0.0),
+            GraphNode::Integer(0),
+            GraphNode::Vector([0.0; 3]),
+            GraphNode::Color(MaraColor32::WHITE),
+            GraphNode::Bool(false),
+            GraphNode::Time,
+            GraphNode::ScalarMath(ScalarOp::Add),
+            GraphNode::Trig(TrigFn::Sin),
+            GraphNode::Compare(CompareOp::Lt),
+            GraphNode::Mix,
+            GraphNode::Clamp,
+            GraphNode::MapRange,
+            GraphNode::Smoothstep,
+            GraphNode::Step,
+            GraphNode::VectorMath(VectorOp::Add),
+            GraphNode::Compose,
+            GraphNode::Decompose,
+            GraphNode::Length,
+            GraphNode::Dot,
+            GraphNode::Distance,
+            GraphNode::Normalize,
+            GraphNode::VectorRotate,
+            GraphNode::Reflect,
+            GraphNode::RgbToColor,
+            GraphNode::HsvToColor,
+            GraphNode::ColorMix,
+            GraphNode::HueShift,
+            GraphNode::ColorInvert,
+            GraphNode::BrightContrast,
+            GraphNode::Gamma,
+            GraphNode::IfElse,
+            GraphNode::BooleanMath(BoolOp::And),
+            GraphNode::FloatToBool,
+            GraphNode::BoolToFloat,
+            GraphNode::Perlin {
+                seed: 0,
+                frequency: 1.0,
+            },
+            GraphNode::WhiteNoise { seed: 0 },
+            GraphNode::Wave(WaveShape::Sine),
+            GraphNode::Display,
+            GraphNode::Plot,
+            GraphNode::PlotXY,
+            GraphNode::Preview,
+            GraphNode::VectorPreview,
+            GraphNode::NoiseImage {
+                seed: 0,
+                scale: 1.0,
+            },
+            GraphNode::NoiseField,
+            GraphNode::MultiPlot,
+            GraphNode::Output,
+        ]
+    }
+
+    /// Both graphs in the demo must size their nodes by one rule.
+    ///
+    /// The editor graph had no width rule at all — every node came out
+    /// as wide as its own content, and this viewer draws an inline
+    /// editor for each unwired input, so peers in a column were visibly
+    /// ragged while the Graph Lab's were not. Two graphs in one app
+    /// sizing their nodes differently is the most visible way they stop
+    /// looking like the same product.
+    #[test]
+    fn every_node_in_both_graphs_shares_one_width_rule() {
+        let editor = default_graph();
+        let missing: Vec<_> = editor
+            .node_ids()
+            .filter(|(id, _)| editor.size_override_of(*id).is_none())
+            .map(|(id, _)| id)
+            .collect();
+        assert!(
+            missing.is_empty(),
+            "{} editor-graph nodes have no width rule",
+            missing.len()
+        );
+
+        for (id, _) in editor.node_ids() {
+            let w = editor.size_override_of(id).unwrap().x;
+            assert!(
+                (w - NODE_W).abs() < 0.01,
+                "editor node {id:?} is {w} wide, not the shared {NODE_W}"
+            );
+        }
+
+        let lab = build_graph_lab_doc();
+        for (id, _) in lab.root.node_ids() {
+            let Some(size) = lab.root.size_override_of(id) else {
+                panic!("graph lab node {id:?} has no width rule");
+            };
+            assert!(
+                size.x >= NODE_W - 0.01,
+                "graph lab node {id:?} is narrower ({}) than the shared {NODE_W}",
+                size.x
+            );
+        }
+    }
+
     #[test]
     fn demo_ribbon_icons_are_renderable() {
         for item in RIBBON_ITEMS_PERSISTENT_TOP
@@ -1282,6 +1461,160 @@ mod tests {
                 icon
             );
         }
+    }
+
+    /// The top-bar view switcher's icons.
+    ///
+    /// Not covered by `demo_ribbon_icons_are_renderable` above, which
+    /// walks the ribbon tables — and that gap is not theoretical: a
+    /// `ShellView` added with an icon name that does not resolve panics
+    /// at `assert_ribbon_icon` the moment the bar renders, which is
+    /// after startup and therefore invisible to every compile-time
+    /// check and every headless test.
+    #[test]
+    fn shell_view_icons_are_renderable() {
+        for view in demo_shell_views() {
+            assert!(
+                mara_core::icons::is_icon_payload(view.icon),
+                "shell view {:?} uses a non-renderable icon payload {:?}",
+                view.id,
+                view.icon
+            );
+        }
+    }
+
+    /// The same hazard one level down: a shelf container or one of its
+    /// tabs naming an icon that does not resolve.
+    #[test]
+    fn graph_lab_icons_are_renderable() {
+        for icon in GRAPH_LAB_ICONS {
+            assert!(
+                mara_core::icons::is_icon_payload(icon),
+                "graph lab uses a non-renderable icon payload {icon:?}"
+            );
+        }
+    }
+
+    /// And once more inside the canvas. A node header falls back to a
+    /// bullet rather than panicking, so a name that does not resolve is
+    /// invisible in CI and merely wrong on screen — which is exactly
+    /// the class of drift this whole pass is about.
+    #[test]
+    fn graph_node_icons_are_renderable() {
+        let bad: Vec<String> = graph_node_samples()
+            .iter()
+            .filter(|n| !mara_core::icons::is_icon_payload(n.icon_name()))
+            .map(|n| format!("{} → {:?}", n.title(), n.icon_name()))
+            .collect();
+        assert!(bad.is_empty(), "non-renderable node icons: {bad:#?}");
+    }
+
+    /// Every node in the Graph Lab carries a width the app chose.
+    ///
+    /// Width is otherwise measured from content, and two peers in one
+    /// group whose content differs by an inline editor end up two
+    /// widths. Asserting it here is cheaper than noticing it on screen.
+    #[test]
+    fn graph_lab_nodes_share_a_width() {
+        let doc = build_graph_lab_doc();
+        for (id, node) in doc.root.node_ids() {
+            let want = match node {
+                GraphNode::Display => LAB_READOUT_SIZE.x,
+                _ => LAB_NODE_W,
+            };
+            let got = doc.root.size_override_of(id).map(|s| s.x);
+            assert_eq!(
+                got,
+                Some(want),
+                "{} is sized by its content, not by the layout",
+                node.title()
+            );
+        }
+    }
+
+    /// A chip presents as its definition, not as its payload.
+    ///
+    /// The payload the crate mints carries no name, no colour and no
+    /// port labels, so without the library snapshot every placement of
+    /// every definition renders as "Subgraph" over unnamed pins — which
+    /// is what "an afterthought next to every other node" looks like.
+    #[test]
+    fn chip_presents_as_its_definition() {
+        let doc = build_graph_lab_doc();
+        let viewer = DemoViewer {
+            defs: def_looks(&doc),
+            ..DemoViewer::default()
+        };
+        let chips: Vec<NodeId> = doc
+            .root
+            .node_ids()
+            .filter(|(_, n)| matches!(n, GraphNode::Subgraph))
+            .map(|(id, _)| id)
+            .collect();
+        assert_eq!(chips.len(), 2, "the chip band places one definition twice");
+        for chip in chips {
+            let look = viewer.look(chip, &doc.root);
+            assert_eq!(look.title, "Gain stage");
+            assert_eq!(look.tint, mara::extras::graph::palette(5));
+            assert_eq!(look.subtitle, "shared");
+            assert_eq!(
+                viewer.instance_input(chip, 0, &doc.root),
+                Some("signal"),
+                "instance pins take their labels from the definition's ports"
+            );
+            assert_eq!(viewer.instance_output(chip, 0, &doc.root), Some("value"));
+        }
+    }
+
+    /// Diving into a chip must land on a laid-out graph.
+    ///
+    /// `collapse` stacks boundary nodes 70 px apart, which is closer
+    /// than a node is tall, so a definition with two ports on one side
+    /// opens with them overlapping. "Go inside" is a headline feature
+    /// of this view; arriving at a pile is what makes it look
+    /// unfinished.
+    #[test]
+    fn chip_interior_is_laid_out() {
+        let doc = build_graph_lab_doc();
+        let (_, def) = doc.defs().next().expect("the chip band makes one");
+        let mut seen: Vec<mara::ui::vocab::Pos2> = Vec::new();
+        for (id, node) in def.body.node_ids() {
+            let pos = def.body.get_node_info(id).expect("live").pos;
+            assert!(
+                !seen.iter().any(|p| *p == pos),
+                "two nodes share a position inside the definition"
+            );
+            seen.push(pos);
+            if let GraphNode::Port { name, .. } = node {
+                assert!(
+                    def.ports
+                        .inputs()
+                        .iter()
+                        .chain(def.ports.outputs())
+                        .any(|p| p.name == *name),
+                    "boundary node {name:?} kept a name the interface no longer has"
+                );
+            }
+        }
+        assert_eq!(seen.len(), 5, "two maths nodes plus three boundaries");
+    }
+
+    /// Bands must not reach into one another.
+    ///
+    /// A group box grows upward by its title band, so the pitch has to
+    /// clear the tallest node in the band above plus that band — and
+    /// "looks fine on my screen" is not a check anything can run.
+    #[test]
+    fn graph_lab_bands_are_ordered_and_spaced() {
+        let mut last = f32::NEG_INFINITY;
+        for y in LAB_BAND_Y {
+            assert!(y > last, "graph lab bands must run top to bottom");
+            last = y;
+        }
+        assert!(
+            LAB_BAND_Y[1] - LAB_BAND_Y[0] >= 400.0,
+            "the chip band is two rows of nodes plus two readouts tall"
+        );
     }
 
     #[test]
@@ -1494,6 +1827,24 @@ impl Default for TintRgba {
     }
 }
 
+
+/// Which view's shelf state a shelf-fold command should act on.
+///
+/// Every view that carries shelves owns its own `ShelfState`. The
+/// fold commands are global, so they have to be routed to whichever
+/// state is on screen; routing them all to one view's state makes the
+/// buttons dead everywhere else while still looking live.
+fn shelf_state_for<'a>(
+    root_view: DemoRootView,
+    canvas: &'a mut ShelfState,
+    graph_lab: &'a mut ShelfState,
+) -> &'a mut ShelfState {
+    match root_view {
+        DemoRootView::GraphLab => graph_lab,
+        _ => canvas,
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 enum DemoRootView {
     #[default]
@@ -1504,6 +1855,9 @@ enum DemoRootView {
     Multi,
     CorevizZones,
     CorevizManagement,
+    /// Full-screen node graph showcasing frames, subgraphs and the
+    /// visual work — see `PLAN_NODE.md`.
+    GraphLab,
 }
 
 impl DemoRootView {
@@ -2075,6 +2429,11 @@ fn obj_bounds(models: &[tobj::Model]) -> Option<ObjBounds> {
 #[derive(Default)]
 struct CanvasShelfState(ShelfState);
 
+/// Shelf state for the Graph Lab view, kept separate so toggling its
+/// guide does not disturb the canvas view's shelves.
+#[derive(Default)]
+struct GraphLabShelfState(ShelfState);
+
 struct MapViewState {
     surface: MapSurface,
     interaction: MapInteraction,
@@ -2128,17 +2487,13 @@ fn map_ribbon_items(root_view: DemoRootView) -> &'static [RibbonButtonSpec] {
     }
 }
 
-/// Per-graph sharp-zoom state (secondary `egui::Context`, pan, zoom,
-/// wgpu render target). Persists across frames so the same instance
-/// reaches `mara_node_graph` every frame for the editor pane —
-/// recreating it would drop the cached wgpu texture and renderer.
-struct EditorNodeView(NodeViewState);
-
-impl Default for EditorNodeView {
-    fn default() -> Self {
-        Self(NodeViewState::new())
-    }
-}
+/// The editor pane's camera and selection.
+///
+/// A plain value the app owns, so it is independent of the Graph Lab's
+/// by construction. The renderer keeps nothing of its own between
+/// frames.
+#[derive(Default)]
+struct EditorNodeView(mara::extras::graph::render::GraphViewState);
 
 /// The persistent node graph for the editor pane — same cross-frame
 /// lifetime story as `EditorNodeView` so node edits + connections
@@ -2172,6 +2527,8 @@ pub struct DemoApp {
     three_d_view: ThreeDViewState,
     tabs: DemoTabs,
     canvas_shelves: CanvasShelfState,
+    graph_lab: GraphLabState,
+    graph_lab_shelf: GraphLabShelfState,
     map_view: MapViewState,
     bevy_view: MaraBevyViewport,
     bevy_workspace: WorkspaceStack,
@@ -2228,6 +2585,11 @@ fn demo_shell_views() -> Vec<mara_core::ShellView> {
             "Board view (single board)",
         ),
         mara_core::ShellView::new(ACTION_VIEW_MULTI, "grid", "Multiview (split into views)"),
+        mara_core::ShellView::new(
+            ACTION_VIEW_GRAPHLAB,
+            GRAPH_LAB_ICON_VIEW,
+            "Graph Lab — groups, subgraphs, visuals",
+        ),
     ]
 }
 
@@ -2241,6 +2603,7 @@ fn shell_active_view_id(root_view: DemoRootView) -> &'static str {
         DemoRootView::Multi => ACTION_VIEW_MULTI,
         DemoRootView::CorevizZones => ACTION_COREVIZ_ZONES,
         DemoRootView::CorevizManagement => ACTION_COREVIZ_MANAGEMENT,
+        DemoRootView::GraphLab => ACTION_VIEW_GRAPHLAB,
     }
 }
 
@@ -2299,10 +2662,10 @@ impl DemoApp {
     }
 
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn new_winit(render_state: Option<&egui_wgpu::RenderState>) -> Self {
+    pub fn new_winit(gpu: Option<mara::ui::mara_gpu::MaraRenderState<'_>>) -> Self {
         Self {
             bevy_view: MaraBevyViewport::with_render_state_and_content(
-                render_state,
+                gpu,
                 crate::bevy_content::configure_app,
             ),
             bevy_workspace: WorkspaceStack::new("demo-bevy-workspace"),
@@ -2340,18 +2703,13 @@ impl DemoApp {
         self.accent.0 = color;
     }
 
-    #[must_use]
-    pub fn bevy_host_scene_visible(&self) -> bool {
-        self.bevy_hosted_scene && self.root_view == DemoRootView::BevyScene
-    }
-
-    pub fn update_with_render_state(
-        &mut self,
-        ctx: &egui::Context,
-        render_state: &egui_wgpu::RenderState,
-    ) {
-        let mut host = MaraHostCtx::ui_only(ctx, Some(render_state));
-        ui_system(self, &mut host);
+    /// One frame of the demo, against a Mara host context.
+    ///
+    /// Backend-free (PLAN.md WS-F6): the eframe pass that produces the
+    /// `MaraHostCtx` lives in `crate::host`, and this is everything
+    /// after it.
+    pub(crate) fn update_frame(&mut self, host: &mut MaraHostCtx<'_>) {
+        ui_system(self, host);
 
         // Web/eframe has no mara host adapter to enforce the shell bar,
         // so the demo renders it app-side here. (On native/bevy the
@@ -2378,23 +2736,10 @@ impl DemoApp {
             }
         }
     }
-}
 
-#[cfg(not(target_os = "android"))]
-impl eframe::App for DemoApp {
-    #[cfg(target_arch = "wasm32")]
-    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
-        // The web Bevy view is a real browser canvas behind/inside
-        // Mara's transparent egui canvas. Do not clear the whole
-        // eframe canvas opaquely or it hides Bevy.
-        [0.0, 0.0, 0.0, 0.0]
-    }
-
-    fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
-        let render_state = frame
-            .wgpu_render_state()
-            .expect("eframe must run with the wgpu backend (see example/Cargo.toml)");
-        self.update_with_render_state(ui.ctx(), render_state);
+    #[must_use]
+    pub fn bevy_host_scene_visible(&self) -> bool {
+        self.bevy_hosted_scene && self.root_view == DemoRootView::BevyScene
     }
 }
 
@@ -2409,7 +2754,7 @@ use mara::window::{CreationContext as RunnerCreationContext, WindowApp as Runner
 #[cfg(not(target_arch = "wasm32"))]
 impl RunnerWindowApp for DemoApp {
     fn new(ctx: RunnerCreationContext<'_>) -> Self {
-        Self::new_winit(ctx.__internal_render_state())
+        Self::new_winit(ctx.gpu())
     }
 
     fn update(&mut self, host: &mut MaraHostCtx<'_>) {
@@ -2447,6 +2792,8 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
         three_d_view,
         tabs,
         canvas_shelves,
+        graph_lab,
+        graph_lab_shelf,
         map_view,
         bevy_view,
         bevy_workspace,
@@ -2506,6 +2853,14 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
     } else if *root_view == DemoRootView::Multi {
         tabs.0.select(ACTION_VIEW_MULTI);
         tab_root_view(host, accent_col, &mut tabs.0);
+    } else if *root_view == DemoRootView::GraphLab {
+        graph_lab_root_view(
+            host,
+            accent_col,
+            graph_lab,
+            &mut graph_lab_shelf.0,
+            host.input_time(),
+        );
     } else if root_view.is_coreviz() {
         map_root_view(
             host,
@@ -2532,11 +2887,19 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
             PANE_EDITOR,
             "code_state",
         )));
+    // A container maximised from inside a pane keeps its own restore
+    // chip. The main bar owns restore for *module* fullscreen, where it
+    // always carries a restore item; a container can be maximised from
+    // any view, including ones whose rails carry no restore at all, and
+    // then there is no way back at all.
+    let container_fs = fullscreen_owner == Some(mara::extras::graph::graph_view_fullscreen_key());
     if fs_active {
-        // The persistent main bar owns module restore in L1/fullscreen.
-        // Suppress the old floating restore chip so it does not stack
-        // above the top-right system-control slot.
-        host.set_fullscreen_minimize_chip_visible(false);
+        host.set_fullscreen_minimize_chip_visible(container_fs);
+    }
+    // Escape always restores. A widget that can be made full-window
+    // needs one exit that does not depend on finding a button.
+    if fs_active && host.key_pressed(mara_core::mui::MaraKey::Escape) {
+        host.restore_fullscreen();
     }
     let allow_persistent_panes_over_fullscreen = fs_active
         && open.get(RIBBON_TOP).is_some_and(|id| {
@@ -2621,11 +2984,11 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
     // the module canvas instead of being hidden behind it.
     if fs_active && is_open_in(RIBBON_ITEMS, PANE_EDITOR) {
         let anchor = live_anchor(PANE_EDITOR).unwrap_or(PaneAnchor::RightRail(RailZone::End));
-        let Some(mut backend) = host.node_view_backend() else {
-            return;
-        };
         let now = host.input_time();
-        let mut viewer = DemoViewer { time: now };
+        let mut viewer = DemoViewer {
+            time: now,
+            ..DemoViewer::default()
+        };
         host.show_pane(
             Pane::new(PANE_EDITOR, "Editor", anchor, accent_col)
                 .resize(mara_core::pane::PaneResize::SPAN),
@@ -2635,7 +2998,7 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
                     &mut editor_node_view.0,
                     &mut editor_graph.0,
                     &mut viewer,
-                    &mut backend,
+                    accent_col,
                 );
             },
         );
@@ -2662,17 +3025,16 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
         }
         let anchor = live_anchor(button_id).unwrap_or(default_anchor);
         // Editor pane uses non-`'static` borrows that have to outlive
-        // host pane rendering — the typed `PaneBody::add_node_graph` stores
-        // them in the pending-spec list and the closure runs at
+        // host pane rendering — the typed `PaneBody::add_graph_view`
+        // stores them in the pending-spec list and the closure runs at
         // `body.finish()` time (after the user closure returns). Lift
-        // `viewer` / `backend` to the iteration scope so they live
-        // past that point.
+        // `viewer` to the iteration scope so it lives past that point.
         if button_id == PANE_EDITOR {
-            let Some(mut backend) = host.node_view_backend() else {
-                continue;
-            };
             let now = host.input_time();
-            let mut viewer = DemoViewer { time: now };
+            let mut viewer = DemoViewer {
+                time: now,
+                ..DemoViewer::default()
+            };
             host.show_pane(
                 Pane::new(button_id, label, anchor, accent_col)
                     .resize(mara_core::pane::PaneResize::SPAN),
@@ -2682,7 +3044,7 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
                         &mut editor_node_view.0,
                         &mut editor_graph.0,
                         &mut viewer,
-                        &mut backend,
+                        accent_col,
                     );
                 },
             );
@@ -2766,6 +3128,7 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
                 DemoRootView::Canvas => id == ACTION_VIEW_CANVAS,
                 DemoRootView::ThreeD => id == ACTION_VIEW_3D,
                 DemoRootView::Board => id == ACTION_VIEW_BOARD,
+                DemoRootView::GraphLab => id == ACTION_VIEW_GRAPHLAB,
                 DemoRootView::Multi => id == ACTION_VIEW_MULTI,
                 DemoRootView::CorevizZones => {
                     id == ACTION_COREVIZ_ZONES
@@ -2816,27 +3179,38 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
             host.request_repaint();
             continue;
         }
+        // Shelf toggles act on the shelf state of the view that is
+        // actually on screen. These were hardcoded to the canvas view's
+        // state, so on every other view with shelves — the graph lab
+        // above all — the fold buttons toggled a shelf nobody could see
+        // and did nothing visible at all.
         if click.action == RibbonAction::Command(mara_core::left_shelf_command_id()) {
-            canvas_shelves.0.toggle_edge_visible(ShelfEdge::Left);
+            let shelf = shelf_state_for(*root_view, &mut canvas_shelves.0, &mut graph_lab_shelf.0);
+            shelf.toggle_edge_visible(ShelfEdge::Left);
             // Phone: a small screen shows only one side shelf at a time.
             if mara_core::screen_class() == mara_core::Breakpoint::Phone
-                && canvas_shelves.0.edge_visible(ShelfEdge::Left)
+                && shelf.edge_visible(ShelfEdge::Left)
             {
-                canvas_shelves.0.set_edge_visible(ShelfEdge::Right, false);
+                shelf.set_edge_visible(ShelfEdge::Right, false);
             }
+            host.request_repaint();
             continue;
         }
         if click.action == RibbonAction::Command(mara_core::right_shelf_command_id()) {
-            canvas_shelves.0.toggle_edge_visible(ShelfEdge::Right);
+            let shelf = shelf_state_for(*root_view, &mut canvas_shelves.0, &mut graph_lab_shelf.0);
+            shelf.toggle_edge_visible(ShelfEdge::Right);
             if mara_core::screen_class() == mara_core::Breakpoint::Phone
-                && canvas_shelves.0.edge_visible(ShelfEdge::Right)
+                && shelf.edge_visible(ShelfEdge::Right)
             {
-                canvas_shelves.0.set_edge_visible(ShelfEdge::Left, false);
+                shelf.set_edge_visible(ShelfEdge::Left, false);
             }
+            host.request_repaint();
             continue;
         }
         if click.action == RibbonAction::Command(mara_core::bottom_shelf_command_id()) {
-            canvas_shelves.0.toggle_edge_visible(ShelfEdge::Bottom);
+            let shelf = shelf_state_for(*root_view, &mut canvas_shelves.0, &mut graph_lab_shelf.0);
+            shelf.toggle_edge_visible(ShelfEdge::Bottom);
+            host.request_repaint();
             continue;
         }
         if item_is(ACTION_VIEW_BEVY) {
@@ -2880,6 +3254,14 @@ pub fn ui_system(app: &mut DemoApp, host: &mut MaraHostCtx<'_>) {
             }
             *root_view = DemoRootView::Multi;
             tabs.0.select(ACTION_VIEW_MULTI);
+            host.request_repaint();
+            continue;
+        }
+        if item_is(ACTION_VIEW_GRAPHLAB) {
+            if fs_active {
+                host.restore_fullscreen();
+            }
+            *root_view = DemoRootView::GraphLab;
             host.request_repaint();
             continue;
         }
@@ -3304,6 +3686,636 @@ fn tab_root_view(host: &MaraHostCtx<'_>, accent: MaraColor32, tabs: &mut Tabs) {
     let (node, workspace, _shelf_state) = tabs.active_mut();
     let mut view_ctx = host.view_ctx(workspace, accent, RibbonAvoidance::none());
     node.render(&mut view_ctx);
+}
+
+// ─── Graph Lab root view ───────────────────────────────────────────
+//
+// A full-screen node graph built to show the grouping and subgraph
+// work in one place. Everything here is ordinary consumer code — the
+// same public API any app would use — so it doubles as the worked
+// example for `PLAN_NODE.md`.
+
+/// Mints payloads for nodes the crate creates on the app's behalf.
+///
+/// Collapsing a selection has to make an instance node and one boundary
+/// node per derived port, and `Graph<T>` has no way to construct a `T`.
+/// Returning `None` from either would abort the collapse and leave the
+/// document untouched.
+struct GraphLabFactory;
+
+impl mara::extras::graph::NodeFactory<GraphNode> for GraphLabFactory {
+    fn instance_node(
+        &mut self,
+        _def: mara::extras::graph::DefId,
+        _name: &str,
+        _ports: &mara::extras::graph::Ports,
+    ) -> Option<GraphNode> {
+        Some(GraphNode::Subgraph)
+    }
+
+    fn port_node(&mut self, spec: &mara::extras::graph::PortSpec<'_>) -> Option<GraphNode> {
+        Some(port_payload(spec))
+    }
+}
+
+/// The payload for one boundary node.
+///
+/// Shared by the two factories the demo has to keep in step — the
+/// standalone `GraphLabFactory` and `DemoViewer`'s own `NodeFactory`
+/// widening — because two copies of this decision is how a chip built
+/// with `Ctrl+G` ends up looking unlike a chip built at startup.
+fn port_payload(spec: &mara::extras::graph::PortSpec<'_>) -> GraphNode {
+    GraphNode::Port {
+        out: matches!(spec.dir, mara::extras::graph::PortDir::Out),
+        name: spec.name.to_string(),
+    }
+}
+
+/// State for the Graph Lab view.
+struct GraphLabState {
+    doc: mara::extras::graph::GraphDoc<GraphNode>,
+    viewer: DemoViewer,
+    /// Camera, selection and the level being shown.
+    ///
+    /// Held here rather than in the backend's keyed memory, so two
+    /// graph surfaces in this app are independent because they are two
+    /// values — not because two string keys happened not to collide.
+    nav: mara::extras::graph::render::DocViewState,
+    /// Breadcrumb from the last frame, so the shelf can show where the
+    /// canvas currently is. Returned as data rather than painted by the
+    /// crate, because the host owns chrome.
+    crumbs: Vec<String>,
+    /// Depth of the level being shown, for the exit hint.
+    depth: usize,
+}
+
+impl Default for GraphLabState {
+    fn default() -> Self {
+        Self {
+            doc: build_graph_lab_doc(),
+            viewer: DemoViewer::default(),
+            nav: mara::extras::graph::render::DocViewState::default(),
+            crumbs: vec!["Root".to_string()],
+            depth: 0,
+        }
+    }
+}
+
+/// The showcase document.
+///
+/// Three stacked bands, one feature each, rather than a scatter of
+/// one-off nodes: the view has five things to demonstrate at once, and
+/// a canvas where every node is a different type, colour and size shows
+/// none of them — the differences that carry meaning drown in the
+/// differences that carry none.
+///
+///   * top    — one definition placed twice, each feeding a readout
+///   * middle — a group folded to a pill
+///   * bottom — a live signal through nested groups
+///
+/// Colour is a variable here, not decoration. A node's header is its
+/// category (rose values, brown wave generators, blue scalar maths,
+/// maroon readouts), a chip's header is its definition's colour, and a
+/// group's box takes the colour of what it holds — so orange means
+/// "signal generation" and blue means "maths" in whichever band they
+/// appear, on a node or on a box. Peers therefore look like peers:
+/// within any one group every node is the same variant family, which
+/// fixes the pin count and the header colour, and `LAB_NODE_W` fixes
+/// the last free variable, the width.
+pub fn build_graph_lab_doc() -> mara::extras::graph::GraphDoc<GraphNode> {
+    let mut doc = mara::extras::graph::GraphDoc::<GraphNode>::new();
+    lab_band_chip(&mut doc);
+    lab_band_folded(&mut doc);
+    lab_band_frames(&mut doc);
+    doc
+}
+
+/// Every readout in the lab is this size, whatever it is wired to.
+///
+/// Sizing a chart from its content is how two readouts end up two
+/// widths; how big a readout should be is a property of the layout, and
+/// `set_size_override` is the only channel that can say so.
+const LAB_READOUT_SIZE: mara::ui::vocab::Vec2 = mara::ui::vocab::Vec2::new(260.0, 170.0);
+
+/// Every ordinary node in the lab is at least this wide.
+///
+/// Width is otherwise measured from content, and content varies for
+/// reasons the reader is not meant to notice: an unwired input grows an
+/// inline editor, and a longer subtitle grows the header. Two peers in
+/// one group then differ in width for no reason the design intends,
+/// which is precisely the noise the whole layout exists to remove. The
+/// override is a floor, so a node with more to say still grows.
+const LAB_NODE_W: f32 = NODE_W;
+
+/// The one node width every graph in this demo uses.
+///
+/// Shared by the editor pane's graph and the Graph Lab so the two read
+/// as the same product. Wide enough for this viewer's inline editors
+/// (a drag field plus its label) without forcing every node to be as
+/// wide as its widest sibling.
+const NODE_W: f32 = 210.0;
+
+/// Usable width inside a node body.
+///
+/// The renderer fixes node width, so a body widget can fill it rather
+/// than guessing. Widgets that guessed low are most of why nodes used
+/// to look like mostly-empty boxes.
+const BODY_W: f32 = 220.0;
+
+/// Column origins. One node width plus a fixed gutter apart, so a wire
+/// always has the same run and the bands stack into a grid.
+const LAB_COL: [f32; 4] = [40.0, 320.0, 600.0, 880.0];
+
+/// Where each band starts. Pitch is generous enough that a group box —
+/// which adds a title band and padding ABOVE its topmost member — never
+/// reaches into the band above it.
+const LAB_BAND_Y: [f32; 3] = [120.0, 620.0, 800.0];
+
+/// Bounds passed to `insert_frame` for a group that auto-fits.
+///
+/// A `shrink` frame recomputes its box from its members every frame, so
+/// the rect handed over at construction is never read.
+fn lab_auto_bounds() -> mara::ui::vocab::Rect {
+    mara::ui::vocab::Rect::from_min_size(
+        mara::ui::vocab::Pos2::new(0.0, 0.0),
+        mara::ui::vocab::Vec2::new(0.0, 0.0),
+    )
+}
+
+/// Add an ordinary lab node at the shared width.
+fn lab_node(level: &mut Graph<GraphNode>, x: f32, y: f32, payload: GraphNode) -> NodeId {
+    let id = level.insert_node(mara_graph_pos(x, y), payload);
+    level.set_size_override(id, Some(mara::ui::vocab::Vec2::new(LAB_NODE_W, 0.0)));
+    id
+}
+
+/// Add a readout node, sized by the app rather than by its content.
+fn lab_readout(level: &mut Graph<GraphNode>, x: f32, y: f32) -> NodeId {
+    let id = level.insert_node(mara_graph_pos(x, y), GraphNode::Display);
+    level.set_size_override(id, Some(LAB_READOUT_SIZE));
+    id
+}
+
+/// Adopt a node the crate placed on the app's behalf.
+///
+/// `collapse` drops the instance at the centroid of what it replaced,
+/// which is the only sensible default and the wrong spot in a laid-out
+/// showcase, where the chip has to line up with its twin. It also
+/// leaves the node content-sized, so a chip would be the one node in
+/// the view whose width nobody chose — and a chip is exactly the node
+/// that must read as first-class.
+fn lab_place(level: &mut Graph<GraphNode>, uid: mara::extras::graph::NodeUid, x: f32, y: f32) {
+    let Some(id) = level.by_uid(uid) else {
+        return;
+    };
+    if let Some(info) = level.get_node_info_mut(id) {
+        info.pos = mara_graph_pos(x, y);
+    }
+    level.set_size_override(id, Some(mara::ui::vocab::Vec2::new(LAB_NODE_W, 0.0)));
+}
+
+/// Top band: one definition, placed twice.
+///
+/// The chip is built as an ordinary two-node chain and then collapsed,
+/// because collapse derives the interface from the wires that cross the
+/// selection boundary — the chip's two inputs and one output are a
+/// consequence of how it was wired, not something declared up front.
+///
+/// Both placements sit in the same column at the same width, fed by the
+/// same two sources and each feeding its own readout, so the `×2` badge
+/// is confirming something the eye has already spotted rather than
+/// announcing it — and neither placement reads as the leftover of the
+/// other.
+fn lab_band_chip(doc: &mut mara::extras::graph::GraphDoc<GraphNode>) {
+    use mara::extras::graph::{DefScope, NodePath};
+
+    let y = LAB_BAND_Y[0];
+    let signal = lab_node(&mut doc.root, LAB_COL[0], y + 40.0, GraphNode::Number(1.5));
+    let amount = lab_node(&mut doc.root, LAB_COL[0], y + 250.0, GraphNode::Number(0.5));
+    let scale = lab_node(
+        &mut doc.root,
+        LAB_COL[1],
+        y + 20.0,
+        GraphNode::ScalarMath(ScalarOp::Mul),
+    );
+    let offset = lab_node(
+        &mut doc.root,
+        LAB_COL[1],
+        y + 180.0,
+        GraphNode::ScalarMath(ScalarOp::Add),
+    );
+    let readout = lab_readout(&mut doc.root, LAB_COL[2], y + 20.0);
+
+    doc.root.connect(out_pin(signal, 0), in_pin(scale, 0));
+    doc.root.connect(out_pin(amount, 0), in_pin(scale, 1));
+    doc.root.connect(out_pin(scale, 0), in_pin(offset, 0));
+    doc.root.connect(out_pin(offset, 0), in_pin(readout, 0));
+
+    let members: Vec<_> = [scale, offset]
+        .iter()
+        .filter_map(|n| doc.root.uid_of(*n))
+        .collect();
+    let Ok((def, first)) = doc.collapse(
+        &NodePath::root(),
+        &members,
+        DefScope::Shared,
+        "Gain stage",
+        &mut GraphLabFactory,
+    ) else {
+        return;
+    };
+    if let Some(d) = doc.def_mut(def) {
+        d.color = Some(mara::extras::graph::palette(5));
+    }
+    lab_name_ports(doc, def, &["signal", "amount"], &["value"]);
+    lab_tidy_def(doc, def);
+    lab_place(&mut doc.root, first, LAB_COL[1], y + 30.0);
+
+    let Ok(second) = doc.instantiate(
+        &NodePath::root(),
+        def,
+        mara_graph_pos(LAB_COL[1], y + 240.0),
+        &mut GraphLabFactory,
+    ) else {
+        return;
+    };
+    lab_place(&mut doc.root, second, LAB_COL[1], y + 240.0);
+    let twin_readout = lab_readout(&mut doc.root, LAB_COL[2], y + 230.0);
+    if let Some(twin) = doc.root.by_uid(second) {
+        doc.root.connect(out_pin(signal, 0), in_pin(twin, 0));
+        doc.root.connect(out_pin(amount, 0), in_pin(twin, 1));
+        doc.root.connect(out_pin(twin, 0), in_pin(twin_readout, 0));
+    }
+}
+
+/// Give a definition's derived ports names a reader can use.
+///
+/// `collapse` names them `in0` / `out0`, which is the only thing it can
+/// know and is exactly as informative as no label at all on the
+/// instance pins those ports become.
+///
+/// The second pass re-titles the boundary nodes. `rename_port` renames
+/// the port and nothing else, and the boundary nodes were minted with
+/// the old name baked into their payload — a node titled `in0` inside a
+/// definition whose instance pin reads `signal` is the same
+/// inconsistency one level down.
+fn lab_name_ports(
+    doc: &mut mara::extras::graph::GraphDoc<GraphNode>,
+    def: mara::extras::graph::DefId,
+    inputs: &[&str],
+    outputs: &[&str],
+) {
+    use mara::extras::graph::PortDir;
+
+    let Some(d) = doc.def(def) else {
+        return;
+    };
+    let renames: Vec<(mara::extras::graph::PortId, String)> = d
+        .ports
+        .inputs()
+        .iter()
+        .zip(inputs)
+        .chain(d.ports.outputs().iter().zip(outputs))
+        .map(|(port, name)| (port.id, (*name).to_string()))
+        .collect();
+    for (port, name) in renames {
+        doc.rename_port(def, port, name);
+    }
+    let Some(d) = doc.def_mut(def) else {
+        return;
+    };
+    let named: Vec<(mara::extras::graph::PortId, String)> = d
+        .ports
+        .side(PortDir::In)
+        .iter()
+        .chain(d.ports.side(PortDir::Out).iter())
+        .map(|p| (p.id, p.name.clone()))
+        .collect();
+    let ids: Vec<NodeId> = d.body.node_ids().map(|(id, _)| id).collect();
+    for id in ids {
+        let Some(uid) = d.body.uid_of(id) else {
+            continue;
+        };
+        let Some(port) = d.body.port_node(uid) else {
+            continue;
+        };
+        let Some((_, name)) = named.iter().find(|(p, _)| *p == port) else {
+            continue;
+        };
+        if let Some(GraphNode::Port { name: slot, .. }) = d.body.get_node_mut(id) {
+            *slot = name.clone();
+        }
+    }
+}
+
+/// Lay a definition's interior out the way the root level is laid out.
+///
+/// `collapse` stacks boundary nodes 70 px apart — closer than a node is
+/// tall, so two ports on one side overlap — and parks the output column
+/// 600 px out regardless of how wide the body actually is. Diving into
+/// a chip is a headline feature of this view; arriving at a pile is the
+/// thing that makes the feature look unfinished.
+fn lab_tidy_def(
+    doc: &mut mara::extras::graph::GraphDoc<GraphNode>,
+    def: mara::extras::graph::DefId,
+) {
+    let Some(d) = doc.def_mut(def) else {
+        return;
+    };
+    let y = LAB_BAND_Y[0];
+    let ids: Vec<NodeId> = d.body.node_ids().map(|(id, _)| id).collect();
+    let (mut ins, mut outs, mut interior) = (0.0_f32, 0.0_f32, 0.0_f32);
+    for id in ids {
+        let boundary = d
+            .body
+            .uid_of(id)
+            .and_then(|uid| d.body.port_node(uid))
+            .is_some();
+        let out = matches!(d.body.get_node(id), Some(GraphNode::Port { out: true, .. }));
+        let (col, slot) = match (boundary, out) {
+            (true, false) => (LAB_COL[0], &mut ins),
+            (true, true) => (LAB_COL[2], &mut outs),
+            _ => (LAB_COL[1], &mut interior),
+        };
+        if let Some(info) = d.body.get_node_info_mut(id) {
+            info.pos = mara_graph_pos(col, y + *slot);
+        }
+        d.body
+            .set_size_override(id, Some(mara::ui::vocab::Vec2::new(LAB_NODE_W, 0.0)));
+        *slot += 180.0;
+    }
+}
+
+/// Middle band: a group folded to a pill.
+///
+/// Its members are skipped by the node loop entirely, so folding a big
+/// group costs nothing to draw — and never having been drawn, they have
+/// no measured size for the box to fit around. The pair is therefore
+/// laid out side by side rather than stacked: the fit falls back to the
+/// two positions alone, and two positions in a column would fold to a
+/// tall sliver with the title truncated away.
+fn lab_band_folded(doc: &mut mara::extras::graph::GraphDoc<GraphNode>) {
+    let y = LAB_BAND_Y[1];
+    let coarse = lab_node(
+        &mut doc.root,
+        LAB_COL[0],
+        y,
+        GraphNode::Wave(WaveShape::Saw),
+    );
+    let fine = lab_node(
+        &mut doc.root,
+        LAB_COL[1],
+        y,
+        GraphNode::Wave(WaveShape::Square),
+    );
+    doc.root.connect(out_pin(coarse, 0), in_pin(fine, 0));
+
+    let folded =
+        doc.root
+            .insert_frame("Detune", mara::extras::graph::palette(1), lab_auto_bounds());
+    doc.root.set_node_frame(coarse, Some(folded));
+    doc.root.set_node_frame(fine, Some(folded));
+    if let Some(f) = doc.root.frame_mut(folded) {
+        f.collapsed = true;
+    }
+}
+
+/// Bottom band: a live signal through nested groups.
+///
+/// The clock and the bias sit outside both boxes so each group holds
+/// one kind of node and one header colour — the generators in the outer
+/// box, the maths in the inner one. Nesting is then legible as nesting:
+/// the two columns are the same shape at the same pitch, and the only
+/// thing that differs between them is the depth tint of the box behind.
+///
+/// The bias exists to leave no input dangling. An unwired input grows
+/// an inline editor, which would make one of the two peers inside
+/// `Shaping` wider than the other for a reason the design does not
+/// intend and the reader cannot decode.
+fn lab_band_frames(doc: &mut mara::extras::graph::GraphDoc<GraphNode>) {
+    let y = LAB_BAND_Y[2];
+    let clock = lab_node(&mut doc.root, LAB_COL[0], y + 90.0, GraphNode::Time);
+    let sine = lab_node(
+        &mut doc.root,
+        LAB_COL[1],
+        y,
+        GraphNode::Wave(WaveShape::Sine),
+    );
+    let triangle = lab_node(
+        &mut doc.root,
+        LAB_COL[1],
+        y + 180.0,
+        GraphNode::Wave(WaveShape::Triangle),
+    );
+    let blend = lab_node(
+        &mut doc.root,
+        LAB_COL[2],
+        y,
+        GraphNode::ScalarMath(ScalarOp::Mul),
+    );
+    let lift = lab_node(
+        &mut doc.root,
+        LAB_COL[2],
+        y + 180.0,
+        GraphNode::ScalarMath(ScalarOp::Add),
+    );
+    let bias = lab_node(
+        &mut doc.root,
+        LAB_COL[0],
+        y + 270.0,
+        GraphNode::Number(0.25),
+    );
+    let readout = lab_readout(&mut doc.root, LAB_COL[3], y + 50.0);
+
+    doc.root.connect(out_pin(clock, 0), in_pin(sine, 0));
+    doc.root.connect(out_pin(clock, 0), in_pin(triangle, 0));
+    doc.root.connect(out_pin(sine, 0), in_pin(blend, 0));
+    doc.root.connect(out_pin(triangle, 0), in_pin(blend, 1));
+    doc.root.connect(out_pin(blend, 0), in_pin(lift, 0));
+    doc.root.connect(out_pin(bias, 0), in_pin(lift, 1));
+    doc.root.connect(out_pin(lift, 0), in_pin(readout, 0));
+
+    let outer = doc.root.insert_frame(
+        "Oscillator",
+        mara::extras::graph::palette(1),
+        lab_auto_bounds(),
+    );
+    let inner = doc.root.insert_frame(
+        "Shaping",
+        mara::extras::graph::palette(5),
+        lab_auto_bounds(),
+    );
+    doc.root.set_frame_parent(inner, Some(outer));
+    doc.root.set_node_frame(sine, Some(outer));
+    doc.root.set_node_frame(triangle, Some(outer));
+    doc.root.set_node_frame(blend, Some(inner));
+    doc.root.set_node_frame(lift, Some(inner));
+}
+
+fn mara_graph_pos(x: f32, y: f32) -> mara::ui::vocab::Pos2 {
+    mara::ui::vocab::Pos2::new(x, y)
+}
+
+fn out_pin(node: NodeId, output: usize) -> OutPinId {
+    OutPinId { node, output }
+}
+
+fn in_pin(node: NodeId, input: usize) -> InPinId {
+    InPinId { node, input }
+}
+
+/// Full-screen node graph plus a shelf of instructions.
+///
+/// The library snapshot is handed to the viewer before the widget
+/// borrows the document, because from inside the render the viewer only
+/// ever sees ONE level and an instance node's payload knows nothing
+/// about the definition it stands for.
+fn graph_lab_root_view(
+    host: &MaraHostCtx<'_>,
+    accent: MaraColor32,
+    lab: &mut GraphLabState,
+    shelf_state: &mut ShelfState,
+    time: f64,
+) {
+    lab.viewer.time = time;
+    lab.viewer.defs = def_looks(&lab.doc);
+
+    let shelves = mara_core::responsive_shelves(graph_lab_shelves(accent, lab));
+    let layout = host.layout_shelves(&shelves, shelf_state);
+
+    host.show_root_body(accent, |mui, _screen| {
+        // The shelf viewport, not the whole body. `available_rect()`
+        // includes the strip the shelves occupy, so the graph painted
+        // under them and — because it takes one interaction over its
+        // whole area — swallowed their fold buttons. The canvas view
+        // has always used `layout.viewport` for exactly this reason.
+        let area = layout.viewport;
+        let spec = mara::extras::graph::mara_graph_spec(accent);
+        let out = mara::extras::graph::render::show_doc(
+            mui,
+            area,
+            &mut lab.doc,
+            &mut lab.viewer,
+            &mut lab.nav,
+            &spec,
+        );
+
+        lab.crumbs = out.breadcrumb.iter().map(|c| c.name.clone()).collect();
+        lab.depth = lab.nav.path.depth();
+    });
+
+    host.show_shelves(layout, shelves, shelf_state);
+}
+
+/// The instruction shelf.
+///
+/// Built from ordinary pods, because the point of the view is that
+/// every graph feature below is reachable from plain consumer code.
+fn graph_lab_shelves(accent: MaraColor32, lab: &GraphLabState) -> Vec<ShelfDef<'static>> {
+    let here = lab.crumbs.join("  ›  ");
+    let level = if lab.depth == 0 {
+        "root".to_string()
+    } else {
+        format!("{} deep — Esc to go up", lab.depth)
+    };
+
+    let mut defs: Vec<Pod> = lab
+        .doc
+        .defs()
+        .enumerate()
+        .map(|(i, (id, d))| {
+            Pod::new(pid(GRAPH_LAB_SHELF, "defs", i))
+                .with_separator(SeparatorStyle::None)
+                .with_readout(d.name.clone(), format!("×{}", lab.doc.instance_count(id)))
+        })
+        .collect();
+    if defs.is_empty() {
+        defs.push(
+            Pod::new(pid(GRAPH_LAB_SHELF, "defs", 0))
+                .with_separator(SeparatorStyle::None)
+                .with_readout("none yet", "made by GraphDoc::collapse"),
+        );
+    }
+
+    let readout = |slot: usize, k: &str, v: &str| {
+        Pod::new(pid(GRAPH_LAB_SHELF, "help", slot))
+            .with_separator(SeparatorStyle::None)
+            .with_readout(k.to_string(), v.to_string())
+    };
+
+    vec![
+        ShelfDef::new(GRAPH_LAB_SHELF, ShelfEdge::Left, accent)
+            .default_size(320.0)
+            .movable()
+            .container(ShelfContainer::tabbed(
+                cid(GRAPH_LAB_SHELF, "guide"),
+                "Graph Lab",
+                GRAPH_LAB_ICON_VIEW,
+                vec![
+                    mara_core::container::Tab::new("lab.where", "Here", GRAPH_LAB_ICON_WHERE).pods(
+                        vec![
+                            Pod::new(pid(GRAPH_LAB_SHELF, "where", 0))
+                                .with_separator(SeparatorStyle::Line)
+                                .with_readout("path", here),
+                            Pod::new(pid(GRAPH_LAB_SHELF, "where", 1))
+                                .with_separator(SeparatorStyle::Line)
+                                .with_readout("level", level),
+                        ],
+                    ),
+                    mara_core::container::Tab::new("lab.groups", "Groups", GRAPH_LAB_ICON_GROUPS)
+                        .pods(vec![
+                            readout(0, "below", "Shaping nests inside Oscillator"),
+                            readout(1, "depth", "the inner box tints one step up"),
+                            readout(2, "folded", "Detune is a pill — 2 nodes hidden"),
+                            readout(3, "move a group", "drag its TITLE BAR"),
+                            readout(4, "pan instead", "drag the group BODY"),
+                            readout(5, "make a group", "shift-click nodes, then F"),
+                            readout(6, "join / leave", "drag a node in or out"),
+                            readout(7, "resize", "corners, when auto-fit is off"),
+                        ]),
+                    mara_core::container::Tab::new(
+                        "lab.subgraphs",
+                        "Subgraphs",
+                        GRAPH_LAB_ICON_SUBGRAPHS,
+                    )
+                    .pods(vec![
+                        readout(10, "above", "Gain stage is placed twice"),
+                        readout(11, "sharing", "×N counts placements"),
+                        readout(12, "go inside", "double-click a stacked node"),
+                        readout(13, "come back", "Esc or Backspace"),
+                        readout(14, "careful", "editing one changes all N"),
+                        readout(15, "make one", "select nodes, then Ctrl+G"),
+                        readout(16, "undo it", "select it, Ctrl+Shift+G"),
+                    ]),
+                    mara_core::container::Tab::new("lab.defs", "Library", GRAPH_LAB_ICON_LIBRARY)
+                        .pods(defs),
+                    mara_core::container::Tab::new("lab.legend", "Legend", GRAPH_LAB_ICON_LEGEND)
+                        .pods(vec![
+                            readout(30, "rose", "values entering the graph"),
+                            readout(31, "brown", "wave generators"),
+                            readout(32, "blue", "scalar maths"),
+                            readout(33, "maroon", "readouts"),
+                            readout(34, "a box", "takes the colour of its contents"),
+                            readout(35, "a chip", "takes its definition's colour"),
+                            readout(36, "one node", "one colour — never two"),
+                        ]),
+                    mara_core::container::Tab::new(
+                        "lab.visuals",
+                        "Visuals",
+                        GRAPH_LAB_ICON_VISUALS,
+                    )
+                    .pods(vec![
+                        readout(20, "node width", "app-set, so peers match"),
+                        readout(21, "readouts", "app-set size, not content size"),
+                        readout(22, "shadows", "deepen while dragging"),
+                        readout(23, "selection", "replaces the ring, never adds one"),
+                        readout(24, "wires", "coloured by the pin they leave"),
+                        readout(25, "camera", "double-click empty space to recentre"),
+                        readout(26, "zoom", "the editor pane's graph, not this one"),
+                    ]),
+                ],
+            )),
+    ]
 }
 
 // ─── Canvas root view ──────────────────────────────────────────────
@@ -4689,26 +5701,25 @@ fn three_d_inspector_pane(body: &mut PaneBody, three_d: &ThreeDViewState) {
 #[allow(clippy::too_many_arguments)]
 fn editor_pane<'spec>(
     body: &mut PaneBody<'_, 'spec>,
-    node_view: &'spec mut NodeViewState,
+    nav: &'spec mut mara::extras::graph::render::GraphViewState,
     graph: &'spec mut Graph<GraphNode>,
     viewer: &'spec mut DemoViewer,
-    backend: &'spec mut EframeNodeViewBackend<'_>,
+    accent: MaraColor32,
 ) {
     let cid_graph = cid(PANE_EDITOR, "graph");
     let code_id = cid(PANE_EDITOR, "code_state");
 
-    // Node graph uses the typed `add_node_graph` PaneBody method
-    // (feature-gated under `graph`) — internally a `ContainerSpec`
-    // with a raw closure, but the closure is owned by mara_core
-    // and cannot smuggle arbitrary egui through.
-    body.add_node_graph(
+    // The same renderer and the same spec the Graph Lab uses. Two
+    // surfaces that assembled their own styling is why the app used to
+    // show two node editors that plainly were not the same widget.
+    body.add_graph_view(
         cid_graph,
         "Node graph",
         "flowchart",
-        node_view,
         graph,
         viewer,
-        backend,
+        nav,
+        mara::extras::graph::mara_graph_spec(accent),
     );
     // Code editor goes through `Pod::with_code_editor` (typed
     // pod constructor, feature-gated under `code`). Text buffer
@@ -4757,29 +5768,22 @@ enum PinType {
 }
 
 impl PinType {
-    /// Canonical fill colour for pins of this type. Picked from
-    /// Unreal Engine's `K2GraphSchema` pin palette
-    /// (`UGraphEditorSettings`), gamma-encoded from the engine's
-    /// linear `FLinearColor` defaults so the colours match what
-    /// you see in the Blueprint editor:
-    ///   * Number  → Float        `#A4FF34` (bright lime).
-    ///   * Vector  → Vector struct`#FFC247` (gold).
-    ///   * Color   → LinearColor  `#FFA0FF` (pink-magenta — UE
-    ///     uses the SoftClassRef tone for "pretty colour" type-
-    ///     coding when the editor doesn't have a dedicated colour
-    ///     pin).
-    ///   * Bool    → Bool         `#960000` (deep maroon).
-    ///   * Text    → String       `#FF38C9` (hot pink).
-    /// Combined with `WireColorMode::FromSource` in
-    /// `mara_node_graph_style`, every wire takes the colour of its
-    /// source pin uniformly — the "Unreal Blueprint" look.
+    /// Canonical fill colour for pins of this type, and therefore for
+    /// every wire leaving one.
+    ///
+    /// Five hues at roughly one lightness and one saturation, so no
+    /// type shouts over the others and none disappears. The previous
+    /// set was Unreal's literal Blueprint palette, which pairs a neon
+    /// lime with a near-black maroon: on a canvas where most of the ink
+    /// is wire, that reads as an electrical fault rather than as type
+    /// information.
     fn color(self) -> MaraColor32 {
         match self {
-            PinType::Number => MaraColor32::from_rgb(0xA4, 0xFF, 0x34),
-            PinType::Vector => MaraColor32::from_rgb(0xFF, 0xC2, 0x47),
-            PinType::Color => MaraColor32::from_rgb(0xFF, 0xA0, 0xFF),
-            PinType::Bool => MaraColor32::from_rgb(0x96, 0x00, 0x00),
-            PinType::Text => MaraColor32::from_rgb(0xFF, 0x38, 0xC9),
+            PinType::Number => MaraColor32::from_rgb(0x6F, 0xCF, 0x97),
+            PinType::Vector => MaraColor32::from_rgb(0xF2, 0xC9, 0x4C),
+            PinType::Color => MaraColor32::from_rgb(0xBB, 0x6B, 0xD9),
+            PinType::Bool => MaraColor32::from_rgb(0xEB, 0x5F, 0x5F),
+            PinType::Text => MaraColor32::from_rgb(0x56, 0xCC, 0xF2),
         }
     }
 
@@ -5216,7 +6220,29 @@ impl VectorOp {
 }
 
 #[derive(Clone)]
-enum GraphNode {
+pub enum GraphNode {
+    // ── Subgraph plumbing (PLAN_NODE.md P7/P8) ──
+    //
+    // Minted by `GraphLabFactory` when a selection is collapsed. The
+    // crate answers an instance's pin COUNT from its definition's
+    // interface, so these never have to know how many pins they have —
+    // but `show_input`/`show_output` still route here, so they need to
+    // exist as payloads.
+    /// A placed instance of a definition.
+    Subgraph,
+    /// A boundary node standing for one port of the enclosing
+    /// definition.
+    ///
+    /// Carries the port's name because nothing else can: the names live
+    /// in the definition's `Ports`, and a viewer is only ever handed
+    /// one level of the document. Without it every boundary node inside
+    /// a chip is titled "Port", which is three identical nodes on
+    /// screen and no way to tell which pin is which.
+    Port {
+        out: bool,
+        name: String,
+    },
+
     // ── Sources ──
     Number(f64),
     Integer(i64),
@@ -5335,8 +6361,15 @@ impl GraphNode {
     /// Small Fluent-UI icon glyph painted to the left of the
     /// title in the header band. Picked from the set bundled in
     /// `mara_core::icons` so missing-glyph fallback never kicks in.
+    ///
+    /// A boundary node's arrow points the way the value travels, which
+    /// is the opposite of the side the node sits on: an `in` port is
+    /// where the interior gets its value FROM, so it exports.
     fn icon_name(&self) -> &'static str {
         match self {
+            GraphNode::Subgraph => "square-multiple",
+            GraphNode::Port { out: false, .. } => "arrow-export",
+            GraphNode::Port { out: true, .. } => "arrow-import",
             // Sources
             GraphNode::Number(_) => "calculator",
             GraphNode::Integer(_) => "calculator",
@@ -5346,17 +6379,17 @@ impl GraphNode {
             GraphNode::Time => "clock",
             // Scalar math
             GraphNode::ScalarMath(_) => "calculator",
-            GraphNode::Trig(_) => "wave",
+            GraphNode::Trig(_) => "math-formula",
             GraphNode::Compare(_) => "scales",
             GraphNode::Mix => "merge",
             GraphNode::Clamp => "border-all",
             GraphNode::MapRange => "ruler",
-            GraphNode::Smoothstep => "wave",
-            GraphNode::Step => "wave",
+            GraphNode::Smoothstep => "pulse",
+            GraphNode::Step => "pulse-square",
             // Vector
             GraphNode::VectorMath(_) => "flowchart",
             GraphNode::Compose => "merge",
-            GraphNode::Decompose => "split",
+            GraphNode::Decompose => "arrow-split",
             GraphNode::Length => "ruler",
             GraphNode::Dot => "calculator",
             GraphNode::Distance => "ruler",
@@ -5377,9 +6410,9 @@ impl GraphNode {
             GraphNode::FloatToBool => "code",
             GraphNode::BoolToFloat => "code",
             // Noise
-            GraphNode::Perlin { .. } => "wave",
-            GraphNode::WhiteNoise { .. } => "wave",
-            GraphNode::Wave(_) => "wave",
+            GraphNode::Perlin { .. } => "pulse",
+            GraphNode::WhiteNoise { .. } => "pulse",
+            GraphNode::Wave(_) => "pulse",
             // Sinks
             GraphNode::Display => "chart-multiple",
             GraphNode::Plot => "chart-multiple",
@@ -5397,8 +6430,15 @@ impl GraphNode {
     /// node's *current* state (selected operator, value type, etc.)
     /// the way Unreal Blueprint title bars show e.g. "Float" under
     /// "Add". Stays in sync with the dropdown in the body.
+    ///
+    /// A `Subgraph` is overridden per placement by `DemoViewer::look`,
+    /// which knows the definition's scope; the string here is what an
+    /// instance rendered outside a document falls back to.
     fn subtitle(&self) -> String {
         match self {
+            GraphNode::Subgraph => "definition".into(),
+            GraphNode::Port { out: false, .. } => "input".into(),
+            GraphNode::Port { out: true, .. } => "output".into(),
             // Sources
             GraphNode::Number(_) => "Float".into(),
             GraphNode::Integer(_) => "Int".into(),
@@ -5455,8 +6495,53 @@ impl GraphNode {
         }
     }
 
+    /// Height this node's body needs, in graph points.
+    ///
+    /// The rebuilt renderer decides geometry before anything is drawn,
+    /// so a node declares what its body needs instead of growing to fit
+    /// whatever came out. That is what stops two `Add` nodes ending up
+    /// different sizes because one of them had a value typed into it.
+    fn body_height(&self) -> f32 {
+        const ROW: f32 = 22.0;
+        match self {
+            GraphNode::Number(_) | GraphNode::Integer(_) | GraphNode::Bool(_) => ROW,
+            GraphNode::Vector(_) => 3.0 * ROW,
+            GraphNode::Color(_) => ROW + 4.0,
+            GraphNode::ScalarMath(_)
+            | GraphNode::Trig(_)
+            | GraphNode::Compare(_)
+            | GraphNode::VectorMath(_)
+            | GraphNode::BooleanMath(_)
+            | GraphNode::Wave(_) => ROW + 8.0,
+            GraphNode::Perlin { .. } => 2.0 * ROW + 8.0,
+            GraphNode::WhiteNoise { .. } => ROW + 4.0,
+            GraphNode::Display => 44.0,
+            GraphNode::Plot => 60.0,
+            GraphNode::PlotXY => 88.0,
+            GraphNode::Preview | GraphNode::VectorPreview => 46.0,
+            GraphNode::NoiseImage { .. } | GraphNode::NoiseField => 100.0,
+            GraphNode::MultiPlot => 96.0,
+            GraphNode::Output => ROW + 4.0,
+            _ => 0.0,
+        }
+    }
+
+    /// Which colour family the node belongs to.
+    ///
+    /// A chip's own colour is its definition's, resolved in
+    /// `DemoViewer::look`; `Subgraph` here is the tint it falls back to
+    /// when there is no library to ask.
+    ///
+    /// A boundary node is not "structure" to the eye, it is the
+    /// interior's source and its sink. Colouring it as such makes a
+    /// definition's guts read exactly like the graph they were cut out
+    /// of: values enter rose on the left and land in maroon on the
+    /// right.
     fn category(&self) -> Category {
         match self {
+            GraphNode::Subgraph => Category::Logic,
+            GraphNode::Port { out: false, .. } => Category::Source,
+            GraphNode::Port { out: true, .. } => Category::Sink,
             GraphNode::Number(_)
             | GraphNode::Integer(_)
             | GraphNode::Vector(_)
@@ -5506,8 +6591,16 @@ impl GraphNode {
         }
     }
 
+    /// The node's name.
+    ///
+    /// `Subgraph` and `Port` are both replaced by `DemoViewer::look`
+    /// wherever the real name is knowable — the definition's for an
+    /// instance, the payload's own for a boundary node. The strings
+    /// here are the last resort for a payload with neither.
     fn title(&self) -> &'static str {
         match self {
+            GraphNode::Subgraph => "Subgraph",
+            GraphNode::Port { .. } => "Port",
             // Sources
             GraphNode::Number(_) => "Number",
             GraphNode::Integer(_) => "Integer",
@@ -5567,6 +6660,13 @@ impl GraphNode {
     /// Per-input typed-pin labels. `Vec<(label, type)>`.
     fn inputs(&self) -> Vec<(&'static str, PinType)> {
         match self {
+            // An instance's pin COUNT comes from its definition, so this
+            // is only a fallback for a `Subgraph` payload rendered
+            // outside `show_doc`. A boundary node has exactly one pin,
+            // on the side that faces the interior.
+            GraphNode::Subgraph => vec![],
+            GraphNode::Port { out: true, .. } => vec![("", PinType::Number)],
+            GraphNode::Port { out: false, .. } => vec![],
             // Sources — no inputs
             GraphNode::Number(_)
             | GraphNode::Integer(_)
@@ -5689,6 +6789,9 @@ impl GraphNode {
 
     fn outputs(&self) -> Vec<(&'static str, PinType)> {
         match self {
+            GraphNode::Subgraph => vec![],
+            GraphNode::Port { out: true, .. } => vec![],
+            GraphNode::Port { out: false, .. } => vec![("", PinType::Number)],
             // Sources
             GraphNode::Number(_) | GraphNode::Integer(_) => vec![("", PinType::Number)],
             GraphNode::Vector(_) => vec![("", PinType::Vector)],
@@ -5758,6 +6861,9 @@ fn eval_output(graph: &Graph<GraphNode>, time: f64, pin: &OutPin) -> Value {
         return Value::Number(0.0);
     };
     match node {
+        // Structure, not computation: a subgraph is not evaluated by
+        // the demo, and a boundary node forwards nothing.
+        GraphNode::Subgraph | GraphNode::Port { .. } => Value::Number(0.0),
         GraphNode::Number(v) => Value::Number(*v),
         GraphNode::Integer(i) => Value::Number(*i as f64),
         GraphNode::Vector(v) => Value::Vector(*v),
@@ -6147,15 +7253,294 @@ fn eval_input(graph: &Graph<GraphNode>, time: f64, pin: &InPin) -> Value {
         .unwrap_or(Value::Number(0.0))
 }
 
-#[derive(Default)]
-struct DemoViewer {
+pub struct DemoViewer {
     /// Wall-clock seconds since startup, refreshed each frame by
     /// the editor pane. Threaded into `eval_output` so `Time` /
     /// `Perlin` nodes animate live.
     time: f64,
+    /// What the document's definitions look like, refreshed each frame
+    /// by whoever owns the document.
+    ///
+    /// Empty for the editor pane, which shows a bare `Graph` with no
+    /// library — and an empty table is exactly the right answer there,
+    /// because a graph with no definitions has no instances either.
+    defs: std::collections::HashMap<mara::extras::graph::DefId, DefLook>,
+    /// Width of the body area the renderer is currently offering, in
+    /// screen points.
+    ///
+    /// Set per node, immediately before the body is drawn. Body widgets
+    /// sized from a constant instead were either narrower than the node
+    /// — leaving it looking mostly empty — or wider, and clipped to a
+    /// stub at the edge, depending on the zoom.
+    body_w: f32,
+}
+
+impl Default for DemoViewer {
+    fn default() -> Self {
+        Self {
+            time: 0.0,
+            defs: std::collections::HashMap::new(),
+            body_w: BODY_W,
+        }
+    }
+}
+
+/// How one definition dresses its instances.
+///
+/// A viewer is handed one level of the document at a time, so an
+/// instance node can otherwise only report what its payload knows —
+/// which is nothing, since the payload was minted by the crate. The
+/// name, the colour and the port labels all live in the library, and
+/// this is the only channel that carries them to the node.
+#[derive(Clone, Default)]
+struct DefLook {
+    name: String,
+    /// The definition's own colour, which becomes the whole node's
+    /// colour. Falls back to the `Subgraph` category tint for a
+    /// definition the app never coloured.
+    tint: MaraColor32,
+    /// `shared` or `local`, shown as the instance's subtitle. Editing a
+    /// shared definition changes every placement of it, and a user who
+    /// cannot see which kind they are about to edit is about to be
+    /// surprised.
+    scope: &'static str,
+    inputs: Vec<String>,
+    outputs: Vec<String>,
+}
+
+/// How one node presents itself.
+///
+/// Resolved once and used for the header text, the header fill AND the
+/// chrome accent, because three call sites that each looked the node up
+/// and decided for themselves is how a chip ended up wearing its
+/// definition's colour behind its payload's title.
+struct NodeLook {
+    title: String,
+    subtitle: String,
+    icon: &'static str,
+    /// The node's single colour. Everything the crate tints per node —
+    /// header fill, the deck of cards behind a chip, any accent bar a
+    /// theme turns on — is handed this one value, so a node can never
+    /// show two unrelated colours at rest.
+    tint: MaraColor32,
+}
+
+/// Snapshot every definition's name, colour and port labels.
+///
+/// Rebuilt per frame rather than cached: renaming a port has to show on
+/// every placement immediately, and invalidating a cache across the six
+/// mutation paths that can change a definition is the bug this avoids.
+/// The document is small enough that the clone is noise.
+fn def_looks(
+    doc: &mara::extras::graph::GraphDoc<GraphNode>,
+) -> std::collections::HashMap<mara::extras::graph::DefId, DefLook> {
+    let names = |ports: &[mara::extras::graph::PortDef]| -> Vec<String> {
+        ports.iter().map(|p| p.name.clone()).collect()
+    };
+    doc.defs()
+        .map(|(id, d)| {
+            (
+                id,
+                DefLook {
+                    name: d.name.clone(),
+                    tint: d
+                        .color
+                        .unwrap_or_else(|| GraphNode::Subgraph.category().color()),
+                    scope: match d.scope {
+                        mara::extras::graph::DefScope::Shared => "shared",
+                        _ => "local",
+                    },
+                    inputs: names(d.ports.inputs()),
+                    outputs: names(d.ports.outputs()),
+                },
+            )
+        })
+        .collect()
+}
+
+impl DemoViewer {
+    /// The definition a node instantiates, if it instantiates one.
+    fn def_of(&self, node: NodeId, graph: &Graph<GraphNode>) -> Option<&DefLook> {
+        let def = graph.instance_def(graph.uid_of(node)?)?;
+        self.defs.get(&def)
+    }
+
+    /// Resolve a node's whole presentation in one place.
+    ///
+    /// Two payloads cannot answer for themselves and are patched here.
+    /// A boundary node was minted by the crate and carries the port
+    /// name it was handed. An instance IS its definition — same name,
+    /// same colour on every placement — which is what makes two
+    /// placements of one chip read as the same thing rather than as two
+    /// unrelated nodes that happen to be next to each other.
+    fn look(&self, node: NodeId, graph: &Graph<GraphNode>) -> NodeLook {
+        let Some(payload) = graph.get_node(node) else {
+            return NodeLook {
+                title: String::new(),
+                subtitle: String::new(),
+                icon: "circle",
+                tint: Category::Logic.color(),
+            };
+        };
+        let mut look = NodeLook {
+            title: payload.title().to_string(),
+            subtitle: payload.subtitle(),
+            icon: payload.icon_name(),
+            tint: payload.category().color(),
+        };
+        if let GraphNode::Port { name, .. } = payload
+            && !name.is_empty()
+        {
+            look.title = name.clone();
+        }
+        if let Some(def) = self.def_of(node, graph) {
+            look.title = def.name.clone();
+            look.subtitle = def.scope.to_string();
+            look.tint = def.tint;
+        }
+        look
+    }
+
+    /// The label for one input pin of an instance node.
+    ///
+    /// An instance's pins ARE its definition's ports, so its payload
+    /// cannot name them — unnamed pins on a node whose entire point is
+    /// a named interface is the afterthought look this removes.
+    fn instance_input(&self, node: NodeId, index: usize, graph: &Graph<GraphNode>) -> Option<&str> {
+        Some(self.def_of(node, graph)?.inputs.get(index)?.as_str())
+    }
+
+    /// The label for one output pin of an instance node.
+    fn instance_output(
+        &self,
+        node: NodeId,
+        index: usize,
+        graph: &Graph<GraphNode>,
+    ) -> Option<&str> {
+        Some(self.def_of(node, graph)?.outputs.get(index)?.as_str())
+    }
+}
+
+impl DemoViewer {
+    /// A viewer with no definition library, for a bare `Graph`.
+    ///
+    /// Public so the render snapshot can drive the *real* viewer rather
+    /// than a stub — a stub gets the node frame right and the header
+    /// band, pin colours and icons wrong, which is most of what a
+    /// reviewer is trying to look at.
+    #[must_use]
+    pub fn for_graph(time: f64) -> Self {
+        Self {
+            time,
+            defs: std::collections::HashMap::new(),
+            body_w: BODY_W,
+        }
+    }
+}
+
+/// The rebuilt renderer's view of a demo node.
+///
+/// Every graph surface in this app goes through this one impl, so the
+/// Editor pane and the Graph Lab cannot look like different widgets —
+/// which is what they used to be, each assembling its own style.
+impl mara::extras::graph::render::GraphView<GraphNode> for DemoViewer {
+    fn shape(
+        &mut self,
+        id: NodeId,
+        g: &Graph<GraphNode>,
+    ) -> mara::extras::graph::render::NodeShape {
+        let look = self.look(id, g);
+        let def = self.def_of(id, g);
+        let payload = g.get_node(id);
+        let labels = |own: Vec<(&'static str, PinType)>, from_def: Option<&Vec<String>>| {
+            match from_def {
+                Some(names) => names.clone(),
+                None => own.iter().map(|(l, _)| (*l).to_string()).collect(),
+            }
+        };
+        mara::extras::graph::render::NodeShape {
+            title: look.title,
+            subtitle: look.subtitle,
+            icon: Some(look.icon.to_string()),
+            inputs: labels(
+                payload.map(GraphNode::inputs).unwrap_or_default(),
+                def.map(|d| &d.inputs),
+            ),
+            outputs: labels(
+                payload.map(GraphNode::outputs).unwrap_or_default(),
+                def.map(|d| &d.outputs),
+            ),
+            body_h: payload.map_or(0.0, GraphNode::body_height),
+        }
+    }
+
+    fn tint(&mut self, id: NodeId, g: &Graph<GraphNode>) -> Option<MaraColor32> {
+        Some(self.look(id, g).tint)
+    }
+
+    fn input_color(&mut self, pin: InPinId, g: &Graph<GraphNode>) -> Option<MaraColor32> {
+        let n = g.get_node(pin.node)?;
+        n.inputs().get(pin.input).map(|(_, t)| t.color())
+    }
+
+    fn output_color(&mut self, pin: OutPinId, g: &Graph<GraphNode>) -> Option<MaraColor32> {
+        let n = g.get_node(pin.node)?;
+        n.outputs().get(pin.output).map(|(_, t)| t.color())
+    }
+
+    /// The value editors, plots, swatches and noise previews that make
+    /// this demo a widget gallery rather than a diagram. Delegates to
+    /// the same `show_body` the previous renderer called, so nothing
+    /// had to be rewritten to move renderers.
+    fn body(
+        &mut self,
+        id: NodeId,
+        rect: mara_core::vocab::Rect,
+        ui: &mut mara_core::MaraUi<'_>,
+        g: &mut Graph<GraphNode>,
+    ) {
+        self.body_w = rect.width();
+        NodeViewer::show_body(self, id, &[], &[], ui, g);
+    }
+
+    /// The default-value editor on a disconnected input, the way the
+    /// previous renderer put one in the pin row.
+    fn input_editor(
+        &mut self,
+        pin: InPinId,
+        _rect: mara_core::vocab::Rect,
+        ui: &mut mara_core::MaraUi<'_>,
+        g: &mut Graph<GraphNode>,
+    ) {
+        let Some((_, ty)) = g
+            .get_node(pin.node)
+            .and_then(|n| n.inputs().get(pin.input).copied())
+        else {
+            return;
+        };
+        let in_pin = g.in_pin(pin);
+        inline_input_editor(g, &in_pin, ty, ui);
+    }
 }
 
 impl NodeViewer<GraphNode> for DemoViewer {
+    /// Mint the node `GraphDoc::collapse` places where the selection
+    /// was. Without this the crate declines the edit, so `Ctrl+G` would
+    /// silently do nothing.
+    fn make_instance_node(
+        &mut self,
+        _def: mara::extras::graph::DefId,
+        _name: &str,
+        _ports: &mara::extras::graph::Ports,
+    ) -> Option<GraphNode> {
+        Some(GraphNode::Subgraph)
+    }
+
+    /// Mint one boundary node per derived port, inside the definition.
+    fn make_port_node(&mut self, spec: &mara::extras::graph::PortSpec<'_>) -> Option<GraphNode> {
+        Some(port_payload(spec))
+    }
+
     fn title(&mut self, n: &GraphNode) -> String {
         n.title().into()
     }
@@ -6182,10 +7567,10 @@ impl NodeViewer<GraphNode> for DemoViewer {
         _outputs: &[OutPin],
         graph: &Graph<GraphNode>,
     ) -> mara_core::style::FrameSpec {
-        let Some(n) = graph.get_node(node) else {
+        if graph.get_node(node).is_none() {
             return default;
-        };
-        let tint = n.category().color();
+        }
+        let tint = self.look(node, graph).tint;
         // Translucent tint — the dark body fill below shows
         // through, knocking the saturation down so the seven
         // category colours all sit at a consistent luminance the
@@ -6197,6 +7582,29 @@ impl NodeViewer<GraphNode> for DemoViewer {
             mara_core::vocab::Color32::from_rgba_unmultiplied(tint.r(), tint.g(), tint.b(), 0xB0);
         frame.stroke = mara_core::vocab::Stroke::NONE;
         frame
+    }
+
+    /// The node's chrome — one explicit colour, and nothing else.
+    ///
+    /// `accent` is deliberately `Some` rather than left to the default.
+    /// A `None` here means "whatever the host accent happens to be",
+    /// and for a subgraph instance the crate helpfully substitutes the
+    /// definition's colour — either way the node's rings and any accent
+    /// bar a theme turns on would be painted in a colour that has
+    /// nothing to do with the header band this viewer just painted.
+    /// Handing back the header's own tint collapses the two colour
+    /// systems into one, which is the whole reason the header carries
+    /// category colour in this demo.
+    fn node_chrome(
+        &mut self,
+        node: mara::extras::graph::NodeId,
+        _tier: mara::extras::graph::DetailTier,
+        graph: &Graph<GraphNode>,
+    ) -> mara::extras::graph::NodeChrome {
+        mara::extras::graph::NodeChrome {
+            accent: Some(self.look(node, graph).tint),
+            ..mara::extras::graph::NodeChrome::lit()
+        }
     }
 
     /// Two-line header content: [icon] [title / subtitle], laid
@@ -6212,9 +7620,10 @@ impl NodeViewer<GraphNode> for DemoViewer {
         ui: &mut mara_core::MaraUi<'_>,
         graph: &mut Graph<GraphNode>,
     ) {
-        let Some(n) = graph.get_node(node).cloned() else {
+        if graph.get_node(node).is_none() {
             return;
-        };
+        }
+        let look = self.look(node, graph);
         let title_color = MaraColor32::from_rgb(0xEE, 0xEE, 0xEE);
         let subtitle_color = MaraColor32::from_rgba_unmultiplied(0xEE, 0xEE, 0xEE, 0xB0);
 
@@ -6224,16 +7633,16 @@ impl NodeViewer<GraphNode> for DemoViewer {
         ui.horizontal(|ui| {
             // Icon, sized to span both text rows so it centres against
             // the title+subtitle stack.
-            let glyph = mara_core::icons::icon_glyph(n.icon_name())
+            let glyph = mara_core::icons::icon_glyph(look.icon)
                 .map_or_else(|| "\u{2022}".to_owned(), |(glyph, _)| glyph.to_string());
             ui.label_spec(&glyph, &LabelSpec::new(22.0, title_color).truncate(false));
             ui.vertical(|ui| {
                 ui.label_spec(
-                    &n.title(),
+                    &look.title,
                     &LabelSpec::new(13.0, title_color).truncate(false),
                 );
                 ui.label_spec(
-                    &n.subtitle(),
+                    &look.subtitle,
                     &LabelSpec::new(10.0, subtitle_color).truncate(false),
                 );
             });
@@ -6256,6 +7665,9 @@ impl NodeViewer<GraphNode> for DemoViewer {
             .get_node(pin.id.node)
             .and_then(|n| n.inputs().get(pin.id.input).copied())
             .unwrap_or(("", PinType::Number));
+        let label = self
+            .instance_input(pin.id.node, pin.id.input, graph)
+            .unwrap_or(label);
         ui.label(label);
         let connected = !pin.remotes.is_empty();
         if !connected {
@@ -6282,6 +7694,9 @@ impl NodeViewer<GraphNode> for DemoViewer {
             .map(|n| n.outputs())
             .and_then(|os| os.get(pin.id.output).copied())
             .unwrap_or(("", PinType::Number));
+        let label = self
+            .instance_output(pin.id.node, pin.id.output, graph)
+            .unwrap_or(label);
         if !label.is_empty() {
             ui.label(label);
         }
@@ -6326,6 +7741,7 @@ impl NodeViewer<GraphNode> for DemoViewer {
         // grow per-frame when a value changes.
 
         let time = self.time;
+        let body_w = self.body_w;
         let Some(n) = graph.get_node_mut(node) else {
             return;
         };
@@ -6334,7 +7750,7 @@ impl NodeViewer<GraphNode> for DemoViewer {
             GraphNode::Number(v) => {
                 let h = mara_core::widget::drag_value::DRAG_VALUE_ROW_H;
                 ui.row(
-                    MaraVec2::new(125.0, h),
+                    MaraVec2::new(body_w, h),
                     mara_core::CrossAlign::Center,
                     |ui| {
                         ui.drag_value("", v, 0.05, f64::MIN..=f64::MAX, 2, "");
@@ -6345,7 +7761,7 @@ impl NodeViewer<GraphNode> for DemoViewer {
                 let h = mara_core::widget::drag_value::DRAG_VALUE_ROW_H;
                 let mut tmp = *i as f64;
                 ui.row(
-                    MaraVec2::new(125.0, h),
+                    MaraVec2::new(body_w, h),
                     mara_core::CrossAlign::Center,
                     |ui| {
                         ui.drag_value("", &mut tmp, 1.0, f64::MIN..=f64::MAX, 0, "");
@@ -6357,7 +7773,7 @@ impl NodeViewer<GraphNode> for DemoViewer {
                 let h = mara_core::widget::drag_value::DRAG_VALUE_ROW_H;
                 for (axis, comp) in ["x", "y", "z"].iter().zip(v.iter_mut()) {
                     ui.row(
-                        MaraVec2::new(125.0, h),
+                        MaraVec2::new(body_w, h),
                         mara_core::CrossAlign::Center,
                         |ui| {
                             ui.drag_value(axis, comp, 0.05, f64::MIN..=f64::MAX, 2, "");
@@ -6385,7 +7801,7 @@ impl NodeViewer<GraphNode> for DemoViewer {
             GraphNode::Bool(b) => {
                 let h = mara_core::widget::toggle::TOGGLE_ROW_H;
                 ui.row(
-                    MaraVec2::new(125.0, h),
+                    MaraVec2::new(body_w, h),
                     mara_core::CrossAlign::Center,
                     |ui| {
                         ui.toggle("", b);
@@ -6554,7 +7970,7 @@ impl NodeViewer<GraphNode> for DemoViewer {
                 buf.push(v);
                 ui.memory().set_temp(key, buf.clone());
 
-                let (painter, _) = ui.canvas(MaraVec2::new(220.0, 80.0));
+                let (painter, _) = ui.canvas(MaraVec2::new(body_w, 80.0));
                 let rect = painter.clip_rect();
                 paint_line_chart(
                     &painter,
@@ -6565,7 +7981,7 @@ impl NodeViewer<GraphNode> for DemoViewer {
             }
             GraphNode::Preview => {
                 let c = eval_input_at(graph, time, node, 0).as_color();
-                let (painter, __resp) = ui.canvas(MaraVec2::new(96.0, 40.0));
+                let (painter, __resp) = ui.canvas(MaraVec2::new(body_w, 40.0));
                 let rect = __resp.rect;
                 painter.rect_filled(rect, mara_core::vocab::CornerRadius::same(4), c);
                 painter.rect_stroke(
@@ -6824,14 +8240,14 @@ impl NodeViewer<GraphNode> for DemoViewer {
                     .map(|(values, color)| (values.as_slice(), color))
                     .collect();
 
-                let (painter, _) = ui.canvas(MaraVec2::new(260.0, 110.0));
+                let (painter, _) = ui.canvas(MaraVec2::new(body_w, 92.0));
                 let rect = painter.clip_rect();
                 paint_line_chart(&painter, rect, &series);
                 ui.request_repaint();
             }
             GraphNode::VectorPreview => {
                 let v = eval_input_at(graph, time, node, 0).as_vector();
-                let (painter, resp) = ui.canvas(MaraVec2::new(140.0, 40.0));
+                let (painter, resp) = ui.canvas(MaraVec2::new(body_w, 40.0));
                 let rect = resp.rect;
                 painter.rect_filled(
                     rect,
@@ -6841,9 +8257,9 @@ impl NodeViewer<GraphNode> for DemoViewer {
                 let bar_h = (rect.height() - 8.0) / 3.0;
                 let max = v[0].abs().max(v[1].abs()).max(v[2].abs()).max(1.0) as f32;
                 let colors = [
-                    egui::Color32::from_rgb(0xFF, 0x33, 0x52), // x = red
-                    egui::Color32::from_rgb(0x8B, 0xDC, 0x00), // y = green
-                    egui::Color32::from_rgb(0x28, 0x90, 0xFF), // z = blue
+                    MaraColor32::from_rgb(0xFF, 0x33, 0x52), // x = red
+                    MaraColor32::from_rgb(0x8B, 0xDC, 0x00), // y = green
+                    MaraColor32::from_rgb(0x28, 0x90, 0xFF), // z = blue
                 ];
                 for (i, comp) in v.iter().enumerate() {
                     let y0 = rect.top() + 4.0 + (i as f32) * bar_h;
@@ -7206,7 +8622,7 @@ fn draw_sparkline(
 ///   Perlin ─→ Compare ─→ IfElse ─→ Display
 ///   Num0  ─┘   Num1, Num-1 ─┘
 /// ```
-fn default_graph() -> Graph<GraphNode> {
+pub fn default_graph() -> Graph<GraphNode> {
     let mut g = Graph::new();
 
     const COL_W: f32 = 340.0; // horizontal spacing between columns
@@ -7445,7 +8861,30 @@ fn default_graph() -> Graph<GraphNode> {
     connect(&mut g, lac_n, 0, nfield, 6);
     connect(&mut g, gain_n, 0, nfield, 7);
 
+    uniform_node_widths(&mut g);
     g
+}
+
+/// Give every node in `graph` the same minimum width.
+///
+/// Node width is otherwise whatever the drawn content happens to need,
+/// and this viewer draws an inline editor for any unwired input — so a
+/// `Number` with a drag field comes out visibly wider than the `Add`
+/// beside it, and a column of peers ends up ragged. Applying one floor
+/// is the only rule that makes a graph read as a set of peers rather
+/// than as assorted boxes.
+///
+/// A floor rather than a fixed size: a node whose content genuinely
+/// needs more room still gets it, because clipping the app's own
+/// widgets to enforce tidiness would be the worse trade.
+fn uniform_node_widths(graph: &mut Graph<GraphNode>) {
+    let ids: Vec<NodeId> = graph.node_ids().map(|(id, _)| id).collect();
+    for id in ids {
+        if graph.size_override_of(id).is_some() {
+            continue;
+        }
+        graph.set_size_override(id, Some(mara::ui::vocab::Vec2::new(NODE_W, 0.0)));
+    }
 }
 
 const DEFAULT_CODE: &str = "// Mara code editor demo — Rust syntax highlighting.

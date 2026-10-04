@@ -658,6 +658,8 @@ pub(crate) fn egui_cursor_icon(cursor: CursorIcon) -> egui::CursorIcon {
         CursorIcon::Grabbing => egui::CursorIcon::Grabbing,
         CursorIcon::ResizeHorizontal => egui::CursorIcon::ResizeHorizontal,
         CursorIcon::ResizeVertical => egui::CursorIcon::ResizeVertical,
+        CursorIcon::ResizeNwSe => egui::CursorIcon::ResizeNwSe,
+        CursorIcon::ResizeNeSw => egui::CursorIcon::ResizeNeSw,
     }
 }
 
@@ -1001,7 +1003,13 @@ pub fn __internal_show_app_shell_with_workspace_renderer_egui<F>(
     permanent_ribbons: &[mara_core::ribbon::RibbonSlotDef],
     accent: impl Into<vocab::Color32>,
     render_workspace: F,
-) -> Result<(mara_core::AppShellResolution, Vec<mara_core::RibbonActionResult>), mara_core::AppShellError>
+) -> Result<
+    (
+        mara_core::AppShellResolution,
+        Vec<mara_core::RibbonActionResult>,
+    ),
+    mara_core::AppShellError,
+>
 where
     F: FnOnce(&egui::Context, &mut mara_core::WorkspaceCtx<'_>),
 {
@@ -1569,18 +1577,21 @@ pub fn mara_response_from(inner: &egui::Response) -> MaraResponse {
 
 pub(crate) fn remember_response(response: &egui::Response) -> vocab::Id {
     let rect = response.rect;
-    let key = response.id.with((
-        "mara_response",
-        response.ctx.cumulative_frame_nr(),
-        rect.min.x.to_bits(),
-        rect.min.y.to_bits(),
-        rect.max.x.to_bits(),
-        rect.max.y.to_bits(),
-    ));
+    let key: vocab::Id = response
+        .id
+        .with((
+            "mara_response",
+            response.ctx.cumulative_frame_nr(),
+            rect.min.x.to_bits(),
+            rect.min.y.to_bits(),
+            rect.max.x.to_bits(),
+            rect.max.y.to_bits(),
+        ))
+        .into();
     response
         .ctx
-        .data_mut(|data| data.insert_temp(key, response.clone()));
-    key.into()
+        .data_mut(|data| data.insert_temp(key.into(), response.clone()));
+    key
 }
 
 pub(crate) fn with_response<R>(
@@ -1626,6 +1637,7 @@ pub(crate) fn input_snapshot(ctx: &egui::Context) -> MaraInput {
         modifiers_shift: i.modifiers.shift,
         modifiers_ctrl: i.modifiers.ctrl,
         modifiers_alt: i.modifiers.alt,
+        modifiers_command: i.modifiers.command,
         keys_pressed: MaraKey::ALL
             .into_iter()
             .filter(|&key| i.key_pressed(egui_key(key)))
@@ -2057,7 +2069,10 @@ fn svg_stable_hash(svg: &str) -> u64 {
     h
 }
 
-fn egui_mesh_from_mara(vertices: Vec<mara_core::paint::PaintVertex>, indices: Vec<u32>) -> egui::Mesh {
+fn egui_mesh_from_mara(
+    vertices: Vec<mara_core::paint::PaintVertex>,
+    indices: Vec<u32>,
+) -> egui::Mesh {
     let vertices = vertices
         .into_iter()
         .map(|vertex| egui::epaint::Vertex {
@@ -2384,6 +2399,7 @@ mod offscreen {
     use std::collections::HashMap;
     use std::sync::{Arc, Mutex};
 
+    use mara_core::context::OffscreenInput;
     use mara_core::mui::MaraUi;
     use mara_core::vocab;
 
@@ -2395,6 +2411,15 @@ mod offscreen {
         ctx: egui::Context,
         renderer: egui_wgpu::Renderer,
         target: Option<OffscreenTarget>,
+        /// Whether Mara's fonts have been installed on `ctx`.
+        ///
+        /// An independent context starts with egui's defaults, *not*
+        /// Mara's — a separate font atlas is exactly what makes it
+        /// independent. Without this the body renders unthemed and its
+        /// icons do not resolve at all, because the iconflow families are
+        /// bound per context. Installed once; the theme is re-applied
+        /// every pass, since the accent can change between them.
+        fonts_installed: bool,
     }
 
     struct OffscreenTarget {
@@ -2470,6 +2495,7 @@ mod offscreen {
                 },
             ),
             target: None,
+            fonts_installed: false,
         });
 
         ensure_target(surface, render_state, &device, format, pixels);
@@ -2490,11 +2516,28 @@ mod offscreen {
                 shift: input.modifiers_shift,
                 ctrl: input.modifiers_ctrl,
                 alt: input.modifiers_alt,
-                command: input.modifiers_ctrl,
+                command: input.modifiers_command,
                 mac_cmd: false,
             },
             ..Default::default()
         };
+        // The sub-context is not the parent's: it needs Mara's fonts and
+        // visuals installed on it directly, or the body draws with egui's
+        // defaults and no icons.
+        if !surface.fonts_installed {
+            crate::theme::__internal_install_fonts(
+                &surface.ctx,
+                mara_core::style::font_weight(),
+                mara_core::style::title_weight(),
+            );
+            surface.fonts_installed = true;
+        }
+        crate::theme::__internal_apply_theme_to(
+            &surface.ctx,
+            mara_core::style::AccentColor(accent),
+            mara_core::style::GlassOpacity::default(),
+        );
+
         let output = surface.ctx.run_ui(raw_input, |ui| {
             let mut backend = crate::EguiUiBackend::new(ui);
             body(&mut MaraUi::over(&mut backend, accent));
@@ -2547,31 +2590,10 @@ mod offscreen {
         Some(parent_texture.into())
     }
 
-    /// Pointer and keyboard state to feed into an offscreen surface,
-    /// in the surface's OWN coordinate space.
-    ///
-    /// Without this an offscreen surface is inert: it has no window, so
-    /// it receives no events unless the host forwards them. The caller
-    /// maps window coordinates into surface-local ones — it is the only
-    /// party that knows where the composited texture was drawn.
-    #[derive(Clone, Copy, Debug, Default)]
-    pub(crate) struct OffscreenInput {
-        /// Pointer position in surface-local points, or `None` when the
-        /// pointer is elsewhere.
-        pub pointer: Option<vocab::Pos2>,
-        pub primary_down: bool,
-        pub secondary_down: bool,
-        pub middle_down: bool,
-        pub scroll_delta: vocab::Vec2,
-        pub modifiers_shift: bool,
-        pub modifiers_ctrl: bool,
-        pub modifiers_alt: bool,
-    }
-
     /// Translate [`OffscreenInput`] into the event stream the sub-context
     /// expects. Buttons become press/release pairs around the pointer
     /// position, which is what an immediate-mode context needs to see.
-    fn offscreen_events(input: &OffscreenInput) -> Vec<egui::Event> {
+    pub(super) fn offscreen_events(input: &OffscreenInput) -> Vec<egui::Event> {
         let mut events = Vec::new();
         let Some(pointer) = input.pointer else {
             events.push(egui::Event::PointerGone);
@@ -2582,7 +2604,7 @@ mod offscreen {
             shift: input.modifiers_shift,
             ctrl: input.modifiers_ctrl,
             alt: input.modifiers_alt,
-            command: input.modifiers_ctrl,
+            command: input.modifiers_command,
             mac_cmd: false,
         };
         events.push(egui::Event::PointerMoved(pos));
@@ -2599,6 +2621,25 @@ mod offscreen {
                     modifiers,
                 });
             }
+        }
+        if input.pointer_delta != vocab::Vec2::ZERO {
+            events.push(egui::Event::MouseMoved(egui::vec2(
+                input.pointer_delta.x,
+                input.pointer_delta.y,
+            )));
+        }
+        if let Some(touch) = input.touch {
+            events.push(egui::Event::Touch {
+                device_id: egui::TouchDeviceId(0),
+                id: egui::TouchId(touch.id),
+                phase: if touch.down {
+                    egui::TouchPhase::Move
+                } else {
+                    egui::TouchPhase::End
+                },
+                pos: egui::pos2(touch.pos.x, touch.pos.y),
+                force: None,
+            });
         }
         if input.scroll_delta != vocab::Vec2::ZERO {
             events.push(egui::Event::MouseWheel {
@@ -2669,7 +2710,97 @@ mod offscreen {
 }
 
 #[cfg(feature = "gpu")]
-pub(crate) use offscreen::{OffscreenInput, render_offscreen};
+#[cfg(feature = "gpu")]
+pub(crate) use offscreen::render_offscreen;
+
+/// Parity between the offscreen surface's synthesised events and what
+/// `mara_graph::node_view` forwards by hand.
+///
+/// PLAN.md WS-D1.4 replaces `node_view.rs` with `ViewCtx::offscreen`.
+/// That is only safe if the offscreen path can express the same input,
+/// and it could not: `Touch` and `MouseMoved` had no representation in
+/// `OffscreenInput`, so the swap would have silently dropped touch —
+/// which matters, the workspace ships an Android runner.
+#[cfg(all(test, feature = "gpu"))]
+mod offscreen_input_parity {
+    use mara_core::context::{OffscreenInput, OffscreenTouch};
+    use mara_core::vocab::{Pos2, Vec2};
+
+    fn kinds(input: &OffscreenInput) -> Vec<&'static str> {
+        super::offscreen::offscreen_events(input)
+            .iter()
+            .map(|e| match e {
+                egui::Event::PointerMoved(_) => "PointerMoved",
+                egui::Event::PointerGone => "PointerGone",
+                egui::Event::PointerButton { .. } => "PointerButton",
+                egui::Event::MouseWheel { .. } => "MouseWheel",
+                egui::Event::MouseMoved(_) => "MouseMoved",
+                egui::Event::Touch { .. } => "Touch",
+                _ => "other",
+            })
+            .collect()
+    }
+
+    /// The six kinds `node_view.rs` forwards are all reachable.
+    #[test]
+    fn every_event_kind_node_view_forwards_is_expressible() {
+        let full = OffscreenInput {
+            pointer: Some(Pos2::new(10.0, 20.0)),
+            primary_down: true,
+            secondary_down: false,
+            middle_down: false,
+            scroll_delta: Vec2::new(0.0, 3.0),
+            pointer_delta: Vec2::new(1.0, -2.0),
+            touch: Some(OffscreenTouch {
+                pos: Pos2::new(10.0, 20.0),
+                down: true,
+                id: 7,
+            }),
+            modifiers_shift: false,
+            modifiers_ctrl: false,
+            modifiers_alt: false,
+            modifiers_command: false,
+        };
+        let kinds = kinds(&full);
+        for expected in [
+            "PointerMoved",
+            "PointerButton",
+            "MouseWheel",
+            "MouseMoved",
+            "Touch",
+        ] {
+            assert!(
+                kinds.contains(&expected),
+                "{expected} must be reachable; got {kinds:?}"
+            );
+        }
+    }
+
+    /// An absent pointer still reports `PointerGone`, and nothing else —
+    /// a surface must not see a click it never received.
+    #[test]
+    fn an_absent_pointer_reports_only_gone() {
+        let away = OffscreenInput {
+            pointer: None,
+            primary_down: true,
+            ..Default::default()
+        };
+        assert_eq!(kinds(&away), vec!["PointerGone"]);
+    }
+
+    /// Quiet input synthesises no spurious motion.
+    #[test]
+    fn a_still_pointer_emits_no_motion_events() {
+        let still = OffscreenInput {
+            pointer: Some(Pos2::new(1.0, 1.0)),
+            ..Default::default()
+        };
+        let kinds = kinds(&still);
+        assert!(!kinds.contains(&"MouseMoved"), "got {kinds:?}");
+        assert!(!kinds.contains(&"MouseWheel"), "got {kinds:?}");
+        assert!(!kinds.contains(&"Touch"), "got {kinds:?}");
+    }
+}
 
 // ─── The context seam (PLAN.md WS-E3) ─────────────────────────────
 //
@@ -2789,6 +2920,10 @@ impl mara_core::context::MaraCtx for EguiCtx {
         request_repaint_after(self, after);
     }
 
+    fn request_discard(&self, reason: &str) {
+        self.0.request_discard(reason.to_owned());
+    }
+
     fn now(&self) -> f64 {
         input_time(self)
     }
@@ -2818,7 +2953,10 @@ impl mara_core::context::MaraCtx for EguiCtx {
         spec: mara_core::layout::AreaSlotSpec,
         body: &mut dyn FnMut(&mut mara_core::MaraUi<'_>),
     ) -> vocab::Rect {
-        let accent = spec.host.accent.unwrap_or_else(mara_core::style::active_accent);
+        let accent = spec
+            .host
+            .accent
+            .unwrap_or_else(mara_core::style::active_accent);
         show_area_slot(self, spec, |ui| {
             let mut backend = EguiUiBackend::new(ui);
             let mut mara = mara_core::MaraUi::over(&mut backend, accent);
@@ -2887,6 +3025,20 @@ impl mara_core::context::MaraCtx for EguiCtx {
     ) -> Option<vocab::TextureHandle> {
         let image: egui::ColorImage = image.into();
         Some(self.0.load_texture(name, image, options.into()).into())
+    }
+
+    #[cfg(feature = "gpu")]
+    fn render_offscreen(
+        &self,
+        gpu: mara_gpu::MaraRenderState<'_>,
+        id: mara_core::vocab::Id,
+        size_points: mara_core::vocab::Vec2,
+        scale: f32,
+        accent: mara_core::vocab::Color32,
+        input: mara_core::context::OffscreenInput,
+        body: &mut dyn FnMut(&mut mara_core::MaraUi<'_>),
+    ) -> Option<mara_core::vocab::TextureId> {
+        render_offscreen(&self.0, gpu, id, size_points, scale, accent, input, body)
     }
 
     fn memory(&self) -> MaraMemoryCtx<'_> {

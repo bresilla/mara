@@ -27,7 +27,7 @@ $(info ------------------------------------------)
 
 build:
 	@if [ "$(TARGET)" = "native" ]; then \
-		$(CARGO) build $(APP_TARGET); \
+		$(CARGO) build --release $(APP_TARGET); \
 	elif [ "$(TARGET)" = "web" ]; then \
 		cd $(WEB_DIR) && env -u NO_COLOR trunk build --release; \
 	elif [ "$(TARGET)" = "apk" ]; then \
@@ -47,7 +47,7 @@ compile:
 c: compile
 
 run:
-	@WINIT_UNIX_BACKEND=$(BACKEND) $(RUN_WITH) $(CARGO) run $(APP_TARGET)
+	@WINIT_UNIX_BACKEND=$(BACKEND) $(RUN_WITH) $(CARGO) run --release $(APP_TARGET)
 
 WEB_DIR := example
 
@@ -64,6 +64,10 @@ t: test
 
 test-all:
 	@$(CARGO) test --workspace --all-targets
+# The graph's document-format tests are behind its `serde` feature, so a
+# plain workspace run compiles them out entirely. Run them explicitly —
+# they are the only coverage the saved format has.
+	@$(CARGO) test -p mara_graph --features serde
 
 check:
 	@$(CARGO) check --workspace --all-targets
@@ -74,6 +78,17 @@ check:
 # Check the optional-GPU crate both ways.
 	@$(CARGO) check -p mara_3d
 	@$(CARGO) check -p mara_3d --features gpu-preview
+# Same masking, found the same way: `ViewCtx::offscreen` kept calling
+# `backend::egui::render_offscreen` after that module moved to its own
+# crate, and nothing noticed because `gpu` is off by default and the
+# workspace check never turns it on.
+	@$(CARGO) check -p mara_core --features gpu
+	@$(CARGO) check -p mara_backend_egui --features gpu
+# Same masking again, and this one had been broken since it was written:
+# `mara_graph`'s serde feature enabled `egui/serde` but not
+# `mara_core/serde`, so it failed with 46 errors and nothing ran it.
+# PLAN_NODE.md P2 fixed the feature edge; this keeps it fixed.
+	@$(CARGO) check -p mara_graph --features serde
 # PLAN.md's goal, asserted rather than greped: with the conversion feature
 # off, `mara_core` must have no egui edge at all. This is what makes
 # `mara_backend_egui` the one crate that names the backend — a stray
@@ -90,8 +105,17 @@ check:
 #
 # Renderer-owning crates live in `hosts/` instead — see the Cargo.toml
 # layout comment for why that is honest rather than a loophole.
-	@! grep -RlnE '^(egui|egui[_-][a-z]+|wgpu)[[:space:]]*=' \
-		$$(ls -d crates/modules/*/Cargo.toml | grep -vE 'modules/graph/')
+#
+# The dependency half is `scripts/sealed_deps.sh` (PLAN.md WS-G2), which
+# reads resolved package names out of `cargo metadata` instead of
+# grepping manifests. It replaced a grep that a renamed dep
+# (`ui_kit = { package = "egui" }`) walked straight past — demonstrated,
+# not assumed. It also bans `mara_backend_egui`, since depending on the
+# backend crate reaches egui without writing the token.
+#
+# The source-token grep below stays: it catches reaching a backend type
+# through a re-export, which no dependency edge shows.
+	@./scripts/sealed_deps.sh
 	@! grep -RInE '\begui[_-]?[a-z]*::|\bwgpu::' \
 		$$(ls -d crates/modules/*/src | grep -vE 'modules/graph/')
 # Naming `egui::` is not the only way to reach it. `mara_canvas` held a
@@ -100,6 +124,27 @@ check:
 # blind to it. Ban the accessors themselves in the sealed tier.
 	@! grep -RInE '__internal_raw_ui|__internal_egui_ui_mut|__internal_backend_from_raw' \
 		$$(ls -d crates/modules/*/src | grep -vE 'modules/graph/')
+# `mara_graph` is exempt from the blanket sealed-tier bans above pending
+# its WS-D1 split, but the files PLAN_NODE.md adds are written sealed
+# from the first commit and must stay that way — otherwise the grouping
+# work quietly enlarges the egui surface the split has to remove.
+# Listed explicitly rather than by directory so a new file is a
+# deliberate addition here, not an accidental exemption.
+	@for f in vendored/frames.rs vendored/subgraph.rs vendored/nav.rs \
+		vendored/chrome.rs vendored/camera.rs vendored/ui/frame_paint.rs \
+		vendored/ui/lod.rs vendored/ui/port_paint.rs \
+		render/mod.rs render/spec.rs render/layout.rs render/paint.rs \
+		render/view.rs render/doc.rs render/group.rs; do \
+		p="crates/modules/graph/src/$$f"; \
+		[ -f "$$p" ] || continue; \
+		! grep -InE '\begui[_-]?[a-z]*::|\bwgpu::' "$$p" || \
+			{ echo "sealed-from-birth violation in $$p"; exit 1; }; \
+	done
+# Two export lists that nothing compares is how `PinWireInfo`,
+# `WireStyle`, `WireLayer`, `SelectionStyle` and `NodeLayoutKind` became
+# unnameable from the demo while the build stayed green. The facade now
+# globs `mara_graph::prelude`, so assert the glob is what it uses.
+	@grep -q 'pub use mara_graph::prelude::\*;' mara/src/extras/graph.rs
 	@! grep -n 'raw-egui' example/Cargo.toml
 	@! grep -n 'raw-egui' crates/core/Cargo.toml mara/Cargo.toml
 	@! grep -RInE 'cfg[(]feature[[:space:]]*=[[:space:]]*"raw-egui"|^[[:space:]]*pub[[:space:]]+use[[:space:]]+egui([:;]|$$)|^[[:space:]]*pub[[:space:]]+fn[[:space:]]+(from_raw|raw_ui_mut|raw|egui|egui_ctx)[(]' crates/core/src mara/src
@@ -115,6 +160,10 @@ check:
 # eframe's re-export, and the android target has no eframe to re-export it.
 # The sealed-consumer proof is example/sealed (checked above), not the demo.
 	@! grep -RInE 'MaraUi::from_raw|host\.egui\(\)' example/src
+# WS-F6's exit: the demo names egui only where it is a host. `host/`
+# carries the eframe impls and the three binaries; everything else in
+# `example/src` is an ordinary sealed consumer and is checked at zero.
+	@! grep -RInE '(^|[^:a-z_])egui::' $$(ls example/src/*.rs)
 	@! grep -RInE 'ViewCtx::new[(]ctx|host[.]__internal_egui[(][)][.]clone[(][)]|bevy_view[.]show[(]host[.]__internal_egui|canvas_root_view[(]host[.]__internal_egui|fn canvas_root_view[(][[:space:]]*ctx:[[:space:]]*&egui::Context' example/src/app.rs
 	@! grep -nE '^[[:space:]]*(pub\\(crate\\)[[:space:]]+)?[A-Za-z_][A-Za-z0-9_]*:[[:space:]]*egui::Response,' crates/core/src/mui/mod.rs
 	@! grep -RIn 'MaraInput::snapshot' crates/core/src

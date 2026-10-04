@@ -29,6 +29,92 @@ use crate::memory::MaraMemoryCtx;
 use crate::mui::MaraInput;
 use crate::vocab::Rect;
 
+/// Pointer and keyboard state to feed into an offscreen surface, in the
+/// surface's OWN coordinate space.
+///
+/// Without this an offscreen surface is inert: it has no window, so it
+/// receives no events unless the host forwards them. The caller maps
+/// window coordinates into surface-local ones — it is the only party
+/// that knows where the composited texture was drawn.
+#[cfg(feature = "gpu")]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct OffscreenInput {
+    /// Pointer position in surface-local points, or `None` when the
+    /// pointer is elsewhere.
+    pub pointer: Option<crate::vocab::Pos2>,
+    pub primary_down: bool,
+    pub secondary_down: bool,
+    pub middle_down: bool,
+    pub scroll_delta: crate::vocab::Vec2,
+    /// Pointer movement since the previous frame, in surface-local
+    /// points.
+    ///
+    /// Distinct from `pointer`: a surface that steers a camera reads the
+    /// *delta*, and reconstructing it by differencing positions across
+    /// frames loses the first frame of every drag.
+    pub pointer_delta: crate::vocab::Vec2,
+    /// Active touch, if the host is forwarding one.
+    ///
+    /// Separate from `pointer` because a touch is not a mouse: it has no
+    /// hover state, and a host that synthesises a pointer from it loses
+    /// multi-touch gestures. `None` on a mouse-driven host.
+    pub touch: Option<OffscreenTouch>,
+    pub modifiers_shift: bool,
+    pub modifiers_ctrl: bool,
+    pub modifiers_alt: bool,
+    /// The platform's "command" modifier — Cmd on macOS, Ctrl
+    /// elsewhere. Mirrors [`crate::mui::MaraInput::modifiers_command`];
+    /// forwarding only `modifiers_ctrl` and rebuilding `command` from
+    /// it inside the sub-context gets macOS wrong for every shortcut an
+    /// offscreen surface handles.
+    pub modifiers_command: bool,
+}
+
+/// How far content shifts, in surface-local points, when an offscreen
+/// surface's scale changes about a cursor.
+///
+/// Add the result to the embedded content's pan to keep the point under
+/// the cursor stationary across a zoom step.
+///
+/// `cursor` and `origin` are in the *parent's* coordinates; the scales
+/// are the surface's before and after. Returns zero for a degenerate
+/// scale rather than an infinity — a zoom of nothing moves nothing.
+///
+/// This exists so the caller of [`ViewCtx::offscreen`] can anchor a zoom
+/// without a callback from inside the render (PLAN.md WS-D1.4). The
+/// caller owns the scale it passes in, so it already knows both ends of
+/// the step; nothing inside the surface knows more than it does.
+///
+/// [`ViewCtx::offscreen`]: crate::ViewCtx::offscreen
+#[must_use]
+pub fn offscreen_zoom_anchor_delta(
+    cursor: crate::vocab::Pos2,
+    origin: crate::vocab::Pos2,
+    old_scale: f32,
+    new_scale: f32,
+) -> crate::vocab::Vec2 {
+    if old_scale.abs() < f32::EPSILON || new_scale.abs() < f32::EPSILON {
+        return crate::vocab::Vec2::ZERO;
+    }
+    let offset = crate::vocab::Vec2::new(cursor.x - origin.x, cursor.y - origin.y);
+    crate::vocab::Vec2::new(
+        offset.x / new_scale - offset.x / old_scale,
+        offset.y / new_scale - offset.y / old_scale,
+    )
+}
+
+/// One touch point forwarded into an offscreen surface.
+#[cfg(feature = "gpu")]
+#[derive(Clone, Copy, Debug)]
+pub struct OffscreenTouch {
+    /// Position in surface-local points.
+    pub pos: crate::vocab::Pos2,
+    /// Whether the finger is currently down.
+    pub down: bool,
+    /// Distinguishes simultaneous touches within one gesture.
+    pub id: u64,
+}
+
 /// Frame-level state a surface needs without naming a backend.
 pub trait MaraCtx {
     /// Per-frame input snapshot.
@@ -48,6 +134,23 @@ pub trait MaraCtx {
 
     /// Schedule another frame.
     fn request_repaint(&self);
+
+    /// Discard this pass's output and run it again before presenting.
+    ///
+    /// Distinct from [`request_repaint`](MaraCtx::request_repaint),
+    /// which schedules a *future* frame: this one says the pass just
+    /// computed is not fit to show. An immediate-mode surface needs it
+    /// on the frame it first learns a size — laying out with a guess and
+    /// presenting it is a visible flash.
+    ///
+    /// `reason` is for the host's debug output only.
+    ///
+    /// The default does nothing. A host that cannot re-run a pass
+    /// presents the first one, which is the pre-existing behaviour
+    /// rather than a regression.
+    fn request_discard(&self, reason: &str) {
+        let _ = reason;
+    }
 
     /// Schedule a frame no later than `after`.
     fn request_repaint_after(&self, after: std::time::Duration);
@@ -225,6 +328,34 @@ pub trait MaraCtx {
         None
     }
 
+    /// Render a UI body into its own texture at an independent
+    /// rasterisation scale, and return the texture to paint.
+    ///
+    /// Backs [`ViewCtx::offscreen`](crate::ViewCtx::offscreen). It sits
+    /// on the context rather than on a surface because an offscreen
+    /// pass needs the *host* — a device to allocate on and a texture
+    /// store to register the result in — not whichever surface happened
+    /// to be drawing.
+    ///
+    /// `None` when the surface cannot be prepared: a degenerate size, a
+    /// failed GPU allocation, or a host with no offscreen support at
+    /// all, which is what the default returns. Callers paint a fallback
+    /// rather than assume a texture.
+    #[cfg(feature = "gpu")]
+    fn render_offscreen(
+        &self,
+        gpu: mara_gpu::MaraRenderState<'_>,
+        id: crate::vocab::Id,
+        size_points: crate::vocab::Vec2,
+        scale: f32,
+        accent: crate::vocab::Color32,
+        input: OffscreenInput,
+        body: &mut dyn FnMut(&mut crate::MaraUi<'_>),
+    ) -> Option<crate::vocab::TextureId> {
+        let _ = (gpu, id, size_points, scale, accent, input, body);
+        None
+    }
+
     /// Backend-neutral state store.
     fn memory(&self) -> MaraMemoryCtx<'_>;
 
@@ -240,6 +371,68 @@ pub trait MaraCtx {
 mod tests {
     use super::*;
     use crate::vocab::{Pos2, Vec2};
+
+    /// The zoom-anchor arithmetic, pinned against the formula
+    /// `mara_graph::node_view` computes inside its render:
+    /// `offset/z_new - offset/z_old`. Reproducing it at the call site is
+    /// what lets `ViewCtx::offscreen` stay callback-free.
+    mod zoom_anchor {
+        use super::*;
+
+        #[test]
+        fn no_scale_change_moves_nothing() {
+            let d = offscreen_zoom_anchor_delta(
+                Pos2::new(120.0, 80.0),
+                Pos2::new(20.0, 10.0),
+                2.0,
+                2.0,
+            );
+            assert_eq!(d, Vec2::ZERO);
+        }
+
+        #[test]
+        fn a_cursor_at_the_origin_never_moves() {
+            let at_origin = Pos2::new(20.0, 10.0);
+            let d = offscreen_zoom_anchor_delta(at_origin, at_origin, 1.0, 4.0);
+            assert_eq!(d, Vec2::ZERO, "the anchor point is the fixed point");
+        }
+
+        #[test]
+        fn it_matches_the_offset_over_scale_difference() {
+            let cursor = Pos2::new(120.0, 80.0);
+            let origin = Pos2::new(20.0, 10.0);
+            let (old, new) = (1.0_f32, 2.0_f32);
+            let off = Vec2::new(cursor.x - origin.x, cursor.y - origin.y);
+            assert_eq!(
+                offscreen_zoom_anchor_delta(cursor, origin, old, new),
+                Vec2::new(off.x / new - off.x / old, off.y / new - off.y / old)
+            );
+        }
+
+        /// Zooming in pulls content back toward the origin; zooming out
+        /// pushes it away. Opposite signs, and reversing the step
+        /// reverses the delta.
+        #[test]
+        fn zoom_in_and_out_are_opposite_and_symmetric() {
+            let cursor = Pos2::new(120.0, 80.0);
+            let origin = Pos2::new(20.0, 10.0);
+            let in_ = offscreen_zoom_anchor_delta(cursor, origin, 1.0, 2.0);
+            let out = offscreen_zoom_anchor_delta(cursor, origin, 2.0, 1.0);
+            assert!(in_.x < 0.0 && out.x > 0.0, "in={in_:?} out={out:?}");
+            assert_eq!(in_.x, -out.x);
+            assert_eq!(in_.y, -out.y);
+        }
+
+        /// A degenerate scale yields zero, not an infinity that would
+        /// poison the pan it is added to.
+        #[test]
+        fn a_degenerate_scale_yields_zero_not_infinity() {
+            let c = Pos2::new(120.0, 80.0);
+            let o = Pos2::new(20.0, 10.0);
+            assert_eq!(offscreen_zoom_anchor_delta(c, o, 0.0, 2.0), Vec2::ZERO);
+            assert_eq!(offscreen_zoom_anchor_delta(c, o, 2.0, 0.0), Vec2::ZERO);
+        }
+    }
 
     /// A stand-in host, proving the trait is implementable with no
     /// backend at all and is object-safe — both prerequisites for the

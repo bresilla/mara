@@ -45,13 +45,23 @@ bevy = { version = "0.19", default-features = false }
 #
 # Layout — the directory a crate lives in IS its seal tier:
 #
-#   crates/core          the UI core; the only crate that may name egui
-#                        (until it is split into mara_backend_egui)
+#   crates/core          the UI core. Names no backend type: with
+#                        `--no-default-features` it has no egui edge at
+#                        all, asserted by `cargo tree` in `make check`.
+#                        The default-on `backend-egui-conv` feature adds
+#                        `From` impls between vocab and egui types — a
+#                        convenience for hosts, not a dependency of the
+#                        core's own code.
+#   crates/backend-egui  BACKEND tier, one crate. Implements core's seams
+#                        (`UiBackend`, `MaraCtx`, `MaraStore`,
+#                        `PainterSink`) and owns every widget wrapper,
+#                        scroll and theme call that genuinely needs egui.
 #   crates/gpu           opaque GPU handles shared between hosts and modules
 #   crates/modules/      SEALED tier. A crate here names no backend type —
-#                        no egui, no egui-wgpu, no wgpu. Enforced by
-#                        `make check`, and by `cargo tree` once the backend
-#                        crate is split out.
+#                        no egui, no egui-wgpu, no wgpu, and no
+#                        `mara_backend_egui` either, since depending on
+#                        that reaches egui without writing the token.
+#                        Enforced by `make check`.
 #   hosts/               HOST tier. These own a renderer and therefore
 #                        legitimately name wgpu: `mara_bevy` drives an
 #                        embedded Bevy app, `mara_3d` drives `three-d`.

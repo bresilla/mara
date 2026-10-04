@@ -9,6 +9,7 @@
 //! the reference backend, but it is no longer the public vocabulary.
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Vec2 {
     pub x: f32,
     pub y: f32,
@@ -173,6 +174,7 @@ pub const fn vec2(x: f32, y: f32) -> Vec2 {
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Pos2 {
     pub x: f32,
     pub y: f32,
@@ -266,6 +268,7 @@ pub const fn pos2(x: f32, y: f32) -> Pos2 {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Rect {
     pub min: Pos2,
     pub max: Pos2,
@@ -731,6 +734,29 @@ impl Color32 {
         ])
     }
 
+    /// Mix toward `other`, `t` clamped to `0..=1`.
+    ///
+    /// A straight per-channel linear interpolation of the four
+    /// *premultiplied* bytes. That is the correct operation for the two
+    /// things callers actually want — a colour ramp along a shape, and
+    /// a feathered edge fading to nothing — because premultiplied
+    /// colour composites linearly. Interpolating in gamma space here
+    /// instead would leave a feathered edge brighter than its coverage
+    /// and produce a halo along it.
+    ///
+    /// Note the consequence for fades: `lerp(c, Color32::TRANSPARENT,
+    /// t)` scales all four channels by the same factor, so the colour
+    /// darkens as it fades. That is what premultiplied transparency
+    /// means, and it is what avoids a bright fringe.
+    #[must_use]
+    pub fn lerp(self, other: Self, t: f32) -> Self {
+        let t = t.clamp(0.0, 1.0);
+        let mix = |a: u8, b: u8| (f32::from(a) + (f32::from(b) - f32::from(a)) * t + 0.5) as u8;
+        let Self([ar, ag, ab, aa]) = self;
+        let Self([br, bg, bb, ba]) = other;
+        Self([mix(ar, br), mix(ag, bg), mix(ab, bb), mix(aa, ba)])
+    }
+
     #[must_use]
     pub const fn from_gray(gray: u8) -> Self {
         Self([gray, gray, gray, 255])
@@ -759,6 +785,16 @@ impl Color32 {
     #[must_use]
     pub const fn a(self) -> u8 {
         self.0[3]
+    }
+
+    /// The four premultiplied channels, `[r, g, b, a]`.
+    ///
+    /// For code that hashes or serialises a colour rather than reading
+    /// one channel — open-coding `[c.r(), c.g(), c.b(), c.a()]` at each
+    /// such site is what this replaces.
+    #[must_use]
+    pub const fn to_array(self) -> [u8; 4] {
+        self.0
     }
 
     /// Back to straight alpha.
@@ -875,18 +911,34 @@ impl From<TextureId> for egui::TextureId {
     }
 }
 
+/// A backend's retained texture.
+///
+/// Two things Mara needs from a texture it does not own: keeping it
+/// alive (`Drop` on the last clone frees it), and replacing its pixels
+/// **in place**. The second is why this is a trait rather than
+/// `Arc<dyn Any>` — a render loop that re-uploads a preview every frame
+/// must reuse one texture, and going back through
+/// [`MaraCtx::load_texture`](crate::context::MaraCtx::load_texture)
+/// would allocate a new one each time.
+pub trait RetainedTexture: std::any::Any + Send + Sync {
+    /// Replace this texture's contents, keeping its id.
+    fn set(&self, image: ColorImage, options: TextureOptions);
+
+    /// Upcast, so a backend can recover its own handle type.
+    fn as_any(&self) -> &dyn std::any::Any;
+}
+
 /// A retained texture, owned for as long as the handle lives.
 ///
 /// The id and size are plain data, but the retention is not: dropping
 /// the last clone has to free the texture in whichever backend uploaded
-/// it. So the backend's own handle rides along erased — Mara never
-/// names its type, and never needs to, because the only thing Mara does
-/// with it is keep it alive.
+/// it. So the backend's own handle rides along behind
+/// [`RetainedTexture`] — Mara never names its type.
 #[derive(Clone)]
 pub struct TextureHandle {
     id: TextureId,
     size: [usize; 2],
-    retained: std::sync::Arc<dyn std::any::Any + Send + Sync>,
+    retained: std::sync::Arc<dyn RetainedTexture>,
 }
 
 impl TextureHandle {
@@ -898,9 +950,22 @@ impl TextureHandle {
     pub fn new(
         id: TextureId,
         size: [usize; 2],
-        retained: std::sync::Arc<dyn std::any::Any + Send + Sync>,
+        retained: std::sync::Arc<dyn RetainedTexture>,
     ) -> Self {
         Self { id, size, retained }
+    }
+
+    /// Replace this texture's pixels, keeping the id.
+    ///
+    /// The in-place counterpart to
+    /// [`MaraCtx::load_texture`](crate::context::MaraCtx::load_texture):
+    /// a surface that re-rasterises every frame calls this instead of
+    /// uploading a fresh texture per frame.
+    ///
+    /// The size is not updated — a resize needs a new texture, because
+    /// backends may not reallocate under a live id.
+    pub fn set(&self, image: ColorImage, options: TextureOptions) {
+        self.retained.set(image, options);
     }
 
     /// Id for painting this texture with
@@ -922,7 +987,7 @@ impl TextureHandle {
     /// backend itself, and by hosts that registered the texture.
     #[must_use]
     pub fn retained<T: std::any::Any + Send + Sync>(&self) -> Option<&T> {
-        self.retained.downcast_ref::<T>()
+        self.retained.as_any().downcast_ref::<T>()
     }
 }
 
@@ -932,6 +997,25 @@ impl std::fmt::Debug for TextureHandle {
             .field("id", &self.id)
             .field("size", &self.size)
             .finish_non_exhaustive()
+    }
+}
+
+/// egui's handle already owns its texture manager, so replacing pixels
+/// needs no context — it just needs a `&mut`, and the handle is cheap to
+/// clone (it is `Arc` inside).
+#[cfg(feature = "backend-egui-conv")]
+impl RetainedTexture for egui::TextureHandle {
+    fn set(&self, image: ColorImage, options: TextureOptions) {
+        let mut handle = self.clone();
+        let image: egui::ColorImage = image.into();
+        // Qualified: this trait's own `set` takes `&self` and would win
+        // the autoref race against egui's inherent `&mut self` one,
+        // recursing forever.
+        egui::TextureHandle::set(&mut handle, image, options.into());
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
     }
 }
 
@@ -1328,6 +1412,56 @@ mod tests {
                     "gamma_multiply({factor}) diverged on {channels:?}"
                 );
             }
+        }
+    }
+
+    #[test]
+    fn lerp_hits_both_endpoints_exactly() {
+        let a = Color32::from_rgba_premultiplied(10, 20, 30, 40);
+        let b = Color32::from_rgba_premultiplied(200, 150, 100, 250);
+        assert_eq!(a.lerp(b, 0.0), a);
+        assert_eq!(a.lerp(b, 1.0), b);
+    }
+
+    #[test]
+    fn lerp_clamps_rather_than_extrapolating() {
+        let a = Color32::from_rgba_premultiplied(10, 20, 30, 40);
+        let b = Color32::from_rgba_premultiplied(200, 150, 100, 250);
+        assert_eq!(a.lerp(b, -3.0), a);
+        assert_eq!(a.lerp(b, 7.5), b);
+    }
+
+    /// The property the feathered-edge case depends on: fading toward
+    /// `TRANSPARENT` must scale all four channels together. A lerp that
+    /// touched alpha alone would leave the RGB at full brightness under
+    /// zero coverage, which composites as a bright halo along every
+    /// feathered edge.
+    #[test]
+    fn lerp_toward_transparent_scales_all_four_channels_uniformly() {
+        let c = Color32::from_rgba_premultiplied(200, 160, 80, 240);
+        let half = c.lerp(Color32::TRANSPARENT, 0.5);
+
+        for (from, to) in [
+            (c.r(), half.r()),
+            (c.g(), half.g()),
+            (c.b(), half.b()),
+            (c.a(), half.a()),
+        ] {
+            let expected = (f32::from(from) * 0.5 + 0.5) as u8;
+            assert_eq!(to, expected, "channel {from} -> {to}, expected {expected}");
+        }
+    }
+
+    /// Interpolating between two opaque colours must keep the result
+    /// opaque — a midpoint that dips in alpha would show the canvas
+    /// through the middle of a gradient wire.
+    #[test]
+    fn lerp_between_opaque_colours_stays_opaque() {
+        let blue = Color32::from_rgba_premultiplied(0, 0, 255, 255);
+        let orange = Color32::from_rgba_premultiplied(255, 160, 0, 255);
+        for step in 0..=10 {
+            let t = step as f32 / 10.0;
+            assert_eq!(blue.lerp(orange, t).a(), 255, "alpha dipped at t={t}");
         }
     }
 

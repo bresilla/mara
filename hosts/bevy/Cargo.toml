@@ -15,6 +15,7 @@ egui = { workspace = true }
 egui-wgpu = { workspace = true }
 mara_gpu = { workspace = true }
 mara_core = { workspace = true }
+mara_backend_egui = { workspace = true }
 wgpu = { workspace = true }
 bevy = { workspace = true, features = [
     "std",
