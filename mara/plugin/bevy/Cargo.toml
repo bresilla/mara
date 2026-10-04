@@ -50,6 +50,4 @@ bevy = { workspace = true, features = [
 # Forward to mara_core's matching feature flags so consumers can
 # pick which standalone extras (`mara_graph`, `mara_code`) and
 # their mara-tinted wrappers compile in.
-default = ["graph", "code"]
-graph = ["mara_core/graph"]
-code = ["mara_core/code"]
+default = []

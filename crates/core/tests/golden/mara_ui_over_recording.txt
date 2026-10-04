@@ -4,9 +4,10 @@
             x: 0.0,
             y: 9.0,
         },
-        anchor: Align2(
-            Align2(Min, Center),
-        ),
+        anchor: Align2 {
+            x: Min,
+            y: Center,
+        },
         text: "headless",
         size: 12.0,
         color: Color32(
@@ -25,14 +26,12 @@
                 y: 42.0,
             },
         },
-        corner: CornerRadius(
-            CornerRadius {
-                nw: 2,
-                ne: 2,
-                sw: 2,
-                se: 2,
-            },
-        ),
+        corner: CornerRadius {
+            nw: 2,
+            ne: 2,
+            sw: 2,
+            se: 2,
+        },
         fill: Color32(
             #2E_36_47_EB,
         ),
@@ -48,14 +47,12 @@
                 y: 42.0,
             },
         },
-        corner: CornerRadius(
-            CornerRadius {
-                nw: 2,
-                ne: 2,
-                sw: 2,
-                se: 2,
-            },
-        ),
+        corner: CornerRadius {
+            nw: 2,
+            ne: 2,
+            sw: 2,
+            se: 2,
+        },
         stroke: Stroke {
             width: 1.0,
             color: Color32(
@@ -80,9 +77,10 @@
                     x: 160.0,
                     y: 30.0,
                 },
-                anchor: Align2(
-                    Align2(Center, Center),
-                ),
+                anchor: Align2 {
+                    x: Center,
+                    y: Center,
+                },
                 text: "apply",
                 size: 12.0,
                 color: Color32(
@@ -97,9 +95,10 @@
             x: 0.0,
             y: 51.0,
         },
-        anchor: Align2(
-            Align2(Min, Center),
-        ),
+        anchor: Align2 {
+            x: Min,
+            y: Center,
+        },
         text: "dark",
         size: 13.0,
         color: Color32(
@@ -118,14 +117,12 @@
                 y: 60.0,
             },
         },
-        corner: CornerRadius(
-            CornerRadius {
-                nw: 3,
-                ne: 3,
-                sw: 3,
-                se: 3,
-            },
-        ),
+        corner: CornerRadius {
+            nw: 3,
+            ne: 3,
+            sw: 3,
+            se: 3,
+        },
         fill: Color32(
             #1F_2E_41_FF,
         ),
@@ -141,14 +138,12 @@
                 y: 60.0,
             },
         },
-        corner: CornerRadius(
-            CornerRadius {
-                nw: 3,
-                ne: 3,
-                sw: 3,
-                se: 3,
-            },
-        ),
+        corner: CornerRadius {
+            nw: 3,
+            ne: 3,
+            sw: 3,
+            se: 3,
+        },
         stroke: Stroke {
             width: 1.0,
             color: Color32(
@@ -167,14 +162,12 @@
                 y: 58.0,
             },
         },
-        corner: CornerRadius(
-            CornerRadius {
-                nw: 3,
-                ne: 3,
-                sw: 3,
-                se: 3,
-            },
-        ),
+        corner: CornerRadius {
+            nw: 3,
+            ne: 3,
+            sw: 3,
+            se: 3,
+        },
         fill: Color32(
             #78_B4_FF_FF,
         ),
@@ -190,14 +183,12 @@
                 y: 58.0,
             },
         },
-        corner: CornerRadius(
-            CornerRadius {
-                nw: 3,
-                ne: 3,
-                sw: 3,
-                se: 3,
-            },
-        ),
+        corner: CornerRadius {
+            nw: 3,
+            ne: 3,
+            sw: 3,
+            se: 3,
+        },
         stroke: Stroke {
             width: 1.0,
             color: Color32(
@@ -210,9 +201,10 @@
             x: 0.0,
             y: 69.0,
         },
-        anchor: Align2(
-            Align2(Min, Center),
-        ),
+        anchor: Align2 {
+            x: Min,
+            y: Center,
+        },
         text: "gain",
         size: 13.0,
         color: Color32(
@@ -231,14 +223,12 @@
                 y: 96.0,
             },
         },
-        corner: CornerRadius(
-            CornerRadius {
-                nw: 2,
-                ne: 2,
-                sw: 2,
-                se: 2,
-            },
-        ),
+        corner: CornerRadius {
+            nw: 2,
+            ne: 2,
+            sw: 2,
+            se: 2,
+        },
         fill: Color32(
             #06_08_0C_FF,
         ),
@@ -254,14 +244,12 @@
                 y: 96.0,
             },
         },
-        corner: CornerRadius(
-            CornerRadius {
-                nw: 2,
-                ne: 2,
-                sw: 2,
-                se: 2,
-            },
-        ),
+        corner: CornerRadius {
+            nw: 2,
+            ne: 2,
+            sw: 2,
+            se: 2,
+        },
         stroke: Stroke {
             width: 1.0,
             color: Color32(
@@ -280,14 +268,12 @@
                 y: 96.0,
             },
         },
-        corner: CornerRadius(
-            CornerRadius {
-                nw: 2,
-                ne: 2,
-                sw: 2,
-                se: 2,
-            },
-        ),
+        corner: CornerRadius {
+            nw: 2,
+            ne: 2,
+            sw: 2,
+            se: 2,
+        },
         fill: Color32(
             #78_B4_FF_FF,
         ),
@@ -297,9 +283,10 @@
             x: 160.0,
             y: 87.0,
         },
-        anchor: Align2(
-            Align2(Center, Center),
-        ),
+        anchor: Align2 {
+            x: Center,
+            y: Center,
+        },
         text: "0.50",
         size: 11.0,
         color: Color32(
@@ -312,9 +299,10 @@
             x: 160.0,
             y: 87.0,
         },
-        anchor: Align2(
-            Align2(Center, Center),
-        ),
+        anchor: Align2 {
+            x: Center,
+            y: Center,
+        },
         text: "0.50",
         size: 11.0,
         color: Color32(

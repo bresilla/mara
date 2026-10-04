@@ -13,12 +13,20 @@ impl ViewId {
     }
 }
 
+impl From<Id> for ViewId {
+    fn from(value: Id) -> Self {
+        Self(value)
+    }
+}
+
+#[cfg(feature = "backend-egui-conv")]
 impl From<egui::Id> for ViewId {
     fn from(value: egui::Id) -> Self {
         Self(value.into())
     }
 }
 
+#[cfg(feature = "backend-egui-conv")]
 impl From<ViewId> for egui::Id {
     fn from(value: ViewId) -> Self {
         value.0.into()
@@ -41,12 +49,14 @@ impl SharedSurfaceId {
     }
 }
 
+#[cfg(feature = "backend-egui-conv")]
 impl From<egui::Id> for SharedSurfaceId {
     fn from(value: egui::Id) -> Self {
         Self(value.into())
     }
 }
 
+#[cfg(feature = "backend-egui-conv")]
 impl From<SharedSurfaceId> for egui::Id {
     fn from(value: SharedSurfaceId) -> Self {
         value.0.into()

@@ -10,14 +10,12 @@
                 y: 20.0,
             },
         },
-        corner: CornerRadius(
-            CornerRadius {
-                nw: 3,
-                ne: 3,
-                sw: 3,
-                se: 3,
-            },
-        ),
+        corner: CornerRadius {
+            nw: 3,
+            ne: 3,
+            sw: 3,
+            se: 3,
+        },
         fill: Color32(
             #4E_6B_94_FF,
         ),
@@ -77,9 +75,10 @@
                     x: 46.0,
                     y: 10.0,
                 },
-                anchor: Align2(
-                    Align2(Min, Center),
-                ),
+                anchor: Align2 {
+                    x: Min,
+                    y: Center,
+                },
                 text: "assets",
                 size: 12.0,
                 color: Color32(

@@ -18,7 +18,8 @@
 
 use std::collections::{HashMap, HashSet};
 
-use egui::{Color32, Id, Ui};
+use crate::vocab::Color32 as MaraColor32;
+use crate::vocab::Id;
 
 use crate::container::{Normal, SeparatorOrient, Tab, container_flow, set_container_flow};
 use crate::pod::{Pod, PodResponse};
@@ -40,7 +41,7 @@ use super::{PaneAnchor, TitleSide, active_drag, paint_container_dots, section_or
 /// host-widget integrations (node graph / code editor) without
 /// leaking arbitrary-closure access to consumer code.
 pub struct ContainerSpec<'a> {
-    id: Id,
+    id: MaraId,
     title: String,
     icon: &'static str,
     body: SpecBody<'a>,
@@ -52,7 +53,7 @@ pub struct ContainerSpec<'a> {
 pub(crate) enum SpecBody<'a> {
     Pods(Vec<Pod>),
     Tabs(Vec<Tab>),
-    Raw(Box<dyn FnOnce(&mut Ui) + 'a>),
+    Raw(Box<dyn FnOnce(&mut crate::MaraUi<'_>) + 'a>),
 }
 
 /// Shared tab payload/routing scope for one logical workspace.
@@ -64,16 +65,18 @@ pub(crate) enum SpecBody<'a> {
 /// still declared by its original container, but its *owner* is the
 /// moved container. Shelves therefore build one scope across all
 /// Shelf containers before rendering individual Shelf panes.
-pub(crate) struct TabRoutingScope {
-    tab_pool: HashMap<Id, Tab>,
-    tabbed_specs: HashMap<Id, (String, &'static str)>,
-    declared_tabs_per_container: HashMap<Id, Vec<Id>>,
-    all_tabs_in_scope: Vec<(Id, Id)>,
-    seen_tab_ids: HashSet<Id>,
+#[doc(hidden)]
+pub struct TabRoutingScope {
+    tab_pool: HashMap<MaraId, Tab>,
+    tabbed_specs: HashMap<MaraId, (String, &'static str)>,
+    declared_tabs_per_container: HashMap<MaraId, Vec<MaraId>>,
+    all_tabs_in_scope: Vec<(MaraId, MaraId)>,
+    seen_tab_ids: HashSet<MaraId>,
 }
 
 impl TabRoutingScope {
-    pub(crate) fn new() -> Self {
+    #[doc(hidden)]
+    pub fn new() -> Self {
         Self {
             tab_pool: HashMap::new(),
             tabbed_specs: HashMap::new(),
@@ -91,7 +94,7 @@ impl TabRoutingScope {
             .insert(spec.id, (spec.title.clone(), spec.icon));
         let mut ids = Vec::with_capacity(tabs.len());
         for tab in std::mem::take(tabs) {
-            let tid = tab.egui_id();
+            let tid = tab.id();
             assert!(
                 self.seen_tab_ids.insert(tid),
                 "tabbed containers in one tab routing scope require globally unique tab ids"
@@ -103,13 +106,29 @@ impl TabRoutingScope {
         self.declared_tabs_per_container.insert(spec.id, ids);
     }
 
-    pub(crate) fn absorb_specs<'a>(&mut self, specs: &mut [ContainerSpec<'a>]) {
+    /// Tabs declared for `container`, in declaration order.
+    #[doc(hidden)]
+    pub fn declared_tabs(&self, container: MaraId) -> &[MaraId] {
+        self.declared_tabs_per_container
+            .get(&container)
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
+    }
+
+    /// Every `(tab, owning container)` pair in this scope.
+    #[doc(hidden)]
+    pub fn all_tabs(&self) -> &[(MaraId, MaraId)] {
+        &self.all_tabs_in_scope
+    }
+
+    #[doc(hidden)]
+    pub fn absorb_specs<'a>(&mut self, specs: &mut [ContainerSpec<'a>]) {
         for spec in specs {
             self.absorb_spec(spec);
         }
     }
 
-    fn is_tabbed_container(&self, container_id: Id) -> bool {
+    fn is_tabbed_container(&self, container_id: MaraId) -> bool {
         self.tabbed_specs.contains_key(&container_id)
     }
 }
@@ -151,7 +170,7 @@ impl<'a> ContainerSpec<'a> {
         );
         let mut seen = HashSet::with_capacity(tabs.len());
         assert!(
-            tabs.iter().all(|tab| seen.insert(tab.egui_id())),
+            tabs.iter().all(|tab| seen.insert(tab.id())),
             "tabbed containers require unique tab ids"
         );
         Self {
@@ -162,19 +181,19 @@ impl<'a> ContainerSpec<'a> {
         }
     }
 
-    /// Crate-internal raw-closure constructor. Used by
-    /// `mara_core::extras::*` to wrap host-widget integrations
-    /// (node graph, code editor) that need non-`'static` borrows.
-    /// Not reachable from outside `mara_core`.
+    /// First-party raw-closure constructor. Used by `mara::extras::*`
+    /// to wrap host-widget integrations (node graph, code editor) that
+    /// need non-`'static` borrows. Doc-hidden; not a stable API.
+    #[doc(hidden)]
     #[must_use]
-    pub(crate) fn raw_internal<F>(
-        id: impl Into<Id>,
+    pub fn raw_internal<F>(
+        id: impl Into<MaraId>,
         title: impl Into<String>,
         icon: &'static str,
         body: F,
     ) -> Self
     where
-        F: FnOnce(&mut Ui) + 'a,
+        F: FnOnce(&mut crate::MaraUi<'_>) + 'a,
     {
         let title = title.into();
         assert_container_title(&title);
@@ -191,11 +210,11 @@ impl<'a> ContainerSpec<'a> {
     /// pod response map).
     #[must_use]
     pub fn container_id(&self) -> MaraId {
-        self.id.into()
+        self.id
     }
 
     pub(crate) fn egui_container_id(&self) -> Id {
-        self.id
+        self.id.into()
     }
 }
 
@@ -224,15 +243,20 @@ fn assert_container_icon(icon: &'static str) {
 /// order returned by [`section_order_for`] (so the user's
 /// drag-reorder persists across frames), not in call order.
 pub struct PaneBody<'ui, 'spec> {
-    ui: &'ui mut Ui,
+    ui: crate::MaraUi<'ui>,
     pane_id: Id,
     anchor: PaneAnchor,
-    accent: Color32,
+    accent: MaraColor32,
     pending: Vec<ContainerSpec<'spec>>,
 }
 
 impl<'ui, 'spec> PaneBody<'ui, 'spec> {
-    pub(crate) fn new(ui: &'ui mut Ui, pane_id: Id, anchor: PaneAnchor, accent: Color32) -> Self {
+    pub(crate) fn new(
+        ui: crate::MaraUi<'ui>,
+        pane_id: Id,
+        anchor: PaneAnchor,
+        accent: MaraColor32,
+    ) -> Self {
         Self {
             ui,
             pane_id,
@@ -250,8 +274,8 @@ impl<'ui, 'spec> PaneBody<'ui, 'spec> {
 
     /// The accent colour the pane was built with.
     #[must_use]
-    pub fn accent(&self) -> Color32 {
-        self.accent
+    pub fn accent(&self) -> crate::vocab::Color32 {
+        self.accent.into()
     }
 
     /// The pane's stable id.
@@ -275,7 +299,7 @@ impl<'ui, 'spec> PaneBody<'ui, 'spec> {
     #[must_use]
     pub fn temp_string(&self, id: impl Into<MaraId>) -> Option<String> {
         let id: Id = id.into().into();
-        self.ui.ctx().data(|d| d.get_temp::<String>(id))
+        self.ui.ctx().memory().get_temp::<String>(id)
     }
 
     /// Append a normal container (single body, pod list).
@@ -332,7 +356,7 @@ impl<'ui, 'spec> PaneBody<'ui, 'spec> {
 
     fn render_raw(&mut self) -> HashMap<Id, Vec<PodResponse>> {
         let specs = std::mem::take(&mut self.pending);
-        render_containers(self.ui, self.pane_id, self.anchor, self.accent, specs)
+        render_containers(&mut self.ui, self.pane_id, self.anchor, self.accent, specs)
     }
 
     /// Crate-internal: drain any remaining containers and return
@@ -354,11 +378,12 @@ impl<'ui, 'spec> PaneBody<'ui, 'spec> {
 /// * Dragging a handle updates the persisted container flow via
 ///   [`set_container_flow`]; folded containers ignore drag so the
 ///   user can't silently grow / shrink an invisible region.
-pub(crate) fn render_containers<'a>(
-    body_ui: &mut Ui,
+#[doc(hidden)]
+pub fn render_containers<'a>(
+    body_ui: &mut crate::MaraUi<'_>,
     pane_id: Id,
     anchor: PaneAnchor,
-    accent: Color32,
+    accent: MaraColor32,
     mut containers: Vec<ContainerSpec<'a>>,
 ) -> HashMap<Id, Vec<PodResponse>> {
     let mut tab_scope = TabRoutingScope::new();
@@ -376,26 +401,36 @@ pub(crate) fn render_containers<'a>(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn render_containers_with_tab_scope<'a>(
-    body_ui: &mut Ui,
+#[doc(hidden)]
+pub fn render_containers_with_tab_scope<'a>(
+    body_ui: &mut crate::MaraUi<'_>,
     pane_id: Id,
     tab_routing_id: Id,
     anchor: PaneAnchor,
-    accent: Color32,
+    accent: MaraColor32,
     containers: Vec<ContainerSpec<'a>>,
     tab_scope: &mut TabRoutingScope,
     tabbed_strip_side: Option<TitleSide>,
 ) -> HashMap<Id, Vec<PodResponse>> {
-    let mut seen_container_ids: HashSet<Id> = HashSet::with_capacity(containers.len());
+    let mut seen_container_ids: HashSet<MaraId> = HashSet::with_capacity(containers.len());
     assert!(
         containers
             .iter()
             .all(|container| seen_container_ids.insert(container.id)),
         "pane containers require unique container ids"
     );
-    let defaults: Vec<Id> = containers.iter().map(|c| c.id).collect();
+    // The reorder store is still keyed by backend ids (WS-E4 step 5a),
+    // and `MaraId -> backend Id` is a re-hash, so the trip back is not
+    // identity. Keep the mapping rather than converting twice — a
+    // container that renders but cannot be found by its own id is the
+    // failure this avoids.
+    // Declaration order is the fallback ordering, so `defaults` must
+    // keep it — a map's iteration order would shuffle the containers.
+    let defaults: Vec<Id> = containers.iter().map(|c| c.id.into()).collect();
+    let backend_to_mara: HashMap<Id, MaraId> =
+        containers.iter().map(|c| (c.id.into(), c.id)).collect();
     let order = section_order_for(body_ui.ctx(), pane_id, &defaults);
-    let mut by_id: HashMap<Id, ContainerSpec<'a>> =
+    let mut by_id: HashMap<MaraId, ContainerSpec<'a>> =
         containers.into_iter().map(|c| (c.id, c)).collect();
 
     let containers_stack_horizontally = !anchor.title_side().is_horizontal_strip();
@@ -409,21 +444,24 @@ pub(crate) fn render_containers_with_tab_scope<'a>(
 
     let mut responses: HashMap<Id, Vec<PodResponse>> = HashMap::new();
     for cid in order.into_iter() {
+        let Some(&cid_mara) = backend_to_mara.get(&cid) else {
+            continue;
+        };
         // Tabbed containers — pull routed tabs from the pool.
-        if tab_scope.is_tabbed_container(cid) {
-            let Some((title, icon)) = tab_scope.tabbed_specs.get(&cid).cloned() else {
+        if tab_scope.is_tabbed_container(cid_mara) {
+            let Some((title, icon)) = tab_scope.tabbed_specs.get(&cid_mara).cloned() else {
                 continue;
             };
-            let _ = by_id.remove(&cid);
-            let empty: Vec<Id> = Vec::new();
+            let _ = by_id.remove(&cid_mara);
+            let empty: Vec<MaraId> = Vec::new();
             let defaults_here = tab_scope
                 .declared_tabs_per_container
-                .get(&cid)
+                .get(&cid_mara)
                 .unwrap_or(&empty);
             let routed_ids = super::tab_drag::route(
                 body_ui.ctx(),
-                tab_routing_id,
-                cid,
+                tab_routing_id.into(),
+                cid_mara,
                 defaults_here,
                 &tab_scope.all_tabs_in_scope,
             );
@@ -443,7 +481,15 @@ pub(crate) fn render_containers_with_tab_scope<'a>(
             if let Some(side) = tabbed_strip_side {
                 normal = normal.tabbed_strip_side(side);
             }
+            // The responses belong to whichever tab is showing; file them
+            // under that tab's id as well as the container's, so an app
+            // with several tabs can tell whose pods answered.
+            let routed_tab_ids: Vec<Id> = routed_tabs.iter().map(|t| t.id().into()).collect();
+            let active_tab = Normal::active_tab_id(body_ui.ctx(), cid, &routed_tab_ids);
             let resp = normal.show_tabs(body_ui, routed_tabs);
+            if let Some(tab_id) = active_tab.filter(|tab_id| *tab_id != cid) {
+                responses.insert(tab_id, resp.clone());
+            }
             responses.insert(cid, resp);
             let dragging_self = active_drag(body_ui.ctx())
                 .and_then(|(_, s)| s.item)
@@ -453,10 +499,11 @@ pub(crate) fn render_containers_with_tab_scope<'a>(
                 continue;
             }
             let dot_resp = paint_container_dots(body_ui, dots_orient, cid, accent);
-            let body_open: bool = body_ui.ctx().data_mut(|d| {
-                d.get_persisted::<bool>(cid.with("body_open"))
-                    .unwrap_or(true)
-            });
+            let body_open: bool = body_ui
+                .ctx()
+                .memory()
+                .get_persisted::<bool>(cid.with("body_open"))
+                .unwrap_or(true);
             if dot_resp.dragged() && body_open {
                 let cur = container_flow(body_ui.ctx(), cid, pane_horizontal_strip);
                 let raw = if containers_stack_horizontally {
@@ -470,7 +517,7 @@ pub(crate) fn render_containers_with_tab_scope<'a>(
             continue;
         }
 
-        let Some(spec) = by_id.remove(&cid) else {
+        let Some(spec) = by_id.remove(&cid_mara) else {
             continue;
         };
         let normal = Normal::new(spec.title.as_str(), anchor, accent, cid).icon(spec.icon);
@@ -503,10 +550,11 @@ pub(crate) fn render_containers_with_tab_scope<'a>(
         }
 
         let dot_resp = paint_container_dots(body_ui, dots_orient, cid, accent);
-        let body_open: bool = body_ui.ctx().data_mut(|d| {
-            d.get_persisted::<bool>(cid.with("body_open"))
-                .unwrap_or(true)
-        });
+        let body_open: bool = body_ui
+            .ctx()
+            .memory()
+            .get_persisted::<bool>(cid.with("body_open"))
+            .unwrap_or(true);
         if dot_resp.dragged() && body_open {
             let cur = container_flow(body_ui.ctx(), cid, pane_horizontal_strip);
             let raw = if containers_stack_horizontally {
@@ -518,314 +566,10 @@ pub(crate) fn render_containers_with_tab_scope<'a>(
             set_container_flow(body_ui.ctx(), cid, cur + delta, pane_horizontal_strip);
         }
     }
-    super::tab_drag::retain_containers(body_ui.ctx(), pane_id, responses.keys().copied());
+    super::tab_drag::retain_containers(
+        body_ui.ctx(),
+        pane_id.into(),
+        responses.keys().map(|id| MaraId::from(*id)),
+    );
     responses
-}
-
-#[cfg(test)]
-mod tests {
-    #![allow(deprecated)]
-
-    use super::*;
-    use crate::pane::{RailZone, active_pane_key, tab_drag};
-
-    #[test]
-    fn tabbed_container_requires_at_least_one_tab() {
-        let result = std::panic::catch_unwind(|| {
-            let _ = ContainerSpec::tabbed("empty", "Empty", "settings", Vec::new());
-        });
-
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn containers_require_non_empty_icons() {
-        let normal = std::panic::catch_unwind(|| {
-            let _ = ContainerSpec::normal("no-icon", "No Icon", "  ", Vec::new());
-        });
-        let tabbed = std::panic::catch_unwind(|| {
-            let _ = ContainerSpec::tabbed(
-                "tabs-no-icon",
-                "Tabs",
-                "",
-                vec![Tab::new("main", "Main", "settings")],
-            );
-        });
-        let raw = std::panic::catch_unwind(|| {
-            let _ = ContainerSpec::raw_internal("raw-no-icon", "Raw", "", |_| {});
-        });
-
-        assert!(normal.is_err());
-        assert!(tabbed.is_err());
-        assert!(raw.is_err());
-    }
-
-    #[test]
-    fn containers_require_non_empty_titles() {
-        let normal = std::panic::catch_unwind(|| {
-            let _ = ContainerSpec::normal("no-title", " ", "settings", Vec::new());
-        });
-        let tabbed = std::panic::catch_unwind(|| {
-            let _ = ContainerSpec::tabbed(
-                "tabs-no-title",
-                "",
-                "settings",
-                vec![Tab::new("main", "Main", "settings")],
-            );
-        });
-        let raw = std::panic::catch_unwind(|| {
-            let _ = ContainerSpec::raw_internal("raw-no-title", " ", "settings", |_| {});
-        });
-
-        assert!(normal.is_err());
-        assert!(tabbed.is_err());
-        assert!(raw.is_err());
-    }
-
-    #[test]
-    fn tabbed_container_accepts_tabs_with_icons() {
-        let spec = ContainerSpec::tabbed(
-            "tabs",
-            "Tabs",
-            "settings",
-            vec![Tab::new("main", "Main", "settings")],
-        );
-
-        assert_eq!(spec.container_id(), Id::new("tabs"));
-    }
-
-    #[test]
-    fn tabbed_container_rejects_duplicate_tab_ids() {
-        let result = std::panic::catch_unwind(|| {
-            let _ = ContainerSpec::tabbed(
-                "tabs",
-                "Tabs",
-                "settings",
-                vec![
-                    Tab::new("duplicate", "First", "settings"),
-                    Tab::new("duplicate", "Second", "info"),
-                ],
-            );
-        });
-
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn pane_rejects_duplicate_tab_ids_across_containers() {
-        let ctx = egui::Context::default();
-        let pane_id = Id::new("pane");
-        ctx.begin_pass(egui::RawInput {
-            screen_rect: Some(egui::Rect::from_min_size(
-                egui::Pos2::ZERO,
-                egui::vec2(640.0, 480.0),
-            )),
-            ..Default::default()
-        });
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            egui::CentralPanel::default().show(&ctx, |ui| {
-                ui.ctx()
-                    .data_mut(|d| d.insert_temp(active_pane_key(), pane_id));
-                let _ = render_containers(
-                    ui,
-                    pane_id,
-                    PaneAnchor::LeftRail(RailZone::Middle),
-                    Color32::from_rgb(120, 160, 220),
-                    vec![
-                        ContainerSpec::tabbed(
-                            "first",
-                            "First",
-                            "settings",
-                            vec![Tab::new("shared-tab", "Shared A", "settings")],
-                        ),
-                        ContainerSpec::tabbed(
-                            "second",
-                            "Second",
-                            "info",
-                            vec![Tab::new("shared-tab", "Shared B", "info")],
-                        ),
-                    ],
-                );
-            });
-        }));
-        let _ = ctx.end_pass();
-
-        assert!(
-            result.is_err(),
-            "tab ids route per pane, so two containers in one pane must not reuse the same tab id"
-        );
-    }
-
-    #[test]
-    fn pane_rejects_duplicate_container_ids() {
-        let ctx = egui::Context::default();
-        let pane_id = Id::new("pane");
-        ctx.begin_pass(egui::RawInput {
-            screen_rect: Some(egui::Rect::from_min_size(
-                egui::Pos2::ZERO,
-                egui::vec2(640.0, 480.0),
-            )),
-            ..Default::default()
-        });
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            egui::CentralPanel::default().show(&ctx, |ui| {
-                ui.ctx()
-                    .data_mut(|d| d.insert_temp(active_pane_key(), pane_id));
-                let _ = render_containers(
-                    ui,
-                    pane_id,
-                    PaneAnchor::LeftRail(RailZone::Middle),
-                    Color32::from_rgb(120, 160, 220),
-                    vec![
-                        ContainerSpec::normal("duplicate", "First", "settings", Vec::new()),
-                        ContainerSpec::normal("duplicate", "Second", "info", Vec::new()),
-                    ],
-                );
-            });
-        }));
-        let _ = ctx.end_pass();
-
-        assert!(
-            result.is_err(),
-            "duplicate container ids would silently overwrite routing/render state"
-        );
-    }
-
-    #[test]
-    fn single_tabbed_container_still_registers_tab_strip() {
-        let ctx = egui::Context::default();
-        let pane_id = Id::new("pane");
-        let container_id = Id::new("single-tab-container");
-        ctx.begin_pass(egui::RawInput {
-            screen_rect: Some(egui::Rect::from_min_size(
-                egui::Pos2::ZERO,
-                egui::vec2(640.0, 480.0),
-            )),
-            ..Default::default()
-        });
-        egui::CentralPanel::default().show(&ctx, |ui| {
-            ui.ctx()
-                .data_mut(|d| d.insert_temp(active_pane_key(), pane_id));
-            let responses = render_containers(
-                ui,
-                pane_id,
-                PaneAnchor::LeftRail(RailZone::Middle),
-                Color32::from_rgb(120, 160, 220),
-                vec![ContainerSpec::tabbed(
-                    container_id,
-                    "One Tab",
-                    "settings",
-                    vec![Tab::new("only", "Only", "settings")],
-                )],
-            );
-            assert!(responses.contains_key(&container_id));
-            let strips = tab_drag::strip_cache(ui.ctx(), pane_id);
-            let buttons = tab_drag::button_cache(ui.ctx(), pane_id);
-            assert_eq!(
-                strips
-                    .iter()
-                    .filter(|strip| strip.container_id == container_id)
-                    .count(),
-                1,
-                "single-tab tabbed containers must still paint/register their tab strip"
-            );
-            assert_eq!(
-                buttons
-                    .iter()
-                    .filter(|button| button.container_id == container_id)
-                    .count(),
-                1,
-                "single-tab tabbed containers must still expose one tab button"
-            );
-        });
-        let _ = ctx.end_pass();
-    }
-
-    #[test]
-    fn shared_tab_scope_renders_moved_tab_with_container_after_pane_change() {
-        let ctx = egui::Context::default();
-        let routing_id = Id::new("shelf-tab-routing");
-        let target_pane = Id::new("target-shelf-pane");
-        let source = Id::new("source-container");
-        let target = Id::new("target-container");
-        let moved_tab = Id::new("moved-tab");
-        let source_stay = Id::new("source-stay");
-        let target_own = Id::new("target-own");
-
-        let mut source_specs = vec![ContainerSpec::tabbed(
-            source,
-            "Source",
-            "box",
-            vec![
-                Tab::new(moved_tab, "Moved", "settings"),
-                Tab::new(source_stay, "Stay", "info"),
-            ],
-        )];
-        let mut target_specs = vec![ContainerSpec::tabbed(
-            target,
-            "Target",
-            "box",
-            vec![Tab::new(target_own, "Own", "settings")],
-        )];
-        let mut scope = TabRoutingScope::new();
-        scope.absorb_specs(&mut source_specs);
-        scope.absorb_specs(&mut target_specs);
-
-        tab_drag::commit_drop(&ctx, routing_id, moved_tab, source, target, 0);
-        assert_eq!(
-            tab_drag::route(
-                &ctx,
-                routing_id,
-                target,
-                scope
-                    .declared_tabs_per_container
-                    .get(&target)
-                    .map(Vec::as_slice)
-                    .unwrap_or(&[]),
-                &scope.all_tabs_in_scope,
-            ),
-            vec![moved_tab, target_own],
-            "shared routing scope should keep moved tabs attached to their new owner before rendering"
-        );
-
-        ctx.begin_pass(egui::RawInput {
-            screen_rect: Some(egui::Rect::from_min_size(
-                egui::Pos2::ZERO,
-                egui::vec2(640.0, 480.0),
-            )),
-            ..Default::default()
-        });
-        egui::CentralPanel::default().show(&ctx, |ui| {
-            ui.ctx()
-                .data_mut(|d| d.insert_temp(active_pane_key(), target_pane));
-            let responses = render_containers_with_tab_scope(
-                ui,
-                target_pane,
-                routing_id,
-                PaneAnchor::LeftRail(RailZone::Middle),
-                Color32::from_rgb(120, 160, 220),
-                target_specs,
-                &mut scope,
-                None,
-            );
-
-            assert!(responses.contains_key(&target));
-            let mut target_buttons: Vec<Id> = tab_drag::button_cache(ui.ctx(), target_pane)
-                .into_iter()
-                .filter(|button| button.container_id == target)
-                .map(|button| button.tab_id)
-                .collect();
-            target_buttons.sort_by_key(|id| format!("{id:?}"));
-            assert_eq!(
-                target_buttons,
-                {
-                    let mut expected = vec![moved_tab, target_own];
-                    expected.sort_by_key(|id| format!("{id:?}"));
-                    expected
-                },
-                "a tab dropped into a container must render with that container after the container moves to a different Shelf pane"
-            );
-        });
-        let _ = ctx.end_pass();
-    }
 }

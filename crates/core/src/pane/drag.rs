@@ -16,7 +16,8 @@
 //! * **A floating preview** of the dragged container's last-known
 //!   rect renders at the cursor (paint-only, separate Area).
 
-use egui::{Color32, Context, Id, Pos2, Rect, Ui, Vec2};
+use crate::vocab::Id;
+use crate::vocab::{Pos2, Rect, Vec2};
 
 use crate::layout::{AreaHost, Layer, Sense, UiBackend};
 use crate::paint::PaintCmd;
@@ -69,26 +70,24 @@ fn ghost_gap_suppressed_key(pane_id: Id) -> Id {
 fn order_key(pane_id: Id) -> Id {
     pane_id.with("mara_pane_section_order")
 }
-pub fn state(ctx: &Context, pane_id: Id) -> DragState {
-    crate::memory::MaraMemoryCtx::new(ctx)
-        .get_temp(drag_key(pane_id))
-        .unwrap_or_default()
+pub fn state(ctx: &dyn crate::context::MaraCtx, pane_id: Id) -> DragState {
+    ctx.memory().get_temp(drag_key(pane_id)).unwrap_or_default()
 }
 
-pub fn set_drag(ctx: &Context, pane_id: Id, state: DragState) {
-    crate::memory::MaraMemoryCtx::new(ctx).set_temp(drag_key(pane_id), state);
+pub fn set_drag(ctx: &dyn crate::context::MaraCtx, pane_id: Id, state: DragState) {
+    ctx.memory().set_temp(drag_key(pane_id), state);
 }
 
-pub fn clear_drag(ctx: &Context, pane_id: Id) {
-    crate::memory::MaraMemoryCtx::new(ctx).remove_temp::<DragState>(drag_key(pane_id));
+pub fn clear_drag(ctx: &dyn crate::context::MaraCtx, pane_id: Id) {
+    ctx.memory().remove_temp::<DragState>(drag_key(pane_id));
 }
 
 /// Clear the per-frame current cache at body start. Snapshot from
 /// the prev frame is preserved so reads still see the dragged
 /// container's size.
-pub fn begin_frame(ctx: &Context, pane_id: Id) {
+pub fn begin_frame(ctx: &dyn crate::context::MaraCtx, pane_id: Id) {
     {
-        let mut memory = crate::memory::MaraMemoryCtx::new(ctx);
+        let mut memory = ctx.memory();
         memory.remove_temp::<Vec<RectEntry>>(current_key(pane_id));
         memory.remove_temp::<bool>(ghost_gap_suppressed_key(pane_id));
     };
@@ -97,8 +96,12 @@ pub fn begin_frame(ctx: &Context, pane_id: Id) {
 /// Suppress only the inline layout gap for this pane during the
 /// current frame. The dragged item is still lifted out of layout and
 /// the drag state stays active.
-pub(crate) fn set_ghost_gap_suppressed(ctx: &Context, pane_id: Id, suppressed: bool) {
-    let mut memory = crate::memory::MaraMemoryCtx::new(ctx);
+pub(crate) fn set_ghost_gap_suppressed(
+    ctx: &dyn crate::context::MaraCtx,
+    pane_id: Id,
+    suppressed: bool,
+) {
+    let mut memory = ctx.memory();
     if suppressed {
         memory.set_temp(ghost_gap_suppressed_key(pane_id), true);
     } else {
@@ -106,18 +109,24 @@ pub(crate) fn set_ghost_gap_suppressed(ctx: &Context, pane_id: Id, suppressed: b
     }
 }
 
-pub(crate) fn ghost_gap_suppressed(ctx: &Context, pane_id: Id) -> bool {
-    crate::memory::MaraMemoryCtx::new(ctx)
+pub(crate) fn ghost_gap_suppressed(ctx: &dyn crate::context::MaraCtx, pane_id: Id) -> bool {
+    ctx.memory()
         .get_temp::<bool>(ghost_gap_suppressed_key(pane_id))
         .unwrap_or(false)
 }
 
-pub fn push_rect(ctx: &Context, pane_id: Id, id: Id, rect: Rect) {
+pub fn push_rect(ctx: &dyn crate::context::MaraCtx, pane_id: Id, id: Id, rect: Rect) {
     push_rect_with_frame(ctx, pane_id, id, rect, None);
 }
 
-pub fn push_rect_with_frame(ctx: &Context, pane_id: Id, id: Id, rect: Rect, frame: Option<Rect>) {
-    let mut memory = crate::memory::MaraMemoryCtx::new(ctx);
+pub fn push_rect_with_frame(
+    ctx: &dyn crate::context::MaraCtx,
+    pane_id: Id,
+    id: Id,
+    rect: Rect,
+    frame: Option<Rect>,
+) {
+    let mut memory = ctx.memory();
     let mut cache: Vec<RectEntry> = memory.get_temp(current_key(pane_id)).unwrap_or_default();
     if let Some(slot) = cache.iter_mut().find(|e| e.id == id) {
         slot.rect = rect;
@@ -128,14 +137,14 @@ pub fn push_rect_with_frame(ctx: &Context, pane_id: Id, id: Id, rect: Rect, fram
     memory.set_temp(current_key(pane_id), cache);
 }
 
-pub fn current_cache(ctx: &Context, pane_id: Id) -> Vec<RectEntry> {
-    crate::memory::MaraMemoryCtx::new(ctx)
+pub fn current_cache(ctx: &dyn crate::context::MaraCtx, pane_id: Id) -> Vec<RectEntry> {
+    ctx.memory()
         .get_temp(current_key(pane_id))
         .unwrap_or_default()
 }
 
-pub fn snapshot(ctx: &Context, pane_id: Id) -> Vec<RectEntry> {
-    crate::memory::MaraMemoryCtx::new(ctx)
+pub fn snapshot(ctx: &dyn crate::context::MaraCtx, pane_id: Id) -> Vec<RectEntry> {
+    ctx.memory()
         .get_temp(snapshot_key(pane_id))
         .unwrap_or_default()
 }
@@ -148,7 +157,7 @@ pub fn snapshot(ctx: &Context, pane_id: Id) -> Vec<RectEntry> {
 /// rendering, so its old full rect must still be carried forward for
 /// preview/ghost sizing. This merges those two facts without mutating
 /// the stored snapshot.
-pub fn target_cache(ctx: &Context, pane_id: Id) -> Vec<RectEntry> {
+pub fn target_cache(ctx: &dyn crate::context::MaraCtx, pane_id: Id) -> Vec<RectEntry> {
     let mut cache = current_cache(ctx, pane_id);
     if cache.is_empty() {
         return snapshot(ctx, pane_id);
@@ -165,14 +174,18 @@ pub fn target_cache(ctx: &Context, pane_id: Id) -> Vec<RectEntry> {
     cache
 }
 
-pub(crate) fn set_snapshot(ctx: &Context, pane_id: Id, snapshot: Vec<RectEntry>) {
-    crate::memory::MaraMemoryCtx::new(ctx).set_temp(snapshot_key(pane_id), snapshot);
+pub(crate) fn set_snapshot(
+    ctx: &dyn crate::context::MaraCtx,
+    pane_id: Id,
+    snapshot: Vec<RectEntry>,
+) {
+    ctx.memory().set_temp(snapshot_key(pane_id), snapshot);
 }
 
 /// Build this frame's snapshot from `current_cache` + the dragged
 /// container's previous-frame rect (so its size stays available
 /// for ghost gap / preview during the drag).
-pub fn finalize_snapshot(ctx: &Context, pane_id: Id) {
+pub fn finalize_snapshot(ctx: &dyn crate::context::MaraCtx, pane_id: Id) {
     let drag = state(ctx, pane_id);
     let mut cache = current_cache(ctx, pane_id);
     if let Some(dragged_id) = drag.item
@@ -183,7 +196,7 @@ pub fn finalize_snapshot(ctx: &Context, pane_id: Id) {
             cache.push(entry);
         }
     }
-    crate::memory::MaraMemoryCtx::new(ctx).set_temp(snapshot_key(pane_id), cache);
+    ctx.memory().set_temp(snapshot_key(pane_id), cache);
 }
 
 // ─── Order persistence ─────────────────────────────────────────────
@@ -197,9 +210,14 @@ pub fn finalize_snapshot(ctx: &Context, pane_id: Id) {
 /// a drag is in flight — the dragged container vanishes from
 /// layout and a ghost gap travels with the cursor instead. On
 /// release, the persistent order is updated.
-pub fn section_order_for(ctx: &Context, pane_id: Id, defaults: &[Id]) -> Vec<Id> {
+pub fn section_order_for(
+    ctx: &dyn crate::context::MaraCtx,
+    pane_id: Id,
+    defaults: &[Id],
+) -> Vec<Id> {
     let stored: Vec<Id> = ctx
-        .data_mut(|d| d.get_persisted(order_key(pane_id)))
+        .memory()
+        .get_persisted(order_key(pane_id))
         .unwrap_or_default();
     let mut order: Vec<Id> = Vec::with_capacity(defaults.len());
     for id in stored {
@@ -217,14 +235,14 @@ pub fn section_order_for(ctx: &Context, pane_id: Id, defaults: &[Id]) -> Vec<Id>
 
 /// Persist a new section order for `pane_id`. Survives across
 /// runs (`insert_persisted`).
-pub fn set_section_order(ctx: &Context, pane_id: Id, order: Vec<Id>) {
+pub fn set_section_order(ctx: &dyn crate::context::MaraCtx, pane_id: Id, order: Vec<Id>) {
     let mut deduped = Vec::with_capacity(order.len());
     for id in order {
         if !deduped.contains(&id) {
             deduped.push(id);
         }
     }
-    crate::memory::MaraMemoryCtx::new(ctx).set_persisted(order_key(pane_id), deduped);
+    ctx.memory().set_persisted(order_key(pane_id), deduped);
 }
 
 // ─── Convenience for Normal ────────────────────────────────────────
@@ -233,8 +251,8 @@ pub fn set_section_order(ctx: &Context, pane_id: Id, order: Vec<Id>) {
 /// which doesn't directly know its parent `Pane`'s id — via the
 /// `active_pane_key` pointer that internal pane rendering writes at the top
 /// of every frame.
-pub fn active_drag(ctx: &Context) -> Option<(Id, DragState)> {
-    let pane_id: Id = crate::memory::MaraMemoryCtx::new(ctx).get_temp(active_pane_key())?;
+pub fn active_drag(ctx: &dyn crate::context::MaraCtx) -> Option<(Id, DragState)> {
+    let pane_id: Id = ctx.memory().get_temp(active_pane_key())?;
     let s = state(ctx, pane_id);
     Some((pane_id, s))
 }
@@ -299,16 +317,13 @@ pub fn dragged_entry(snapshot: &[RectEntry], dragged: Id) -> Option<RectEntry> {
 /// a translucent accent rect. Pushes subsequent containers along
 /// the stack axis exactly like the dragged container would.
 pub fn paint_ghost_gap_inline(
-    ui: &mut Ui,
+    ui: &mut crate::MaraUi<'_>,
     dragged_size: Vec2,
-    accent: Color32,
+    accent: MaraColor32,
     _horizontal_stack: bool,
 ) {
-    let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
-    let rect = backend
-        .allocate(MaraVec2::from(dragged_size), Sense::Hover)
-        .rect;
-    paint_ghost_rect(&mut backend, rect, accent.into(), 36);
+    let rect = ui.allocate(MaraVec2::from(dragged_size), Sense::Hover).rect;
+    paint_ghost_rect(ui.backend_mut(), rect, accent, 36);
 }
 
 /// Allocate a same-main-axis slot but keep the ghost's cross-axis
@@ -318,14 +333,13 @@ pub fn paint_ghost_gap_inline(
 /// cursor makes the ghost appear shifted left/up compared to where
 /// the container will land.
 pub fn paint_ghost_gap_entry_inline(
-    ui: &mut Ui,
+    ui: &mut crate::MaraUi<'_>,
     entry: RectEntry,
-    accent: Color32,
+    accent: MaraColor32,
     horizontal_stack: bool,
 ) {
     let size = entry.rect.size();
-    let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
-    let slot_rect = backend.allocate(MaraVec2::from(size), Sense::Hover).rect;
+    let slot_rect = ui.allocate(MaraVec2::from(size), Sense::Hover).rect;
     let entry_rect: MaraRect = entry.rect.into();
     let rect = if horizontal_stack {
         MaraRect::from_min_size(
@@ -338,7 +352,7 @@ pub fn paint_ghost_gap_entry_inline(
             MaraVec2::from(size),
         )
     };
-    paint_ghost_rect(&mut backend, rect, accent.into(), 36);
+    paint_ghost_rect(ui.backend_mut(), rect, accent, 36);
 }
 
 fn ghost_rect_paint_cmds(rect: MaraRect, accent: MaraColor32, fill_alpha: u8) -> [PaintCmd; 2] {
@@ -363,7 +377,7 @@ fn ghost_rect_paint_cmds(rect: MaraRect, accent: MaraColor32, fill_alpha: u8) ->
     ]
 }
 
-fn paint_ghost_rect(backend: &mut impl UiBackend, rect: MaraRect, accent: MaraColor32, alpha: u8) {
+fn paint_ghost_rect(backend: &mut dyn UiBackend, rect: MaraRect, accent: MaraColor32, alpha: u8) {
     for cmd in ghost_rect_paint_cmds(rect, accent, alpha) {
         backend.paint(cmd);
     }
@@ -372,12 +386,12 @@ fn paint_ghost_rect(backend: &mut impl UiBackend, rect: MaraRect, accent: MaraCo
 /// Paint the dragged container's preview at the cursor on
 /// `Order::Tooltip` so it floats above every other UI element.
 pub fn paint_drag_preview(
-    ctx: &Context,
+    ctx: &dyn crate::context::MaraCtx,
     pane_id: Id,
     snapshot: &[RectEntry],
     dragged: Id,
     cursor: Pos2,
-    accent: Color32,
+    accent: MaraColor32,
 ) {
     let Some(entry) = snapshot.iter().find(|e| e.id == dragged) else {
         return;
@@ -386,15 +400,13 @@ pub fn paint_drag_preview(
     let cursor = MaraPos2::from(cursor);
     let pos = MaraPos2::new(cursor.x - size.x * 0.5, cursor.y - size.y * 0.5);
     let area_id = pane_id.with("mara_pane_drag_preview");
-    crate::backend::egui::show_area_for_host(
-        ctx,
-        AreaHost::new(area_id.into(), pos, Layer::Overlay).non_interactive(),
-        |ui| {
-            let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
+    ctx.area(
+        AreaHost::new(area_id, pos, Layer::Overlay).non_interactive(),
+        &mut |ui| {
             paint_ghost_rect(
-                &mut backend,
+                ui.backend_mut(),
                 MaraRect::from_min_size(pos, size),
-                accent.into(),
+                accent,
                 72,
             );
         },
@@ -419,15 +431,15 @@ mod tests {
         let cache = [
             entry(
                 "first",
-                Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(80.0, 40.0)),
+                Rect::from_min_size(crate::vocab::pos2(0.0, 0.0), crate::vocab::vec2(80.0, 40.0)),
             ),
             entry(
                 "dragged",
-                Rect::from_min_size(egui::pos2(0.0, 50.0), egui::vec2(80.0, 40.0)),
+                Rect::from_min_size(crate::vocab::pos2(0.0, 50.0), crate::vocab::vec2(80.0, 40.0)),
             ),
             entry(
                 "second",
-                Rect::from_min_size(egui::pos2(0.0, 100.0), egui::vec2(80.0, 40.0)),
+                Rect::from_min_size(crate::vocab::pos2(0.0, 100.0), crate::vocab::vec2(80.0, 40.0)),
             ),
         ];
 
@@ -442,15 +454,15 @@ mod tests {
         let cache = [
             entry(
                 "first",
-                Rect::from_min_size(egui::pos2(0.0, 100.0), egui::vec2(80.0, 40.0)),
+                Rect::from_min_size(crate::vocab::pos2(0.0, 100.0), crate::vocab::vec2(80.0, 40.0)),
             ),
             entry(
                 "dragged",
-                Rect::from_min_size(egui::pos2(0.0, 50.0), egui::vec2(80.0, 40.0)),
+                Rect::from_min_size(crate::vocab::pos2(0.0, 50.0), crate::vocab::vec2(80.0, 40.0)),
             ),
             entry(
                 "second",
-                Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(80.0, 40.0)),
+                Rect::from_min_size(crate::vocab::pos2(0.0, 0.0), crate::vocab::vec2(80.0, 40.0)),
             ),
         ];
 
@@ -465,15 +477,15 @@ mod tests {
         let cache = [
             entry(
                 "first",
-                Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(40.0, 80.0)),
+                Rect::from_min_size(crate::vocab::pos2(0.0, 0.0), crate::vocab::vec2(40.0, 80.0)),
             ),
             entry(
                 "dragged",
-                Rect::from_min_size(egui::pos2(50.0, 0.0), egui::vec2(40.0, 80.0)),
+                Rect::from_min_size(crate::vocab::pos2(50.0, 0.0), crate::vocab::vec2(40.0, 80.0)),
             ),
             entry(
                 "second",
-                Rect::from_min_size(egui::pos2(100.0, 0.0), egui::vec2(40.0, 80.0)),
+                Rect::from_min_size(crate::vocab::pos2(100.0, 0.0), crate::vocab::vec2(40.0, 80.0)),
             ),
         ];
 
@@ -484,7 +496,7 @@ mod tests {
 
     #[test]
     fn section_order_repairs_duplicate_and_stale_persisted_ids() {
-        let ctx = Context::default();
+        let ctx = headless_ctx();
         let pane_id = Id::new("pane");
         let first = Id::new("first");
         let second = Id::new("second");
@@ -501,11 +513,11 @@ mod tests {
 
     #[test]
     fn finalize_snapshot_carries_dragged_rect_when_render_skips_it() {
-        let ctx = Context::default();
+        let ctx = headless_ctx();
         let pane_id = Id::new("pane");
         let dragged = Id::new("dragged");
         let still_rendered = Id::new("still-rendered");
-        let dragged_rect = Rect::from_min_size(egui::pos2(10.0, 20.0), egui::vec2(90.0, 60.0));
+        let dragged_rect = Rect::from_min_size(crate::vocab::pos2(10.0, 20.0), crate::vocab::vec2(90.0, 60.0));
 
         set_snapshot(
             &ctx,
@@ -521,7 +533,7 @@ mod tests {
             pane_id,
             DragState {
                 item: Some(dragged),
-                cursor: Some(egui::pos2(30.0, 40.0)),
+                cursor: Some(crate::vocab::pos2(30.0, 40.0)),
             },
         );
         begin_frame(&ctx, pane_id);
@@ -529,7 +541,7 @@ mod tests {
             &ctx,
             pane_id,
             still_rendered,
-            Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(10.0, 10.0)),
+            Rect::from_min_size(crate::vocab::pos2(0.0, 0.0), crate::vocab::vec2(10.0, 10.0)),
         );
 
         finalize_snapshot(&ctx, pane_id);
@@ -545,12 +557,12 @@ mod tests {
 
     #[test]
     fn target_cache_prefers_live_rects_and_carries_dragged_snapshot() {
-        let ctx = Context::default();
+        let ctx = headless_ctx();
         let pane_id = Id::new("pane");
         let dragged = Id::new("dragged");
         let live_new = Id::new("live-new");
         let stale = Id::new("stale");
-        let dragged_rect = Rect::from_min_size(egui::pos2(10.0, 20.0), egui::vec2(90.0, 60.0));
+        let dragged_rect = Rect::from_min_size(crate::vocab::pos2(10.0, 20.0), crate::vocab::vec2(90.0, 60.0));
 
         set_snapshot(
             &ctx,
@@ -563,7 +575,7 @@ mod tests {
                 },
                 RectEntry {
                     id: stale,
-                    rect: Rect::from_min_size(egui::pos2(100.0, 100.0), egui::vec2(20.0, 20.0)),
+                    rect: Rect::from_min_size(crate::vocab::pos2(100.0, 100.0), crate::vocab::vec2(20.0, 20.0)),
                     frame: None,
                 },
             ],
@@ -573,7 +585,7 @@ mod tests {
             pane_id,
             DragState {
                 item: Some(dragged),
-                cursor: Some(egui::pos2(30.0, 40.0)),
+                cursor: Some(crate::vocab::pos2(30.0, 40.0)),
             },
         );
         begin_frame(&ctx, pane_id);
@@ -581,7 +593,7 @@ mod tests {
             &ctx,
             pane_id,
             live_new,
-            Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(10.0, 10.0)),
+            Rect::from_min_size(crate::vocab::pos2(0.0, 0.0), crate::vocab::vec2(10.0, 10.0)),
         );
 
         let target = target_cache(&ctx, pane_id);
@@ -620,4 +632,15 @@ mod tests {
             } if got == rect && stroke.color == MaraColor32::from_rgb(10, 20, 30)
         ));
     }
+}
+
+/// A context for state-only assertions — see the note in
+/// `shelf::tests`. The recording backend is a `MaraCtx`, so tests that
+/// only exercise Mara's own bookkeeping need no backend.
+#[cfg(test)]
+fn headless_ctx() -> crate::backend::record::RecordingBackend {
+    crate::backend::record::RecordingBackend::at(crate::vocab::Rect::from_min_size(
+        crate::vocab::Pos2::ZERO,
+        crate::vocab::Vec2::new(1280.0, 800.0),
+    ))
 }

@@ -1,14 +1,10 @@
-use egui::{
-    Context, Id, Pos2, Rect, Ui, Vec2,
-    ahash::HashSet,
-    emath::{GuiRounding, TSTransform},
-    style::Spacing,
-};
+use egui::{Context, Id, Pos2, Rect, Ui, Vec2, ahash::HashSet, emath::GuiRounding, style::Spacing};
+use mara_core::transform::Transform;
 use smallvec::{SmallVec, ToSmallVec, smallvec};
 
 use crate::vendored::{Graph, InPinId, NodeId, OutPinId};
 
-use super::{GraphWidget, transform_matching_points};
+use super::GraphWidget;
 
 pub type RowHeights = SmallVec<[f32; 8]>;
 
@@ -77,7 +73,7 @@ impl NodeState {
     pub fn node_rect(&self, pos: Pos2, openness: f32) -> Rect {
         Rect::from_min_size(
             pos,
-            egui::vec2(
+            Vec2::new(
                 self.size.x,
                 f32::max(self.header_height, self.size.y * openness),
             ),
@@ -158,7 +154,7 @@ struct RectSelect {
 
 pub struct GraphState {
     /// Graph viewport transform to global space.
-    to_global: TSTransform,
+    to_global: Transform,
 
     new_wires: Option<NewWires>,
 
@@ -221,7 +217,7 @@ impl SelectedNodes {
 
 #[derive(Clone)]
 struct GraphStateData {
-    to_global: TSTransform,
+    to_global: Transform,
     new_wires: Option<NewWires>,
     new_wires_menu: bool,
     rect_selection: Option<RectSelect>,
@@ -280,7 +276,7 @@ impl GraphState {
         let mut bb = Rect::NOTHING;
 
         for (_, node) in &graph.nodes {
-            bb.extend_with(node.pos);
+            bb.extend_with(Pos2::from(node.pos));
         }
 
         if bb.is_finite() {
@@ -294,7 +290,7 @@ impl GraphState {
         let scaling2 = ui_rect.size() / bb.size();
         let scaling = scaling2.min_elem().clamp(min_scale, max_scale);
 
-        let to_global = transform_matching_points(bb.center(), ui_rect.center(), scaling);
+        let to_global = fit_points(bb.center(), ui_rect.center(), scaling);
 
         GraphState {
             to_global,
@@ -328,11 +324,11 @@ impl GraphState {
         }
     }
 
-    pub const fn to_global(&self) -> TSTransform {
+    pub const fn to_global(&self) -> Transform {
         self.to_global
     }
 
-    pub fn set_to_global(&mut self, to_global: TSTransform) {
+    pub fn set_to_global(&mut self, to_global: Transform) {
         if self.to_global != to_global {
             self.to_global = to_global;
             self.dirty = true;
@@ -340,7 +336,7 @@ impl GraphState {
     }
 
     /// Add `delta` (in sub-context points) to the saved
-    /// `TSTransform.translation` of the graph with the given `id`,
+    /// translation of the graph with the given `id`,
     /// directly via context data — no live `GraphState` instance
     /// required.
     ///
@@ -354,7 +350,7 @@ impl GraphState {
         let Some(mut data) = GraphStateData::load(cx, id) else {
             return;
         };
-        data.to_global.translation += delta;
+        data.to_global.translation += mara_core::vocab::Vec2::from(delta);
         data.save(cx, id);
     }
 
@@ -362,7 +358,7 @@ impl GraphState {
         let scaling2 = ui_rect.size() / view.size();
         let scaling = scaling2.min_elem().clamp(min_scale, max_scale);
 
-        let to_global = transform_matching_points(view.center(), ui_rect.center(), scaling);
+        let to_global = fit_points(view.center(), ui_rect.center(), scaling);
 
         if self.to_global != to_global {
             self.to_global = to_global;
@@ -629,4 +625,17 @@ impl GraphWidget {
         ctx.data(|d| d.get_temp::<SelectedNodes>(graph_id).unwrap_or_default().0)
             .into_vec()
     }
+}
+
+/// Transform placing `from` at `to` under uniform `scaling`.
+///
+/// Replaces two of the three local transform helpers this file used to
+/// share with `ui.rs`. Plain arithmetic rather than a round trip through
+/// [`Transform::scaled_around`]: the anchored-rescale case genuinely
+/// needs that, but `translation = to - scaling * from` does not.
+fn fit_points(from: Pos2, to: Pos2, scaling: f32) -> Transform {
+    Transform::new(
+        mara_core::vocab::Vec2::new(to.x - scaling * from.x, to.y - scaling * from.y),
+        scaling,
+    )
 }

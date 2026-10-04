@@ -196,12 +196,12 @@ impl WindowChromeState {
     }
 }
 
-fn regions_key() -> egui::Id {
-    egui::Id::new("mara_window_chrome_regions")
+fn regions_key() -> crate::vocab::Id {
+    crate::vocab::Id::new("mara_window_chrome_regions")
 }
 
-fn host_capabilities_key() -> egui::Id {
-    egui::Id::new("mara_window_chrome_host_capabilities")
+fn host_capabilities_key() -> crate::vocab::Id {
+    crate::vocab::Id::new("mara_window_chrome_host_capabilities")
 }
 
 /// Replace the current pass' native-window chrome regions.
@@ -211,7 +211,7 @@ fn host_capabilities_key() -> egui::Id {
 /// context data.
 #[doc(hidden)]
 pub fn __internal_publish_window_chrome_regions(
-    ctx: &egui::Context,
+    ctx: &dyn crate::context::MaraCtx,
     drag_regions: impl IntoIterator<Item = Rect>,
     exclusion_rects: impl IntoIterator<Item = Rect>,
 ) {
@@ -219,7 +219,7 @@ pub fn __internal_publish_window_chrome_regions(
         drag_regions: drag_regions.into_iter().collect(),
         exclusion_rects: exclusion_rects.into_iter().collect(),
     };
-    crate::memory::MaraMemoryCtx::new(ctx).set_temp(regions_key(), regions);
+    ctx.memory().set_temp(regions_key(), regions);
 }
 
 /// Read the latest published native-window chrome regions.
@@ -228,8 +228,8 @@ pub fn __internal_publish_window_chrome_regions(
 /// Mara chrome regions into native-window drag/resize APIs.
 #[must_use]
 #[doc(hidden)]
-pub fn __internal_window_chrome_regions(ctx: &egui::Context) -> WindowChromeRegions {
-    crate::memory::MaraMemoryCtx::new(ctx)
+pub fn __internal_window_chrome_regions(ctx: &dyn crate::context::MaraCtx) -> WindowChromeRegions {
+    ctx.memory()
         .get_temp::<WindowChromeRegions>(regions_key())
         .unwrap_or_default()
 }
@@ -241,10 +241,10 @@ pub fn __internal_window_chrome_regions(ctx: &egui::Context) -> WindowChromeRegi
 /// main bar into a window-drag region.
 #[doc(hidden)]
 pub fn __internal_publish_window_chrome_host_capabilities(
-    ctx: &egui::Context,
+    ctx: &dyn crate::context::MaraCtx,
     capabilities: WindowChromeHostCapabilities,
 ) {
-    crate::memory::MaraMemoryCtx::new(ctx).set_temp(host_capabilities_key(), capabilities);
+    ctx.memory().set_temp(host_capabilities_key(), capabilities);
 }
 
 /// Read the current frame's host native-window capabilities.
@@ -253,16 +253,17 @@ pub fn __internal_publish_window_chrome_host_capabilities(
 #[must_use]
 #[doc(hidden)]
 pub fn __internal_window_chrome_host_capabilities(
-    ctx: &egui::Context,
+    ctx: &dyn crate::context::MaraCtx,
 ) -> WindowChromeHostCapabilities {
-    crate::memory::MaraMemoryCtx::new(ctx)
+    ctx.memory()
         .get_temp::<WindowChromeHostCapabilities>(host_capabilities_key())
         .unwrap_or_default()
 }
 
 /// Clear published native-window chrome regions.
-pub(crate) fn clear_window_chrome_regions(ctx: &egui::Context) {
-    crate::memory::MaraMemoryCtx::new(ctx).remove_temp::<WindowChromeRegions>(regions_key());
+pub(crate) fn clear_window_chrome_regions(ctx: &dyn crate::context::MaraCtx) {
+    ctx.memory()
+        .remove_temp::<WindowChromeRegions>(regions_key());
 }
 
 /// Hit-test only the diagonal resize corners.
@@ -318,7 +319,7 @@ pub fn resize_direction(
 #[must_use]
 #[doc(hidden)]
 pub fn __internal_hit_test_window_chrome(
-    ctx: &egui::Context,
+    ctx: &dyn crate::context::MaraCtx,
     pos: Pos2,
     window_size: Vec2,
     metrics: WindowChromeTheme,
@@ -358,11 +359,11 @@ pub fn hit_test_window_chrome_regions(
 #[must_use]
 #[doc(hidden)]
 pub fn __internal_hovered_resize_corner(
-    ctx: &egui::Context,
+    ctx: &dyn crate::context::MaraCtx,
     window_rect: Rect,
     metrics: WindowChromeTheme,
 ) -> Option<WindowResizeDirection> {
-    let pos = ctx.input(|input| input.pointer.hover_pos())?.into();
+    let pos = ctx.input().pointer?;
     let regions = __internal_window_chrome_regions(ctx);
     if regions
         .exclusion_rects
@@ -383,21 +384,21 @@ pub fn __internal_hovered_resize_corner(
 /// clickable native-resize area.
 #[doc(hidden)]
 pub fn __internal_paint_resize_corner_hover(
-    ctx: &egui::Context,
+    ctx: &dyn crate::context::MaraCtx,
     accent: Color32,
     metrics: WindowChromeTheme,
 ) -> Option<WindowResizeDirection> {
-    let window_rect = Rect::from(ctx.viewport_rect());
+    let window_rect = ctx.window_rect();
     let direction = __internal_hovered_resize_corner(ctx, window_rect, metrics)?;
     let (horizontal, vertical) = resize_corner_paint_rects(window_rect, direction, metrics)?;
 
-    let painter = ctx.layer_painter(crate::layer::layer_id(
-        "mara_window_resize_corner_hover",
-        crate::layer::z::WINDOW_CHROME,
-    ));
-    let fill = egui::Color32::from(accent);
-    painter.rect_filled(egui::Rect::from(horizontal), 0.0, fill);
-    painter.rect_filled(egui::Rect::from(vertical), 0.0, fill);
+    let painter = ctx.layer_painter(
+        crate::layout::Layer::Foreground,
+        crate::vocab::Id::new("mara_window_resize_corner_hover"),
+        window_rect,
+    );
+    painter.rect_filled(horizontal, crate::vocab::CornerRadius::ZERO, accent);
+    painter.rect_filled(vertical, crate::vocab::CornerRadius::ZERO, accent);
     Some(direction)
 }
 
@@ -538,7 +539,7 @@ mod tests {
 
     #[test]
     fn interactive_exclusions_win_over_resize_and_move() {
-        let ctx = egui::Context::default();
+        let ctx = headless_ctx();
         __internal_publish_window_chrome_regions(
             &ctx,
             [Rect::from_min_max(
@@ -572,7 +573,7 @@ mod tests {
 
     #[test]
     fn host_chrome_capabilities_default_to_web_safe_disabled() {
-        let ctx = egui::Context::default();
+        let ctx = headless_ctx();
         assert_eq!(
             __internal_window_chrome_host_capabilities(&ctx),
             WindowChromeHostCapabilities::default()
@@ -674,4 +675,15 @@ mod tests {
         assert!(!next_app_press.claimed);
         assert!(!state.claimed());
     }
+}
+
+/// A context for state-only assertions — see the note in
+/// `shelf::tests`. The recording backend is a `MaraCtx`, so tests that
+/// only exercise Mara's own bookkeeping need no backend.
+#[cfg(test)]
+fn headless_ctx() -> crate::backend::record::RecordingBackend {
+    crate::backend::record::RecordingBackend::at(crate::vocab::Rect::from_min_size(
+        crate::vocab::Pos2::ZERO,
+        crate::vocab::Vec2::new(1280.0, 800.0),
+    ))
 }

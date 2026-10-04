@@ -42,15 +42,17 @@
 #![allow(dead_code)]
 
 use crate::memory::MaraMemory;
-use egui::{Color32, FontId, Id, Rect, Stroke, StrokeKind, Ui};
+use crate::vocab::Id;
+use crate::vocab::Rect;
 
 const ENABLED_KEY: &str = "mara_debug_inspector_enabled";
 const BEST_KEY: &str = "mara_debug_inspector_best";
 
 #[derive(Clone)]
-struct Best {
-    rect: Rect,
-    label: String,
+#[doc(hidden)]
+pub struct Best {
+    pub rect: Rect,
+    pub label: String,
 }
 
 impl Default for Best {
@@ -66,21 +68,22 @@ fn enabled_id() -> Id {
     Id::new(ENABLED_KEY)
 }
 
-fn best_id() -> Id {
+#[doc(hidden)]
+pub fn best_id() -> Id {
     Id::new(BEST_KEY)
 }
 
 /// `true` when the inspector is on. Cheap — single ctx-data read.
-pub fn is_enabled(ctx: &egui::Context) -> bool {
+pub fn is_enabled(ctx: &dyn crate::context::MaraCtx) -> bool {
     {
-        let memory = crate::memory::MaraMemoryCtx::new(ctx);
+        let memory = ctx.memory();
         memory.get_temp::<bool>(enabled_id()).unwrap_or(false)
     }
 }
 
 /// Toggle the inspector overlay globally for this `ctx`.
-pub fn set_enabled(ctx: &egui::Context, on: bool) {
-    crate::memory::MaraMemoryCtx::new(ctx).set_temp(enabled_id(), on);
+pub fn set_enabled(ctx: &dyn crate::context::MaraCtx, on: bool) {
+    ctx.memory().set_temp(enabled_id(), on);
 }
 
 /// Register a hover-triggered debug entry. When the inspector is on
@@ -92,19 +95,20 @@ pub fn set_enabled(ctx: &egui::Context, on: bool) {
 ///
 /// Cheap when the inspector is off — single ctx-data read for the
 /// enabled flag.
-pub fn tag(ui: &Ui, rect: Rect, label: impl Into<String>) {
-    if !is_enabled(ui.ctx()) {
+pub fn tag(ctx: &dyn crate::context::MaraCtx, rect: Rect, label: impl Into<String>) {
+    if !is_enabled(ctx) {
         return;
     }
-    let Some(pointer) = ui.ctx().pointer_hover_pos() else {
+    let Some(pointer) = ctx.input().pointer.map(Into::into) else {
         return;
     };
     if !rect.contains(pointer) {
         return;
     }
     let label = label.into();
-    ui.ctx().data_mut(|d| {
-        let prev: Option<Best> = d.get_temp::<Best>(best_id());
+    {
+        let mut memory = ctx.memory();
+        let prev: Option<Best> = memory.get_temp::<Best>(best_id());
         let take = match prev {
             None => true,
             // Always take the SMALLER rect (compared by area). Both
@@ -117,9 +121,9 @@ pub fn tag(ui: &Ui, rect: Rect, label: impl Into<String>) {
             Some(p) => rect.area() < p.rect.area(),
         };
         if take {
-            d.insert_temp(best_id(), Best { rect, label });
+            memory.set_temp(best_id(), Best { rect, label });
         }
-    });
+    }
 }
 
 /// Backend-neutral [`tag`] — reads the inspector flag + pointer and
@@ -162,60 +166,4 @@ pub fn tag_backend(
             },
         );
     }
-}
-
-/// Paint the deepest tag from this frame and clear the slot. Call
-/// once at the END of the top-level UI callback. No-op when the
-/// inspector is off, or when no tag captured the cursor this frame.
-pub fn paint(ctx: &egui::Context) {
-    if !is_enabled(ctx) {
-        return;
-    }
-    let mut memory = crate::memory::MaraMemoryCtx::new(ctx);
-    let best: Option<Best> = memory.get_temp::<Best>(best_id());
-    memory.remove_temp::<Best>(best_id());
-    let Some(best) = best else {
-        return;
-    };
-    let p = ctx.debug_painter();
-    let outline = Color32::from_rgb(255, 80, 80);
-    p.rect_stroke(
-        best.rect,
-        0.0,
-        Stroke::new(2.0, outline),
-        StrokeKind::Inside,
-    );
-
-    // Label chip — placed OUTSIDE the highlighted rect so it
-    // doesn't cover the widget's actual content (text input,
-    // title text, etc.). Default position is just above the rect's
-    // top edge; if the rect is near the top of the viewport and
-    // there's no room above, fall through to just below the rect's
-    // bottom edge.
-    let font = FontId::monospace(11.0);
-    let galley = p.layout_no_wrap(best.label.clone(), font, Color32::WHITE);
-    let pad = egui::vec2(5.0, 2.0);
-    let chip_size = galley.size() + pad * 2.0;
-    let viewport = ctx.content_rect();
-    let above_y = best.rect.min.y - chip_size.y - 4.0;
-    let below_y = best.rect.max.y + 4.0;
-    let chip_top_y = if above_y >= viewport.min.y + 2.0 {
-        above_y
-    } else {
-        below_y
-    };
-    let chip_origin = egui::pos2(best.rect.min.x, chip_top_y);
-    let chip_rect = Rect::from_min_size(chip_origin, chip_size);
-    p.rect_filled(
-        chip_rect,
-        2.0,
-        Color32::from_rgba_unmultiplied(0, 0, 0, 220),
-    );
-    p.rect_stroke(
-        chip_rect,
-        2.0,
-        Stroke::new(1.0, outline),
-        StrokeKind::Inside,
-    );
-    p.galley(chip_origin + pad, galley, Color32::WHITE);
 }

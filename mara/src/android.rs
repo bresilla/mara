@@ -147,6 +147,7 @@ impl<A: WindowApp> AndroidWinitApp<A> {
                 present_mode: wgpu::PresentMode::AutoNoVsync,
                 ..egui_wgpu::WgpuConfiguration::default()
             };
+            let wgpu_config = crate::runner::app_gpu_configuration::<A>(wgpu_config);
             let painter = pollster::block_on(Painter::new(
                 self.egui_ctx.clone(),
                 wgpu_config,
@@ -266,7 +267,7 @@ impl<A: WindowApp> AndroidWinitApp<A> {
                 return;
             }
             app.configure_shell(shell);
-            for event in shell.show(ctx, shell_open, shell_placement, shell_drag) {
+            for event in shell.__internal_show_egui(ctx, shell_open, shell_placement, shell_drag) {
                 // Close/maximize are not meaningful on Android (the OS
                 // owns the activity lifecycle); forward everything else.
                 match event {

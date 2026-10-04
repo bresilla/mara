@@ -1,6 +1,6 @@
 use std::cell::RefCell;
 
-use egui::Pos2;
+use mara_core::vocab::Pos2;
 
 use crate::vendored::{wire_pins, InPinId, Node, OutPinId, Graph};
 

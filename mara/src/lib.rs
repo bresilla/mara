@@ -9,6 +9,7 @@
 //!   resize, close handling, and the wgpu render state needed by
 //!   offscreen Mara widgets.
 
+pub mod extras;
 pub mod host;
 
 pub mod ui;

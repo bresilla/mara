@@ -9,8 +9,7 @@
 use mara_core::{
     MaraModule, MaraView, ModuleInlineCtx, ModuleResponse, RibbonAction, RibbonCluster, RibbonEdge,
     RibbonOverridePolicy, RibbonScope, RibbonSlot, RibbonSlotDef, RibbonSlotId, RibbonSlotItem,
-    ViewCtx, ViewId, WorkspaceCtx,
-    vocab::Align2 as MaraAlign2,
+    ViewCtx, ViewId, WorkspaceCtx, vocab::Align2 as MaraAlign2,
 };
 
 #[derive(Clone, Debug, PartialEq)]
@@ -45,7 +44,7 @@ impl ImageDocument {
 
 #[derive(Clone, Debug)]
 pub struct ImageSurface {
-    id: egui::Id,
+    id: mara_core::vocab::Id,
     doc: ImageDocument,
 }
 
@@ -53,7 +52,7 @@ impl ImageSurface {
     #[must_use]
     pub fn new(id: impl std::hash::Hash, doc: ImageDocument) -> Self {
         Self {
-            id: egui::Id::new(id),
+            id: mara_core::vocab::Id::new(id),
             doc,
         }
     }
@@ -63,11 +62,49 @@ impl ImageSurface {
         &self.doc
     }
 
+    /// Draw the framed placeholder into a sealed [`mara_core::MaraUi`]
+    /// canvas — the inline-embed body, and the headless-portability
+    /// proof surface (renders over the recording backend, no egui).
+    fn paint_placeholder(mui: &mut mara_core::MaraUi<'_>, doc: &ImageDocument) {
+        let size = mara_core::vocab::Vec2::new(
+            mui.available_width().max(160.0),
+            mui.available_height().max(120.0),
+        );
+        let (painter, response) = mui.canvas(size);
+        let rect = response.rect;
+        painter.rect_filled(
+            rect,
+            0.0,
+            mara_core::style::fill_for(
+                mara_core::style::FillRole::Pane,
+                mara_core::style::active_accent(),
+            ),
+        );
+        painter.rect_stroke(
+            rect,
+            0.0,
+            mara_core::style::stroke_for(
+                mara_core::style::StrokeRole::WidgetBorder,
+                mara_core::style::active_accent(),
+            ),
+        );
+        let detail = match &doc.source {
+            ImageSource::Empty => "no image loaded".to_owned(),
+            ImageSource::Uri(uri) => uri.clone(),
+        };
+        painter.text(
+            rect.center(),
+            MaraAlign2::CENTER_CENTER,
+            format!("{}\n{}", doc.title, detail),
+            13.0,
+            mara_core::style::on_panel(),
+        );
+    }
 }
 
 impl MaraView for ImageSurface {
     fn id(&self) -> ViewId {
-        ViewId::from(self.id)
+        ViewId(self.id)
     }
 
     fn title(&self) -> &str {
@@ -88,7 +125,7 @@ impl MaraView for ImageSurface {
         );
         vec![RibbonSlotDef::new(
             mara_core::vocab::Id::new(("image.view.ribbon", self.id)),
-            RibbonScope::View(ViewId::from(self.id)),
+            RibbonScope::View(ViewId(self.id)),
             RibbonEdge::Bottom,
             RibbonCluster::Middle,
             vec![RibbonSlot::new(
@@ -153,14 +190,7 @@ impl MaraModule for ImageSurface {
         ctx: ModuleInlineCtx<'_>,
     ) -> ModuleResponse {
         mui.label(&format!("Image: {}", self.doc.title));
-        match &self.doc.source {
-            ImageSource::Empty => {
-                mui.label("No image loaded");
-            }
-            ImageSource::Uri(uri) => {
-                mui.label(uri);
-            }
-        };
+        Self::paint_placeholder(mui, &self.doc);
         if ctx.can_enter_workspace() && mui.button("Open image workspace").clicked() {
             ModuleResponse::enter_workspace()
         } else {
@@ -170,7 +200,7 @@ impl MaraModule for ImageSurface {
 
     fn workspace(&mut self, ws: &mut WorkspaceCtx<'_>) {
         ws.add_bar(mara_core::WorkspaceBar::new(
-            egui::Id::new(("image.workspace.bar", self.id)),
+            mara_core::vocab::Id::new(("image.workspace.bar", self.id)),
             mara_core::WorkspaceBarEdge::Top,
             mara_core::WorkspaceBarCluster::Middle,
         ));
@@ -223,7 +253,7 @@ mod tests {
 
         let rect = mara_core::vocab::Rect::from_min_size(
             mara_core::vocab::Pos2::new(0.0, 0.0),
-            MaraVec2::new(200.0, 140.0),
+            mara_core::vocab::Vec2::new(200.0, 140.0),
         );
         let doc = ImageDocument::uri("Photo", "file://x.png");
         let mut raw = MaraRawBackend::__internal_recording(rect);

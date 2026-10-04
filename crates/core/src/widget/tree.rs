@@ -286,7 +286,7 @@ pub(crate) fn tree_row<B: crate::layout::UiBackend + ?Sized>(
 
     // Type-icon slot — Fluent name lookup with literal-text fallback.
     if let (Some(name), Some(ir)) = (icon, icon_rect_opt) {
-        let size = if crate::icons::icon(name).is_some() {
+        let size = if crate::icons::icon_glyph(name).is_some() {
             style::theme().icons.tree_type_icon_size
         } else {
             style::theme().icons.tree_glyph_icon_size
@@ -939,7 +939,7 @@ fn paint_icon_or_glyph<B: crate::layout::UiBackend + ?Sized>(
     size: f32,
     color: MaraColor32,
 ) {
-    if crate::icons::icon(name).is_some() && !crate::icons::icon_fonts_ready() {
+    if crate::icons::icon_glyph(name).is_some() && !crate::icons::icon_fonts_ready() {
         return;
     }
     backend.paint(icon_or_glyph_paint_cmd(pos, anchor, name, size, color));

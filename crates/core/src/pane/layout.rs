@@ -8,8 +8,8 @@
 //! resize — the new size is reflected on the same frame it's
 //! computed.
 
-use super::RAIL_INSET;
 use super::anchor::{PaneAnchor, RailZone};
+use super::{RAIL_INSET, RAIL_PANEL_GAP};
 use crate::vocab::{Align2 as MaraAlign2, Pos2 as MaraPos2, Rect as MaraRect, Vec2 as MaraVec2};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -127,6 +127,59 @@ pub(crate) fn compute_pane_pos(
     MaraPos2::new(x, y)
 }
 
+/// Flow-axis extent a pane may occupy inside `screen`: from its
+/// anchored edge to the far edge, less the far ribbon's inset, and
+/// short of any `blockers` (button rects) lying ahead of the pane.
+/// `edges` is ribbon presence as `[left, right, top, bottom]`.
+pub(crate) fn pane_flow_budget(
+    anchor: PaneAnchor,
+    screen: MaraRect,
+    edges: [bool; 4],
+    blockers: &[MaraRect],
+) -> f32 {
+    let horizontal_strip = anchor.title_side().is_horizontal_strip();
+    let (align, offset) = anchor_align(anchor);
+    let [has_left, has_right, has_top, has_bottom] = edges;
+    let (lo, hi, off, axis, min_ribbon, max_ribbon) = if horizontal_strip {
+        (screen.min.y, screen.max.y, offset.y, align_y(align), has_top, has_bottom)
+    } else {
+        (screen.min.x, screen.max.x, offset.x, align_x(align), has_left, has_right)
+    };
+    let flow_range = |r: &MaraRect| {
+        if horizontal_strip {
+            (r.min.y, r.max.y)
+        } else {
+            (r.min.x, r.max.x)
+        }
+    };
+    let reserve = |present: bool| if present { RAIL_INSET } else { RAIL_PANEL_GAP };
+    match axis {
+        AxisAlign::Min => {
+            let start = lo + off;
+            let limit = blockers
+                .iter()
+                .map(flow_range)
+                .filter(|(b_lo, _)| *b_lo > start)
+                .fold(hi - reserve(max_ribbon), |acc, (b_lo, _)| {
+                    acc.min(b_lo - RAIL_PANEL_GAP)
+                });
+            limit - start
+        }
+        AxisAlign::Max => {
+            let start = hi + off;
+            let limit = blockers
+                .iter()
+                .map(flow_range)
+                .filter(|(_, b_hi)| *b_hi < start)
+                .fold(lo + reserve(min_ribbon), |acc, (_, b_hi)| {
+                    acc.max(b_hi + RAIL_PANEL_GAP)
+                });
+            start - limit
+        }
+        AxisAlign::Center => hi - lo - reserve(min_ribbon) - reserve(max_ribbon),
+    }
+}
+
 fn align_x(align: MaraAlign2) -> AxisAlign {
     if matches!(
         align,
@@ -193,5 +246,55 @@ mod tests {
             )
         );
         assert_eq!(placement.rect, MaraRect::from_min_size(placement.pos, size));
+    }
+
+    fn window() -> MaraRect {
+        MaraRect::from_min_size(MaraPos2::ZERO, MaraVec2::new(1400.0, 900.0))
+    }
+
+    fn assert_close(a: f32, b: f32) {
+        assert!((a - b).abs() < 1e-3, "{a} != {b}");
+    }
+
+    #[test]
+    fn start_pane_budget_matches_its_anchor_offset() {
+        let anchor = PaneAnchor::LeftRail(RailZone::Start);
+
+        let no_bottom = pane_flow_budget(anchor, window(), [true, false, true, false], &[]);
+        assert_close(RAIL_INSET + no_bottom, 900.0 - RAIL_PANEL_GAP);
+
+        let bottom = pane_flow_budget(anchor, window(), [true, false, true, true], &[]);
+        assert_close(RAIL_INSET + bottom, 900.0 - RAIL_INSET);
+    }
+
+    #[test]
+    fn corner_pane_budget_stops_at_the_other_zone_buttons() {
+        let edges = [true, false, true, false];
+        let end_buttons =
+            MaraRect::from_min_max(MaraPos2::new(4.8, 700.0), MaraPos2::new(38.8, 895.2));
+        let start_buttons =
+            MaraRect::from_min_max(MaraPos2::new(4.8, 4.8), MaraPos2::new(38.8, 200.0));
+
+        let start = pane_flow_budget(
+            PaneAnchor::LeftRail(RailZone::Start),
+            window(),
+            edges,
+            &[end_buttons, start_buttons],
+        );
+        assert_close(RAIL_INSET + start, 700.0 - RAIL_PANEL_GAP);
+
+        let end = pane_flow_budget(
+            PaneAnchor::LeftRail(RailZone::End),
+            window(),
+            edges,
+            &[end_buttons, start_buttons],
+        );
+        assert_close(900.0 - RAIL_INSET - end, 200.0 + RAIL_PANEL_GAP);
+    }
+
+    #[test]
+    fn vertical_strip_pane_budget_runs_along_x() {
+        let budget = pane_flow_budget(PaneAnchor::TopRail(RailZone::Start), window(), [false; 4], &[]);
+        assert_close(RAIL_INSET + budget, 1400.0 - RAIL_PANEL_GAP);
     }
 }

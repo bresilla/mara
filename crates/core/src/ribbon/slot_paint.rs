@@ -1,4 +1,4 @@
-use egui::Context;
+use crate::context::MaraCtx;
 
 use super::{
     RibbonAction, RibbonCluster, RibbonDrag, RibbonEdge, RibbonOpen, RibbonPlacement, RibbonScope,
@@ -7,11 +7,8 @@ use super::{
     paint::{paint_ribbon_glyph, ribbon_button_fg, ribbon_button_paint_cmds},
     resolve_slot_items,
 };
-use crate::layout::{Layer, Sense as MaraSense, SlotRibbonLayoutSpec, UiBackend};
+use crate::layout::{Layer, Sense as MaraSense, SlotRibbonLayoutSpec};
 use crate::vocab::{Color32 as MaraColor32, Id as MaraId, Rect as MaraRect};
-
-#[cfg(test)]
-use crate::vocab::{Pos2 as MaraPos2, Vec2 as MaraVec2};
 
 const LEFT_SHELF_RIBBON_CHROME_ID: &str = "mara.system.left_shelf.ribbon";
 const LEFT_SHELF_ITEM_CHROME_ID: &str = "mara.system.left_shelf.item";
@@ -51,11 +48,11 @@ pub struct RibbonSlotClick {
 /// of calling this raw backend helper directly.
 #[doc(hidden)]
 pub fn __internal_draw_slot_ribbons_egui(
-    ctx: &Context,
+    ctx: &dyn crate::context::MaraCtx,
     accent: impl Into<MaraColor32>,
     ribbons: &[ResolvedSlotRibbon],
 ) -> Vec<RibbonSlotClick> {
-    crate::enforce::__internal_enforce_defaults(ctx);
+    ctx.enforce_defaults();
     let accent: MaraColor32 = accent.into();
     let augmented = shelf_augmented_ribbons(ctx, ribbons, ShelfButtonOrder::Simple);
     let base = augmented.as_deref().unwrap_or(ribbons);
@@ -65,7 +62,7 @@ pub fn __internal_draw_slot_ribbons_egui(
 }
 
 fn draw_slot_ribbons_inner(
-    ctx: &Context,
+    ctx: &dyn crate::context::MaraCtx,
     accent: MaraColor32,
     ribbons: &[ResolvedSlotRibbon],
 ) -> Vec<RibbonSlotClick> {
@@ -90,14 +87,14 @@ fn draw_slot_ribbons_inner(
 /// of calling this raw backend helper directly.
 #[doc(hidden)]
 pub fn __internal_draw_slot_ribbons_featureful_egui(
-    ctx: &Context,
+    ctx: &dyn crate::context::MaraCtx,
     accent: impl Into<MaraColor32>,
     ribbons: &[ResolvedSlotRibbon],
     open: &mut RibbonOpen,
     placement: &mut RibbonPlacement,
     drag: &mut RibbonDrag,
 ) -> Vec<RibbonSlotClick> {
-    crate::enforce::__internal_enforce_defaults(ctx);
+    ctx.enforce_defaults();
     draw_slot_ribbons_featureful_inner(ctx, accent.into(), ribbons, open, placement, drag, true)
 }
 
@@ -107,14 +104,14 @@ pub fn __internal_draw_slot_ribbons_featureful_egui(
 /// buttons — otherwise every featureful render re-injects them and they
 /// appear once per render call (doubled maximize/close + shelf toggles).
 pub fn __internal_draw_slot_ribbons_featureful_no_system_egui(
-    ctx: &Context,
+    ctx: &dyn crate::context::MaraCtx,
     accent: impl Into<MaraColor32>,
     ribbons: &[ResolvedSlotRibbon],
     open: &mut RibbonOpen,
     placement: &mut RibbonPlacement,
     drag: &mut RibbonDrag,
 ) -> Vec<RibbonSlotClick> {
-    crate::enforce::__internal_enforce_defaults(ctx);
+    ctx.enforce_defaults();
     draw_slot_ribbons_featureful_inner(ctx, accent.into(), ribbons, open, placement, drag, false)
 }
 
@@ -122,7 +119,8 @@ pub fn __internal_draw_slot_ribbons_featureful_no_system_egui(
 /// [`ResolvedSlotRibbon`]. A leaf owns its ribbons directly, so there are
 /// no override layers to apply. Returns `None` when the def resolves to
 /// no items (nothing to draw).
-pub(crate) fn resolve_leaf_ribbon(def: &RibbonSlotDef) -> Option<ResolvedSlotRibbon> {
+#[doc(hidden)]
+pub fn resolve_leaf_ribbon(def: &RibbonSlotDef) -> Option<ResolvedSlotRibbon> {
     let items: Vec<RibbonSlotItem> = def
         .slots
         .iter()
@@ -152,8 +150,9 @@ pub(crate) fn resolve_leaf_ribbon(def: &RibbonSlotDef) -> Option<ResolvedSlotRib
 /// state also travels with the view across resizes and re-layouts. No
 /// system chrome is injected — only the shell bar owns window controls.
 /// Returns the clicks the caller dispatches.
-pub(crate) fn __internal_draw_view_ribbons(
-    ctx: &Context,
+#[doc(hidden)]
+pub fn __internal_draw_view_ribbons(
+    ctx: &dyn crate::context::MaraCtx,
     region: MaraRect,
     salt: MaraId,
     accent: MaraColor32,
@@ -175,15 +174,15 @@ pub(crate) fn __internal_draw_view_ribbons(
     if ribbons.is_empty() {
         return Vec::new();
     }
-    let key = |name: &'static str| egui::Id::new((name, salt));
-    let mut open: RibbonOpen = ctx
-        .data(|d| d.get_temp(key("mara_view_ribbon_open")))
+    let memory = MaraCtx::memory(ctx);
+    let mut open: RibbonOpen = memory
+        .get_temp(view_ribbon_open_key(salt))
         .unwrap_or_default();
-    let mut placement: RibbonPlacement = ctx
-        .data(|d| d.get_temp(key("mara_view_ribbon_placement")))
+    let mut placement: RibbonPlacement = memory
+        .get_temp(view_ribbon_placement_key(salt))
         .unwrap_or_default();
-    let mut drag: RibbonDrag = ctx
-        .data(|d| d.get_temp(key("mara_view_ribbon_drag")))
+    let mut drag: RibbonDrag = memory
+        .get_temp(view_ribbon_drag_key(salt))
         .unwrap_or_default();
 
     if crate::probe::__internal_enabled(ctx) {
@@ -242,17 +241,73 @@ pub(crate) fn __internal_draw_view_ribbons(
         has(RibbonEdge::Bottom),
     ];
 
-    // Read the pass number BEFORE taking the data write lock: egui's
-    // `Context` is one lock, and `cumulative_pass_nr()` inside
-    // `data_mut` re-enters it → self-deadlock on the UI thread.
-    let pass_nr = ctx.cumulative_pass_nr();
-    ctx.data_mut(|d| {
-        d.insert_temp(key("mara_view_ribbon_open"), open);
-        d.insert_temp(key("mara_view_ribbon_placement"), placement);
-        d.insert_temp(key("mara_view_ribbon_drag"), drag);
-        d.insert_temp::<(u64, [bool; 4])>(key("mara_view_ribbon_edges"), (pass_nr, edges));
-    });
+    let pass_nr = MaraCtx::pass_nr(ctx);
+    let mut memory = MaraCtx::memory(ctx);
+    memory.set_temp(view_ribbon_open_key(salt), open);
+    memory.set_temp(view_ribbon_placement_key(salt), placement);
+    memory.set_temp(view_ribbon_drag_key(salt), drag);
+    memory.set_temp::<(u64, [bool; 4])>(view_ribbon_edges_key(salt), (pass_nr, edges));
+    gc_view_ribbon_state(&mut memory, salt, pass_nr);
     clicks
+}
+
+/// Per-view ribbon state keys. Every reader and writer constructs the
+/// key through THESE fns — never inline — so they cannot drift apart.
+fn view_ribbon_open_key(salt: MaraId) -> crate::vocab::Id {
+    crate::vocab::Id::new(("mara_view_ribbon_open", salt))
+}
+
+fn view_ribbon_placement_key(salt: MaraId) -> crate::vocab::Id {
+    crate::vocab::Id::new(("mara_view_ribbon_placement", salt))
+}
+
+fn view_ribbon_drag_key(salt: MaraId) -> crate::vocab::Id {
+    crate::vocab::Id::new(("mara_view_ribbon_drag", salt))
+}
+
+fn view_ribbon_edges_key(salt: MaraId) -> crate::vocab::Id {
+    crate::vocab::Id::new(("mara_view_ribbon_edges", salt))
+}
+
+fn view_ribbon_salts_registry_key() -> crate::vocab::Id {
+    crate::vocab::Id::new("mara_view_ribbon_salts")
+}
+
+/// How many distinct view salts may keep ribbon state before the oldest
+/// (by last-drawn pass) is evicted. Open/placement/drag must SURVIVE a
+/// tab going inactive (switching back restores the open panel), so the
+/// state cannot be pass-stamped away like `edges` — instead the live
+/// set is bounded so hosts that mint dynamic salts can't grow memory
+/// forever.
+const VIEW_RIBBON_STATE_CAP: usize = 256;
+
+/// Bound the per-salt ribbon state set: update `salt`'s last-drawn pass
+/// in the registry, and evict the stalest salts' state once the
+/// registry exceeds [`VIEW_RIBBON_STATE_CAP`].
+fn gc_view_ribbon_state(memory: &mut crate::memory::MaraMemoryCtx<'_>, salt: MaraId, pass_nr: u64) {
+    let mut registry: Vec<(MaraId, u64)> = memory
+        .get_temp(view_ribbon_salts_registry_key())
+        .unwrap_or_default();
+    match registry.iter_mut().find(|(id, _)| *id == salt) {
+        Some(entry) => entry.1 = pass_nr,
+        None => registry.push((salt, pass_nr)),
+    }
+    while registry.len() > VIEW_RIBBON_STATE_CAP {
+        let Some(stalest) = registry
+            .iter()
+            .enumerate()
+            .min_by_key(|(_, (_, pass))| *pass)
+            .map(|(idx, _)| idx)
+        else {
+            break;
+        };
+        let (dead, _) = registry.swap_remove(stalest);
+        memory.remove_temp::<RibbonOpen>(view_ribbon_open_key(dead));
+        memory.remove_temp::<RibbonPlacement>(view_ribbon_placement_key(dead));
+        memory.remove_temp::<RibbonDrag>(view_ribbon_drag_key(dead));
+        memory.remove_temp::<(u64, [bool; 4])>(view_ribbon_edges_key(dead));
+    }
+    memory.set_temp(view_ribbon_salts_registry_key(), registry);
 }
 
 /// Which edges (`[left, right, top, bottom]`) the node identified by
@@ -261,15 +316,18 @@ pub(crate) fn __internal_draw_view_ribbons(
 /// ribbons. Entries from earlier passes are ignored — a view that
 /// stopped drawing ribbons (or a tab that went inactive) must not keep
 /// shrinking anyone's content rect.
-pub(crate) fn view_ribbon_edges(ctx: &Context, salt: MaraId) -> Option<[bool; 4]> {
-    let (pass, edges) = ctx.data(|d| {
-        d.get_temp::<(u64, [bool; 4])>(egui::Id::new(("mara_view_ribbon_edges", salt)))
-    })?;
-    (pass == ctx.cumulative_pass_nr()).then_some(edges)
+pub(crate) fn view_ribbon_edges(
+    ctx: &dyn crate::context::MaraCtx,
+    salt: MaraId,
+) -> Option<[bool; 4]> {
+    let (pass, edges) = ctx
+        .memory()
+        .get_temp::<(u64, [bool; 4])>(view_ribbon_edges_key(salt))?;
+    (pass == ctx.pass_nr()).then_some(edges)
 }
 
 fn draw_slot_ribbons_featureful_inner(
-    ctx: &Context,
+    ctx: &dyn crate::context::MaraCtx,
     accent: MaraColor32,
     ribbons: &[ResolvedSlotRibbon],
     open: &mut RibbonOpen,
@@ -330,7 +388,8 @@ fn draw_slot_ribbons_featureful_inner(
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum ShelfButtonOrder {
+#[doc(hidden)]
+pub enum ShelfButtonOrder {
     /// Simple slot painting lays horizontal end-cluster items left to
     /// right, so the close/restore button stays at the outer edge when
     /// the shelf button is inserted before it.
@@ -342,7 +401,7 @@ enum ShelfButtonOrder {
 }
 
 fn shelf_augmented_ribbons(
-    ctx: &Context,
+    ctx: &dyn crate::context::MaraCtx,
     ribbons: &[ResolvedSlotRibbon],
     order: ShelfButtonOrder,
 ) -> Option<Vec<ResolvedSlotRibbon>> {
@@ -351,7 +410,7 @@ fn shelf_augmented_ribbons(
     // close + maximize), so hide both on phone-class. Computed here and
     // passed in so the augmentation stays a pure function of its args.
     let hide_window_controls = crate::style::screen_class() == crate::style::Breakpoint::Phone;
-    let maximized = crate::backend::egui::viewport_maximized(ctx);
+    let maximized = ctx.viewport_maximized();
     augment_shelf_buttons_with_chrome(
         ribbons,
         crate::window_chrome::__internal_window_chrome_host_capabilities(ctx),
@@ -365,34 +424,10 @@ fn shelf_augmented_ribbons(
     )
 }
 
-#[cfg(test)]
-fn augment_shelf_buttons(
-    ribbons: &[ResolvedSlotRibbon],
-    presence: crate::shelf::ShelfPresence,
-    left_visible: bool,
-    right_visible: bool,
-    bottom_visible: bool,
-    order: ShelfButtonOrder,
-) -> Option<Vec<ResolvedSlotRibbon>> {
-    augment_shelf_buttons_with_chrome(
-        ribbons,
-        crate::window_chrome::WindowChromeHostCapabilities {
-            system_maximize: false,
-            system_close: false,
-            ..Default::default()
-        },
-        presence,
-        left_visible,
-        right_visible,
-        bottom_visible,
-        order,
-        false,
-        false,
-    )
-}
 
 #[allow(clippy::too_many_arguments)]
-fn augment_shelf_buttons_with_chrome(
+#[doc(hidden)]
+pub fn augment_shelf_buttons_with_chrome(
     ribbons: &[ResolvedSlotRibbon],
     chrome: crate::window_chrome::WindowChromeHostCapabilities,
     presence: crate::shelf::ShelfPresence,
@@ -439,7 +474,8 @@ fn augment_shelf_buttons_with_chrome(
     changed.then_some(out)
 }
 
-fn contains_item(ribbons: &[ResolvedSlotRibbon], item_id: MaraId) -> bool {
+#[doc(hidden)]
+pub fn contains_item(ribbons: &[ResolvedSlotRibbon], item_id: MaraId) -> bool {
     ribbons
         .iter()
         .any(|ribbon| ribbon.items.iter().any(|item| item.id == item_id))
@@ -576,7 +612,7 @@ fn is_top_permanent_ribbon(ribbon: &ResolvedSlotRibbon) -> bool {
 /// Returns `None` above phone-class, so desktop/tablet keep the
 /// borrowed slice with no copy.
 fn responsive_phone_ribbons(
-    ctx: &Context,
+    ctx: &dyn crate::context::MaraCtx,
     ribbons: &[ResolvedSlotRibbon],
 ) -> Option<Vec<ResolvedSlotRibbon>> {
     if crate::style::screen_class() != crate::style::Breakpoint::Phone {
@@ -600,7 +636,8 @@ fn responsive_phone_ribbons(
     ))
 }
 
-fn hide_side_rails_under_open_panels(
+#[doc(hidden)]
+pub fn hide_side_rails_under_open_panels(
     ribbons: Vec<ResolvedSlotRibbon>,
     left_panel_open: bool,
     right_panel_open: bool,
@@ -680,7 +717,8 @@ fn shelf_button_ribbon(
     }
 }
 
-fn maximize_item(maximized: bool) -> RibbonSlotItem {
+#[doc(hidden)]
+pub fn maximize_item(maximized: bool) -> RibbonSlotItem {
     // Mirrors the close button on the opposite (End) cluster. The glyph
     // reflects the action: "restore" when already maximized, otherwise
     // "maximize".
@@ -756,23 +794,28 @@ fn bottom_shelf_item(active: bool) -> RibbonSlotItem {
     item
 }
 
-fn left_shelf_item_id() -> MaraId {
+#[doc(hidden)]
+pub fn left_shelf_item_id() -> MaraId {
     MaraId::new("system.left_shelf.item")
 }
 
-fn maximize_item_id() -> MaraId {
+#[doc(hidden)]
+pub fn maximize_item_id() -> MaraId {
     MaraId::new("system.maximize.item")
 }
 
-fn close_item_id() -> MaraId {
+#[doc(hidden)]
+pub fn close_item_id() -> MaraId {
     MaraId::new("system.close_app")
 }
 
-fn right_shelf_item_id() -> MaraId {
+#[doc(hidden)]
+pub fn right_shelf_item_id() -> MaraId {
     MaraId::new("system.right_shelf.item")
 }
 
-fn bottom_shelf_item_id() -> MaraId {
+#[doc(hidden)]
+pub fn bottom_shelf_item_id() -> MaraId {
     MaraId::new("system.bottom_shelf.item")
 }
 
@@ -807,7 +850,7 @@ fn can_use_featureful_chrome(ribbons: &[ResolvedSlotRibbon]) -> bool {
 /// This frontend only omits the featureful extras (drag/reorder,
 /// placement overrides, panel-open state); the geometry is one backend.
 fn draw_one_slot_ribbon(
-    ctx: &Context,
+    ctx: &dyn crate::context::MaraCtx,
     accent: MaraColor32,
     ribbon: &ResolvedSlotRibbon,
     all_ribbons: &[ResolvedSlotRibbon],
@@ -825,12 +868,7 @@ fn draw_one_slot_ribbon(
     let total = ribbon.items.len() as u32;
     for (idx, item) in ribbon.items.iter().enumerate() {
         let rect = super::chrome::screen_rect(place_button(
-            ctx,
-            ribbon,
-            cluster,
-            idx as u32,
-            total,
-            insets,
+            ctx, ribbon, cluster, idx as u32, total, insets,
         ));
         if crate::probe::__internal_enabled(ctx) {
             crate::probe::__internal_record(
@@ -852,23 +890,22 @@ fn draw_one_slot_ribbon(
             SIDE_BTN_SIZE,
             SIDE_BTN_GAP,
         );
-        crate::backend::egui::show_slot_ribbon_area(ctx, spec, Layer::Foreground, |ui| {
+        ctx.area_slot(spec.area_slot(Layer::Foreground, true), &mut |mara| {
             let Some(rect) = spec.item_screen_rect(0) else {
                 return;
             };
-            let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
-            let response = backend.interact(
+            let response = mara.interact(
                 rect,
                 MaraId::new(("mara_slot_ribbon_item", ribbon.id, item.id)),
                 MaraSense::Click,
             );
-            crate::backend::egui::hover_text_for_ui_response(ui, &response, &item.tooltip);
+            mara.hover_text(&response, &item.tooltip);
             for cmd in ribbon_button_paint_cmds(rect, accent, item.active, response.hovered()) {
-                crate::backend::egui::render_paint_cmd_ui(ui, cmd);
+                mara.paint(cmd);
             }
             let glyph = glyph_for_item(item);
             paint_ribbon_glyph(
-                ui,
+                mara,
                 rect,
                 glyph,
                 ribbon_button_fg(accent, item.active, response.hovered(), glyph),
@@ -889,428 +926,5 @@ fn glyph_for_item(item: &RibbonSlotItem) -> super::RibbonGlyph {
         super::RibbonGlyph::Svg(item.icon)
     } else {
         super::RibbonGlyph::Icon(item.icon)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn resolve_leaf_ribbon_none_when_no_items() {
-        use crate::ribbon::{
-            RibbonOverridePolicy, RibbonScope, RibbonSlot, RibbonSlotDef, RibbonSlotId,
-        };
-        use crate::vocab::Id;
-
-        // A slot with no default item resolves to nothing → no drawable
-        // ribbon (so an empty leaf ribbon set draws nothing).
-        let empty_slot = RibbonSlot::new(
-            RibbonSlotId::new("empty.slot"),
-            None,
-            RibbonOverridePolicy::Fixed,
-        );
-        let def = RibbonSlotDef::new(
-            Id::new("empty"),
-            RibbonScope::Permanent,
-            RibbonEdge::Right,
-            RibbonCluster::Middle,
-            vec![empty_slot],
-        );
-        assert!(resolve_leaf_ribbon(&def).is_none());
-    }
-
-    /// PROOF: a leaf's ribbon renders INSIDE the node's region — the
-    /// area egui actually places must be contained by the cell rect,
-    /// nowhere near the window edges.
-    #[test]
-    #[allow(deprecated)]
-    fn view_ribbons_land_inside_the_node_region() {
-        use crate::ribbon::{RibbonOverridePolicy, RibbonSlot, RibbonSlotDef, RibbonSlotId};
-        use crate::vocab::Id;
-
-        let ctx = egui::Context::default();
-        // Cell in the middle-right of a 1600x900 window.
-        let region =
-            MaraRect::from_min_size(MaraPos2::new(600.0, 100.0), MaraVec2::new(500.0, 600.0));
-
-        let pen = super::super::RibbonSlotItem::new(
-            Id::new("pen"),
-            "pen",
-            "Pen",
-            "tip",
-            RibbonAction::Command(Id::new("pen.cmd")),
-        );
-        let def = RibbonSlotDef::new(
-            Id::new("test.view.ribbon"),
-            RibbonScope::Permanent,
-            RibbonEdge::Left,
-            RibbonCluster::Middle,
-            vec![RibbonSlot::new(
-                RibbonSlotId::new("pen.slot"),
-                Some(pen),
-                RibbonOverridePolicy::Fixed,
-            )],
-        );
-
-        let mut input = egui::RawInput::default();
-        input.screen_rect = Some(egui::Rect::from_min_size(
-            egui::Pos2::ZERO,
-            egui::vec2(1600.0, 900.0),
-        ));
-        let _ = ctx.run(input, |ctx| {
-            let _ = __internal_draw_view_ribbons(
-                ctx,
-                region,
-                MaraId::new("test.view.salt"),
-                MaraColor32::WHITE,
-                std::slice::from_ref(&def),
-            );
-        });
-
-        let ribbon_id = MaraId::new((def.id, def.cluster));
-        let area_id: egui::Id =
-            MaraId::new(("mara_slot_ribbon", ribbon_id, Id::new("pen"))).into();
-        let rect = ctx
-            .memory(|m| m.area_rect(area_id))
-            .expect("leaf ribbon area must exist after the pass");
-        let rect: MaraRect = rect.into();
-        assert!(
-            rect.min.x >= region.min.x
-                && rect.min.y >= region.min.y
-                && rect.max.x <= region.max.x
-                && rect.max.y <= region.max.y,
-            "leaf ribbon rendered at {rect:?}, OUTSIDE its region {region:?}"
-        );
-        // And specifically hugging the region's LEFT edge, not the window's.
-        assert!(
-            rect.min.x < region.min.x + 40.0,
-            "left-edge ribbon should hug the cell's left edge, got {rect:?}"
-        );
-    }
-
-    fn presence(left: bool, right: bool, bottom: bool) -> crate::shelf::ShelfPresence {
-        crate::shelf::ShelfPresence {
-            left,
-            right,
-            bottom,
-        }
-    }
-
-    fn item(id: &'static str, icon: &'static str, action: RibbonAction) -> RibbonSlotItem {
-        RibbonSlotItem::featureful(id, icon, id, id, action)
-            .with_role(super::super::RibbonRole::Icon)
-    }
-
-    fn top_ribbon(cluster: RibbonCluster, items: Vec<RibbonSlotItem>) -> ResolvedSlotRibbon {
-        ResolvedSlotRibbon {
-            id: MaraId::new(("top", cluster)),
-            chrome_id: Some("top"),
-            scope: RibbonScope::Permanent,
-            edge: RibbonEdge::Top,
-            role: super::super::RibbonRole::Icon,
-            mode: super::super::RibbonMode::ThreeSided,
-            cluster,
-            accepts: &[],
-            items,
-        }
-    }
-
-    fn window_caps(
-        system_maximize: bool,
-        system_close: bool,
-    ) -> crate::window_chrome::WindowChromeHostCapabilities {
-        crate::window_chrome::WindowChromeHostCapabilities {
-            system_maximize,
-            system_close,
-            ..Default::default()
-        }
-    }
-
-    #[test]
-    fn window_controls_inject_maximize_and_close_when_shown() {
-        let ribbons = vec![top_ribbon(RibbonCluster::Start, Vec::new())];
-        let augmented = augment_shelf_buttons_with_chrome(
-            &ribbons,
-            window_caps(true, true),
-            presence(false, false, false),
-            false,
-            false,
-            false,
-            ShelfButtonOrder::Featureful,
-            false,
-            false, // not hidden
-        )
-        .expect("window controls should be injected");
-        assert!(contains_item(&augmented, maximize_item_id()));
-        assert!(contains_item(&augmented, close_item_id()));
-    }
-
-    #[test]
-    fn window_controls_hidden_completely_on_phone() {
-        let ribbons = vec![top_ribbon(RibbonCluster::Start, Vec::new())];
-        let augmented = augment_shelf_buttons_with_chrome(
-            &ribbons,
-            window_caps(true, true),
-            presence(false, false, false),
-            false,
-            false,
-            false,
-            ShelfButtonOrder::Featureful,
-            false,
-            true, // phone: hide both
-        );
-        assert!(
-            augmented.is_none(),
-            "phone-class hides both maximize and close completely"
-        );
-    }
-
-    #[test]
-    fn open_side_panel_hides_only_that_side_rail() {
-        let mut left = top_ribbon(RibbonCluster::Start, Vec::new());
-        left.edge = RibbonEdge::Left;
-        let mut right = top_ribbon(RibbonCluster::Start, Vec::new());
-        right.edge = RibbonEdge::Right;
-        let mut bottom = top_ribbon(RibbonCluster::Middle, Vec::new());
-        bottom.edge = RibbonEdge::Bottom;
-        let set = vec![left, right, bottom];
-
-        // Left panel open → only the left rail is dropped.
-        let kept = hide_side_rails_under_open_panels(set.clone(), true, false);
-        assert!(!kept.iter().any(|r| r.edge == RibbonEdge::Left));
-        assert!(kept.iter().any(|r| r.edge == RibbonEdge::Right));
-        assert!(kept.iter().any(|r| r.edge == RibbonEdge::Bottom));
-
-        // Both panels open → both side rails gone, bottom bar stays.
-        let kept = hide_side_rails_under_open_panels(set.clone(), true, true);
-        assert!(!kept.iter().any(|r| r.edge.is_vertical()));
-        assert!(kept.iter().any(|r| r.edge == RibbonEdge::Bottom));
-
-        // No panel open → nothing removed.
-        assert_eq!(
-            hide_side_rails_under_open_panels(set.clone(), false, false).len(),
-            3
-        );
-    }
-
-    #[test]
-    fn maximize_glyph_reflects_state() {
-        assert_eq!(maximize_item(false).icon, "maximize");
-        assert_eq!(maximize_item(true).icon, "arrow-minimize");
-        assert_eq!(maximize_item(false).action, RibbonAction::ToggleMaximize);
-    }
-
-    #[test]
-    fn shelf_buttons_are_absent_without_side_shelves() {
-        let ribbons = vec![top_ribbon(
-            RibbonCluster::Start,
-            vec![item("system.maximize.item", "maximize", RibbonAction::Noop)],
-        )];
-
-        assert!(
-            augment_shelf_buttons(
-                &ribbons,
-                presence(false, false, false),
-                false,
-                false,
-                false,
-                ShelfButtonOrder::Featureful
-            )
-            .is_none(),
-            "no published side shelves should not alter the top bar"
-        );
-    }
-
-    #[test]
-    fn shelf_buttons_need_an_existing_top_bar() {
-        let ribbons = vec![ResolvedSlotRibbon {
-            id: MaraId::new("left.rail"),
-            chrome_id: Some("left.rail"),
-            scope: RibbonScope::View(crate::ViewId::new("test.view")),
-            edge: RibbonEdge::Left,
-            role: super::super::RibbonRole::Icon,
-            mode: super::super::RibbonMode::ThreeSided,
-            cluster: RibbonCluster::Start,
-            accepts: &[],
-            items: vec![item("tool", "cube", RibbonAction::Noop)],
-        }];
-
-        assert!(
-            augment_shelf_buttons(
-                &ribbons,
-                presence(true, true, true),
-                true,
-                true,
-                true,
-                ShelfButtonOrder::Featureful
-            )
-            .is_none(),
-            "shelf buttons attach to an existing permanent top bar, not to side rails alone"
-        );
-    }
-
-    #[test]
-    fn left_shelf_button_is_inserted_after_maximize_button() {
-        let ribbons = vec![top_ribbon(
-            RibbonCluster::Start,
-            vec![
-                item("system.maximize.item", "maximize", RibbonAction::Noop),
-                item("view.switch.item", "cube", RibbonAction::Noop),
-            ],
-        )];
-
-        let augmented = augment_shelf_buttons(
-            &ribbons,
-            presence(true, false, false),
-            true,
-            false,
-            false,
-            ShelfButtonOrder::Featureful,
-        )
-        .expect("left shelf should add a button");
-        let ids: Vec<_> = augmented[0].items.iter().map(|item| item.id).collect();
-        assert_eq!(
-            ids,
-            vec![
-                MaraId::new("system.maximize.item"),
-                left_shelf_item_id(),
-                MaraId::new("view.switch.item"),
-            ]
-        );
-        assert_eq!(augmented[0].items[1].icon, "panel-left");
-        assert!(augmented[0].items[1].active);
-    }
-
-    #[test]
-    fn hidden_declared_shelf_keeps_inactive_top_bar_button() {
-        let ribbons = vec![top_ribbon(
-            RibbonCluster::Start,
-            vec![item("system.maximize.item", "maximize", RibbonAction::Noop)],
-        )];
-
-        let augmented = augment_shelf_buttons(
-            &ribbons,
-            presence(true, false, false),
-            false,
-            false,
-            false,
-            ShelfButtonOrder::Featureful,
-        )
-        .expect("declared hidden left shelf should keep a button for re-opening");
-        assert_eq!(augmented[0].items[1].id, left_shelf_item_id());
-        assert!(!augmented[0].items[1].active);
-    }
-
-    #[test]
-    fn right_shelf_button_keeps_close_at_outer_edge_for_featureful_chrome() {
-        let ribbons = vec![top_ribbon(
-            RibbonCluster::End,
-            vec![item("system.close_app", "dismiss", RibbonAction::CloseApp)],
-        )];
-
-        let augmented = augment_shelf_buttons(
-            &ribbons,
-            presence(false, true, false),
-            false,
-            true,
-            false,
-            ShelfButtonOrder::Featureful,
-        )
-        .expect("right shelf should add a button");
-        let ids: Vec<_> = augmented[0].items.iter().map(|item| item.id).collect();
-        assert_eq!(
-            ids,
-            vec![MaraId::new("system.close_app"), right_shelf_item_id()]
-        );
-        assert_eq!(augmented[0].items[1].icon, "panel-right");
-    }
-
-    #[test]
-    fn right_shelf_button_keeps_close_at_outer_edge_for_simple_painter() {
-        let ribbons = vec![top_ribbon(
-            RibbonCluster::End,
-            vec![item("system.close_app", "dismiss", RibbonAction::CloseApp)],
-        )];
-
-        let augmented = augment_shelf_buttons(
-            &ribbons,
-            presence(false, true, false),
-            false,
-            true,
-            false,
-            ShelfButtonOrder::Simple,
-        )
-        .expect("right shelf should add a button");
-        let ids: Vec<_> = augmented[0].items.iter().map(|item| item.id).collect();
-        assert_eq!(
-            ids,
-            vec![right_shelf_item_id(), MaraId::new("system.close_app")]
-        );
-        assert_eq!(augmented[0].items[0].icon, "panel-right");
-    }
-
-    #[test]
-    fn bottom_shelf_button_uses_right_side_of_permanent_bar() {
-        let ribbons = vec![top_ribbon(
-            RibbonCluster::End,
-            vec![item("system.close_app", "dismiss", RibbonAction::CloseApp)],
-        )];
-
-        let augmented = augment_shelf_buttons(
-            &ribbons,
-            presence(false, false, true),
-            false,
-            false,
-            true,
-            ShelfButtonOrder::Featureful,
-        )
-        .expect("bottom shelf should add a right-side top-bar button");
-        let ids: Vec<_> = augmented[0].items.iter().map(|item| item.id).collect();
-        assert_eq!(
-            ids,
-            vec![MaraId::new("system.close_app"), bottom_shelf_item_id()]
-        );
-        assert_eq!(augmented[0].items[1].icon, "panel-bottom");
-    }
-
-    #[test]
-    fn bottom_shelf_button_stays_left_of_right_shelf_button_when_both_exist() {
-        let ribbons = vec![top_ribbon(
-            RibbonCluster::End,
-            vec![item("system.close_app", "dismiss", RibbonAction::CloseApp)],
-        )];
-
-        let augmented = augment_shelf_buttons(
-            &ribbons,
-            presence(false, true, true),
-            false,
-            true,
-            true,
-            ShelfButtonOrder::Featureful,
-        )
-        .expect("right and bottom shelves should add right-side top-bar buttons");
-        let ids: Vec<_> = augmented[0].items.iter().map(|item| item.id).collect();
-        assert_eq!(
-            ids,
-            vec![
-                MaraId::new("system.close_app"),
-                right_shelf_item_id(),
-                bottom_shelf_item_id(),
-            ]
-        );
-    }
-
-    #[test]
-    fn simple_slot_ribbon_origin_uses_mara_geometry() {
-        let origin: MaraPos2 = ribbon_origin(
-            MaraRect::from_min_size(MaraPos2::ZERO, MaraVec2::new(800.0, 600.0)),
-            RibbonEdge::Right,
-            RibbonCluster::End,
-            MaraVec2::new(34.0, 110.0),
-            4.0,
-        );
-
-        assert_eq!(origin, MaraPos2::new(762.0, 486.0));
     }
 }

@@ -4,7 +4,7 @@
 //! is **UI**, not window chrome, so it lives here in `mara_core` and is
 //! identical on every host. Each host adapter — the Bevy plugin, the
 //! `mara::window`/`mara::android` runners — renders it once per frame
-//! by calling [`ShellBar::show`] and reacting to the returned
+//! by rendering it through the host facade and reacting to the returned
 //! [`ShellEvent`]s. That is what makes the bar *enforced* and
 //! *cross-platform*: there is one implementation, invoked by the host,
 //! not the app.
@@ -33,7 +33,8 @@ use crate::ribbon::{
 use crate::vocab::Id as MaraId;
 
 const TOP_BAR_CHROME_ID: &str = "mara.shell.topbar";
-const TOP_BAR_VIEWS_CHROME_ID: &str = "mara.shell.topbar.views";
+#[doc(hidden)]
+pub const TOP_BAR_VIEWS_CHROME_ID: &str = "mara.shell.topbar.views";
 const APP_MENU_ITEM_ID: &str = "system.app_menu.item";
 
 /// One button in the permanent top bar's view switcher. The buttons
@@ -69,14 +70,19 @@ impl ShellView {
 pub struct ShellBar {
     /// Show the left-edge application-menu button.
     pub app_menu: bool,
-    /// View-switcher buttons. Rendered centred in the bar (Middle
-    /// cluster), between the left-edge app-menu and the right-edge
-    /// window controls.
+    /// View-switcher buttons. Rendered in [`ShellBar::views_cluster`]
+    /// (centred by default), between the left-edge app-menu and the
+    /// right-edge window controls.
     pub views: Vec<ShellView>,
     /// Currently active view id, highlighted in the switcher. Updated
-    /// automatically when [`ShellBar::show`] reports a
+    /// automatically when the bar render reports a
     /// [`ShellEvent::ViewSelected`].
     pub active: Option<&'static str>,
+    /// Where along the top bar the tab/view switcher sits. Default:
+    /// [`RibbonCluster::Middle`] (the center zone). Apps may move it to
+    /// `Start` or `End`; the app-menu and window controls keep their
+    /// edges either way.
+    pub views_cluster: RibbonCluster,
 }
 
 impl Default for ShellBar {
@@ -85,6 +91,7 @@ impl Default for ShellBar {
             app_menu: true,
             views: Vec::new(),
             active: None,
+            views_cluster: RibbonCluster::Middle,
         }
     }
 }
@@ -124,9 +131,15 @@ impl ShellBar {
     /// eframe). The accent is read from the active theme. `active` is
     /// updated in place when a view is selected, so the host doesn't
     /// have to echo it back.
-    pub fn show(
+    ///
+    /// First-party egui hook: takes the shared `egui::Context`, so it
+    /// is hidden — apps render the bar through their host facade
+    /// (`MaraHostCtx::show_shell_bar` or the runner/plugin), never by
+    /// holding the raw backend context.
+    #[doc(hidden)]
+    pub fn __internal_show_egui(
         &mut self,
-        ctx: &egui::Context,
+        ctx: &dyn crate::context::MaraCtx,
         open: &mut RibbonOpen,
         placement: &mut RibbonPlacement,
         drag: &mut RibbonDrag,
@@ -169,7 +182,8 @@ impl ShellBar {
         events
     }
 
-    fn build_ribbons(&self) -> Vec<ResolvedSlotRibbon> {
+    #[doc(hidden)]
+    pub fn build_ribbons(&self) -> Vec<ResolvedSlotRibbon> {
         // Conventional top-bar layout:
         //   * Start (far left): the app-menu button.
         //   * Middle (centred): the view switcher.
@@ -191,7 +205,11 @@ impl ShellBar {
         }
 
         let mut view_items: Vec<RibbonSlotItem> = Vec::new();
-        for view in &self.views {
+        // A single-tab app shows NO tab chrome: with nothing to switch
+        // between, a lone highlighted icon is dead UI, so the switcher
+        // renders only when there are 2+ views to pick from.
+        let show_switcher = self.views.len() > 1;
+        for view in self.views.iter().filter(|_| show_switcher) {
             let mut item = RibbonSlotItem::featureful(
                 view.id,
                 view.icon,
@@ -221,8 +239,9 @@ impl ShellBar {
             items: start_items,
         }];
 
-        // The view switcher rides the Middle cluster so it sits centred
-        // in the bar, independent of the app-menu and window controls.
+        // The view switcher rides `views_cluster` — Middle by default so
+        // it sits centred in the bar, but apps can dock it Start/End;
+        // the app-menu and window controls keep their edges either way.
         if !view_items.is_empty() {
             ribbons.push(ResolvedSlotRibbon {
                 id: MaraId::new(TOP_BAR_VIEWS_CHROME_ID),
@@ -231,7 +250,7 @@ impl ShellBar {
                 edge: RibbonEdge::Top,
                 role: RibbonRole::Icon,
                 mode: RibbonMode::ThreeSided,
-                cluster: RibbonCluster::Middle,
+                cluster: self.views_cluster,
                 accepts: &[],
                 items: view_items,
             });
@@ -245,57 +264,4 @@ impl ShellBar {
 #[must_use]
 fn view_command_id(view_id: &'static str) -> MaraId {
     MaraId::new(("mara.topbar.view", view_id))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// Rendering a bar with an app-menu + views must build valid slot
-    /// items (non-empty label/tooltip) and not panic. Regression for
-    /// the empty-tooltip assert that crashed the native demo.
-    #[test]
-    fn shell_bar_renders_without_panicking() {
-        let bar = ShellBar {
-            views: vec![
-                ShellView::new("v.scene", "cube", "Scene"),
-                ShellView::new("v.graph", "pen", "Graph"),
-            ],
-            active: Some("v.scene"),
-            ..Default::default()
-        };
-        let ctx = egui::Context::default();
-        let mut open = RibbonOpen::default();
-        let mut placement = RibbonPlacement::default();
-        let mut drag = RibbonDrag::default();
-        ctx.begin_pass(egui::RawInput::default());
-        let mut bar = bar;
-        let events = bar.show(&ctx, &mut open, &mut placement, &mut drag);
-        let _ = ctx.end_pass();
-        // No interaction in a headless pass → no events.
-        assert!(events.is_empty());
-    }
-
-    /// `ShellBar::show` always renders — the bar has no disable flag.
-    /// (The explicit per-frame opt-out lives in `crate::enforce` and is
-    /// tested there.)
-    #[test]
-    fn shell_bar_show_always_renders() {
-        let mut bar = ShellBar {
-            views: vec![ShellView::new("v", "cube", "V")],
-            ..Default::default()
-        };
-        let ctx = egui::Context::default();
-        let mut open = RibbonOpen::default();
-        let mut placement = RibbonPlacement::default();
-        let mut drag = RibbonDrag::default();
-        ctx.begin_pass(egui::RawInput::default());
-        let events = bar.show(&ctx, &mut open, &mut placement, &mut drag);
-        let output = ctx.end_pass();
-        assert!(events.is_empty());
-        assert!(
-            !output.shapes.is_empty(),
-            "the bar must render unconditionally"
-        );
-    }
 }

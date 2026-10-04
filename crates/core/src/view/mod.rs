@@ -15,6 +15,7 @@ mod id;
 mod layout;
 mod node;
 mod router;
+mod tab;
 mod traits;
 
 pub use context::ViewCtx;
@@ -22,4 +23,5 @@ pub use id::{SharedSurfaceId, ViewId};
 pub use layout::{CellId, Layout, SplitAxis};
 pub use node::ViewNode;
 pub use router::{ViewEntry, ViewRouter, ViewRouterError};
+pub use tab::{Tab, Tabs};
 pub use traits::MaraView;

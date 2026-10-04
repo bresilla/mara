@@ -30,12 +30,14 @@
 pub mod app_shell;
 #[doc(hidden)]
 pub mod backend;
+pub mod cache;
 pub mod command_palette;
 pub mod container;
-pub(crate) mod debug;
+pub mod context;
+#[doc(hidden)]
+pub mod debug;
 pub mod embed;
 pub mod enforce;
-pub mod extras;
 pub mod focus;
 pub mod icons;
 pub mod layer;
@@ -49,23 +51,31 @@ pub mod pod;
 pub mod popup;
 pub mod probe;
 pub mod ribbon;
-pub(crate) mod scroll;
 pub mod scroll_state;
 pub mod shelf;
 pub mod shell;
 pub mod style;
 pub mod text_edit;
 pub mod themes;
+pub mod transform;
 pub mod view;
 pub mod vocab;
 pub mod widget;
 pub mod window_chrome;
 pub mod workspace;
 
-pub use layout::{Layer, Sense as MaraSense, UiBackend};
+pub use cache::{MaraCache, SweptCache};
+pub use context::MaraCtx;
+pub use layout::{CrossAlign, Layer, Sense as MaraSense, UiBackend};
 pub use memory::{MaraMemory, MaraMemoryCtx};
-pub use mui::{MaraInput, MaraKey, MaraPainter, MaraResponse, MaraUi};
+pub use mui::{MaraInput, MaraKey, MaraKeySet, MaraPainter, MaraResponse, MaraUi};
 pub use paint::{PaintCmd, PaintList};
+
+// `transform::Transform` is deliberately NOT re-exported at the root
+// for the same reason as `vocab` below: `bevy_mara` glob-imports both
+// `bevy::prelude::*` and `mara_core::*`, and Bevy has its own
+// `Transform`. Reach it as `mara_core::transform::{Transform, PanZoom}`.
+//
 // `vocab` is deliberately NOT glob-re-exported at the root: hosts
 // like Bevy glob-import both their own prelude and `mara_core::*`,
 // and egui's `Vec2`/`Rect` would silently shadow the host's math
@@ -118,8 +128,8 @@ pub use style::{
     screen_class, screen_metrics, set_glass_opacity, set_touch_density_override, touch_density,
 };
 pub use view::{
-    CellId, Layout, MaraView, SharedSurfaceId, SplitAxis, ViewCtx, ViewEntry, ViewId, ViewNode,
-    ViewRouter, ViewRouterError,
+    CellId, Layout, MaraView, SharedSurfaceId, SplitAxis, Tab, Tabs, ViewCtx, ViewEntry, ViewId,
+    ViewNode, ViewRouter, ViewRouterError,
 };
 pub use window_chrome::{
     WindowChromeHit, WindowChromeHostCapabilities, WindowChromeInput, WindowChromePolicy,
@@ -138,6 +148,8 @@ pub use workspace::{
 // `egui::Ui` helpers. The TYPE-style names (`Button`,
 // `TreeIconSlot`, …) sit here too so trait-shaped widgets compose
 // without a longer path.
+pub use widget::label::LabelSpec;
+pub use widget::text_area::{MaraTextArea, MaraTextAreaResponse};
 pub use widget::{
     BADGE_LABEL_COL_W, BADGE_ROW_H, BUTTON_LABEL_FONT, BUTTON_ROW_H, BUTTON_ROW_H_SUBTITLE, Button,
     CARD_BUTTON_ROW_H, CHIP_H, COLOR_SWATCH_H, DROPDOWN_ROW_H, FillStyle, HYBRID_SELECT_ROW_H,

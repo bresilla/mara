@@ -7,7 +7,9 @@
 
 use std::collections::{HashMap, HashSet};
 
-use egui::{Color32, Id, Pos2, Rect, Vec2, pos2, vec2};
+use crate::context::MaraCtx;
+use crate::vocab::Id;
+use crate::vocab::{Pos2, Rect, Vec2, pos2, vec2};
 
 use crate::container::Tab;
 use crate::layout::{
@@ -15,6 +17,7 @@ use crate::layout::{
 };
 use crate::paint::PaintCmd;
 use crate::pane::{self, PaneAnchor, RailZone, TitleSide, active_pane_key};
+use crate::pod::PodResponse;
 use crate::ribbon::RibbonEdge;
 use crate::style::{self, ShelfTheme};
 use crate::vocab::{
@@ -281,10 +284,14 @@ impl ShelfLayout {
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub(crate) struct ShelfPresence {
-    pub(crate) left: bool,
-    pub(crate) right: bool,
-    pub(crate) bottom: bool,
+#[doc(hidden)]
+pub struct ShelfPresence {
+    #[doc(hidden)]
+    pub left: bool,
+    #[doc(hidden)]
+    pub right: bool,
+    #[doc(hidden)]
+    pub bottom: bool,
 }
 
 impl ShelfPresence {
@@ -656,12 +663,12 @@ fn push_unique_edge(
 /// `MaraHostCtx` instead of passing raw backend context handles around.
 #[doc(hidden)]
 pub fn __internal_show_shelves_egui<'a>(
-    ctx: &egui::Context,
+    ctx: &dyn crate::context::MaraCtx,
     layout: ShelfLayout,
     shelves: Vec<ShelfDef<'a>>,
     state: &mut ShelfState,
-) {
-    crate::enforce::__internal_enforce_defaults(ctx);
+) -> HashMap<Id, Vec<PodResponse>> {
+    ctx.enforce_defaults();
     assert_unique_shelf_ids(&shelves);
     __internal_publish_shelf_layout(ctx, layout);
     publish_shelf_presence(ctx, shelf_presence_for(&shelves, state));
@@ -677,6 +684,7 @@ pub fn __internal_show_shelves_egui<'a>(
         }
     }
     let tab_routing_id = shelf_tab_routing_id();
+    let mut all_responses: HashMap<Id, Vec<PodResponse>> = HashMap::new();
 
     for shelf in shelves {
         let Some(rect) = layout.rect_for(shelf.edge) else {
@@ -697,40 +705,50 @@ pub fn __internal_show_shelves_egui<'a>(
             rect.size(),
         );
 
-        crate::backend::egui::show_area_slot(ctx, area_spec, |ui| {
-            let shelf_rect = Rect::from_min_size(ui.min_rect().min, rect.size().into());
+        // `shelf` owns its container specs, so it travels into the
+        // surface by capture rather than by borrow.
+        let mut pending = Some(shelf);
+        MaraCtx::area_slot(ctx, area_spec, &mut |mara| {
+            let Some(shelf) = pending.take() else {
+                return;
+            };
+            let shelf_rect = Rect::from_min_size(mara.min_rect().min.into(), rect.size().into());
             let rect_min: Pos2 = rect.min.into();
             let screen_offset = rect_min - shelf_rect.min;
-            let move_response = {
-                let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
-                crate::layout::UiBackend::interact(
-                    &mut backend,
-                    shelf_rect.into(),
-                    render_id.with("background_move").into(),
+            let (move_response, resize_response) = {
+                let move_response = mara.interact(
+                    MaraRect::from(shelf_rect),
+                    render_id.with("background_move"),
                     crate::layout::Sense::ClickAndDrag,
-                )
+                );
+                let paint_rect = shelf_paint_rect(shelf_edge, shelf_rect);
+                paint_shelf_background(mara, paint_rect.into(), shelf.accent, &shelf_theme);
+                let resize_response =
+                    resize_shelf(mara, &shelf, render_id, state, &shelf_theme, shelf_rect);
+                (move_response, resize_response)
             };
-            let paint_rect = shelf_paint_rect(shelf_edge, shelf_rect);
-            paint_shelf_background(ui, paint_rect, shelf.accent.into(), &shelf_theme);
-            let resize_response =
-                resize_shelf(ui, &shelf, render_id, state, &shelf_theme, shelf_rect);
 
             let content_rect = shelf_content_rect(shelf_edge, shelf_rect, &shelf_theme);
             if resize_response.drag_started() || resize_response.dragged() {
                 state.cancel_drag();
             }
 
-            render_shelf_body(ShelfBodyInput {
-                ui,
-                content_rect,
-                shelf_rect,
-                screen_offset,
-                layout,
-                shelf,
-                state,
-                tab_routing_id,
-                tab_scope: &mut tab_scope,
-            });
+            let shelf_responses = render_shelf_body(
+                mara,
+                ShelfBodyInput {
+                    content_rect,
+                    shelf_rect,
+                    screen_offset,
+                    layout,
+                    shelf,
+                    state,
+                    tab_routing_id,
+                    tab_scope: &mut tab_scope,
+                },
+            );
+            for (id, pods) in shelf_responses {
+                all_responses.entry(id).or_default().extend(pods);
+            }
 
             let pointer_on_resize = resize_response
                 .interact_pointer
@@ -744,7 +762,7 @@ pub fn __internal_show_shelves_egui<'a>(
                 && !pointer_on_resize
             {
                 handle_shelf_move_drag(ShelfMoveDragInput {
-                    ctx: ui.ctx(),
+                    ctx: mara.ctx(),
                     shelf_id,
                     shelf_edge,
                     pane_id,
@@ -764,6 +782,7 @@ pub fn __internal_show_shelves_egui<'a>(
     publish_container_move_preview_layout(ctx, layout, state, &shelf_theme);
     paint_shelf_move_ghost(ctx, layout, state, &shelf_theme);
     paint_container_move_ghost(ctx, layout, state, &shelf_theme);
+    all_responses
 }
 
 fn top_ribbon_clearance() -> f32 {
@@ -958,12 +977,12 @@ fn shelf_active_container_key(shelf: &ShelfDef<'_>) -> Id {
     shelf_active_container_key_for(shelf.egui_id(), shelf.edge)
 }
 
-fn shelf_active_container_key_for(shelf_id: Id, edge: ShelfEdge) -> Id {
+#[doc(hidden)]
+pub fn shelf_active_container_key_for(shelf_id: Id, edge: ShelfEdge) -> Id {
     shelf_render_key(shelf_id, edge).with("active_container")
 }
 
-struct ShelfBodyInput<'ui, 'state, 'scope, 'a> {
-    ui: &'ui mut egui::Ui,
+struct ShelfBodyInput<'state, 'scope, 'a> {
     content_rect: Rect,
     shelf_rect: Rect,
     screen_offset: Vec2,
@@ -974,9 +993,12 @@ struct ShelfBodyInput<'ui, 'state, 'scope, 'a> {
     tab_scope: &'scope mut pane::TabRoutingScope,
 }
 
-fn render_shelf_body(input: ShelfBodyInput<'_, '_, '_, '_>) {
+fn render_shelf_body(
+    mara: &mut crate::MaraUi<'_>,
+    input: ShelfBodyInput<'_, '_, '_>,
+) -> HashMap<Id, Vec<PodResponse>> {
+    let mut all_responses: HashMap<Id, Vec<PodResponse>> = HashMap::new();
     let ShelfBodyInput {
-        ui,
         content_rect,
         shelf_rect,
         screen_offset,
@@ -997,12 +1019,13 @@ fn render_shelf_body(input: ShelfBodyInput<'_, '_, '_, '_>) {
     // should flow horizontally — and the drag ghost-gap allocated
     // along the wrong axis as a result.
     let horizontal_stack = !anchor.title_side().is_horizontal_strip();
-    ui.ctx().data_mut(|d| {
-        d.insert_temp(active_pane_key(), pane_id);
-        d.insert_temp(pane_id.with("mara_pane_open_elapsed"), 99.0_f32);
-        d.insert_temp(pane_id.with("mara_pane_section_idx"), 0_u32);
-    });
-    pane::clear_container_min_widths(ui.ctx(), pane_id);
+    {
+        let mut memory = mara.ctx().memory();
+        memory.set_temp(active_pane_key(), pane_id);
+        memory.set_temp(pane_id.with("mara_pane_open_elapsed"), 99.0_f32);
+        memory.set_temp(pane_id.with("mara_pane_section_idx"), 0_u32);
+    }
+    pane::clear_container_min_widths(mara.ctx(), pane_id);
 
     // Body viewport — same role as the `ui` `Pane::lay_out_flex`
     // hands to the body closure. All drag plumbing (cache writes,
@@ -1011,12 +1034,23 @@ fn render_shelf_body(input: ShelfBodyInput<'_, '_, '_, '_>) {
     // all share one coordinate space.
     let child_region = shelf_body_child_region(content_rect, horizontal_stack, shelf.edge);
     let scroll_region = shelf_body_scroll_region(pane_id, content_rect, horizontal_stack);
-    crate::backend::egui::show_child_sticky_scroll_region(
-        ui,
-        child_region,
-        scroll_region,
-        |viewport| {
-            let input = crate::backend::egui::input_snapshot_for_ui(viewport);
+    // The body is a child region with a sticky scroll inside it — both
+    // now expressible through the seam, so the pair composes here
+    // rather than living behind one backend helper.
+    let mut pending = Some(shelf);
+    mara.in_region(child_region, &mut |mara| {
+        let Some(shelf) = pending.take() else {
+            return;
+        };
+        mara.set_item_spacing(crate::layout::ItemSpacingSpec::new(
+            scroll_region.item_spacing,
+        ));
+        let mut pending = Some(shelf);
+        mara.scroll_region(scroll_region, &mut |viewport| {
+            let Some(shelf) = pending.take() else {
+                return;
+            };
+            let input = viewport.input();
             pane::begin_drag_frame(viewport.ctx(), pane_id);
             pane::clear_container_dot_rects(viewport.ctx(), pane_id);
             clear_external_container_gap(viewport.ctx(), pane_id);
@@ -1033,7 +1067,7 @@ fn render_shelf_body(input: ShelfBodyInput<'_, '_, '_, '_>) {
                     },
                 );
             }
-            pane::tab_drag::begin_frame(viewport.ctx(), pane_id);
+            pane::tab_drag::begin_frame(viewport.ctx(), pane_id.into());
 
             let screen_shelf_rect = shelf_rect.translate(screen_offset);
             let pointer_cursor = input.interact_pointer.or(input.pointer).map(Into::into);
@@ -1122,6 +1156,9 @@ fn render_shelf_body(input: ShelfBodyInput<'_, '_, '_, '_>) {
                 &declared_order,
                 |id| responses.contains_key(&id),
             );
+            for (id, pods) in responses {
+                all_responses.entry(id).or_default().extend(pods);
+            }
             if let Some(container_id) = effective_active {
                 state.set_active_container_for_group(active_key, container_id);
             }
@@ -1179,11 +1216,11 @@ fn render_shelf_body(input: ShelfBodyInput<'_, '_, '_, '_>) {
                     content_rect,
                     screen_rect: shelf_rect.translate(screen_offset),
                     screen_offset,
-                    accent: shelf.accent.into(),
+                    accent: shelf.accent,
                 },
             );
             update_container_move_target_slot(
-                viewport,
+                viewport.ctx(),
                 shelf_id,
                 pane_id,
                 shelf.edge,
@@ -1252,10 +1289,7 @@ fn render_shelf_body(input: ShelfBodyInput<'_, '_, '_, '_>) {
                             shelf.accent.into(),
                         );
                     }
-                    crate::backend::egui::set_cursor_icon_for_context(
-                        viewport.ctx(),
-                        CursorIcon::Grabbing,
-                    );
+                    MaraCtx::set_cursor_icon(viewport.ctx(), CursorIcon::Grabbing);
                 }
 
                 if input.any_released {
@@ -1294,12 +1328,13 @@ fn render_shelf_body(input: ShelfBodyInput<'_, '_, '_, '_>) {
             // a normal Pane, so the drag STARTS work in a Shelf. Without
             // this block the pointer-release event has nowhere to commit /
             // clear, leaving the dragged tab stuck to the cursor.
-            if let Some(tab_drag_state) = pane::tab_drag::drag_state(viewport.ctx(), pane_id) {
+            if let Some(tab_drag_state) = pane::tab_drag::drag_state(viewport.ctx(), pane_id.into())
+            {
                 let cursor = input.pointer.map(Into::into).or(tab_drag_state.cursor);
                 if let Some(c) = cursor {
                     pane::tab_drag::set_drag(
                         viewport.ctx(),
-                        pane_id,
+                        pane_id.into(),
                         pane::tab_drag::TabDragState {
                             cursor: Some(c),
                             ..tab_drag_state
@@ -1307,41 +1342,39 @@ fn render_shelf_body(input: ShelfBodyInput<'_, '_, '_, '_>) {
                     );
                     pane::tab_drag::paint_drag_preview(
                         viewport.ctx(),
-                        pane_id,
+                        pane_id.into(),
                         MaraVec2::new(28.0, 28.0),
                         c,
                         shelf.accent.into(),
                         "",
                         tab_drag_state.icon,
                     );
-                    crate::backend::egui::set_cursor_icon_for_context(
-                        viewport.ctx(),
-                        CursorIcon::Grabbing,
-                    );
+                    MaraCtx::set_cursor_icon(viewport.ctx(), CursorIcon::Grabbing);
                 }
                 if input.any_released {
                     if let Some(c) = cursor
                         && let Some((tgt_cid, slot)) = pane::tab_drag::find_drop_target_for_drag(
                             viewport.ctx(),
-                            pane_id,
+                            pane_id.into(),
                             c,
                             tab_drag_state,
                         )
                     {
                         pane::tab_drag::commit_drop(
                             viewport.ctx(),
-                            tab_routing_id,
+                            tab_routing_id.into(),
                             tab_drag_state.tab_id,
                             tab_drag_state.source_container,
                             tgt_cid,
                             slot,
                         );
                     }
-                    pane::tab_drag::clear_drag(viewport.ctx(), pane_id);
+                    pane::tab_drag::clear_drag(viewport.ctx(), pane_id.into());
                 }
             }
-        },
-    );
+        });
+    });
+    all_responses
 }
 
 fn shelf_body_child_region(rect: Rect, horizontal_stack: bool, edge: ShelfEdge) -> ChildRegion {
@@ -1373,7 +1406,7 @@ fn shelf_body_scroll_region(
 }
 
 fn resolve_visible_active_container(
-    ctx: &egui::Context,
+    ctx: &dyn crate::context::MaraCtx,
     pane_id: Id,
     active: Option<Id>,
     declared_order: &[Id],
@@ -1392,12 +1425,12 @@ fn resolve_visible_active_container(
 /// layout through the Mara host facade; the hidden egui shelf renderer still
 /// does this automatically for real shelf chrome.
 #[doc(hidden)]
-pub fn __internal_publish_shelf_layout(ctx: &egui::Context, layout: ShelfLayout) {
+pub fn __internal_publish_shelf_layout(ctx: &dyn crate::context::MaraCtx, layout: ShelfLayout) {
     // Record the app/host publish (no-op while the enforcement baseline
     // itself publishes) so `crate::enforce` doesn't stomp a real layout.
     crate::enforce::mark_app_shelf_published(ctx);
-    let pass = ctx.cumulative_pass_nr();
-    let mut memory = crate::memory::MaraMemoryCtx::new(ctx);
+    let pass = ctx.pass_nr();
+    let mut memory = ctx.memory();
     memory.set_temp(shelf_layout_key(), layout);
     memory.set_temp(shelf_layout_pass_key(), pass);
     memory.set_temp(shelf_presence_key(), ShelfPresence::from_layout(layout));
@@ -1406,8 +1439,8 @@ pub fn __internal_publish_shelf_layout(ctx: &egui::Context, layout: ShelfLayout)
 
 #[must_use]
 #[doc(hidden)]
-pub fn __internal_shelf_layout(ctx: &egui::Context) -> Option<ShelfLayout> {
-    crate::memory::MaraMemoryCtx::new(ctx).get_temp::<ShelfLayout>(shelf_layout_key())
+pub fn __internal_shelf_layout(ctx: &dyn crate::context::MaraCtx) -> Option<ShelfLayout> {
+    ctx.memory().get_temp::<ShelfLayout>(shelf_layout_key())
 }
 
 /// Whether a shelf layout was already published during the current
@@ -1417,35 +1450,35 @@ pub fn __internal_shelf_layout(ctx: &egui::Context) -> Option<ShelfLayout> {
 /// publishes "for real" wins, order-independent.
 #[must_use]
 #[doc(hidden)]
-pub fn __internal_shelf_layout_published_this_pass(ctx: &egui::Context) -> bool {
-    let pass = ctx.cumulative_pass_nr();
-    crate::memory::MaraMemoryCtx::new(ctx).get_temp::<u64>(shelf_layout_pass_key()) == Some(pass)
+pub fn __internal_shelf_layout_published_this_pass(ctx: &dyn crate::context::MaraCtx) -> bool {
+    let pass = ctx.pass_nr();
+    ctx.memory().get_temp::<u64>(shelf_layout_pass_key()) == Some(pass)
 }
 
-fn shelf_layout_key() -> egui::Id {
-    egui::Id::new("mara.shelf.layout")
+fn shelf_layout_key() -> crate::vocab::Id {
+    crate::vocab::Id::new("mara.shelf.layout")
 }
 
-fn shelf_layout_pass_key() -> egui::Id {
-    egui::Id::new("mara.shelf.layout.pass")
+fn shelf_layout_pass_key() -> crate::vocab::Id {
+    crate::vocab::Id::new("mara.shelf.layout.pass")
 }
 
-pub(crate) fn published_shelf_presence(ctx: &egui::Context) -> ShelfPresence {
-    crate::memory::MaraMemoryCtx::new(ctx)
+pub(crate) fn published_shelf_presence(ctx: &dyn crate::context::MaraCtx) -> ShelfPresence {
+    ctx.memory()
         .get_temp::<ShelfPresence>(shelf_presence_key())
         .unwrap_or_default()
 }
 
-fn publish_shelf_presence(ctx: &egui::Context, presence: ShelfPresence) {
-    crate::memory::MaraMemoryCtx::new(ctx).set_temp(shelf_presence_key(), presence);
+fn publish_shelf_presence(ctx: &dyn crate::context::MaraCtx, presence: ShelfPresence) {
+    ctx.memory().set_temp(shelf_presence_key(), presence);
 }
 
-fn shelf_presence_key() -> egui::Id {
-    egui::Id::new("mara.shelf.presence")
+fn shelf_presence_key() -> crate::vocab::Id {
+    crate::vocab::Id::new("mara.shelf.presence")
 }
 
 fn publish_container_move_preview_layout(
-    ctx: &egui::Context,
+    ctx: &dyn crate::context::MaraCtx,
     layout: ShelfLayout,
     state: &ShelfState,
     theme: &ShelfTheme,
@@ -1460,7 +1493,7 @@ fn publish_container_move_preview_layout(
 }
 
 fn publish_shelf_move_preview_layout(
-    ctx: &egui::Context,
+    ctx: &dyn crate::context::MaraCtx,
     layout: ShelfLayout,
     state: &ShelfState,
     theme: &ShelfTheme,
@@ -1475,7 +1508,7 @@ fn publish_shelf_move_preview_layout(
 }
 
 fn shelf_display_order<'a>(
-    ctx: &egui::Context,
+    ctx: &dyn crate::context::MaraCtx,
     pane_id: Id,
     containers: impl Iterator<Item = &'a Id>,
 ) -> impl Iterator<Item = Id> {
@@ -1484,7 +1517,7 @@ fn shelf_display_order<'a>(
 }
 
 fn commit_shelf_container_reorder(
-    ctx: &egui::Context,
+    ctx: &dyn crate::context::MaraCtx,
     pane_id: Id,
     dragged_id: Id,
     cursor_axis: f32,
@@ -1500,21 +1533,22 @@ fn commit_shelf_container_reorder(
     pane::set_section_order(ctx, pane_id, order);
 }
 
-fn paint_shelf_background(ui: &mut egui::Ui, rect: Rect, accent: Color32, theme: &ShelfTheme) {
+fn paint_shelf_background(
+    mara: &mut crate::MaraUi<'_>,
+    rect: MaraRect,
+    accent: MaraColor32,
+    theme: &ShelfTheme,
+) {
     let active = style::theme();
     let fill: MaraColor32 = style::glass_fill(active.bg_panel, accent, theme.background_alpha);
-    let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
-    crate::layout::UiBackend::paint(&mut backend, shelf_background_paint_cmd(rect.into(), fill));
+    mara.paint(shelf_background_paint_cmd(rect, fill));
     // Border line in the same style as the pane frame (WidgetBorder
     // stroke), so a docked shelf reads as a framed surface like a pane.
-    crate::layout::UiBackend::paint(
-        &mut backend,
-        PaintCmd::RectStroke {
-            rect: rect.into(),
-            corner: MaraCornerRadius::ZERO,
-            stroke: style::stroke_for(style::StrokeRole::WidgetBorder, accent),
-        },
-    );
+    mara.paint(PaintCmd::RectStroke {
+        rect,
+        corner: MaraCornerRadius::ZERO,
+        stroke: style::stroke_for(style::StrokeRole::WidgetBorder, accent),
+    });
 }
 
 fn shelf_background_paint_cmd(rect: MaraRect, fill: MaraColor32) -> PaintCmd {
@@ -1526,7 +1560,7 @@ fn shelf_background_paint_cmd(rect: MaraRect, fill: MaraColor32) -> PaintCmd {
 }
 
 fn resize_shelf(
-    ui: &mut egui::Ui,
+    mara: &mut crate::MaraUi<'_>,
     shelf: &ShelfDef<'_>,
     render_id: Id,
     state: &mut ShelfState,
@@ -1537,16 +1571,12 @@ fn resize_shelf(
     let shelf_id = shelf.egui_id();
     let size_key = shelf_id.with(shelf.edge);
     let cursor = shelf_resize_cursor(shelf.edge);
-    let resp = {
-        let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
-        crate::layout::UiBackend::interact(
-            &mut backend,
-            handle.into(),
-            render_id.with("resize").into(),
-            crate::layout::Sense::Drag,
-        )
-    };
-    crate::backend::egui::hover_cursor_for_ui_response(ui, &resp, cursor);
+    let resp = mara.interact(
+        MaraRect::from(handle),
+        render_id.with("resize"),
+        crate::layout::Sense::Drag,
+    );
+    mara.hover_cursor(&resp, cursor);
     if resp.drag_started() {
         let cur = state
             .edge_size(shelf_id, shelf.edge)
@@ -1558,7 +1588,7 @@ fn resize_shelf(
         }
     }
     if let Some(start) = state.resize_starts.get(&size_key).copied() {
-        let input = crate::backend::egui::input_snapshot_for_ui(ui);
+        let input = mara.input();
         let pointer = input
             .interact_pointer
             .map(Into::into)
@@ -1574,7 +1604,7 @@ fn resize_shelf(
                 shelf.max_extent(theme),
             );
             state.set_edge_size(shelf_id, shelf.edge, next);
-            crate::backend::egui::request_repaint(ui.ctx());
+            mara.request_repaint();
         } else {
             state.resize_starts.remove(&size_key);
         }
@@ -1590,13 +1620,13 @@ fn resize_shelf(
             shelf.max_extent(theme),
         );
         state.set_edge_size(shelf_id, shelf.edge, next);
-        crate::backend::egui::request_repaint(ui.ctx());
+        mara.request_repaint();
     }
     if resp.drag_stopped() {
         state.resize_starts.remove(&size_key);
     }
     if resp.hovered() || resp.dragged() || state.resize_starts.contains_key(&size_key) {
-        crate::backend::egui::set_cursor_icon_for_ui(ui, cursor);
+        mara.set_cursor_icon(cursor);
     }
     resp
 }
@@ -1611,7 +1641,7 @@ fn resized_shelf_extent(edge: ShelfEdge, start: f32, delta: Vec2, min: f32, max:
 }
 
 fn update_container_move_target_slot(
-    viewport: &mut egui::Ui,
+    ctx: &dyn crate::context::MaraCtx,
     shelf_id: Id,
     pane_id: Id,
     shelf_edge: ShelfEdge,
@@ -1625,8 +1655,8 @@ fn update_container_move_target_slot(
     if drag.target_edge != Some(shelf_edge) {
         return;
     }
-    let snap = shelf_target_cache(viewport.ctx(), pane_id);
-    let input = crate::backend::egui::input_snapshot_for_ui(viewport);
+    let snap = shelf_target_cache(ctx, pane_id);
+    let input = ctx.input();
     let cursor = input
         .interact_pointer
         .or(input.pointer)
@@ -1634,12 +1664,8 @@ fn update_container_move_target_slot(
         .unwrap_or(drag.cursor);
     let cursor_axis = if horizontal_stack { cursor.x } else { cursor.y };
     let target_slot = pane::compute_target(&snap, drag.container_id, cursor_axis, horizontal_stack);
-    let target_size = container_move_ghost_size_for_edge(
-        viewport.ctx(),
-        drag.container_id,
-        shelf_edge,
-        content_rect,
-    );
+    let target_size =
+        container_move_ghost_size_for_edge(ctx, drag.container_id, shelf_edge, content_rect);
     state.update_container_move_target_slot(shelf_id, pane_id, target_slot, target_size);
 }
 
@@ -1647,16 +1673,16 @@ fn shelf_pane_info_key(edge: ShelfEdge) -> Id {
     Id::new("mara_shelf_pane_info").with(edge)
 }
 
-fn publish_shelf_pane_info(ctx: &egui::Context, info: ShelfPaneInfo) {
-    crate::memory::MaraMemoryCtx::new(ctx).set_temp(shelf_pane_info_key(info.edge), info);
+fn publish_shelf_pane_info(ctx: &dyn crate::context::MaraCtx, info: ShelfPaneInfo) {
+    ctx.memory().set_temp(shelf_pane_info_key(info.edge), info);
 }
 
-fn shelf_pane_info(ctx: &egui::Context, edge: ShelfEdge) -> Option<ShelfPaneInfo> {
-    crate::memory::MaraMemoryCtx::new(ctx).get_temp(shelf_pane_info_key(edge))
+fn shelf_pane_info(ctx: &dyn crate::context::MaraCtx, edge: ShelfEdge) -> Option<ShelfPaneInfo> {
+    ctx.memory().get_temp(shelf_pane_info_key(edge))
 }
 
-fn clear_published_shelf_pane_infos(ctx: &egui::Context) {
-    let mut memory = crate::memory::MaraMemoryCtx::new(ctx);
+fn clear_published_shelf_pane_infos(ctx: &dyn crate::context::MaraCtx) {
+    let mut memory = ctx.memory();
     for edge in [ShelfEdge::Left, ShelfEdge::Right, ShelfEdge::Bottom] {
         memory.remove_temp::<ShelfPaneInfo>(shelf_pane_info_key(edge));
     }
@@ -1666,21 +1692,26 @@ fn external_container_gap_key(pane_id: Id) -> Id {
     pane_id.with("mara_shelf_external_container_gap")
 }
 
-fn mark_external_container_gap(ctx: &egui::Context, pane_id: Id) {
-    crate::memory::MaraMemoryCtx::new(ctx).set_temp(external_container_gap_key(pane_id), true);
+fn mark_external_container_gap(ctx: &dyn crate::context::MaraCtx, pane_id: Id) {
+    ctx.memory()
+        .set_temp(external_container_gap_key(pane_id), true);
 }
 
-fn clear_external_container_gap(ctx: &egui::Context, pane_id: Id) {
-    crate::memory::MaraMemoryCtx::new(ctx).remove_temp::<bool>(external_container_gap_key(pane_id));
+fn clear_external_container_gap(ctx: &dyn crate::context::MaraCtx, pane_id: Id) {
+    ctx.memory()
+        .remove_temp::<bool>(external_container_gap_key(pane_id));
 }
 
-fn external_container_gap_was_painted(ctx: &egui::Context, pane_id: Id) -> bool {
-    crate::memory::MaraMemoryCtx::new(ctx)
+fn external_container_gap_was_painted(ctx: &dyn crate::context::MaraCtx, pane_id: Id) -> bool {
+    ctx.memory()
         .get_temp::<bool>(external_container_gap_key(pane_id))
         .unwrap_or(false)
 }
 
-fn update_container_move_target_from_published(ctx: &egui::Context, state: &mut ShelfState) {
+fn update_container_move_target_from_published(
+    ctx: &dyn crate::context::MaraCtx,
+    state: &mut ShelfState,
+) {
     let Some(drag) = state.container_move else {
         return;
     };
@@ -1691,7 +1722,7 @@ fn update_container_move_target_from_published(ctx: &egui::Context, state: &mut 
         state.clear_container_move_target_slot();
         return;
     };
-    let input = crate::backend::egui::input_snapshot(ctx);
+    let input = ctx.input();
     let cursor = input
         .interact_pointer
         .or(input.pointer)
@@ -1780,7 +1811,7 @@ fn should_render_external_container_gap(
 }
 
 fn source_shelf_gap_entry(
-    ctx: &egui::Context,
+    ctx: &dyn crate::context::MaraCtx,
     dragged_id: Id,
     shelf_edge: ShelfEdge,
     content_rect: Rect,
@@ -1799,7 +1830,7 @@ fn source_shelf_gap_entry(
 }
 
 fn reanchor_source_shelf_snapshot(
-    ctx: &egui::Context,
+    ctx: &dyn crate::context::MaraCtx,
     pane_id: Id,
     dragged_id: Id,
     shelf_edge: ShelfEdge,
@@ -1813,8 +1844,8 @@ fn reanchor_source_shelf_snapshot(
     pane::set_snapshot(ctx, pane_id, snapshot);
 }
 
-fn finish_container_move_if_released(ctx: &egui::Context, state: &mut ShelfState) {
-    if !crate::backend::egui::input_snapshot(ctx).any_released {
+fn finish_container_move_if_released(ctx: &dyn crate::context::MaraCtx, state: &mut ShelfState) {
+    if !ctx.input().any_released {
         return;
     }
     let Some(drag) = state.container_move else {
@@ -1824,7 +1855,7 @@ fn finish_container_move_if_released(ctx: &egui::Context, state: &mut ShelfState
 }
 
 fn commit_container_move(
-    ctx: &egui::Context,
+    ctx: &dyn crate::context::MaraCtx,
     state: &mut ShelfState,
     drag: ShelfContainerMoveState,
 ) {
@@ -1966,7 +1997,7 @@ fn shelf_resize_cursor(edge: ShelfEdge) -> CursorIcon {
 }
 
 struct ShelfMoveDragInput<'a, 'state> {
-    ctx: &'a egui::Context,
+    ctx: &'a dyn crate::context::MaraCtx,
     shelf_id: Id,
     shelf_edge: ShelfEdge,
     pane_id: Id,
@@ -2000,7 +2031,7 @@ fn handle_shelf_move_drag(input: ShelfMoveDragInput<'_, '_>) {
 
     let dragging_this = state.drag.is_some_and(|drag| drag.shelf_id == shelf_id);
     if dragging_this {
-        let input = crate::backend::egui::input_snapshot(ctx);
+        let input = MaraCtx::input(ctx);
         if let Some(cursor) = input
             .interact_pointer
             .map(Into::into)
@@ -2009,19 +2040,19 @@ fn handle_shelf_move_drag(input: ShelfMoveDragInput<'_, '_>) {
             let occupied = occupied_edges_for_layout(layout, Some(shelf_edge));
             let target = shelf_move_target(cursor, available, occupied, shelf_edge);
             state.update_drag(cursor, target);
-            crate::backend::egui::set_cursor_icon_for_context(ctx, CursorIcon::Grabbing);
-            crate::backend::egui::request_repaint(ctx);
+            ctx.set_cursor_icon(CursorIcon::Grabbing);
+            MaraCtx::request_repaint(ctx);
         }
         if input.any_released {
             state.finish_drag();
         }
     }
-    if state.drag.is_some() && crate::backend::egui::key_pressed(ctx, crate::mui::MaraKey::Escape) {
+    if state.drag.is_some() && ctx.input().key_pressed(crate::mui::MaraKey::Escape) {
         state.cancel_drag();
     }
 }
 
-fn pointer_over_shelf_container(ctx: &egui::Context, pane_id: Id, pos: Pos2) -> bool {
+fn pointer_over_shelf_container(ctx: &dyn crate::context::MaraCtx, pane_id: Id, pos: Pos2) -> bool {
     pane::snapshot(ctx, pane_id)
         .iter()
         .any(|entry| entry.frame.unwrap_or(entry.rect).contains(pos))
@@ -2141,7 +2172,7 @@ fn container_move_empty_edge_target(
 }
 
 fn paint_shelf_move_ghost(
-    ctx: &egui::Context,
+    ctx: &dyn crate::context::MaraCtx,
     layout: ShelfLayout,
     state: &ShelfState,
     theme: &ShelfTheme,
@@ -2156,8 +2187,7 @@ fn paint_shelf_move_ghost(
         return;
     };
 
-    crate::backend::egui::show_area_slot(
-        ctx,
+    ctx.area_slot(
         AreaSlotSpec::new(
             AreaHost::new(
                 MaraId::new("mara_shelf_move_ghost"),
@@ -2167,21 +2197,17 @@ fn paint_shelf_move_ghost(
             .non_interactive(),
             rect.size().into(),
         ),
-        |ui| {
-            let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
-            let response = crate::layout::UiBackend::allocate(
-                &mut backend,
-                rect.size().into(),
-                crate::layout::Sense::Hover,
-            );
-            let local: Rect = response.rect.into();
-            paint_shelf_reservation_ghost(ui, local, target, style::active_accent().into());
+        &mut |mara| {
+            let local = mara
+                .allocate(MaraVec2::from(rect.size()), crate::layout::Sense::Hover)
+                .rect;
+            paint_shelf_reservation_ghost(mara, local, target, style::active_accent());
         },
     );
 }
 
 fn paint_container_move_ghost(
-    ctx: &egui::Context,
+    ctx: &dyn crate::context::MaraCtx,
     layout: ShelfLayout,
     state: &ShelfState,
     theme: &ShelfTheme,
@@ -2193,8 +2219,7 @@ fn paint_container_move_ghost(
         return;
     };
     if let Some((rect, accent)) = existing_shelf_container_slot_ghost(ctx, target, drag) {
-        crate::backend::egui::show_area_slot(
-            ctx,
+        ctx.area_slot(
             AreaSlotSpec::new(
                 AreaHost::new(
                     MaraId::new("mara_shelf_existing_container_slot_ghost"),
@@ -2204,15 +2229,9 @@ fn paint_container_move_ghost(
                 .non_interactive(),
                 rect.size().into(),
             ),
-            |ui| {
-                let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
-                let response = crate::layout::UiBackend::allocate(
-                    &mut backend,
-                    rect.size().into(),
-                    crate::layout::Sense::Hover,
-                );
-                let local: Rect = response.rect.into();
-                paint_container_slot_ghost(ui, local, accent);
+            &mut |mara| {
+                let local = mara.allocate(rect.size(), crate::layout::Sense::Hover).rect;
+                paint_container_slot_ghost(mara, local, accent);
             },
         );
         return;
@@ -2224,8 +2243,7 @@ fn paint_container_move_ghost(
         return;
     };
     let accent = style::active_accent();
-    crate::backend::egui::show_area_slot(
-        ctx,
+    ctx.area_slot(
         AreaSlotSpec::new(
             AreaHost::new(
                 MaraId::new("mara_shelf_container_move_ghost"),
@@ -2235,31 +2253,29 @@ fn paint_container_move_ghost(
             .non_interactive(),
             shelf_rect.size().into(),
         ),
-        |ui| {
-            let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
-            let response = crate::layout::UiBackend::allocate(
-                &mut backend,
-                shelf_rect.size().into(),
-                crate::layout::Sense::Hover,
-            );
-            let shelf_local: Rect = response.rect.into();
-            paint_shelf_reservation_ghost(ui, shelf_local, target, accent.into());
+        &mut |mara| {
+            let shelf_local = mara
+                .allocate(
+                    MaraVec2::from(shelf_rect.size()),
+                    crate::layout::Sense::Hover,
+                )
+                .rect;
+            paint_shelf_reservation_ghost(mara, shelf_local, target, accent.into());
 
             let container_rect =
-                new_shelf_container_ghost_rect(ctx, drag.container_id, target, shelf_local);
-            paint_container_slot_ghost(ui, container_rect, accent.into());
+                new_shelf_container_ghost_rect(ctx, drag.container_id, target, shelf_local.into());
+            paint_container_slot_ghost(mara, container_rect.into(), accent.into());
         },
     );
 }
 
-fn paint_container_slot_ghost(ui: &mut egui::Ui, rect: Rect, accent: Color32) {
-    let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
+fn paint_container_slot_ghost(mara: &mut crate::MaraUi<'_>, rect: MaraRect, accent: MaraColor32) {
     for cmd in container_slot_ghost_paint_cmds(
-        rect.into(),
-        accent.into(),
+        rect,
+        accent,
         MaraCornerRadius::same(style::theme().radius_md),
     ) {
-        crate::layout::UiBackend::paint(&mut backend, cmd);
+        mara.paint(cmd);
     }
 }
 
@@ -2282,13 +2298,17 @@ fn container_slot_ghost_paint_cmds(
     ]
 }
 
-fn paint_shelf_reservation_ghost(ui: &mut egui::Ui, rect: Rect, edge: ShelfEdge, accent: Color32) {
+fn paint_shelf_reservation_ghost(
+    mara: &mut crate::MaraUi<'_>,
+    rect: MaraRect,
+    edge: ShelfEdge,
+    accent: MaraColor32,
+) {
     let fill = style::fill_for(style::FillRole::DragGhost, accent);
     let stroke = style::stroke_for(style::StrokeRole::DragGhost, accent);
     let stroke = MaraStroke::new(stroke.width, stroke.color);
-    let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
-    for cmd in shelf_reservation_ghost_paint_cmds(edge, rect.into(), fill, stroke) {
-        crate::layout::UiBackend::paint(&mut backend, cmd);
+    for cmd in shelf_reservation_ghost_paint_cmds(edge, rect, fill, stroke) {
+        mara.paint(cmd);
     }
 }
 
@@ -2327,10 +2347,10 @@ fn shelf_reservation_ghost_paint_cmds(
 }
 
 fn existing_shelf_container_slot_ghost(
-    ctx: &egui::Context,
+    ctx: &dyn crate::context::MaraCtx,
     target: ShelfEdge,
     drag: ShelfContainerMoveState,
-) -> Option<(Rect, Color32)> {
+) -> Option<(MaraRect, MaraColor32)> {
     let target_pane = drag.target_pane?;
     let target_slot = drag.target_slot?;
     if external_container_gap_was_painted(ctx, target_pane) {
@@ -2348,15 +2368,15 @@ fn existing_shelf_container_slot_ghost(
         target_slot,
         info.horizontal_stack,
     )
-    .map(|rect| (rect.translate(info.screen_offset), info.accent))
+    .map(|rect| (rect.translate(info.screen_offset).into(), info.accent))
 }
 
-fn shelf_target_cache(ctx: &egui::Context, pane_id: Id) -> Vec<pane::RectEntry> {
+fn shelf_target_cache(ctx: &dyn crate::context::MaraCtx, pane_id: Id) -> Vec<pane::RectEntry> {
     pane::target_cache(ctx, pane_id)
 }
 
 fn new_shelf_container_ghost_rect(
-    ctx: &egui::Context,
+    ctx: &dyn crate::context::MaraCtx,
     container_id: Id,
     target: ShelfEdge,
     shelf_rect: Rect,
@@ -2369,7 +2389,7 @@ fn new_shelf_container_ghost_rect(
 }
 
 fn container_move_ghost_size_for_edge(
-    ctx: &egui::Context,
+    ctx: &dyn crate::context::MaraCtx,
     container_id: Id,
     edge: ShelfEdge,
     content_rect: Rect,
@@ -2497,7 +2517,7 @@ fn container_drop_rect(
 }
 
 fn container_drop_rect_for_drag(
-    ctx: &egui::Context,
+    ctx: &dyn crate::context::MaraCtx,
     layout: ShelfLayout,
     drag: ShelfContainerMoveState,
     target: ShelfEdge,
@@ -2520,7 +2540,7 @@ fn container_drop_rect_for_drag(
 }
 
 fn container_move_preview_layout(
-    ctx: &egui::Context,
+    ctx: &dyn crate::context::MaraCtx,
     layout: ShelfLayout,
     drag: ShelfContainerMoveState,
     theme: &ShelfTheme,
@@ -2613,7 +2633,7 @@ fn layout_from_reserved_shelves(
 }
 
 fn source_shelf_has_other_containers(
-    ctx: &egui::Context,
+    ctx: &dyn crate::context::MaraCtx,
     drag: ShelfContainerMoveState,
     target: ShelfEdge,
 ) -> bool {

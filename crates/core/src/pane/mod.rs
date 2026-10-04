@@ -14,15 +14,18 @@
 //! * `mod.rs` (this file) — `Pane` builder + render entry point.
 
 mod anchor;
-mod body;
+#[doc(hidden)]
+pub mod body;
 mod dots;
 mod drag;
 mod layout;
-pub(crate) mod tab_drag;
+#[doc(hidden)]
+pub mod tab_drag;
 mod title;
 
 pub use body::{ContainerSpec, PaneBody};
-pub(crate) use body::{TabRoutingScope, render_containers_with_tab_scope};
+#[doc(hidden)]
+pub use body::{TabRoutingScope, render_containers_with_tab_scope};
 pub(crate) use dots::paint_container_dots;
 
 pub use anchor::{PaneAnchor, RailZone, TitleSide};
@@ -37,10 +40,12 @@ pub use drag::{
 };
 pub(crate) use drag::{ghost_gap_suppressed, set_ghost_gap_suppressed, set_snapshot};
 
+use crate::context::MaraCtx;
 use crate::memory::MaraAnim;
-use egui::{Color32, Id};
+use crate::vocab::Id;
 
-use crate::layout::{AreaHost, Layer, PaneBodyScrollSpec, PaneFlexSpec, UiBackend};
+use crate::layout::{AreaHost, PaneBodyScrollSpec, PaneFlexSpec};
+use crate::ribbon::chrome::{RibbonCluster, RibbonEdge};
 use crate::style;
 use crate::vocab::{
     Color32 as MaraColor32, Id as MaraId, Pos2 as MaraPos2, Rect as MaraRect, Vec2 as MaraVec2,
@@ -93,19 +98,12 @@ pub const MAX_USER_FLOW: f32 = 1200.0;
 pub const MIN_USER_SPAN: f32 = 120.0;
 /// Upper bound on user-resized pane CROSS extent.
 pub const MAX_USER_SPAN: f32 = 1200.0;
-/// Container's title-strip thickness and outer-margin reservation
-/// — used to compute the collapsed body main size from the active
-/// theme each frame (see `body_flow_collapsed`). Themes differ in
-/// `section_padding` (PRO 4×3, GAME 6×8) so a hardcoded constant
-/// can't get this right for both.
-const CONTAINER_TITLE_THICKNESS: f32 = 22.0;
-
 /// Compute the pane's animated openness 0..=1 for `pane_id`. Both
 /// `Pane` and `Normal` call this with the same id so they lerp in
 /// lockstep and the pane size is known in-frame (no anchor drift).
-pub(crate) fn body_openness(ctx: &egui::Context, pane_id: impl Into<MaraId>) -> f32 {
+pub(crate) fn body_openness(ctx: &dyn crate::context::MaraCtx, pane_id: impl Into<MaraId>) -> f32 {
     let pane_id: Id = pane_id.into().into();
-    let mut memory = crate::memory::MaraMemoryCtx::new(ctx);
+    let mut memory = ctx.memory();
     let open: bool = match memory.get_persisted::<bool>(pane_id.with("body_open")) {
         Some(open) => open,
         None => {
@@ -113,7 +111,7 @@ pub(crate) fn body_openness(ctx: &egui::Context, pane_id: impl Into<MaraId>) -> 
             true
         }
     };
-    crate::memory::MaraMemoryCtx::new(ctx).animate_bool(
+    ctx.memory().animate_bool(
         pane_id.with("body_open").with("anim").into(),
         open,
         BODY_ANIMATION_TIME,
@@ -126,10 +124,10 @@ pub(crate) fn body_openness(ctx: &egui::Context, pane_id: impl Into<MaraId>) -> 
 /// (LEFT/RIGHT rails) interpret this as the pane WIDTH, horizontal
 /// -strip panes (TOP/BOTTOM rails) as the pane HEIGHT — the handle
 /// always grows the pane along its flow axis.
-pub(crate) fn user_flow(ctx: &egui::Context, pane_id: impl Into<MaraId>) -> f32 {
+pub(crate) fn user_flow(ctx: &dyn crate::context::MaraCtx, pane_id: impl Into<MaraId>) -> f32 {
     let pane_id: Id = pane_id.into().into();
     sanitize_user_extent(
-        crate::memory::MaraMemoryCtx::new(ctx)
+        ctx.memory()
             .get_persisted::<f32>(pane_id.with("mara_pane_user_body_main"))
             .unwrap_or(DEFAULT_FLOW_OPEN),
         DEFAULT_FLOW_OPEN,
@@ -140,10 +138,14 @@ pub(crate) fn user_flow(ctx: &egui::Context, pane_id: impl Into<MaraId>) -> f32 
 
 /// Persist the user-set body main extent for `pane_id`. Clamped to
 /// [`MIN_USER_FLOW`] .. [`MAX_USER_FLOW`].
-pub(crate) fn set_user_flow(ctx: &egui::Context, pane_id: impl Into<MaraId>, value: f32) {
+pub(crate) fn set_user_flow(
+    ctx: &dyn crate::context::MaraCtx,
+    pane_id: impl Into<MaraId>,
+    value: f32,
+) {
     let pane_id: Id = pane_id.into().into();
     let clamped = sanitize_user_extent(value, DEFAULT_FLOW_OPEN, MIN_USER_FLOW, MAX_USER_FLOW);
-    crate::memory::MaraMemoryCtx::new(ctx)
+    ctx.memory()
         .set_persisted(pane_id.with("mara_pane_user_body_main"), clamped);
 }
 
@@ -151,10 +153,10 @@ pub(crate) fn set_user_flow(ctx: &egui::Context, pane_id: impl Into<MaraId>, val
 /// Defaults to [`PANE_OUTER_SPAN`]. Only consulted when the caller
 /// enables `PaneResize::cross` on the builder; otherwise the pane
 /// keeps its baseline cross size.
-pub(crate) fn user_span(ctx: &egui::Context, pane_id: impl Into<MaraId>) -> f32 {
+pub(crate) fn user_span(ctx: &dyn crate::context::MaraCtx, pane_id: impl Into<MaraId>) -> f32 {
     let pane_id: Id = pane_id.into().into();
     sanitize_user_extent(
-        crate::memory::MaraMemoryCtx::new(ctx)
+        ctx.memory()
             .get_persisted::<f32>(pane_id.with("mara_pane_user_cross_main"))
             .unwrap_or(PANE_OUTER_SPAN),
         PANE_OUTER_SPAN,
@@ -165,10 +167,14 @@ pub(crate) fn user_span(ctx: &egui::Context, pane_id: impl Into<MaraId>) -> f32 
 
 /// Persist the user-set CROSS extent for `pane_id`. Clamped to
 /// [`MIN_USER_SPAN`] .. [`MAX_USER_SPAN`].
-pub(crate) fn set_user_span(ctx: &egui::Context, pane_id: impl Into<MaraId>, value: f32) {
+pub(crate) fn set_user_span(
+    ctx: &dyn crate::context::MaraCtx,
+    pane_id: impl Into<MaraId>,
+    value: f32,
+) {
     let pane_id: Id = pane_id.into().into();
     let clamped = sanitize_user_extent(value, PANE_OUTER_SPAN, MIN_USER_SPAN, MAX_USER_SPAN);
-    crate::memory::MaraMemoryCtx::new(ctx)
+    ctx.memory()
         .set_persisted(pane_id.with("mara_pane_user_cross_main"), clamped);
 }
 
@@ -229,6 +235,16 @@ pub(crate) fn active_pane_key() -> Id {
     Id::new("mara_active_pane_id")
 }
 
+/// The key above, for the backend crate's frame tests.
+///
+/// They seed the active pane before rendering, which needs the key.
+/// Exposed under the `__internal_` name rather than by widening
+/// `active_pane_key` itself — that name is guarded as non-API.
+#[doc(hidden)]
+pub fn __internal_active_pane_key() -> Id {
+    active_pane_key()
+}
+
 fn ribbon_pane_ids_key() -> Id {
     Id::new("mara_registered_ribbon_pane_ids")
 }
@@ -241,7 +257,7 @@ fn ribbon_pane_ids_key() -> Id {
 /// of being slapped onto the canvas directly.
 #[doc(hidden)]
 pub fn __internal_publish_ribbon_pane_ids(
-    ctx: &egui::Context,
+    ctx: &dyn crate::context::MaraCtx,
     ids: impl IntoIterator<Item = impl Into<MaraId>>,
 ) {
     let ids = ids
@@ -251,18 +267,26 @@ pub fn __internal_publish_ribbon_pane_ids(
             Id::from(id)
         })
         .collect::<Vec<_>>();
-    crate::memory::MaraMemoryCtx::new(ctx).set_temp(ribbon_pane_ids_key(), ids);
+    ctx.memory().set_temp(ribbon_pane_ids_key(), ids);
 }
 
-fn assert_pane_has_ribbon_button(ctx: &egui::Context, pane_id: Id) {
-    let ids = ctx
-        .data(|d| d.get_temp::<Vec<Id>>(ribbon_pane_ids_key()))
-        .expect("pane rendering requires published ribbon pane ids; publish the current ribbon pane buttons through MaraHostCtx before rendering panes");
-    assert!(
-        ids.contains(&pane_id),
-        "pane {:?} was rendered without a registered ribbon button; add a ribbon item for it or do not render the pane",
-        pane_id
+/// Whether the pane may render under the ribbon-affordance registry.
+///
+/// No registry published (headless tests, minimal hosts) → permissive,
+/// exactly as the publish doc states. A published registry that lacks
+/// this pane id → the pane is SKIPPED (debug builds also assert, so the
+/// mistake is loud in development) — a user action must never abort the
+/// host app over a chrome-bookkeeping slip.
+fn pane_has_ribbon_button(ctx: &dyn crate::context::MaraCtx, pane_id: Id) -> bool {
+    let Some(ids) = ctx.memory().get_temp::<Vec<Id>>(ribbon_pane_ids_key()) else {
+        return true;
+    };
+    let registered = ids.contains(&pane_id);
+    debug_assert!(
+        registered,
+        "pane {pane_id:?} was rendered without a registered ribbon button; add a ribbon item for it or do not render the pane"
     );
+    registered
 }
 
 pub(crate) fn active_tabbed_container_rect_key() -> Id {
@@ -279,12 +303,12 @@ pub(crate) fn active_container_frame_rect_key() -> Id {
 /// or unfold (cipher decode, chromatic aberration, etc.) salt
 /// their state ids with this counter so each toggle starts a fresh
 /// cycle.
-pub(crate) fn toggle_body(ctx: &egui::Context, pane_id: Id) {
+pub(crate) fn toggle_body(ctx: &dyn crate::context::MaraCtx, pane_id: Id) {
     let key = pane_id.with("body_open");
     let ver_key = pane_id.with("body_fold_version");
     let touch_key = pane_id.with("body_open_touched_at");
-    let now = crate::backend::egui::input_time(ctx);
-    let mut memory = crate::memory::MaraMemoryCtx::new(ctx);
+    let now = ctx.now();
+    let mut memory = ctx.memory();
     let cur: bool = memory.get_persisted(key).unwrap_or(true);
     memory.set_persisted(key, !cur);
     let v: u64 = memory.get_persisted(ver_key).unwrap_or(0);
@@ -300,8 +324,8 @@ pub(crate) fn toggle_body(ctx: &egui::Context, pane_id: Id) {
 /// user toggle of `body_open` for this container. Returns `0.0` if
 /// never toggled. Used by internal pane rendering's auto-fold-tail walk to
 /// preserve the user's most recent unfold over older opens.
-pub(crate) fn body_open_touched_at(ctx: &egui::Context, pane_id: Id) -> f64 {
-    crate::memory::MaraMemoryCtx::new(ctx)
+pub(crate) fn body_open_touched_at(ctx: &dyn crate::context::MaraCtx, pane_id: Id) -> f64 {
+    ctx.memory()
         .get_persisted::<f64>(pane_id.with("body_open_touched_at"))
         .unwrap_or(0.0)
 }
@@ -309,8 +333,8 @@ pub(crate) fn body_open_touched_at(ctx: &egui::Context, pane_id: Id) -> f64 {
 /// Read the per-pane fold-version counter. Bumped by
 /// [`toggle_body`] on every fold/unfold; widgets salt their
 /// animation state ids with it so each toggle re-triggers.
-pub(crate) fn fold_version(ctx: &egui::Context, pane_id: Id) -> u64 {
-    crate::memory::MaraMemoryCtx::new(ctx)
+pub(crate) fn fold_version(ctx: &dyn crate::context::MaraCtx, pane_id: Id) -> u64 {
+    ctx.memory()
         .get_persisted::<u64>(pane_id.with("body_fold_version"))
         .unwrap_or(0)
 }
@@ -327,8 +351,8 @@ fn container_min_flows_key(pane_id: Id) -> Id {
 /// during the previous frame's body callback. Returned in container
 /// order. Empty when no [`crate::container::Normal`] children
 /// painted under this pane.
-pub(crate) fn container_min_widths(ctx: &egui::Context, pane_id: Id) -> Vec<f32> {
-    crate::memory::MaraMemoryCtx::new(ctx)
+pub(crate) fn container_min_widths(ctx: &dyn crate::context::MaraCtx, pane_id: Id) -> Vec<f32> {
+    ctx.memory()
         .get_temp::<Vec<f32>>(container_mins_key(pane_id))
         .unwrap_or_default()
 }
@@ -343,8 +367,8 @@ pub(crate) fn container_min_widths(ctx: &egui::Context, pane_id: Id) -> Vec<f32>
 /// "containers overlap" artefact that comes from egui's
 /// `available_rect_before_wrap` collapsing to zero when the pane body
 /// runs out of space.
-pub(crate) fn container_min_flows(ctx: &egui::Context, pane_id: Id) -> Vec<f32> {
-    crate::memory::MaraMemoryCtx::new(ctx)
+pub(crate) fn container_min_flows(ctx: &dyn crate::context::MaraCtx, pane_id: Id) -> Vec<f32> {
+    ctx.memory()
         .get_temp::<Vec<f32>>(container_min_flows_key(pane_id))
         .unwrap_or_default()
 }
@@ -353,9 +377,9 @@ pub(crate) fn container_min_flows(ctx: &egui::Context, pane_id: Id) -> Vec<f32> 
 /// widths, min flows, container cids, extra body flow). Called by
 /// internal pane rendering at the top of every frame so the body callback
 /// can re-register fresh.
-pub(crate) fn clear_container_min_widths(ctx: &egui::Context, pane_id: Id) {
+pub(crate) fn clear_container_min_widths(ctx: &dyn crate::context::MaraCtx, pane_id: Id) {
     {
-        let mut memory = crate::memory::MaraMemoryCtx::new(ctx);
+        let mut memory = ctx.memory();
         memory.remove_temp::<Vec<f32>>(container_mins_key(pane_id));
         memory.remove_temp::<Vec<f32>>(container_min_flows_key(pane_id));
         memory.remove_temp::<Vec<Id>>(container_cids_key(pane_id));
@@ -383,16 +407,16 @@ fn body_extra_flow_key(pane_id: Id) -> Id {
 /// that updates the persisted value at the END of frame N is
 /// visible to the pane sizer on frame N+1's first read — without
 /// the extra publish-vs-render lag that comes from caching values.
-pub(crate) fn published_container_cids(ctx: &egui::Context, pane_id: Id) -> Vec<Id> {
-    crate::memory::MaraMemoryCtx::new(ctx)
+pub(crate) fn published_container_cids(ctx: &dyn crate::context::MaraCtx, pane_id: Id) -> Vec<Id> {
+    ctx.memory()
         .get_temp::<Vec<Id>>(container_cids_key(pane_id))
         .unwrap_or_default()
 }
 
 /// Append `cid` to the per-pane container CID list. Called by
 /// `Normal::show` each frame.
-pub(crate) fn publish_container_cid(ctx: &egui::Context, pane_id: Id, cid: Id) {
-    let mut memory = crate::memory::MaraMemoryCtx::new(ctx);
+pub(crate) fn publish_container_cid(ctx: &dyn crate::context::MaraCtx, pane_id: Id, cid: Id) {
+    let mut memory = ctx.memory();
     let key = container_cids_key(pane_id);
     let mut acc: Vec<Id> = memory.get_temp(key).unwrap_or_default();
     assert!(
@@ -409,8 +433,8 @@ pub(crate) fn publish_container_cid(ctx: &egui::Context, pane_id: Id, cid: Id) {
 /// this on top of `published_container_body_flows + per-container
 /// chrome` so the pane stays sized to fit everything its body
 /// callback paints, not just the containers themselves.
-pub(crate) fn published_body_extra_flow(ctx: &egui::Context, pane_id: Id) -> f32 {
-    crate::memory::MaraMemoryCtx::new(ctx)
+pub(crate) fn published_body_extra_flow(ctx: &dyn crate::context::MaraCtx, pane_id: Id) -> f32 {
+    ctx.memory()
         .get_temp::<f32>(body_extra_flow_key(pane_id))
         .unwrap_or(0.0)
 }
@@ -420,12 +444,151 @@ pub(crate) fn published_body_extra_flow(ctx: &egui::Context, pane_id: Id) -> f32
 /// `Pane` body — the inter-container drag-handle in
 /// [`paint_container_dots`] uses this to make sure the pane
 /// auto-grows to include each handle's strip height.
-pub(crate) fn publish_body_extra_flow(ctx: &egui::Context, pane_id: Id, flow: f32) {
+pub(crate) fn publish_body_extra_flow(ctx: &dyn crate::context::MaraCtx, pane_id: Id, flow: f32) {
     let flow = if flow.is_finite() { flow.max(0.0) } else { 0.0 };
-    let mut memory = crate::memory::MaraMemoryCtx::new(ctx);
+    let mut memory = ctx.memory();
     let key = body_extra_flow_key(pane_id);
     let cur: f32 = memory.get_temp(key).unwrap_or(0.0);
     memory.set_temp(key, cur + flow);
+}
+
+/// Flow an open container adds over its folded chrome, scaled by its
+/// fold animation: body flow plus the title/body gap.
+fn container_open_flow(
+    ctx: &dyn crate::context::MaraCtx,
+    cid: Id,
+    horizontal_strip: bool,
+    gap_open: f32,
+) -> f32 {
+    let openness = body_openness(ctx, cid);
+    openness * (crate::container::container_flow(ctx, cid, horizontal_strip) + gap_open)
+}
+
+/// One open container the auto-fold walk may close.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct FoldCandidate {
+    pub id: Id,
+    pub touched_at: f64,
+    pub cost: f32,
+}
+
+/// Containers to fold so the open ones fit `budget`. Newest toggle
+/// is served first and always stays open; ties keep declaration
+/// order, so later and older containers fold first.
+pub(crate) fn plan_auto_fold(budget: f32, mut opens: Vec<FoldCandidate>) -> Vec<Id> {
+    opens.sort_by(|a, b| b.touched_at.total_cmp(&a.touched_at));
+    let mut budget = budget.max(0.0);
+    let mut folds = Vec::new();
+    for (idx, open) in opens.iter().enumerate() {
+        if idx == 0 || open.cost <= budget {
+            budget = (budget - open.cost).max(0.0);
+        } else {
+            folds.push(open.id);
+        }
+    }
+    folds
+}
+
+fn flow_deficit_key(pane_id: Id) -> Id {
+    pane_id.with("mara_pane_flow_deficit")
+}
+
+/// Body flow the last measured frame laid out beyond the pane's
+/// prediction. Zero when the prediction held.
+pub(crate) fn pane_flow_deficit(ctx: &dyn crate::context::MaraCtx, pane_id: Id) -> f32 {
+    ctx.memory()
+        .get_temp::<f32>(flow_deficit_key(pane_id))
+        .unwrap_or(0.0)
+}
+
+/// Compare the body flow just laid out with the prediction made for
+/// the same container list. Skipped while the list changed or a drag
+/// adds ghost gaps, so transients never feed the next estimate.
+fn record_pane_flow_deficit(ctx: &dyn crate::context::MaraCtx, pane_id: Id, natural: f32) {
+    let Some((cids, predicted)) = ctx
+        .memory()
+        .get_temp::<(Vec<Id>, f32)>(pane_id.with("mara_pane_predicted_body"))
+    else {
+        return;
+    };
+    let dragging = drag::state(ctx, pane_id).item.is_some()
+        || tab_drag::drag_state(ctx, pane_id.into()).is_some();
+    if dragging || cids != published_container_cids(ctx, pane_id) {
+        return;
+    }
+    let deficit = natural - predicted;
+    let deficit = if deficit.is_finite() && deficit > 0.5 {
+        deficit
+    } else {
+        0.0
+    };
+    ctx.memory().set_temp(flow_deficit_key(pane_id), deficit);
+}
+
+/// Ribbon button rects recorded by the rail renderer for the current
+/// and the previous pass. Panes render before their rail, so they
+/// read the previous pass as well.
+#[derive(Clone, Default)]
+struct RailButtonRects {
+    pass: u64,
+    current: Vec<(RibbonEdge, RibbonCluster, MaraRect)>,
+    previous_pass: u64,
+    previous: Vec<(RibbonEdge, RibbonCluster, MaraRect)>,
+}
+
+fn rail_button_rects_key() -> Id {
+    Id::new("mara_rail_button_rects")
+}
+
+/// Record one ribbon button's resting rect for pane budgeting.
+pub(crate) fn publish_rail_button_rect(
+    ctx: &dyn crate::context::MaraCtx,
+    edge: RibbonEdge,
+    cluster: RibbonCluster,
+    rect: MaraRect,
+) {
+    let now = ctx.pass_nr();
+    let mut memory = ctx.memory();
+    let mut rects: RailButtonRects = memory.get_temp(rail_button_rects_key()).unwrap_or_default();
+    if rects.pass != now {
+        rects.previous = std::mem::take(&mut rects.current);
+        rects.previous_pass = rects.pass;
+        rects.pass = now;
+    }
+    rects.current.push((edge, cluster, rect));
+    memory.set_temp(rail_button_rects_key(), rects);
+}
+
+/// Buttons on the pane's own rail in the opposite corner zone (a
+/// Start pane sees the End cluster and vice versa) inside `screen`.
+/// Middle panes flow across their rail and get none.
+fn other_zone_button_rects(
+    ctx: &dyn crate::context::MaraCtx,
+    anchor: PaneAnchor,
+    screen: MaraRect,
+) -> Vec<MaraRect> {
+    let cluster = match anchor.zone() {
+        RailZone::Start => RibbonCluster::End,
+        RailZone::End => RibbonCluster::Start,
+        RailZone::Middle => return Vec::new(),
+    };
+    let edge = match anchor.rail_side() {
+        TitleSide::Left => RibbonEdge::Left,
+        TitleSide::Right => RibbonEdge::Right,
+        TitleSide::Top => RibbonEdge::Top,
+        TitleSide::Bottom => RibbonEdge::Bottom,
+    };
+    let Some(rects) = ctx.memory().get_temp::<RailButtonRects>(rail_button_rects_key()) else {
+        return Vec::new();
+    };
+    let now = ctx.pass_nr();
+    [(rects.pass, &rects.current), (rects.previous_pass, &rects.previous)]
+        .into_iter()
+        .filter(|(pass, _)| pass + 1 >= now)
+        .flat_map(|(_, list)| list.iter())
+        .filter(|(e, c, r)| *e == edge && *c == cluster && r.intersects(screen))
+        .map(|(_, _, r)| *r)
+        .collect()
 }
 
 /// Global ctx-data key under which every internal pane render call
@@ -447,8 +610,8 @@ fn published_pane_rects_key() -> Id {
 /// Internal first-party host hook for input-firewall adapters. App
 /// code should not read raw backend context data to discover panes.
 #[doc(hidden)]
-pub fn __internal_published_pane_rects(ctx: &egui::Context) -> Vec<MaraRect> {
-    crate::memory::MaraMemoryCtx::new(ctx)
+pub fn __internal_published_pane_rects(ctx: &dyn crate::context::MaraCtx) -> Vec<MaraRect> {
+    ctx.memory()
         .get_temp::<Vec<MaraRect>>(published_pane_rects_key())
         .unwrap_or_default()
 }
@@ -464,9 +627,9 @@ pub fn __internal_published_pane_rects(ctx: &egui::Context) -> Vec<MaraRect> {
 ///
 /// Internal first-party host hook for input-firewall adapters.
 #[doc(hidden)]
-pub fn __internal_clear_published_pane_rects(ctx: &egui::Context) {
+pub fn __internal_clear_published_pane_rects(ctx: &dyn crate::context::MaraCtx) {
     {
-        let mut memory = crate::memory::MaraMemoryCtx::new(ctx);
+        let mut memory = ctx.memory();
         memory.remove_temp::<Vec<MaraRect>>(published_pane_rects_key());
     };
 }
@@ -474,8 +637,8 @@ pub fn __internal_clear_published_pane_rects(ctx: &egui::Context) {
 /// Append `rect` to the global pane-rects list. Called by
 /// internal pane rendering after the Frame paints. The list lives in egui
 /// ctx data and is reset by [`maybe_reset_published_pane_rects`].
-fn publish_pane_rect(ctx: &egui::Context, rect: impl Into<MaraRect>) {
-    let mut memory = crate::memory::MaraMemoryCtx::new(ctx);
+fn publish_pane_rect(ctx: &dyn crate::context::MaraCtx, rect: impl Into<MaraRect>) {
+    let mut memory = ctx.memory();
     let key = published_pane_rects_key();
     let mut acc: Vec<MaraRect> = memory.get_temp(key).unwrap_or_default();
     acc.push(rect.into());
@@ -487,15 +650,13 @@ fn publish_pane_rect(ctx: &egui::Context, rect: impl Into<MaraRect>) {
 /// painted panes. Reset is keyed off `cumulative_pass_nr` — the
 /// list resets the first time a pane is rendered in a new
 /// pass and stays accumulating until the next pass starts.
-fn maybe_reset_published_pane_rects(ctx: &egui::Context) {
+fn maybe_reset_published_pane_rects(ctx: &dyn crate::context::MaraCtx) {
     let key = Id::new("mara_published_pane_rects_pass");
-    let now = ctx.cumulative_pass_nr();
-    let last: u64 = crate::memory::MaraMemoryCtx::new(ctx)
-        .get_temp(key)
-        .unwrap_or(u64::MAX);
+    let now = ctx.pass_nr();
+    let last: u64 = ctx.memory().get_temp(key).unwrap_or(u64::MAX);
     if last != now {
         {
-            let mut memory = crate::memory::MaraMemoryCtx::new(ctx);
+            let mut memory = ctx.memory();
             memory.remove_temp::<Vec<MaraRect>>(published_pane_rects_key());
             memory.set_temp(key, now);
         };
@@ -514,9 +675,9 @@ pub const RAIL_INSET: f32 = crate::ribbon::EDGE_GAP + crate::ribbon::SIDE_BTN_SI
 /// the internal featureful ribbon renderer; returns `[true; 4]` when no
 /// ribbons have been drawn yet (conservative default — reserve
 /// space for ribbons on every side until we know better).
-pub(crate) fn published_ribbon_edges(ctx: &egui::Context) -> [bool; 4] {
-    crate::memory::MaraMemoryCtx::new(ctx)
-        .get_temp::<[bool; 4]>(egui::Id::new("mara_published_ribbon_edges"))
+pub(crate) fn published_ribbon_edges(ctx: &dyn crate::context::MaraCtx) -> [bool; 4] {
+    ctx.memory()
+        .get_temp::<[bool; 4]>(MaraId::new("mara_published_ribbon_edges"))
         .unwrap_or([true; 4])
 }
 
@@ -546,12 +707,18 @@ impl Pane {
 
     /// Override the backend-neutral layer for this pane.
     ///
-    /// Normal panes live in [`crate::layout::Layer::Background`] so
-    /// ribbon chrome stays above their shadows. Hosts can lift
-    /// persistent panes to [`crate::layout::Layer::Foreground`] when
-    /// they intentionally render over fullscreen/module overlays.
+    /// Normal panes live in [`crate::layout::Layer::Middle`] — the
+    /// docked-chrome band — so they always float above view bodies
+    /// and backdrops (Background) even when a click raises the view
+    /// within its own band, while ribbon chrome (Foreground) stays
+    /// above pane shadows. Hosts can lift persistent panes to
+    /// [`crate::layout::Layer::Foreground`] when they intentionally
+    /// render over fullscreen/module overlays.
     pub fn order(mut self, order: crate::layout::Layer) -> Self {
-        self.order = order;
+        self.order = match order {
+            crate::layout::Layer::Background => crate::layout::Layer::Middle,
+            other => other,
+        };
         self
     }
 
@@ -572,7 +739,7 @@ impl Pane {
             anchor,
             accent: accent.into(),
             resize: PaneResize::NONE,
-            order: crate::layout::Layer::Background,
+            order: crate::layout::Layer::Middle,
         }
     }
 
@@ -588,12 +755,14 @@ impl Pane {
     #[doc(hidden)]
     pub fn __internal_show<'spec>(
         self,
-        ctx: &egui::Context,
+        ctx: &dyn crate::context::MaraCtx,
         region: MaraRect,
         body: impl FnOnce(&mut PaneBody<'_, 'spec>),
     ) {
-        crate::enforce::__internal_enforce_defaults(ctx);
-        assert_pane_has_ribbon_button(ctx, self.id);
+        ctx.enforce_defaults();
+        if !pane_has_ribbon_button(ctx, self.id) {
+            return;
+        }
         let (align, offset) = layout::anchor_align(self.anchor);
         let area_id = self.id.with("pane2_area");
 
@@ -618,20 +787,16 @@ impl Pane {
         let pane_open_elapsed: f32 = {
             let frame_key = self.id.with("mara_pane_anim_frame");
             let state_key = self.id.with("mara_pane_anim_elapsed");
-            let frame_now = ctx.cumulative_pass_nr();
-            let last_frame: u64 = crate::memory::MaraMemoryCtx::new(ctx)
-                .get_temp(frame_key)
-                .unwrap_or(0);
-            let mut elapsed: f32 = crate::memory::MaraMemoryCtx::new(ctx)
-                .get_temp(state_key)
-                .unwrap_or(99.0);
+            let frame_now = MaraCtx::pass_nr(ctx);
+            let last_frame: u64 = MaraCtx::memory(ctx).get_temp(frame_key).unwrap_or(0);
+            let mut elapsed: f32 = MaraCtx::memory(ctx).get_temp(state_key).unwrap_or(99.0);
             if last_frame + 1 < frame_now {
                 elapsed = 0.0;
             }
-            let dt = crate::backend::egui::unstable_dt(ctx);
+            let dt = MaraCtx::dt(ctx);
             elapsed += dt;
             {
-                let mut memory = crate::memory::MaraMemoryCtx::new(ctx);
+                let mut memory = MaraCtx::memory(ctx);
                 memory.set_temp(state_key, elapsed);
                 memory.set_temp(frame_key, frame_now);
             };
@@ -649,7 +814,7 @@ impl Pane {
         // `Normal::show` (whose own `pane_id` field is the
         // CONTAINER's id, not Pane's) can find its parent pane.
         {
-            let mut memory = crate::memory::MaraMemoryCtx::new(ctx);
+            let mut memory = MaraCtx::memory(ctx);
             memory.set_temp(active_pane_key(), self.id);
             memory.set_temp(self.id.with("mara_pane_open_elapsed"), pane_open_elapsed);
             memory.set_temp(self.id.with("mara_pane_section_idx"), 0u32);
@@ -673,6 +838,7 @@ impl Pane {
         // auto-flow calculation further down (line ~565).
         let prev_cids_snapshot = published_container_cids(ctx, self.id);
         let prev_extra_flow_snapshot = published_body_extra_flow(ctx, self.id);
+        let prev_flow_deficit = pane_flow_deficit(ctx, self.id);
         if !prev_mins.is_empty() {
             if self.resize.flow && !horizontal_strip_pane {
                 let need_main: f32 = prev_mins.iter().sum();
@@ -704,11 +870,10 @@ impl Pane {
         // `state.size` (we lock it via set_min/max_size) and the
         // anchored corner stays pixel-pinned during the animation.
         let openness = body_openness(ctx, self.id);
-        // Container's collapsed outer size differs per theme (PRO
-        // uses section_padding 4×3 + outer_margin 3, GAME uses 6×8 +
-        // outer_margin 9 main / 1 cross). Compute from the active
-        // theme so the pane main lerp matches the container's
-        // actual rendered size on both axes.
+        // Folded container chrome along the flow axis, matching what
+        // `Normal::show` allocates: title strip, section padding, outer
+        // margins and frame stroke. An open container adds its body
+        // flow plus the title/body gap on top (`container_open_flow`).
         let theme_now = style::theme();
         let pad = style::section_padding();
         let container_pad_flow = if horizontal_strip {
@@ -718,8 +883,16 @@ impl Pane {
         };
         let container_outer_main_total = (theme_now.section_outer_margin_flow_title as f32)
             + (theme_now.section_outer_margin_flow_body as f32);
-        let body_flow_collapsed =
-            CONTAINER_TITLE_THICKNESS + container_pad_flow + container_outer_main_total;
+        let container_stroke_flow = if style::section_show_frame() {
+            theme_now.border_width * 2.0
+        } else {
+            0.0
+        };
+        let body_flow_collapsed = theme_now.container.title_zone_thickness
+            + container_pad_flow
+            + container_outer_main_total
+            + container_stroke_flow;
+        let container_gap_open = theme_now.container.title_body_gap_half * 2.0;
         // Extra space `lay_out_flex` allocates between the pane
         // title strip and the first container — keeps that gap in
         // sync between the layout pass and the size computation.
@@ -728,166 +901,97 @@ impl Pane {
             + pane_title_to_body_pad
             + body_flow_collapsed
             + PANE_FRAME_CHROME;
-        // Pane main when fully open = title + body + frame chrome.
-        //
-        // When `PaneResize::flow` is ON, the user drives this with
-        // the inner-edge resize handle and the body slot is split
-        // evenly across containers.
-        //
-        // When `PaneResize::flow` is OFF — the new "individually
-        // resizable containers" model — the pane auto-sizes from
-        // the previous frame's per-container body-flow registrations,
-        // i.e. each container's persisted flow PLUS the per-
-        // container chrome (title strip + padding + outer margins).
-        // Empty accumulator (first frame, no body callback yet) →
-        // fall back to `DEFAULT_FLOW_OPEN` so the pane appears at
-        // a reasonable size before the body has had a chance to
-        // run.
+        // Body flow: the user's drag with `PaneResize::flow`, else the
+        // previous frame's containers at their current fold animation,
+        // plus drag-handle strips. First frame falls back to
+        // `DEFAULT_FLOW_OPEN`.
         let body_flow_open = if self.resize.flow {
             user_flow(ctx, self.id)
         } else if prev_cids_snapshot.is_empty() {
             DEFAULT_FLOW_OPEN
         } else {
-            let chrome_per_container = body_flow_collapsed;
             let sum_body: f32 = prev_cids_snapshot
                 .iter()
-                .map(|cid| crate::container::container_flow(ctx, *cid, horizontal_strip))
+                .map(|cid| container_open_flow(ctx, *cid, horizontal_strip, container_gap_open))
                 .sum();
             sum_body
-                + chrome_per_container * (prev_cids_snapshot.len() as f32)
+                + body_flow_collapsed * (prev_cids_snapshot.len() as f32)
                 + prev_extra_flow_snapshot
         };
-        let expanded_flow =
-            TITLE_STRIP_THICKNESS + pane_title_to_body_pad + body_flow_open + PANE_FRAME_CHROME;
+        // `lay_out_flex` compares this prediction with the body it
+        // actually lays out; any shortfall is added back next frame.
+        let auto_flow = !self.resize.flow && !prev_cids_snapshot.is_empty();
+        {
+            let predicted_key = self.id.with("mara_pane_predicted_body");
+            let mut memory = MaraCtx::memory(ctx);
+            if auto_flow {
+                memory.set_temp(predicted_key, (prev_cids_snapshot.clone(), body_flow_open));
+            } else {
+                memory.remove_temp::<(Vec<Id>, f32)>(predicted_key);
+            }
+        }
+        let flow_deficit = if auto_flow { prev_flow_deficit } else { 0.0 };
+        let expanded_flow = TITLE_STRIP_THICKNESS
+            + pane_title_to_body_pad
+            + body_flow_open
+            + flow_deficit
+            + PANE_FRAME_CHROME;
         let mut pane_flow = collapsed_flow + (expanded_flow - collapsed_flow) * openness;
 
-        // ── Auto-fold-tail when the pane would overflow the screen ──
-        //
-        // Hard rule: a pane MUST NOT exceed the screen extent along
-        // its flow axis (otherwise `Middle`-anchored panes center
-        // the overflow off-screen and the user can't see the title /
-        // header strip). On a frame where the natural pane flow
-        // exceeds `screen_flow_avail`, walk the previous frame's
-        // container list from END to START and force-fold the
-        // tail containers (write `body_open = false`) until the
-        // natural sum fits. The user can drag the corresponding
-        // ribbon button to that container to unfold it; if doing so
-        // exceeds the budget, the next frame's walk will fold a
-        // different tail container to compensate.
         // Anchor within the caller's region (the node's rect). For the
         // root this is the whole window, so the intersection with the
         // published chrome bounds reproduces the window-level anchoring;
         // for a cell it clamps the pane inside the cell.
         let screen = region.intersect(
-            ctx.data(|d| d.get_temp::<MaraRect>(crate::ribbon::chrome::chrome_bounds_key()))
-                .unwrap_or_else(|| crate::backend::egui::context_content_rect(ctx)),
+            MaraCtx::memory(ctx)
+                .get_temp::<MaraRect>(crate::ribbon::chrome::chrome_bounds_key())
+                .unwrap_or_else(|| MaraCtx::content_rect(ctx)),
         );
-        // Reserve `RAIL_INSET` on the pane's OWN rail (its title
-        // strip lives there); on the opposite side only reserve
-        // when there's actually a ribbon hosted there. The
-        // `published_ribbon_edges` registry is filled every frame
-        // by the ribbon renderer so the pane always sees current
-        // truth.
+        // Flow budget: from the pane's anchored edge (the same inset
+        // `anchor_align` places it at) to the far edge, less the far
+        // ribbon's inset, stopping above the own rail's other-zone
+        // buttons.
         let edges = published_ribbon_edges(ctx);
         let [has_left, has_right, has_top, has_bottom] = edges;
-        let title_side = self.anchor.title_side();
-        let (own_present, opposite_present) = match title_side {
-            anchor::TitleSide::Left => (has_left, has_right),
-            anchor::TitleSide::Right => (has_right, has_left),
-            anchor::TitleSide::Top => (has_top, has_bottom),
-            anchor::TitleSide::Bottom => (has_bottom, has_top),
-        };
-        // Reserve exactly one ribbon button row. Do not reserve a
-        // second hidden "breathing" row: Pane2 should be allowed to
-        // grow close to the opposite ribbon/button bar.
-        let own_inset = if own_present { RAIL_INSET } else { 0.0 };
-        let opp_inset = if opposite_present { RAIL_INSET } else { 0.0 };
-        let screen_flow_avail = if horizontal_strip {
-            (screen.height() - own_inset - opp_inset).max(MIN_USER_FLOW)
-        } else {
-            (screen.width() - own_inset - opp_inset).max(MIN_USER_FLOW)
-        };
-        if !self.resize.flow && !prev_cids_snapshot.is_empty() && pane_flow > screen_flow_avail {
+        let blockers = other_zone_button_rects(ctx, self.anchor, screen);
+        let screen_flow_avail =
+            layout::pane_flow_budget(self.anchor, screen, edges, &blockers).max(MIN_USER_FLOW);
+
+        // ── Auto-fold when the pane would overflow its budget ──
+        //
+        // Fold open containers, oldest toggle first, until the open
+        // ones fit. The most recently toggled one always stays open.
+        // Folds animate, so `pane_flow` keeps this frame's value and
+        // the body scrolls until the animation settles.
+        if auto_flow && pane_flow > screen_flow_avail {
             let title_chrome = TITLE_STRIP_THICKNESS + pane_title_to_body_pad + PANE_FRAME_CHROME;
-            let chrome_per_container = body_flow_collapsed;
-            let mut budget = (screen_flow_avail
+            let budget = screen_flow_avail
                 - title_chrome
                 - prev_extra_flow_snapshot
-                - chrome_per_container * prev_cids_snapshot.len() as f32)
-                .max(0.0);
-            // Collect every currently-open container with its
-            // `container_flow` and the most recent user-toggle
-            // timestamp. Sort DESCENDING by timestamp — the user's
-            // most recent unfold is at the front, so it gets first
-            // dibs on the budget. Older opens (and never-toggled
-            // containers, which carry timestamp 0.0 by default) are
-            // the ones that yield space when overflow forces a
-            // re-fold.
-            let mut opens: Vec<(Id, f64, f32)> = prev_cids_snapshot
+                - flow_deficit
+                - body_flow_collapsed * prev_cids_snapshot.len() as f32;
+            let opens: Vec<FoldCandidate> = prev_cids_snapshot
                 .iter()
-                .filter_map(|cid| {
-                    let open: bool = ctx
-                        .data_mut(|d| d.get_persisted::<bool>(cid.with("body_open")))
-                        .unwrap_or(true);
-                    if !open {
-                        return None;
-                    }
-                    let touched_at = body_open_touched_at(ctx, *cid);
-                    let cf = crate::container::container_flow(ctx, *cid, horizontal_strip);
-                    Some((*cid, touched_at, cf))
+                .filter(|cid| {
+                    MaraCtx::memory(ctx)
+                        .get_persisted::<bool>(cid.with("body_open"))
+                        .unwrap_or(true)
+                })
+                .map(|cid| FoldCandidate {
+                    id: *cid,
+                    touched_at: body_open_touched_at(ctx, *cid),
+                    cost: crate::container::container_flow(ctx, *cid, horizontal_strip)
+                        + container_gap_open,
                 })
                 .collect();
-            opens.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-            for (idx, (cid, _, cf)) in opens.iter().enumerate() {
-                if idx == 0 {
-                    // Keep one container open. If this last open bar
-                    // exceeds the pane budget, the body ScrollArea below
-                    // clips/scrolls it instead of closing everything.
-                    budget = (budget - cf).max(0.0);
-                    continue;
-                }
-                if budget >= *cf {
-                    budget -= cf;
-                } else {
-                    // Older-toggled (or never-toggled) open
-                    // container — fold to free space for the
-                    // newer-toggled ones above.
-                    crate::memory::MaraMemoryCtx::new(ctx)
-                        .set_persisted(cid.with("body_open"), false);
-                }
+            for cid in plan_auto_fold(budget, opens) {
+                MaraCtx::memory(ctx).set_persisted(cid.with("body_open"), false);
             }
-            // Recompute pane_flow with the folds applied. After the
-            // walk every open container fits in `budget`; the flow
-            // sum is guaranteed ≤ screen_flow_avail (with one frame
-            // of lag on the fold-state animation, which is fine
-            // since `body_openness` interpolates).
-            let sum_body: f32 = prev_cids_snapshot
-                .iter()
-                .map(|cid| {
-                    let open: bool = ctx
-                        .data_mut(|d| d.get_persisted::<bool>(cid.with("body_open")))
-                        .unwrap_or(true);
-                    if open {
-                        crate::container::container_flow(ctx, *cid, horizontal_strip)
-                    } else {
-                        0.0
-                    }
-                })
-                .sum();
-            let new_expanded = TITLE_STRIP_THICKNESS
-                + pane_title_to_body_pad
-                + sum_body
-                + chrome_per_container * prev_cids_snapshot.len() as f32
-                + prev_extra_flow_snapshot
-                + PANE_FRAME_CHROME;
-            pane_flow = collapsed_flow + (new_expanded - collapsed_flow) * openness;
         }
-        // Final safety clamp — even with auto-folds we never let the
-        // pane outgrow the screen. Clip is a no-op when the auto-fold
-        // walk above already brought us under budget; it catches the
-        // first-frame case where prev_cids_snapshot was empty.
+        // Whatever still overflows (fold animations in flight, a lone
+        // section taller than the budget) scrolls inside the body.
         let body_needs_flow_scroll = pane_flow > screen_flow_avail;
-        crate::memory::MaraMemoryCtx::new(ctx).set_temp(
+        MaraCtx::memory(ctx).set_temp(
             self.id.with("mara_pane_body_scroll_enabled"),
             body_needs_flow_scroll,
         );
@@ -922,8 +1026,7 @@ impl Pane {
         // perpendicular ribbon — the "going above the ribbon"
         // symptom. We keep `user_span` unmodified so the user's
         // drag intent survives a window-shrink + re-enlarge cycle.
-        crate::memory::MaraMemoryCtx::new(ctx)
-            .set_temp::<f32>(self.id.with("mara_pane_effective_span"), span_outer);
+        MaraCtx::memory(ctx).set_temp::<f32>(self.id.with("mara_pane_effective_span"), span_outer);
 
         let outer_size = layout::pane_outer_size(horizontal_strip, span_outer, pane_flow);
 
@@ -957,15 +1060,14 @@ impl Pane {
         // when containers fold; we capture its real rendered rect
         // below so the handles track the painted edge instead of
         // the (always-expanded) Area bounds.
-        let pane_rect_mara = placement.rect;
-        let pane_rect: egui::Rect = pane_rect_mara.into();
-        let outer_size_egui: egui::Vec2 = outer_size.into();
+        let pane_rect = placement.rect;
+        let pane_rect_mara = pane_rect;
         // Capture fields needed AFTER `self` is moved into the Area's
         // body closure (which moves `self` into `lay_out_flex`).
         let pane_id = self.id;
         let pane_anchor = self.anchor;
         let pane_resize = self.resize;
-        let pane_accent: Color32 = self.accent.into();
+        let pane_accent: MaraColor32 = self.accent.into();
         let pane_title_dbg = self.title.clone();
         // Slot for the Frame's actual rendered rect. The pane Area
         // closure writes this after `Frame::show` returns; the
@@ -974,7 +1076,7 @@ impl Pane {
         // pane) follows the Frame as it shrinks / grows with the
         // open / fold animation. Cross handles also benefit when
         // span-axis is animating.
-        let painted_rect = std::cell::Cell::new(pane_rect);
+        let painted_rect = std::cell::Cell::new(MaraRect::from(pane_rect));
         // Hierarchical clip rect — taken from the PREVIOUS frame's
         // painted rect (persisted via ctx data) unioned with this
         // frame's `pane_rect`. Reasons:
@@ -997,71 +1099,90 @@ impl Pane {
         // — only growth that exceeds last frame's paint by more than
         // one frame would clip, which is the rare transient.
         let clip_key = pane_id.with("mara_pane_painted_rect_for_clip");
-        let last_painted_rect: MaraRect = ctx
-            .data(|d| d.get_temp::<MaraRect>(clip_key))
+        let last_painted_rect: MaraRect = MaraCtx::memory(ctx)
+            .get_temp::<MaraRect>(clip_key)
             .unwrap_or(pane_rect_mara);
-        let pane_clip_rect = pane_rect_mara.union(last_painted_rect);
+        // Bound the clip to the pane's full flow budget so content that
+        // outgrows the estimate never paints past the screen.
+        let limit_rect = layout::PanePlacement::new(
+            align,
+            offset,
+            screen,
+            layout::pane_outer_size(horizontal_strip, span_outer, screen_flow_avail),
+        )
+        .rect;
+        let pane_clip_rect = pane_rect_mara.union(last_painted_rect).intersect(limit_rect);
 
-        crate::backend::egui::area_for_host(AreaHost::new(area_id.into(), pane_pos, self.order))
-            // `Order::Background` keeps the pane's drop shadow
-            // BELOW the ribbon buttons — buttons paint over any
-            // shadow bleed. Removes the need for a tight clip_rect
-            // (which was slicing the title strip on the rail-side
-            // edge by a couple of pixels).
-            .movable(false)
-            .interactable(true)
-            .fade_in(false)
-            .default_size(outer_size_egui)
-            .show(ctx, |outer_ui| {
-                // egui's Area constrains its content_ui.max_rect to
-                // `state.size` from the PREVIOUS frame. During
-                // animation that prev value is smaller than this
-                // frame's `outer_size`, so anything that uses
-                // `available_size` (e.g. `allocate_ui_with_layout`)
-                // would clamp content too small and clip it.
-                // Workaround: bypass `outer_ui` and create a child
-                // with EXPLICIT `max_rect = pane_rect`, then
-                // `allocate_rect` on the parent so its `min_rect`
-                // reaches `pane_rect` and `state.size` (next frame)
-                // matches our computed value.
-                // Same rect as the outer `pane_rect`; recompute here
-                // from `outer_ui.cursor()` so the inside of the
-                // closure doesn't depend on the outer capture order.
-                let pane_rect = egui::Rect::from_min_size(outer_ui.cursor().min, outer_size_egui);
-                // Use the title-at-end layout DIRECTLY on the outer
-                // child_ui — not via a `with_layout(bottom_up)` inside
-                // a top_down parent. egui tracks `min_rect` by union
-                // with the parent's initial cursor (top-left for
-                // top_down). When the title strip lands at the far
-                // edge (Bottom/Right rails) and the body folds to 0,
-                // the allocated strip sits at the bottom/right of
-                // `pane_rect`. Union-ed with the parent's top-left
-                // cursor, the resulting min_rect spans the FULL pane
-                // height/width — and the Frame paints across the
-                // whole pane instead of shrinking. Pushing the
-                // bottom_up/right_to_left layout one level up so the
-                // child_ui's cursor starts at the anchor edge keeps
-                // min_rect tight to the strip.
-                let title_at_end = title_side.is_at_end();
-                let direction = if horizontal_strip {
-                    if title_at_end {
-                        crate::layout::StackDirection::BottomUp
-                    } else {
-                        crate::layout::StackDirection::TopDown
-                    }
-                } else if title_at_end {
-                    crate::layout::StackDirection::RightToLeft
+        // The background layer keeps the pane's drop shadow BELOW the
+        // ribbon buttons — buttons paint over any shadow bleed, which
+        // removes the need for a tight clip that was slicing the title
+        // strip on the rail-side edge. `no_fade_in` because the pane
+        // runs its own staggered open animation; `default_size` because
+        // without it the surface sizes from the PREVIOUS frame's
+        // content, which lags this frame's while the open animation is
+        // still growing, clamping and clipping anything laid out
+        // against the available size.
+        let host = AreaHost::new(area_id, pane_pos, self.order)
+            .no_fade_in()
+            .default_size(outer_size);
+        // `self` and `body` are move-only, so they travel into the
+        // surface through a capture rather than a borrow.
+        let mut pending = Some((self, body));
+        MaraCtx::area(ctx, host, &mut |outer_mara| {
+            let Some((me, body)) = pending.take() else {
+                return;
+            };
+            // egui's Area constrains its content_ui.max_rect to
+            // `state.size` from the PREVIOUS frame. During
+            // animation that prev value is smaller than this
+            // frame's `outer_size`, so anything that uses
+            // `available_size` (e.g. `allocate_ui_with_layout`)
+            // would clamp content too small and clip it.
+            // Workaround: bypass `outer_ui` and create a child
+            // with EXPLICIT `max_rect = pane_rect`, then
+            // `allocate_rect` on the parent so its `min_rect`
+            // reaches `pane_rect` and `state.size` (next frame)
+            // matches our computed value.
+            // Same rect as the outer `pane_rect`; recompute here
+            // from `outer_ui.cursor()` so the inside of the
+            // closure doesn't depend on the outer capture order.
+            let pane_rect = MaraRect::from_min_size(outer_mara.cursor(), outer_size);
+            // Use the title-at-end layout DIRECTLY on the outer
+            // child_ui — not via a `with_layout(bottom_up)` inside
+            // a top_down parent. egui tracks `min_rect` by union
+            // with the parent's initial cursor (top-left for
+            // top_down). When the title strip lands at the far
+            // edge (Bottom/Right rails) and the body folds to 0,
+            // the allocated strip sits at the bottom/right of
+            // `pane_rect`. Union-ed with the parent's top-left
+            // cursor, the resulting min_rect spans the FULL pane
+            // height/width — and the Frame paints across the
+            // whole pane instead of shrinking. Pushing the
+            // bottom_up/right_to_left layout one level up so the
+            // child_ui's cursor starts at the anchor edge keeps
+            // min_rect tight to the strip.
+            let title_at_end = title_side.is_at_end();
+            let direction = if horizontal_strip {
+                if title_at_end {
+                    crate::layout::StackDirection::BottomUp
                 } else {
-                    crate::layout::StackDirection::LeftToRight
+                    crate::layout::StackDirection::TopDown
+                }
+            } else if title_at_end {
+                crate::layout::StackDirection::RightToLeft
+            } else {
+                crate::layout::StackDirection::LeftToRight
+            };
+            let region = crate::layout::ChildRegion::new(
+                pane_rect,
+                direction,
+                crate::layout::StackAlign::Min,
+            );
+            let mut pending_body = Some((me, body));
+            outer_mara.in_region(region, &mut |mara| {
+                let Some((me, body)) = pending_body.take() else {
+                    return;
                 };
-                let mut child_ui = crate::backend::egui::child_ui_for_region(
-                    outer_ui,
-                    crate::layout::ChildRegion::new(
-                        pane_rect.into(),
-                        direction,
-                        crate::layout::StackAlign::Min,
-                    ),
-                );
                 // ── Hierarchical clip invariant (root) ──
                 //
                 // The pane Area is created at `Order::Background` with
@@ -1078,91 +1199,93 @@ impl Pane {
                 // `set_clip_rect` so we INTERSECT with whatever egui
                 // set on the Area — `set_` can grow the clip and is
                 // footgunny per egui docs.
-                child_ui.shrink_clip_rect(pane_clip_rect.into());
-                {
-                    let ui = &mut child_ui;
+                // Clipping INTERSECTS the parent's, anchoring the top
+                // of the hierarchy: every descendant then has
+                // `clip ⊆ pane_clip_rect` automatically, so a pod whose
+                // content overflows cannot paint past the pane's
+                // painted bounds.
+                mara.clipped(pane_clip_rect, |mara| {
                     let theme = style::theme();
-                    let fill: Color32 = if theme.pane.fill_visible {
-                        style::fill_for(style::FillRole::Pane, pane_accent).into()
+                    let fill = if theme.pane.fill_visible {
+                        style::fill_for(style::FillRole::Pane, pane_accent)
                     } else {
-                        Color32::TRANSPARENT
+                        MaraColor32::TRANSPARENT
                     };
-                    let shadow = egui::epaint::Shadow {
+                    let spec = crate::style::FrameSpec::new(
+                        fill,
+                        style::stroke_for(style::StrokeRole::WidgetBorder, pane_accent),
+                        style::radius_for(style::RadiusRole::Pane),
+                        crate::style::MarginSpec::symmetric(
+                            PANE_INNER_MARGIN as i8,
+                            PANE_INNER_MARGIN as i8,
+                        ),
+                    )
+                    .with_shadow(crate::style::FrameShadowSpec {
                         offset: [0, theme.pane.shadow_y],
                         blur: theme.pane.shadow_blur,
                         spread: 0,
-                        color: Color32::from_black_alpha(115),
-                    };
-                    let frame_response = egui::Frame {
-                        inner_margin: egui::Margin::same(PANE_INNER_MARGIN as i8),
-                        outer_margin: egui::Margin::ZERO,
-                        fill,
-                        stroke: style::stroke_for(style::StrokeRole::WidgetBorder, pane_accent)
-                            .into(),
-                        corner_radius: style::radius_for(style::RadiusRole::Pane).into(),
-                        shadow,
-                    }
-                    .show(ui, |ui| {
-                        self.lay_out_flex(ui, body);
+                        color: MaraColor32::from_black_alpha(115),
                     });
-                    // The Frame's response.rect IS the painted outer
-                    // rect (= content_min_rect + frame margins). Use it
-                    // to position the resize handles below — they sit
-                    // exactly on the painted edge, even when fold
-                    // animation has shrunk the frame.
-                    painted_rect.set(frame_response.response.rect);
-                    // Persist this frame's actual painted rect so next
-                    // frame's `pane_clip_rect` (= pane_rect ∪
-                    // last_painted_rect) accurately bounds the body —
-                    // critical for the first frame after content grows,
-                    // where `pane_rect` lags by one frame and would
-                    // otherwise slice the body's far edge.
-                    outer_ui.ctx().data_mut(|d| {
-                        d.insert_temp(clip_key, MaraRect::from(frame_response.response.rect));
+                    // The frame's rect IS the painted outer rect
+                    // (content min_rect + margins). The resize handles
+                    // sit exactly on that painted edge, even when the
+                    // fold animation has shrunk it.
+                    let (frame_rect, ()) = mara.framed_with(spec, |mara| {
+                        me.lay_out_flex(mara, body);
                     });
-                }
-                // Publish this pane's painted rect to the global
-                // ctx-data list so host integrations (e.g.
-                // `bevy_mara::EguiInputAbsorbPlugin`) can ask
-                // "is the cursor over any mara pane?" without
-                // going through egui's quirky `layer_id_at`.
-                maybe_reset_published_pane_rects(outer_ui.ctx());
-                publish_pane_rect(outer_ui.ctx(), MaraRect::from(painted_rect.get()));
-                // Custom debug inspector — paint the pane's frame
-                // rect with a `Pane[<title>]` label when the user
-                // toggles the inspector and hovers inside.
-                crate::debug::tag(
-                    outer_ui,
-                    painted_rect.get(),
-                    format!("Pane[{}]", pane_title_dbg),
-                );
-                let _ = outer_ui.allocate_rect(pane_rect, egui::Sense::hover());
-
-                // ── Resize handles (in-Area) ──
-                //
-                // Registered directly on the pane's own `outer_ui`
-                // (`Order::Background`) instead of a separate Area.
-                // Within a single layer, egui's hit-test prefers
-                // LATER-registered widgets — so these `interact`
-                // calls (added after the Frame's title widgets)
-                // win for clicks at the handle rects, while clicks
-                // at non-handle positions fall through to the
-                // earlier-registered title widgets and trigger the
-                // fold toggle as expected. Putting the handles in a
-                // separate `Order::Middle` Area broke this on
-                // corner-anchored panes whose Area state collapsed
-                // to a degenerate clip.
-                if pane_resize.flow || pane_resize.span {
-                    paint_resize_handles_inline(
-                        outer_ui,
-                        pane_id,
-                        pane_accent,
-                        pane_anchor,
-                        pane_resize,
-                        painted_rect.get(),
-                    );
-                }
+                    let frame_rect = frame_rect.intersect(limit_rect);
+                    painted_rect.set(frame_rect);
+                    // Persist it so next frame's `pane_clip_rect`
+                    // (= pane_rect ∪ last_painted_rect) still bounds the
+                    // body on the first frame after content grows, where
+                    // `pane_rect` lags and would slice the far edge.
+                    mara.ctx().memory().set_temp(clip_key, frame_rect);
+                });
             });
+            // Publish this pane's painted rect to the global
+            // ctx-data list so host integrations (e.g.
+            // `bevy_mara::EguiInputAbsorbPlugin`) can ask
+            // "is the cursor over any mara pane?" without
+            // going through egui's quirky `layer_id_at`.
+            maybe_reset_published_pane_rects(outer_mara.ctx());
+            publish_pane_rect(outer_mara.ctx(), painted_rect.get());
+            // Custom debug inspector — paint the pane's frame
+            // rect with a `Pane[<title>]` label when the user
+            // toggles the inspector and hovers inside.
+            crate::debug::tag(
+                outer_mara.ctx(),
+                painted_rect.get().into(),
+                format!("Pane[{}]", pane_title_dbg),
+            );
+            // Claim the pane's full rect on the parent so the surface
+            // reports the size we computed rather than the content's.
+            let _ = outer_mara.reserve_rect(pane_rect, crate::layout::Sense::Hover);
+
+            // ── Resize handles (in-Area) ──
+            //
+            // Registered directly on the pane's own `outer_ui`
+            // (`Order::Background`) instead of a separate Area.
+            // Within a single layer, egui's hit-test prefers
+            // LATER-registered widgets — so these `interact`
+            // calls (added after the Frame's title widgets)
+            // win for clicks at the handle rects, while clicks
+            // at non-handle positions fall through to the
+            // earlier-registered title widgets and trigger the
+            // fold toggle as expected. Putting the handles in a
+            // separate `Order::Middle` Area broke this on
+            // corner-anchored panes whose Area state collapsed
+            // to a degenerate clip.
+            if pane_resize.flow || pane_resize.span {
+                paint_resize_handles_inline(
+                    outer_mara,
+                    pane_id,
+                    pane_accent.into(),
+                    pane_anchor,
+                    pane_resize,
+                    painted_rect.get(),
+                );
+            }
+        });
     }
 
     /// Inner flex layout: split the pane Ui into a fixed-thickness
@@ -1176,7 +1299,11 @@ impl Pane {
     /// pane is exactly tall/wide enough to fit the title strip plus
     /// whatever the body closure allocates. Empty body → pane is
     /// just the strip.
-    fn lay_out_flex<'spec>(self, ui: &mut egui::Ui, body: impl FnOnce(&mut PaneBody<'_, 'spec>)) {
+    fn lay_out_flex<'spec>(
+        self,
+        mara: &mut crate::MaraUi<'_>,
+        body: impl FnOnce(&mut PaneBody<'_, 'spec>),
+    ) {
         let Pane {
             id,
             title,
@@ -1185,7 +1312,7 @@ impl Pane {
             resize,
             order: _,
         } = self;
-        let accent: Color32 = accent.into();
+        let accent: MaraColor32 = accent.into();
         let title_side = anchor.title_side();
         let horizontal_strip = title_side.is_horizontal_strip();
 
@@ -1198,12 +1325,13 @@ impl Pane {
         // with the Area's clipped rect. Falling back to the raw
         // `user_span` (or `PANE_OUTER_SPAN`) only matters on the
         // first frame before `show` has published.
-        let span_outer = ui
+        let span_outer = mara
             .ctx()
-            .data(|d| d.get_temp::<f32>(id.with("mara_pane_effective_span")))
+            .memory()
+            .get_temp::<f32>(id.with("mara_pane_effective_span"))
             .unwrap_or_else(|| {
                 if resize.span {
-                    user_span(ui.ctx(), id)
+                    user_span(mara.ctx(), id)
                 } else {
                     PANE_OUTER_SPAN
                 }
@@ -1218,16 +1346,24 @@ impl Pane {
         );
 
         // Plain-egui layout (no flex). Cross axis is locked via
-        // `set_max_*` so `ui.available_*` is stable for child
-        // widgets; flow axis is content-driven by `body(ui)`. Title
+        // `set_max_*` so `mara.available_*` is stable for child
+        // widgets; flow axis is content-driven by `body(mara)`. Title
         // strip and body are placed in the natural reading order
         // dictated by `title_at_end` (decided by internal pane rendering when
         // building the outer child_ui's layout).
         let title_text = title.clone();
-        let paint_title_strip = |ui: &mut egui::Ui| {
-            let alloc_rect: egui::Rect =
-                crate::backend::egui::reserve_pane_title_slot(ui, flex_spec).into();
-            title::paint_pane_title(ui, alloc_rect, id, &title_text, anchor, accent);
+        let paint_title_strip = |mara: &mut crate::MaraUi<'_>| {
+            let alloc_rect = mara.reserve_title_slot(flex_spec);
+            {
+                title::paint_pane_title(
+                    mara,
+                    alloc_rect.into(),
+                    id,
+                    &title_text,
+                    anchor,
+                    accent.into(),
+                );
+            }
         };
 
         // The outer child_ui already carries the correct layout
@@ -1236,13 +1372,13 @@ impl Pane {
         // edge — see the comment there for why we *don't* rewrap in
         // a `with_layout(bottom_up)` here. We just clamp the cross
         // axis and zero the item-spacing.
-        crate::backend::egui::apply_pane_flex_spec(ui, flex_spec);
+        mara.apply_flex_spec(flex_spec);
         // SAME order in both directions: title FIRST (lands at the
         // anchor edge thanks to the layout direction), body SECOND
         // (fills outward). Reversed layouts handle visual placement
         // automatically — `bottom_up` puts first-allocated at the
         // BOTTOM, `right_to_left` at the RIGHT, etc.
-        paint_title_strip(ui);
+        paint_title_strip(mara);
         // Extra breathing space between the pane title strip and the
         // FIRST container. The container's own
         // `section_outer_margin_flow_title` already gives a small gap
@@ -1252,24 +1388,26 @@ impl Pane {
         // strip and the body callback, hits exactly the first container
         // (no other paint runs between title and body) and leaves
         // every subsequent container's stacking gap unchanged.
-        crate::backend::egui::add_pane_body_gap(ui, flex_spec);
+        if flex_spec.body_gap > 0.0 {
+            mara.add_space(crate::layout::SpaceSpec::vertical(flex_spec.body_gap));
+        }
         let mut body = Some(body);
-        let mut render_body = |ui: &mut egui::Ui| {
+        let mut render_body = |mara: &mut crate::MaraUi<'_>| {
             // Reset per-frame drag bookkeeping (current cache + section
             // idx counter). Snapshot from prev frame stays available
             // for size lookups.
-            drag::begin_frame(ui.ctx(), id);
-            dots::clear_container_dot_rects(ui.ctx(), id);
+            drag::begin_frame(mara.ctx(), id);
+            dots::clear_container_dot_rects(mara.ctx(), id);
 
             // Update cursor BEFORE body runs so `Normal::show`'s
             // target_idx computation sees this frame's cursor.
-            let pre_body_drag = drag::state(ui.ctx(), id);
+            let pre_body_drag = drag::state(mara.ctx(), id);
             if let (Some(item), Some(pos)) = (
                 pre_body_drag.item,
-                crate::backend::egui::pointer_interact_pos(ui.ctx()).map(Into::into),
+                MaraCtx::input(mara.ctx()).interact_pointer.map(Into::into),
             ) {
                 drag::set_drag(
-                    ui.ctx(),
+                    mara.ctx(),
                     id,
                     drag::DragState {
                         item: Some(item),
@@ -1282,8 +1420,13 @@ impl Pane {
             // user closure only sees the typed API, never the raw Ui.
             // After the closure returns, `PaneBody::finish` dispatches
             // the accumulated container specs through `render_containers`.
-            tab_drag::begin_frame(ui.ctx(), id);
-            let mut pane_body = PaneBody::new(ui, id, anchor, accent);
+            tab_drag::begin_frame(mara.ctx(), id.into());
+            let mut pane_body = PaneBody::new(
+                crate::MaraUi::over(mara.backend_mut(), accent),
+                id,
+                anchor,
+                accent.into(),
+            );
             let body = body
                 .take()
                 .expect("pane body renderer must only be called once");
@@ -1301,13 +1444,14 @@ impl Pane {
             // container (target == total non-dragged), paint the ghost
             // gap inline at the end of the body layout. The inline gaps
             // inside `Normal::show` handle every other position.
-            let drag_state = drag::state(ui.ctx(), id);
+            let drag_state = drag::state(mara.ctx(), id);
             if let Some(dragged_id) = drag_state.item
-                && !drag::ghost_gap_suppressed(ui.ctx(), id)
+                && !drag::ghost_gap_suppressed(mara.ctx(), id)
             {
-                let snap = drag::target_cache(ui.ctx(), id);
-                let total = drag::current_cache(ui.ctx(), id).len();
-                let cursor = crate::backend::egui::pointer_interact_pos(ui.ctx())
+                let snap = drag::target_cache(mara.ctx(), id);
+                let total = drag::current_cache(mara.ctx(), id).len();
+                let cursor = MaraCtx::input(mara.ctx())
+                    .interact_pointer
                     .map(Into::into)
                     .or(drag_state.cursor);
                 if let Some(c) = cursor {
@@ -1317,7 +1461,12 @@ impl Pane {
                     if target_idx >= total
                         && let Some(entry) = drag::dragged_entry(&snap, dragged_id)
                     {
-                        drag::paint_ghost_gap_entry_inline(ui, entry, accent, horizontal_stack);
+                        drag::paint_ghost_gap_entry_inline(
+                            mara,
+                            entry,
+                            accent.into(),
+                            horizontal_stack,
+                        );
                     }
                 }
             }
@@ -1326,49 +1475,48 @@ impl Pane {
             //
             // current cache (this frame's renders) + dragged entry
             // carried forward from prev snapshot.
-            drag::finalize_snapshot(ui.ctx(), id);
+            drag::finalize_snapshot(mara.ctx(), id);
 
             // ── Floating preview + cursor + release commit ──
             if let Some(dragged_id) = drag_state.item {
-                let snap = drag::target_cache(ui.ctx(), id);
-                let cursor = crate::backend::egui::pointer_interact_pos(ui.ctx())
+                let snap = drag::target_cache(mara.ctx(), id);
+                let cursor = MaraCtx::input(mara.ctx())
+                    .interact_pointer
                     .map(Into::into)
                     .or(drag_state.cursor);
                 if let Some(c) = cursor {
-                    drag::paint_drag_preview(ui.ctx(), id, &snap, dragged_id, c, accent);
-                    crate::backend::egui::set_cursor_icon_for_ui(
-                        ui,
-                        crate::layout::CursorIcon::Grabbing,
-                    );
+                    drag::paint_drag_preview(mara.ctx(), id, &snap, dragged_id, c, accent.into());
+                    mara.set_cursor_icon(crate::layout::CursorIcon::Grabbing);
                 }
 
-                if crate::backend::egui::pointer_any_released(ui.ctx()) {
+                if MaraCtx::input(mara.ctx()).any_released {
                     if let Some(c) = cursor {
                         let cursor_axis = if horizontal_stack { c.x } else { c.y };
                         let target_idx =
                             drag::compute_target(&snap, dragged_id, cursor_axis, horizontal_stack);
                         let defaults: Vec<Id> = snap.iter().map(|e| e.id).collect();
-                        let mut order = drag::section_order_for(ui.ctx(), id, &defaults);
+                        let mut order = drag::section_order_for(mara.ctx(), id, &defaults);
                         order.retain(|cid| *cid != dragged_id);
                         let clamped = target_idx.min(order.len());
                         order.insert(clamped, dragged_id);
-                        drag::set_section_order(ui.ctx(), id, order);
+                        drag::set_section_order(mara.ctx(), id, order);
                     }
-                    drag::clear_drag(ui.ctx(), id);
+                    drag::clear_drag(mara.ctx(), id);
                 }
             }
 
             // ── Tab drag: preview + commit-on-release ──
-            if let Some(tab_drag_state) = tab_drag::drag_state(ui.ctx(), id) {
-                let cursor = crate::backend::egui::pointer_latest_pos(ui.ctx())
+            if let Some(tab_drag_state) = tab_drag::drag_state(mara.ctx(), id.into()) {
+                let cursor = MaraCtx::input(mara.ctx())
+                    .pointer
                     .map(Into::into)
                     .or(tab_drag_state.cursor);
                 if let Some(c) = cursor {
                     // Persist the cursor pos so next frame can paint at
                     // the right spot even if egui drops the input.
                     tab_drag::set_drag(
-                        ui.ctx(),
-                        id,
+                        mara.ctx(),
+                        id.into(),
                         tab_drag::TabDragState {
                             cursor: Some(c),
                             ..tab_drag_state
@@ -1379,128 +1527,71 @@ impl Pane {
                     // blank accent card while crossing containers.
                     let preview_size = MaraVec2::new(28.0, 28.0);
                     tab_drag::paint_drag_preview(
-                        ui.ctx(),
-                        id,
+                        mara.ctx(),
+                        id.into(),
                         preview_size,
                         c,
-                        accent,
+                        accent.into(),
                         "",
                         tab_drag_state.icon,
                     );
-                    crate::backend::egui::set_cursor_icon_for_ui(
-                        ui,
-                        crate::layout::CursorIcon::Grabbing,
-                    );
+                    mara.set_cursor_icon(crate::layout::CursorIcon::Grabbing);
                 }
-                if crate::backend::egui::pointer_any_released(ui.ctx()) {
+                if MaraCtx::input(mara.ctx()).any_released {
                     if let Some(c) = cursor
-                        && let Some((tgt_cid, slot)) =
-                            tab_drag::find_drop_target_for_drag(ui.ctx(), id, c, tab_drag_state)
+                        && let Some((tgt_cid, slot)) = tab_drag::find_drop_target_for_drag(
+                            mara.ctx(),
+                            id.into(),
+                            c,
+                            tab_drag_state,
+                        )
                     {
                         tab_drag::commit_drop(
-                            ui.ctx(),
-                            id,
+                            mara.ctx(),
+                            id.into(),
                             tab_drag_state.tab_id,
                             tab_drag_state.source_container,
                             tgt_cid,
                             slot,
                         );
                     }
-                    tab_drag::clear_drag(ui.ctx(), id);
+                    tab_drag::clear_drag(mara.ctx(), id.into());
                 }
             }
         };
 
-        let body_scroll_enabled = ui
+        let body_scroll_enabled = mara
             .ctx()
-            .data(|d| d.get_temp::<bool>(id.with("mara_pane_body_scroll_enabled")))
+            .memory()
+            .get_temp::<bool>(id.with("mara_pane_body_scroll_enabled"))
             .unwrap_or(false);
+        // Natural body extent along the flow axis, measured unscrolled.
+        let flow_of = |rect: MaraRect| {
+            if horizontal_strip {
+                rect.height()
+            } else {
+                rect.width()
+            }
+        };
         if body_scroll_enabled {
-            crate::backend::egui::show_pane_body_scroll_slot(
-                ui,
-                PaneBodyScrollSpec::new(
-                    MaraId::from(id.with("mara_pane_body_scroll")),
-                    horizontal_strip,
-                    span_inner,
-                ),
-                |ui| {
-                    render_body(ui);
-                },
+            let spec = PaneBodyScrollSpec::new(
+                MaraId::from(id.with("mara_pane_body_scroll")),
+                horizontal_strip,
+                span_inner,
             );
+            let mut natural = 0.0;
+            mara.pane_body_slot(spec, &mut |mara| {
+                render_body(mara);
+                natural = flow_of(mara.min_rect());
+            });
+            record_pane_flow_deficit(mara.ctx(), id, natural);
         } else {
-            render_body(ui);
+            let before = flow_of(mara.min_rect());
+            render_body(mara);
+            let natural = flow_of(mara.min_rect()) - before;
+            record_pane_flow_deficit(mara.ctx(), id, natural);
         }
     }
-}
-
-/// Overlay drag-handles on the pane's resizable edges. Each handle
-/// is a `Sense::drag` rect of `RESIZE_HANDLE_THICKNESS` thickness
-/// sitting INSIDE the pane's painted rect — no layout space taken.
-/// A subtle accent strip paints only on hover / drag so the user
-/// can see what they're grabbing without the chrome cluttering the
-/// pane edge at rest. Drag deltas mutate the persistent
-/// `user_flow` / `user_span` so subsequent frames pick
-/// up the new size.
-///
-/// The handles live in their own `egui::Area` on `Order::Middle`
-/// (above the pane's `Order::Background` Area). Without this split,
-/// hover / drag events on the handle rect were absorbed by the
-/// pane's underlying Background layer and never reached the handle.
-#[allow(dead_code)]
-fn paint_resize_handles(
-    ctx: &egui::Context,
-    pane_id: Id,
-    accent: Color32,
-    anchor: PaneAnchor,
-    resize: PaneResize,
-    pane_rect: egui::Rect,
-) {
-    let title_side = anchor.title_side();
-    let horizontal_strip = title_side.is_horizontal_strip();
-    let zone = anchor.zone();
-    crate::backend::egui::area_for_host(AreaHost::new(
-        pane_id.with("mara_pane_resize_handles_area").into(),
-        pane_rect.min.into(),
-        Layer::Middle,
-    ))
-    // Force the Area to cover the WHOLE pane every frame.
-    // Without this the Area's `state.size` defaults to a tiny
-    // (degenerate) rect on the first paint — only widgets
-    // registered via `ui.interact()` whose rects fall inside
-    // that initial rect register hover / click. Centre-anchored
-    // panes happened to accumulate state across frames and end
-    // up with a usable rect, while corner-anchored panes
-    // (TopRail::End, BottomRail::Start, etc.) silently lost
-    // their resize handles. `default_size` seeds it; the
-    // `allocate_rect` inside the show closure forces the
-    // current-frame rect every paint regardless of any prior
-    // shrink.
-    .default_size(pane_rect.size())
-    .movable(false)
-    .interactable(true)
-    .show(ctx, |ui| {
-        // Expand the Area's `min_rect` (and therefore its clip
-        // rect) to cover the full pane WITHOUT registering an
-        // interactive widget. Using `allocate_rect(_, Sense::hover())`
-        // here was eating the container-title clicks that fold /
-        // unfold the containers — even though `Sense::hover` is
-        // not a click sense, the widget rect still wins the
-        // hit-test because it sits on `Order::Middle` (above the
-        // pane Area's `Order::Background`). `expand_to_include_rect`
-        // just grows `min_rect` for layout / clip purposes.
-        ui.expand_to_include_rect(pane_rect);
-        paint_resize_handles_inner(
-            ui,
-            pane_id,
-            accent,
-            anchor,
-            resize,
-            pane_rect,
-            title_side,
-            horizontal_strip,
-            zone,
-        );
-    });
 }
 
 /// Register the resize handles directly on the pane's own `Ui`
@@ -1511,18 +1602,18 @@ fn paint_resize_handles(
 /// clicks anywhere else (which would break the container title-
 /// strip clicks that fold / unfold).
 fn paint_resize_handles_inline(
-    ui: &mut egui::Ui,
+    mara: &mut crate::MaraUi<'_>,
     pane_id: Id,
-    accent: Color32,
+    accent: MaraColor32,
     anchor: PaneAnchor,
     resize: PaneResize,
-    pane_rect: egui::Rect,
+    pane_rect: MaraRect,
 ) {
     let title_side = anchor.title_side();
     let horizontal_strip = title_side.is_horizontal_strip();
     let zone = anchor.zone();
     paint_resize_handles_inner(
-        ui,
+        mara,
         pane_id,
         accent,
         anchor,
@@ -1536,12 +1627,12 @@ fn paint_resize_handles_inline(
 
 #[allow(clippy::too_many_arguments)]
 fn paint_resize_handles_inner(
-    ui: &mut egui::Ui,
+    mara: &mut crate::MaraUi<'_>,
     pane_id: Id,
-    accent: Color32,
+    accent: MaraColor32,
     anchor: PaneAnchor,
     resize: PaneResize,
-    pane_rect: egui::Rect,
+    pane_rect: MaraRect,
     title_side: TitleSide,
     horizontal_strip: bool,
     _zone: RailZone,
@@ -1557,8 +1648,8 @@ fn paint_resize_handles_inner(
     //     along the pane's flow axis (horizontal). Each one takes
     //     a slice, so min main = SUM of registered widths. Cross
     //     keeps the global [`MIN_USER_SPAN`] floor.
-    let container_mins = container_min_widths(ui.ctx(), pane_id);
-    let container_min_flows_v = container_min_flows(ui.ctx(), pane_id);
+    let container_mins = container_min_widths(mara.ctx(), pane_id);
+    let container_min_flows_v = container_min_flows(mara.ctx(), pane_id);
     let max_min = container_mins.iter().copied().fold(0.0_f32, f32::max);
     let sum_min: f32 = container_mins.iter().sum();
     let sum_min_flow: f32 = container_min_flows_v.iter().sum();
@@ -1582,36 +1673,27 @@ fn paint_resize_handles_inner(
     } else {
         MIN_USER_SPAN
     };
-    let accent_mara = MaraColor32::from(accent);
-    let paint_indicator = |ui: &mut egui::Ui, rect: MaraRect, hovered: bool, dragged: bool| {
-        if let Some(cmd) = pane_resize_indicator_paint_cmd(rect, accent_mara, hovered, dragged) {
-            let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
-            backend.paint(cmd);
-        }
-    };
-    let pane_rect_mara = MaraRect::from(pane_rect);
+    let accent_mara = accent;
+    let paint_indicator =
+        |mara: &mut crate::MaraUi<'_>, rect: MaraRect, hovered: bool, dragged: bool| {
+            if let Some(cmd) = pane_resize_indicator_paint_cmd(rect, accent_mara, hovered, dragged)
+            {
+                mara.paint(cmd);
+            }
+        };
+    let pane_rect_mara = pane_rect;
 
     // ── Main-axis handle (inner edge) ──
     if resize.flow {
         let handle_rect_mara = pane_main_resize_handle_rect(pane_rect_mara, title_side);
         let id = pane_id.with("mara_pane_resize_main");
-        let resp = {
-            let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
-            backend.interact(
-                handle_rect_mara,
-                id.into(),
-                crate::layout::Sense::ClickAndDrag,
-            )
-        };
+        let resp = { mara.interact(handle_rect_mara, id, crate::layout::Sense::ClickAndDrag) };
         let hovered = resp.hovered();
         let dragged = resp.dragged();
         if hovered || dragged {
-            crate::backend::egui::set_cursor_icon_for_ui(
-                ui,
-                pane_main_resize_cursor(horizontal_strip),
-            );
+            mara.set_cursor_icon(pane_main_resize_cursor(horizontal_strip));
         }
-        paint_indicator(ui, handle_rect_mara, hovered, dragged);
+        paint_indicator(mara, handle_rect_mara, hovered, dragged);
         if dragged {
             let delta = resp.drag_delta;
             let flow_delta = if horizontal_strip { delta.y } else { delta.x };
@@ -1623,12 +1705,12 @@ fn paint_resize_handles_inner(
             // which rail the pane lives on.
             let invert = matches!(title_side, TitleSide::Bottom | TitleSide::Right);
             let signed = if invert { -flow_delta } else { flow_delta };
-            let cur = user_flow(ui.ctx(), pane_id);
+            let cur = user_flow(mara.ctx(), pane_id);
             // Container-derived floor: vertical-strip panes (LEFT /
             // RIGHT rails) refuse to shrink below the SUM of their
             // containers' min widths so each container fits.
             let new_v = (cur + signed).max(min_flow_bound);
-            set_user_flow(ui.ctx(), pane_id, new_v);
+            set_user_flow(mara.ctx(), pane_id, new_v);
         }
     }
 
@@ -1653,27 +1735,24 @@ fn paint_resize_handles_inner(
 
         let mut handle_one = |rect: MaraRect, salt: &'static str, sign: f32, factor: f32| {
             let id = pane_id.with(salt);
-            let resp = {
-                let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
-                backend.interact(rect, id.into(), crate::layout::Sense::ClickAndDrag)
-            };
+            let resp = mara.interact(rect, id, crate::layout::Sense::ClickAndDrag);
             let hovered = resp.hovered();
             let dragged = resp.dragged();
             if hovered || dragged {
-                crate::backend::egui::set_cursor_icon_for_ui(ui, icon);
+                mara.set_cursor_icon(icon);
             }
-            paint_indicator(ui, rect, hovered, dragged);
+            paint_indicator(mara, rect, hovered, dragged);
             if dragged {
                 let delta = resp.drag_delta;
                 let span_delta = if horizontal_strip { delta.x } else { delta.y };
                 let signed = sign * span_delta * factor;
-                let cur = user_span(ui.ctx(), pane_id);
+                let cur = user_span(mara.ctx(), pane_id);
                 // Container-derived floor: horizontal-strip panes
                 // (TOP / BOTTOM rails) refuse to shrink below the
                 // largest container min width so the widest
                 // container still fits cross-wise.
                 let new_v = (cur + signed).max(min_span_bound);
-                set_user_span(ui.ctx(), pane_id, new_v);
+                set_user_span(mara.ctx(), pane_id, new_v);
             }
         };
 
@@ -1804,8 +1883,8 @@ mod tests {
 
     #[test]
     fn published_pane_rects_are_mara_vocab_for_host_firewalls() {
-        let ctx = egui::Context::default();
-        let raw = egui::Rect::from_min_max(egui::pos2(10.0, 20.0), egui::pos2(30.0, 50.0));
+        let ctx = headless_ctx();
+        let raw = MaraRect::from_min_max(MaraPos2::new(10.0, 20.0), MaraPos2::new(30.0, 50.0));
 
         publish_pane_rect(&ctx, raw);
         assert_eq!(
@@ -1822,7 +1901,7 @@ mod tests {
 
     #[test]
     fn user_extents_sanitize_non_finite_values() {
-        let ctx = egui::Context::default();
+        let ctx = headless_ctx();
         let pane_id = Id::new("pane");
 
         set_user_flow(&ctx, pane_id, f32::NAN);
@@ -1838,7 +1917,7 @@ mod tests {
 
     #[test]
     fn user_extents_clamp_to_safe_bounds() {
-        let ctx = egui::Context::default();
+        let ctx = headless_ctx();
         let pane_id = Id::new("pane");
 
         set_user_flow(&ctx, pane_id, -100.0);
@@ -1854,7 +1933,7 @@ mod tests {
 
     #[test]
     fn body_extra_flow_accumulates_and_clears_per_pane() {
-        let ctx = egui::Context::default();
+        let ctx = headless_ctx();
         let pane_id = Id::new("pane");
 
         publish_body_extra_flow(&ctx, pane_id, 6.0);
@@ -1867,7 +1946,7 @@ mod tests {
 
     #[test]
     fn body_extra_flow_sanitizes_invalid_values() {
-        let ctx = egui::Context::default();
+        let ctx = headless_ctx();
         let pane_id = Id::new("pane");
 
         publish_body_extra_flow(&ctx, pane_id, f32::NAN);
@@ -1977,7 +2056,7 @@ mod tests {
 
     #[test]
     fn published_container_cids_are_frame_local() {
-        let ctx = egui::Context::default();
+        let ctx = headless_ctx();
         let pane_id = Id::new("pane");
         let first = Id::new("first");
         let second = Id::new("second");
@@ -1992,7 +2071,7 @@ mod tests {
 
     #[test]
     fn published_container_cids_reject_duplicates_in_one_frame() {
-        let ctx = egui::Context::default();
+        let ctx = headless_ctx();
         let pane_id = Id::new("pane");
         let container = Id::new("container");
 
@@ -2004,16 +2083,76 @@ mod tests {
     }
 
     #[test]
+    fn auto_fold_serves_the_newest_toggle_and_folds_older_sections() {
+        let a = Id::new("a");
+        let b = Id::new("b");
+        let c = Id::new("c");
+        let opens = vec![
+            FoldCandidate { id: a, touched_at: 0.0, cost: 300.0 },
+            FoldCandidate { id: b, touched_at: 5.0, cost: 300.0 },
+            FoldCandidate { id: c, touched_at: 0.0, cost: 300.0 },
+        ];
+
+        assert_eq!(plan_auto_fold(650.0, opens.clone()), vec![c]);
+        assert_eq!(plan_auto_fold(100.0, opens), vec![a, c]);
+    }
+
+    #[test]
+    fn auto_fold_keeps_a_lone_tall_section_open() {
+        let a = Id::new("a");
+        let opens = vec![FoldCandidate { id: a, touched_at: 0.0, cost: 2000.0 }];
+
+        assert!(plan_auto_fold(-50.0, opens).is_empty());
+    }
+
+    #[test]
+    fn other_zone_buttons_come_from_the_panes_own_rail() {
+        let ctx = headless_ctx();
+        let screen = MaraRect::from_min_size(MaraPos2::ZERO, MaraVec2::new(1280.0, 800.0));
+        let left_end = MaraRect::from_min_max(MaraPos2::new(4.8, 700.0), MaraPos2::new(38.8, 795.2));
+        let left_start = MaraRect::from_min_max(MaraPos2::new(4.8, 4.8), MaraPos2::new(38.8, 38.8));
+        let right_end =
+            MaraRect::from_min_max(MaraPos2::new(1241.2, 700.0), MaraPos2::new(1275.2, 795.2));
+
+        publish_rail_button_rect(&ctx, RibbonEdge::Left, RibbonCluster::End, left_end);
+        publish_rail_button_rect(&ctx, RibbonEdge::Left, RibbonCluster::Start, left_start);
+        publish_rail_button_rect(&ctx, RibbonEdge::Right, RibbonCluster::End, right_end);
+
+        assert_eq!(
+            other_zone_button_rects(&ctx, PaneAnchor::LeftRail(RailZone::Start), screen),
+            vec![left_end]
+        );
+        assert_eq!(
+            other_zone_button_rects(&ctx, PaneAnchor::LeftRail(RailZone::End), screen),
+            vec![left_start]
+        );
+        assert!(
+            other_zone_button_rects(&ctx, PaneAnchor::LeftRail(RailZone::Middle), screen).is_empty()
+        );
+    }
+
+    #[test]
     fn pane_titles_must_be_visible() {
         let result = std::panic::catch_unwind(|| {
             let _ = Pane::new(
-                egui::Id::new("blank-pane-title"),
+                MaraId::new("blank-pane-title"),
                 " ",
                 PaneAnchor::TopRail(RailZone::Middle),
-                Color32::WHITE,
+                MaraColor32::WHITE,
             );
         });
 
         assert!(result.is_err());
     }
+}
+
+/// A context for state-only assertions — see the note in
+/// `shelf::tests`. The recording backend is a `MaraCtx`, so tests that
+/// only exercise Mara's own bookkeeping need no backend.
+#[cfg(test)]
+fn headless_ctx() -> crate::backend::record::RecordingBackend {
+    crate::backend::record::RecordingBackend::at(crate::vocab::Rect::from_min_size(
+        crate::vocab::Pos2::ZERO,
+        crate::vocab::Vec2::new(1280.0, 800.0),
+    ))
 }

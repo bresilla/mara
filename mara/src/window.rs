@@ -49,6 +49,13 @@ impl AppRunner {
         self
     }
 
+    /// Requested initial window position, in physical pixels. Best-effort
+    /// — some window managers ignore it.
+    pub fn position(mut self, x: f32, y: f32) -> Self {
+        self.options.position = Some((x, y));
+        self
+    }
+
     pub fn borderless(mut self, borderless: bool) -> Self {
         self.options.borderless = borderless;
         self
@@ -138,10 +145,13 @@ impl<A: WindowApp> NativeWinitApp<A> {
             return;
         }
 
-        let attrs = WindowAttributes::default()
+        let mut attrs = WindowAttributes::default()
             .with_title(self.options.title.clone())
             .with_inner_size(LogicalSize::new(self.options.width, self.options.height))
             .with_decorations(!self.options.borderless);
+        if let Some((x, y)) = self.options.position {
+            attrs = attrs.with_position(winit::dpi::PhysicalPosition::new(x, y));
+        }
         let window = Arc::new(
             event_loop
                 .create_window(attrs)
@@ -166,6 +176,9 @@ impl<A: WindowApp> NativeWinitApp<A> {
             present_mode: wgpu::PresentMode::AutoNoVsync,
             ..egui_wgpu::WgpuConfiguration::default()
         };
+        #[cfg(feature = "bevy")]
+        let wgpu_config = bevy_gpu_configuration(wgpu_config);
+        let wgpu_config = crate::runner::app_gpu_configuration::<A>(wgpu_config);
         let mut painter = pollster::block_on(Painter::new(
             self.egui_ctx.clone(),
             wgpu_config,
@@ -320,7 +333,10 @@ impl<A: WindowApp> NativeWinitApp<A> {
         let probe_this_frame = std::env::var_os("MARA_SHOW_POSE").is_some()
             && self.egui_ctx.cumulative_pass_nr().is_multiple_of(120);
         if probe_this_frame {
-            mara_core::probe::__internal_set_enabled(&self.egui_ctx, true);
+            mara_core::probe::__internal_set_enabled(
+                &mara_backend_egui::EguiCtx::new(&self.egui_ctx),
+                true,
+            );
         }
 
         // Frame timing is opt-in (MARA_FRAME_TIME). Only SLOW frames are
@@ -330,7 +346,7 @@ impl<A: WindowApp> NativeWinitApp<A> {
         let frame_t0 = std::time::Instant::now();
 
         let full_output = self.egui_ctx.run_ui(raw_input, |ui| {
-            let ctx = ui.ctx();
+            let ctx = &mara_backend_egui::EguiCtx::new(ui.ctx());
             let mut host = MaraHostCtx::mara_window(ctx, Some(&render_state));
             // A bare `WindowApp` should already look and behave like
             // Mara: apply the active Mara theme, publish native window
@@ -353,7 +369,7 @@ impl<A: WindowApp> NativeWinitApp<A> {
                 return;
             }
             app.configure_shell(shell);
-            for event in shell.show(ctx, shell_open, shell_placement, shell_drag) {
+            for event in shell.__internal_show_egui(ctx, shell_open, shell_placement, shell_drag) {
                 match event {
                     ShellEvent::CloseRequested => {
                         ctx.send_viewport_cmd(ViewportCommand::Close);
@@ -368,13 +384,19 @@ impl<A: WindowApp> NativeWinitApp<A> {
         });
 
         if probe_this_frame {
-            let poses = mara_core::probe::__internal_drain(&self.egui_ctx);
+            let poses = mara_core::probe::__internal_drain(
+                &mara_backend_egui::EguiCtx::new(&self.egui_ctx),
+            );
             eprintln!("{}", mara_core::probe::format(&poses));
-            mara_core::probe::__internal_set_enabled(&self.egui_ctx, false);
+            mara_core::probe::__internal_set_enabled(
+                &mara_backend_egui::EguiCtx::new(&self.egui_ctx),
+                false,
+            );
         }
 
-        self.last_chrome_regions =
-            mara_core::window_chrome::__internal_window_chrome_regions(&self.egui_ctx);
+        self.last_chrome_regions = mara_core::window_chrome::__internal_window_chrome_regions(
+            &mara_backend_egui::EguiCtx::new(&self.egui_ctx),
+        );
 
         let egui::FullOutput {
             platform_output,
@@ -414,7 +436,7 @@ impl<A: WindowApp> NativeWinitApp<A> {
         // bar). Drive it from the active theme so it tracks light/dark
         // instead of being a fixed dark color.
         let clear_color = {
-            let bg: egui::Color32 = mara_core::style::theme().palette.bg_window;
+            let bg: egui::Color32 = mara_core::style::theme().palette.bg_window.into();
             egui::Rgba::from(bg).to_array()
         };
         painter.paint_and_update_textures(
@@ -423,7 +445,15 @@ impl<A: WindowApp> NativeWinitApp<A> {
             clear_color,
             &clipped_primitives,
             &textures_delta,
-            Vec::new(),
+            viewport_output
+                .get(&ViewportId::ROOT)
+                .into_iter()
+                .flat_map(|output| &output.commands)
+                .filter_map(|command| match command {
+                    ViewportCommand::Screenshot(data) => Some(data.clone()),
+                    _ => None,
+                })
+                .collect(),
         );
         if frame_timing {
             let paint_ms = paint_t0.elapsed().as_secs_f32() * 1000.0;
@@ -467,7 +497,8 @@ impl<A: WindowApp> ApplicationHandler<MaraUserEvent> for NativeWinitApp<A> {
         let mut repaint_after_event = None;
         match &event {
             WindowEvent::CloseRequested => {
-                event_loop.exit();
+                self.egui_ctx.send_viewport_cmd(ViewportCommand::Close);
+                self.schedule_repaint(event_loop, Instant::now());
                 return;
             }
             WindowEvent::CursorMoved { position, .. } => {
@@ -487,6 +518,15 @@ impl<A: WindowApp> ApplicationHandler<MaraUserEvent> for NativeWinitApp<A> {
                 ) {
                     painter.on_window_resized(ViewportId::ROOT, width, height);
                     repaint_after_event = Some(Instant::now() + Duration::from_millis(16));
+                }
+                if let Some(app) = self.app.as_mut() {
+                    let ppp = window.scale_factor() as f32;
+                    app.on_window_resized(size.width as f32 / ppp, size.height as f32 / ppp);
+                }
+            }
+            WindowEvent::Moved(position) => {
+                if let Some(app) = self.app.as_mut() {
+                    app.on_window_moved(position.x as f32, position.y as f32);
                 }
             }
             WindowEvent::RedrawRequested => {
@@ -510,6 +550,110 @@ impl<A: WindowApp> ApplicationHandler<MaraUserEvent> for NativeWinitApp<A> {
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         self.pump_scheduled_repaint(event_loop);
+    }
+}
+
+#[cfg(feature = "bevy")]
+fn bevy_gpu_configuration(mut config: egui_wgpu::WgpuConfiguration) -> egui_wgpu::WgpuConfiguration {
+    if let egui_wgpu::WgpuSetup::CreateNew(setup) = &mut config.wgpu_setup {
+        let descriptor = setup.device_descriptor.clone();
+        setup.device_descriptor = Arc::new(move |adapter| {
+            let mut device = descriptor(adapter);
+            let formats = wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES;
+            if adapter.features().contains(formats) {
+                bevy_storage_limits(&mut device.required_limits, &adapter.limits());
+                device.required_features |= formats;
+            }
+            // GPU pass timing for profiling, only on request.
+            let timestamps = wgpu::Features::TIMESTAMP_QUERY
+                | wgpu::Features::TIMESTAMP_QUERY_INSIDE_ENCODERS
+                | wgpu::Features::TIMESTAMP_QUERY_INSIDE_PASSES;
+            if std::env::var_os("MARA_GPU_TIMESTAMPS").is_some()
+                && adapter.features().contains(timestamps)
+            {
+                device.required_features |= timestamps;
+            }
+            // Wireframe rendering in an embedded Bevy app needs line polygons
+            // and immediates.
+            for feature in [wgpu::Features::POLYGON_MODE_LINE, wgpu::Features::IMMEDIATES] {
+                if adapter.features().contains(feature) {
+                    device.required_features |= feature;
+                }
+            }
+            // Bevy's light textures, clustered decals and light probes index arrays
+            // of textures; without these it switches all three off without a word.
+            let arrays = wgpu::Features::TEXTURE_BINDING_ARRAY
+                | wgpu::Features::SAMPLED_TEXTURE_AND_STORAGE_BUFFER_ARRAY_NON_UNIFORM_INDEXING;
+            if adapter.features().contains(arrays) {
+                device.required_features |= arrays;
+                let partial = wgpu::Features::PARTIALLY_BOUND_BINDING_ARRAY;
+                if adapter.features().contains(partial) {
+                    device.required_features |= partial;
+                }
+                let offered = adapter.limits();
+                let limits = &mut device.required_limits;
+                limits.max_binding_array_elements_per_shader_stage =
+                    offered.max_binding_array_elements_per_shader_stage;
+                limits.max_binding_array_sampler_elements_per_shader_stage =
+                    offered.max_binding_array_sampler_elements_per_shader_stage;
+                limits.max_storage_textures_per_shader_stage =
+                    offered.max_storage_textures_per_shader_stage;
+                // Those arrays bring samplers of their own, past the default 16.
+                limits.max_samplers_per_shader_stage =
+                    offered.max_samplers_per_shader_stage.min(64);
+            }
+            // GPU timestamps let Bevy's render diagnostics report pass times.
+            if adapter.features().contains(wgpu::Features::TIMESTAMP_QUERY) {
+                device.required_features |= wgpu::Features::TIMESTAMP_QUERY;
+            }
+            // Material extensions with several textures exceed wgpu's default
+            // of 16 sampled textures per stage; take what the adapter offers.
+            device.required_limits.max_sampled_textures_per_shader_stage = adapter
+                .limits()
+                .max_sampled_textures_per_shader_stage
+                .min(64);
+            // A planet's heightmaps are one R32Float array, one layer per
+            // resident tile: thousands of layers, filtered where the terrain
+            // shader samples between texels. Both are past wgpu's defaults —
+            // 256 layers, and no filtering of 32-bit floats at all — and
+            // without them the atlas cannot even be created.
+            if adapter.features().contains(wgpu::Features::FLOAT32_FILTERABLE) {
+                device.required_features |= wgpu::Features::FLOAT32_FILTERABLE;
+            }
+            device.required_limits.max_texture_array_layers =
+                adapter.limits().max_texture_array_layers.min(2048);
+            device
+        });
+    }
+    config
+}
+
+#[cfg(feature = "bevy")]
+fn bevy_storage_limits(requested: &mut wgpu::Limits, supported: &wgpu::Limits) {
+    requested.max_storage_textures_per_shader_stage = requested
+        .max_storage_textures_per_shader_stage
+        .max(supported.max_storage_textures_per_shader_stage.min(6));
+}
+
+#[cfg(all(test, feature = "bevy"))]
+mod bevy_gpu_tests {
+    #[test]
+    fn storage_request_is_bounded_and_preserves_other_limits() {
+        for available in [4, 5, 6, 8, 32] {
+            let mut requested = wgpu::Limits::default();
+            let supported = wgpu::Limits {
+                max_storage_textures_per_shader_stage: available,
+                ..wgpu::Limits::default()
+            };
+            let mut expected = requested.clone();
+            expected.max_storage_textures_per_shader_stage = available.min(6);
+            super::bevy_storage_limits(&mut requested, &supported);
+            assert_eq!(requested, expected);
+        }
+        let mut requested = wgpu::Limits::downlevel_webgl2_defaults();
+        let supported = requested.clone();
+        super::bevy_storage_limits(&mut requested, &supported);
+        assert_eq!(requested, supported);
     }
 }
 

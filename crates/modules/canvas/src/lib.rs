@@ -59,7 +59,7 @@ impl CanvasDocument {
 /// Simple whiteboard surface that can be routed as a View or embedded as a Module.
 #[derive(Clone, Debug)]
 pub struct CanvasSurface {
-    id: egui::Id,
+    id: mara_core::vocab::Id,
     doc: CanvasDocument,
     pen_width: f32,
 }
@@ -68,7 +68,7 @@ impl CanvasSurface {
     #[must_use]
     pub fn new(id: impl std::hash::Hash, doc: CanvasDocument) -> Self {
         Self {
-            id: egui::Id::new(id),
+            id: mara_core::vocab::Id::new(id),
             doc,
             pen_width: 2.0,
         }
@@ -205,7 +205,7 @@ impl CanvasSurface {
 
 impl MaraView for CanvasSurface {
     fn id(&self) -> ViewId {
-        ViewId::from(self.id)
+        ViewId(self.id)
     }
 
     fn title(&self) -> &str {
@@ -217,7 +217,7 @@ impl MaraView for CanvasSurface {
     }
 
     fn ribbons(&mut self) -> Vec<RibbonSlotDef> {
-        vec![self.tool_ribbon(RibbonScope::View(ViewId::from(self.id)))]
+        vec![self.tool_ribbon(RibbonScope::View(ViewId(self.id)))]
     }
 
     fn ribbon_overrides(&mut self) -> RibbonOverrideLayer {
@@ -270,43 +270,40 @@ impl MaraModule for CanvasSurface {
         mui: &mut mara_core::MaraUi<'_>,
         ctx: ModuleInlineCtx<'_>,
     ) -> ModuleResponse {
-        let ui = mui.__internal_raw_ui();
-        ui.group(|ui| {
-            ui.horizontal(|ui| {
-                ui.label(format!("Whiteboard: {}", self.doc.title));
-                ui.label(format!("{} strokes", self.doc.strokes.len()));
-            });
-            {
-                let mut canvas_raw = mara_core::MaraUi::__internal_backend_from_raw(ui);
-                let mut canvas_ui = mara_core::MaraUi::__internal_over(
-                    &mut canvas_raw,
-                    mara_core::style::active_accent(),
-                );
-                self.paint_canvas(&mut canvas_ui, MaraVec2::new(180.0, 120.0));
-            }
-            if ctx.can_enter_workspace() && ui.button("Open whiteboard workspace").clicked() {
-                ModuleResponse::enter_workspace()
-            } else {
-                ModuleResponse::none()
-            }
-        })
-        .inner
+        let mut out = ModuleResponse::none();
+        mui.framed(
+            mara_core::style::frame_for(
+                mara_core::style::FrameRole::Section,
+                mara_core::style::active_accent(),
+            ),
+            |mui| {
+                mui.horizontal(|mui| {
+                    mui.label(&format!("Whiteboard: {}", self.doc.title));
+                    mui.label(&format!("{} strokes", self.doc.strokes.len()));
+                });
+                self.paint_canvas(mui, MaraVec2::new(180.0, 120.0));
+                if ctx.can_enter_workspace() && mui.button("Open whiteboard workspace").clicked() {
+                    out = ModuleResponse::enter_workspace();
+                }
+            },
+        );
+        out
     }
 
     fn workspace(&mut self, ws: &mut WorkspaceCtx<'_>) {
         ws.add_bar(
             WorkspaceBar::new(
-                egui::Id::new(("canvas.workspace.bar", self.id)),
+                mara_core::vocab::Id::new(("canvas.workspace.bar", self.id)),
                 WorkspaceBarEdge::Top,
                 WorkspaceBarCluster::Middle,
             )
             .with_item(WorkspaceBarItem::command(
-                egui::Id::new(("canvas.workspace.pen", self.id)),
+                mara_core::vocab::Id::new(("canvas.workspace.pen", self.id)),
                 "Pen",
                 Some("pen"),
             ))
             .with_item(WorkspaceBarItem::command(
-                egui::Id::new(("canvas.workspace.clear", self.id)),
+                mara_core::vocab::Id::new(("canvas.workspace.clear", self.id)),
                 "Clear",
                 Some("dismiss"),
             )),

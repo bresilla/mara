@@ -1,4 +1,3 @@
-use super::Editor;
 use super::syntax::{SEPARATORS, Syntax, TokenType};
 use std::mem;
 
@@ -62,18 +61,6 @@ impl Token {
     }
 
     /// Syntax highlighting
-    pub fn highlight<T: Editor>(&mut self, editor: &T, text: &str) -> LayoutJob {
-        *self = Token::default();
-        let mut job = LayoutJob::default();
-        for c in text.chars() {
-            for token in self.automata(c, editor.syntax()) {
-                editor.append(&mut job, &token);
-            }
-        }
-        editor.append(&mut job, self);
-        job
-    }
-
     /// Lexer
     pub fn tokens(&mut self, syntax: &Syntax, text: &str) -> Vec<Self> {
         let mut tokens: Vec<Self> = text
@@ -222,23 +209,4 @@ impl Token {
         }
         tokens
     }
-}
-
-use egui::text::LayoutJob;
-
-impl<T: Editor> egui::util::cache::ComputerMut<(&T, &str), LayoutJob> for Token {
-    fn compute(&mut self, (cache, text): (&T, &str)) -> LayoutJob {
-        self.highlight(cache, text)
-    }
-}
-
-pub type HighlightCache = egui::util::cache::FrameCache<LayoutJob, Token>;
-
-pub fn highlight<T: Editor>(ctx: &egui::Context, cache: &T, text: &str) -> LayoutJob {
-    ctx.memory_mut(|mem| {
-        mem.caches
-            .cache::<HighlightCache>()
-            .get((cache, text))
-            .clone()
-    })
 }

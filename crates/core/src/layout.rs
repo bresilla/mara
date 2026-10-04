@@ -7,9 +7,17 @@
 
 use crate::{
     mui::{MaraInput, MaraResponse},
-    paint::PaintCmd,
+    paint::{PaintCmd, TextFamily},
     vocab::{Color32, CornerRadius, Id, Pos2, Rect, Vec2},
 };
+
+/// Cross-axis alignment for [`UiBackend::in_row`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CrossAlign {
+    Start,
+    Center,
+    End,
+}
 
 /// The z-ordering band an [`AreaHost`] paints and interacts in — the
 /// backend-neutral layer contract (PLAN.md Phase 4).
@@ -60,6 +68,35 @@ pub struct AreaHost {
     pub pos: Pos2,
     pub layer: Layer,
     pub interactable: bool,
+    /// Raise this area above its siblings in the same layer.
+    ///
+    /// A property of the host rather than a call after the fact: the
+    /// backend can apply it while creating the area, so the caller
+    /// never needs to hold on to a backend response just to reorder.
+    pub bring_to_top: bool,
+    /// Accent this surface paints with, when it differs from the
+    /// process-wide active accent.
+    ///
+    /// A view node can carry its own accent — a scoped child is handed
+    /// one explicitly. Without this the surface would fall back to the
+    /// global accent, so the node's accent would apply to everything it
+    /// drew *except* its own body, which is the one part it owns.
+    pub accent: Option<crate::vocab::Color32>,
+    /// Whether the user can drag this surface around.
+    pub movable: bool,
+    /// Whether the surface fades in when it first appears.
+    ///
+    /// A pane suppresses this: it runs its own staggered open
+    /// animation, and a second fade on top reads as a stutter.
+    pub fade_in: bool,
+    /// Size the surface starts at before its content has been
+    /// measured, when the caller already knows it.
+    ///
+    /// A surface with no default is sized from the previous frame's
+    /// content — which is *smaller* than this frame's while an open
+    /// animation is still growing, so anything laying out against the
+    /// available size gets clamped and clipped.
+    pub default_size: Option<Vec2>,
 }
 
 impl AreaHost {
@@ -70,7 +107,48 @@ impl AreaHost {
             pos,
             layer,
             interactable: true,
+            bring_to_top: false,
+            accent: None,
+            movable: false,
+            fade_in: true,
+            default_size: None,
         }
+    }
+
+    /// Let the user drag this surface around.
+    #[must_use]
+    pub const fn movable(mut self) -> Self {
+        self.movable = true;
+        self
+    }
+
+    /// Suppress the host's appear-fade — for a surface that animates
+    /// its own opening.
+    #[must_use]
+    pub const fn no_fade_in(mut self) -> Self {
+        self.fade_in = false;
+        self
+    }
+
+    /// Start the surface at `size` rather than deriving it from the
+    /// previous frame's content.
+    #[must_use]
+    pub const fn default_size(mut self, size: Vec2) -> Self {
+        self.default_size = Some(size);
+        self
+    }
+
+    /// Paint this surface with `accent` rather than the process-wide one.
+    #[must_use]
+    pub const fn accent(mut self, accent: crate::vocab::Color32) -> Self {
+        self.accent = Some(accent);
+        self
+    }
+
+    #[must_use]
+    pub const fn bring_to_top(mut self) -> Self {
+        self.bring_to_top = true;
+        self
     }
 
     #[must_use]
@@ -160,6 +238,15 @@ pub struct ScrollRegion {
     pub auto_shrink: [bool; 2],
     pub max_extent: f32,
     pub item_spacing: Vec2,
+    /// Smallest extent the scroll viewport may shrink to, when the
+    /// host imposes a floor of its own.
+    ///
+    /// `None` keeps the host's default. Backends generally refuse to
+    /// shrink a scroll viewport below some minimum (egui's is 64 px),
+    /// which silently inflates a region deliberately sized smaller —
+    /// a pod given an exact height by its container, say. `Some(0.0)`
+    /// says the caller means the size it asked for.
+    pub min_scrolled_extent: Option<f32>,
 }
 
 impl ScrollRegion {
@@ -181,7 +268,16 @@ impl ScrollRegion {
             auto_shrink,
             max_extent,
             item_spacing,
+            min_scrolled_extent: None,
         }
+    }
+
+    /// Let the viewport shrink to `extent`, overriding the host's own
+    /// minimum.
+    #[must_use]
+    pub const fn min_scrolled_extent(mut self, extent: f32) -> Self {
+        self.min_scrolled_extent = Some(extent);
+        self
     }
 
     #[must_use]
@@ -197,6 +293,7 @@ impl ScrollRegion {
             auto_shrink,
             max_extent,
             item_spacing,
+            min_scrolled_extent: None,
         }
     }
 }
@@ -594,6 +691,33 @@ pub struct SlotRibbonLayoutSpec {
 }
 
 impl SlotRibbonLayoutSpec {
+    /// The floating-surface spec this ribbon occupies.
+    ///
+    /// Pure data-to-data: a ribbon *is* an area slot at its own
+    /// position and size, so the backend needs no ribbon-specific
+    /// entry point — [`MaraCtx::area_slot`](crate::context::MaraCtx::area_slot)
+    /// takes it directly.
+    #[must_use]
+    pub fn area_slot(&self, layer: Layer, interactable: bool) -> AreaSlotSpec {
+        let host = AreaHost::new(self.id, self.pos, layer);
+        let host = if interactable {
+            host
+        } else {
+            host.non_interactive()
+        };
+        AreaSlotSpec::new(host, self.size)
+    }
+
+    /// [`area_slot`](SlotRibbonLayoutSpec::area_slot) that also raises
+    /// the area above its siblings — what a ribbon button needs so it
+    /// stays clickable over neighbouring chrome.
+    #[must_use]
+    pub fn area_slot_on_top(&self, layer: Layer, interactable: bool) -> AreaSlotSpec {
+        let mut spec = self.area_slot(layer, interactable);
+        spec.host = spec.host.bring_to_top();
+        spec
+    }
+
     #[must_use]
     pub fn new(
         id: Id,
@@ -753,6 +877,51 @@ pub trait UiBackend {
 
     /// Show hover-tooltip `text` for a previously-returned response.
     /// No-op on backends without an overlay layer.
+    /// Run `body` in a scope with a widened clip and a slider width
+    /// from `spec` — what an inline picker needs so its indicator can
+    /// overhang without being clipped, and its sliders match the
+    /// container rather than the theme's compact default.
+    ///
+    /// Required rather than defaulted: the obvious default — run
+    /// `body` unscoped — cannot be written here, because `self` is
+    /// unsized behind the trait object. A backend with no per-scope
+    /// style should implement it as exactly that.
+    fn inline_picker_scope(
+        &mut self,
+        spec: InlinePickerSpec,
+        body: &mut dyn FnMut(&mut dyn UiBackend),
+    );
+
+    /// Pin this surface to exactly `rect` — clip, minimum and maximum
+    /// all set to it.
+    ///
+    /// For a surface whose extent is decided by the caller rather than
+    /// by its content: a fullscreen overlay backdrop, a node region.
+    /// Stronger than [`clipped`](UiBackend::push_clip), which only
+    /// narrows what is drawn — this also stops the surface reporting a
+    /// size other than `rect`.
+    fn constrain_to(&mut self, rect: Rect) {
+        let _ = rect;
+    }
+
+    /// Set the pointer cursor for this frame.
+    ///
+    /// Unconditional, unlike [`hover_cursor`](UiBackend::hover_cursor):
+    /// the caller has already decided the pointer is over something
+    /// that should change it.
+    fn set_cursor_icon(&mut self, cursor: CursorIcon) {
+        let _ = cursor;
+    }
+
+    /// Show `cursor` while the pointer is over `response`.
+    ///
+    /// The default does nothing: a backend with no pointer cursor
+    /// (a recording backend, a headless test) is not wrong to ignore
+    /// this, and the drag still works.
+    fn hover_cursor(&mut self, response: &MaraResponse, cursor: CursorIcon) {
+        let _ = (response, cursor);
+    }
+
     fn hover_text(&mut self, response: &MaraResponse, text: &str) {
         let _ = (response, text);
     }
@@ -775,13 +944,17 @@ pub trait UiBackend {
     /// downcast can't reach `EguiUiBackend`, which is not `'static`.
     /// Tracked by the coupling ratchet's `ui_escapes` metric. Returns
     /// `None` by default so non-egui backends need not implement it.
-    fn egui_ui_mut(&mut self) -> Option<&mut egui::Ui> {
-        None
-    }
-
-    /// Shared reference to the concrete `egui::Ui`, if this is the egui
-    /// backend. See [`UiBackend::egui_ui_mut`].
-    fn egui_ui_ref(&self) -> Option<&egui::Ui> {
+    /// First-party hook — hidden and `__internal_` like every other
+    /// seal escape; consumer code must never reach a raw `egui::Ui`.
+    ///
+    /// Gated on `backend-egui-conv`, the same way the vocab
+    /// conversions are and for the same reason: the escape names a
+    /// backend type, so it must vanish from the trait in a build that
+    /// has no backend. With the feature off this method does not
+    /// exist, and `UiBackend` names no egui type at all.
+    #[cfg(feature = "backend-egui-conv")]
+    #[doc(hidden)]
+    fn __internal_egui_ui_mut(&mut self) -> Option<&mut egui::Ui> {
         None
     }
 
@@ -793,6 +966,126 @@ pub trait UiBackend {
     /// takes `&mut dyn UiBackend`, so `MaraUi` (which holds
     /// `&mut dyn UiBackend`) can wrap the child. `id` salts the child
     /// scope's persisted state.
+    /// Run `body` in a sub-region occupying exactly `rect`.
+    ///
+    /// Unlike [`UiBackend::in_child`], which insets and inherits the
+    /// parent's flow, this places the child at an explicit rect — what a
+    /// renderer that computes its own geometry needs (node bodies,
+    /// headers, pin rows). The parent's cursor is untouched; call
+    /// [`UiBackend::advance_cursor_past`] if the child should consume
+    /// flow space.
+    /// Apply `transform` to this region's whole layer — content space
+    /// to screen space (see [`crate::transform`]).
+    ///
+    /// Everything painted into the layer moves and scales together, so
+    /// a pannable canvas neither re-lays-out nor re-rasterises on every
+    /// gesture frame. Backends without a layer transform ignore it, and
+    /// the surface simply does not pan.
+    /// Run `body` in a floating surface anchored at `pos`, on the
+    /// overlay layer — above all docked chrome.
+    ///
+    /// The sealed replacement for the backend's popup/menu machinery
+    /// (PLAN.md WS-E1.1). Open/close state is the caller's, held in
+    /// [`crate::popup::PopupState`]; this only places the surface.
+    /// The default draws **nothing** — it cannot run `body` against
+    /// itself and stay object-safe. Every real backend overrides it;
+    /// the recording backend runs `body` inline so headless assertions
+    /// still see overlay content.
+    /// Run `body` in a fixed-size row laid out left-to-right, with
+    /// items aligned on the cross axis (PLAN.md WS-A6/E1.4).
+    ///
+    /// The sealed equivalent of the backend's "allocate a sized region
+    /// with a layout" call, which is how a node renderer builds pin
+    /// rows: a fixed slot whose contents sit centred rather than
+    /// hanging from the top edge.
+    ///
+    /// The default draws **nothing** — it cannot run `body` against
+    /// itself and stay object-safe. Both real backends override it.
+    /// Upload CPU pixels as a texture and return a handle to paint it.
+    ///
+    /// Surfaces that generate imagery each frame (noise previews,
+    /// thumbnails, plots rendered to a buffer) need this without
+    /// reaching for a backend context. The handle keeps the texture
+    /// alive; drop it to release.
+    ///
+    /// The default returns `None` — a backend with no texture store
+    /// cannot honour it, and callers must already handle that.
+    fn load_texture(
+        &mut self,
+        name: &str,
+        image: crate::vocab::ColorImage,
+        options: crate::vocab::TextureOptions,
+    ) -> Option<crate::vocab::TextureHandle> {
+        let _ = (name, image, options);
+        None
+    }
+
+    /// Run `body` inside a themed frame — fill, stroke, corner radius,
+    /// inner margin and optional shadow — and report the rect it took.
+    ///
+    /// The sealed equivalent of the backend's frame widget, which is
+    /// how a node renderer draws node bodies and headers. The frame
+    /// paints *behind* `body`, so content is never occluded by its own
+    /// background.
+    ///
+    /// The default draws no frame and runs nothing — it cannot pass
+    /// itself to `body` and stay object-safe. Both real backends
+    /// override it.
+    fn framed(
+        &mut self,
+        spec: crate::style::FrameSpec,
+        body: &mut dyn FnMut(&mut dyn UiBackend),
+    ) -> Rect {
+        let _ = (spec, body);
+        Rect::NOTHING
+    }
+
+    /// Multiply this surface's style metrics — text sizes, spacing,
+    /// stroke widths — by `factor`.
+    ///
+    /// A zoomable surface that wants text to stay crisp when magnified
+    /// renders at a larger style and scales the result down, rather
+    /// than magnifying already-rasterised glyphs. Scaling a backend
+    /// style is backend-specific, so it lives here rather than in the
+    /// surface that asks for it.
+    ///
+    /// The default does nothing: a backend with no notion of a scalable
+    /// style renders at its natural size, which is correct, just not
+    /// crisper.
+    fn scale_style(&mut self, factor: f32) {
+        let _ = factor;
+    }
+
+    fn in_row(&mut self, size: Vec2, align: CrossAlign, body: &mut dyn FnMut(&mut dyn UiBackend)) {
+        let _ = (size, align, body);
+    }
+
+    fn overlay_at(&mut self, id: Id, pos: Pos2, body: &mut dyn FnMut(&mut dyn UiBackend)) {
+        let _ = (id, pos, body);
+    }
+
+    fn set_layer_transform(&mut self, transform: crate::transform::Transform) {
+        let _ = transform;
+    }
+
+    fn child_at(&mut self, rect: Rect, body: &mut dyn FnMut(&mut dyn UiBackend));
+
+    /// Move the flow cursor past `rect`, so subsequent `allocate` calls
+    /// land below (or right of) it.
+    fn advance_cursor_past(&mut self, rect: Rect);
+
+    /// Grow this region's occupied bounds to include `rect`, so the
+    /// parent sizes around content placed at an explicit position.
+    fn expand_to_include(&mut self, rect: Rect);
+
+    /// Bounds actually occupied so far — the union of everything
+    /// allocated or expanded into. Starts empty, unlike
+    /// [`UiBackend::available_rect`].
+    fn occupied_rect(&self) -> Rect;
+
+    /// Current flow cursor position.
+    fn cursor(&self) -> Pos2;
+
     fn in_child(&mut self, id: Id, inset_left: f32, body: &mut dyn FnMut(&mut dyn UiBackend));
 
     /// Run `body` in a sub-scope that flows horizontally (left→right)
@@ -800,6 +1093,96 @@ pub trait UiBackend {
     /// layout continues below the scope. Same object-safe shape as
     /// [`UiBackend::in_child`].
     fn in_scope(&mut self, horizontal: bool, body: &mut dyn FnMut(&mut dyn UiBackend));
+
+    /// A single-line text field bound to `text`.
+    ///
+    /// Text editing is the one widget a backend cannot be talked
+    /// through primitives — it owns the caret, the selection, the IME
+    /// and the clipboard. So it is asked for whole.
+    ///
+    /// The default returns an inert response and edits nothing: a
+    /// backend with no text stack has no field to offer. Callers get a
+    /// response that reports no interaction rather than a lie.
+    fn text_input(
+        &mut self,
+        text: &mut String,
+        placeholder: &str,
+        height: f32,
+        accent: Color32,
+    ) -> MaraResponse {
+        let _ = (text, placeholder, height, accent);
+        MaraResponse::__internal_synthetic(Rect::NOTHING)
+    }
+
+    /// A text field placed and styled by `spec`, optionally grabbing
+    /// focus when nothing else holds it.
+    ///
+    /// Distinct from [`text_input`](UiBackend::text_input): that one
+    /// lays itself out inline, this one is positioned by the caller and
+    /// can claim focus — what a command palette needs on the frame it
+    /// opens. Default is inert.
+    fn text_edit_at(
+        &mut self,
+        text: &mut String,
+        spec: TextEditSpec,
+        focus_when_unfocused: bool,
+    ) -> MaraResponse {
+        let _ = (text, spec, focus_when_unfocused);
+        MaraResponse::__internal_synthetic(Rect::NOTHING)
+    }
+
+    /// Run `body` inside a width-constrained, margin-inset host frame,
+    /// returning the rect it occupied.
+    ///
+    /// The palette window's shape: an outer width the surface is
+    /// clamped to, a narrower content column, and margins around it.
+    /// Distinct from [`framed`](UiBackend::framed), which paints a
+    /// styled frame — this one only shapes the box.
+    ///
+    /// Required rather than defaulted: the obvious default (run `body`
+    /// inline) cannot be written here, because `Self` is unsized behind
+    /// the trait object this stays callable through.
+    fn frame_host(&mut self, spec: FrameHostSpec, body: &mut dyn FnMut(&mut dyn UiBackend))
+    -> Rect;
+
+    /// A dropdown over `options`, bound to `selected`.
+    ///
+    /// Same reasoning as [`text_input`](UiBackend::text_input): the
+    /// popup, its keyboard handling and its dismissal belong to the
+    /// backend. Default is inert.
+    fn dropdown(
+        &mut self,
+        id_salt: Id,
+        selected: &mut usize,
+        options: &[&str],
+        accent: Color32,
+    ) -> MaraResponse {
+        let _ = (id_salt, selected, options, accent);
+        MaraResponse::__internal_synthetic(Rect::NOTHING)
+    }
+
+    /// Attach a right-click context menu to a previous response.
+    ///
+    /// The default runs nothing — a backend with no popup layer has
+    /// nowhere to put it.
+    fn context_menu(
+        &mut self,
+        response: &MaraResponse,
+        accent: Color32,
+        body: &mut dyn FnMut(&mut dyn UiBackend),
+    ) {
+        let _ = (response, accent, body);
+    }
+
+    /// Run `body` in a horizontal scope that wraps onto a new line when
+    /// it runs out of width — a tag strip, a chip cloud.
+    ///
+    /// Distinct from [`in_scope`](UiBackend::in_scope): that one runs
+    /// off the edge. The default does not wrap, which is the honest
+    /// behaviour for a backend with no line-breaking layout.
+    fn in_wrapped_row(&mut self, body: &mut dyn FnMut(&mut dyn UiBackend)) {
+        self.in_scope(true, body);
+    }
 
     /// A [`MaraPainter`](crate::mui::MaraPainter) drawing into the
     /// surface described by `spec` (the remaining region or an explicit
@@ -821,9 +1204,173 @@ pub trait UiBackend {
         0.0
     }
 
+    /// Text typed this frame (composed characters, not raw keys).
+    ///
+    /// Separate from [`UiBackend::input`] because [`crate::MaraInput`]
+    /// is `Copy` and snapshotted every frame — a `String` there would
+    /// cost an allocation per frame for every surface, typing or not.
+    /// Only text-editing surfaces ask for this.
+    fn text_typed(&self) -> String {
+        String::new()
+    }
+
+    /// Device pixels per logical point. Surfaces that render into a
+    /// pixel-sized target (embedded renderers, offscreen textures) size
+    /// that target by `logical_size * pixels_per_point`. Backends with
+    /// no display scaling report `1.0`.
+    fn pixels_per_point(&self) -> f32 {
+        1.0
+    }
+
     /// Ask the host to schedule another frame (e.g. an animation is in
     /// flight). No-op on backends without an event loop.
+    /// The frame context behind this surface.
+    ///
+    /// Render code needs frame-level state — input, the clock, the
+    /// memory store, floating layers — but handing it a backend handle
+    /// to get there is exactly the coupling the seam exists to remove.
+    /// So every surface can produce its own context instead.
+    fn ctx(&self) -> &dyn crate::context::MaraCtx;
+
+    /// Paint `cmd` on its own z-layer above this surface.
+    ///
+    /// Container chrome — corner ticks, a floating icon — has to sit
+    /// above the body it decorates while still belonging to the
+    /// surface that drew it. A plain [`paint`](UiBackend::paint) would
+    /// land in this surface's own layer and be covered.
+    ///
+    /// `tier` orders layers relative to each other; `rect` bounds the
+    /// layer and `opacity` fades it with the surface. The default
+    /// paints inline, which is the closest a backend without a layer
+    /// stack can get.
+    fn paint_on_z_layer(&mut self, id: Id, tier: u16, rect: Rect, opacity: f32, cmd: PaintCmd) {
+        let _ = (id, tier, rect, opacity);
+        self.paint(cmd);
+    }
+
+    /// `family` if the host can render it, else a proportional
+    /// fallback.
+    ///
+    /// A font family is a request, not a guarantee — asking for one the
+    /// host never loaded silently paints nothing on some backends. The
+    /// default assumes any family is available.
+    fn available_text_family(&self, family: TextFamily) -> TextFamily {
+        family
+    }
+
+    /// Run `body` in a child surface occupying `region`.
+    ///
+    /// The closure form of a child `Ui`: a returned child would have to
+    /// name the backend's surface type, so the scope keeps it behind
+    /// the seam.
+    fn in_region(&mut self, region: ChildRegion, body: &mut dyn FnMut(&mut dyn UiBackend));
+
+    /// The rect this surface has actually used so far.
+    ///
+    /// Distinct from [`available_rect`](UiBackend::available_rect):
+    /// available is what the surface *may* fill, this is what it has
+    /// filled. Chrome that frames its own content — a container border,
+    /// corner ticks — needs the latter.
+    fn min_rect(&self) -> Rect {
+        self.available_rect()
+    }
+
+    /// Set this surface's paint opacity, 0.0..=1.0.
+    fn set_opacity(&mut self, opacity: f32) {
+        let _ = opacity;
+    }
+
+    /// Scale this surface's opacity by `factor`, compounding with the
+    /// group fade it already inherits rather than replacing it.
+    fn multiply_opacity(&mut self, factor: f32) {
+        let _ = factor;
+    }
+
+    /// Lay out the container body slot and run `body` inside it.
+    ///
+    /// The slot owns the scroll viewport, so the machinery — sizing,
+    /// hidden bars, trailing pad — stays behind this call. Returns the
+    /// body's intrinsic content height, which the container needs next
+    /// frame to auto-fit.
+    ///
+    /// Required rather than defaulted: the obvious default (run `body`
+    /// inline) cannot be written here, because `Self` is unsized behind
+    /// the trait object this stays callable through.
+    fn body_slot(
+        &mut self,
+        spec: ContainerBodySpec,
+        body: &mut dyn FnMut(&mut dyn UiBackend),
+    ) -> f32;
+
+    /// Reserve the pane title strip and return its rect.
+    ///
+    /// A fixed-thickness slot at one edge; the body gets what is left.
+    /// `spec` carries the thickness and axis, so this is a reservation
+    /// rather than a layout decision.
+    fn reserve_title_slot(&mut self, spec: PaneFlexSpec) -> Rect {
+        self.reserve_space(spec.title_size())
+    }
+
+    /// Constrain this surface to the pane's cross-axis extent and
+    /// apply its item spacing.
+    fn apply_flex_spec(&mut self, spec: PaneFlexSpec) {
+        let _ = spec;
+    }
+
+    /// Run `body` inside the pane's scrollable body slot.
+    ///
+    /// Required rather than defaulted for the same reason as
+    /// [`body_slot`](UiBackend::body_slot): `Self` is unsized behind
+    /// the trait object this stays callable through.
+    fn pane_body_slot(
+        &mut self,
+        spec: PaneBodyScrollSpec,
+        body: &mut dyn FnMut(&mut dyn UiBackend),
+    );
+
+    /// The `PaintCmd`s this backend recorded through the canvas
+    /// painters it handed out.
+    ///
+    /// Empty for a rasterising backend — it painted rather than
+    /// recorded. The headless harness reads this back to assert what a
+    /// module drew.
+    fn canvas_commands(&self) -> Vec<PaintCmd> {
+        Vec::new()
+    }
+
+    /// Set the spacing this surface leaves between successive items.
+    fn set_item_spacing(&mut self, spec: ItemSpacingSpec) {
+        let _ = spec;
+    }
+
+    /// Which way this surface's layout flows.
+    ///
+    /// A container's body grows *away* from its title strip, so the
+    /// body has to know which edge the parent anchored against.
+    fn stack_direction(&self) -> StackDirection {
+        StackDirection::TopDown
+    }
+
+    /// This surface's paint opacity, 0.0..=1.0.
+    ///
+    /// Surfaces fade in as a group, and painters that animate need to
+    /// know how far along that fade is — an effect timed to start
+    /// "once the surface is nearly opaque" is invisible otherwise.
+    /// Defaults to fully opaque, which is what a backend with no fade
+    /// model means.
+    fn opacity(&self) -> f32 {
+        1.0
+    }
+
     fn request_repaint(&self) {}
+
+    /// Ask the host to schedule a frame no later than `after`. Surfaces
+    /// waiting on off-thread work (tile decodes, streamed frames) use
+    /// this to poll without burning a repaint every frame. No-op on
+    /// backends without an event loop.
+    fn request_repaint_after(&self, after: std::time::Duration) {
+        let _ = after;
+    }
 
     /// Run `body` inside a vertical scroll viewport described by
     /// `region`. The egui backend clips and offsets a real scroll area;
@@ -848,6 +1395,59 @@ pub trait UiBackend {
 /// widget `*_backend(&mut impl UiBackend, …)` functions accept the
 /// backend `MaraUi` carries without every one becoming `?Sized`.
 impl<T: UiBackend + ?Sized> UiBackend for &mut T {
+    fn ctx(&self) -> &dyn crate::context::MaraCtx {
+        (**self).ctx()
+    }
+    fn opacity(&self) -> f32 {
+        (**self).opacity()
+    }
+    fn in_region(&mut self, region: ChildRegion, body: &mut dyn FnMut(&mut dyn UiBackend)) {
+        (**self).in_region(region, body)
+    }
+    fn min_rect(&self) -> Rect {
+        (**self).min_rect()
+    }
+    fn stack_direction(&self) -> StackDirection {
+        (**self).stack_direction()
+    }
+    fn set_item_spacing(&mut self, spec: ItemSpacingSpec) {
+        (**self).set_item_spacing(spec)
+    }
+    fn canvas_commands(&self) -> Vec<PaintCmd> {
+        (**self).canvas_commands()
+    }
+    fn reserve_title_slot(&mut self, spec: PaneFlexSpec) -> Rect {
+        (**self).reserve_title_slot(spec)
+    }
+    fn apply_flex_spec(&mut self, spec: PaneFlexSpec) {
+        (**self).apply_flex_spec(spec)
+    }
+    fn pane_body_slot(
+        &mut self,
+        spec: PaneBodyScrollSpec,
+        body: &mut dyn FnMut(&mut dyn UiBackend),
+    ) {
+        (**self).pane_body_slot(spec, body)
+    }
+    fn set_opacity(&mut self, opacity: f32) {
+        (**self).set_opacity(opacity)
+    }
+    fn multiply_opacity(&mut self, factor: f32) {
+        (**self).multiply_opacity(factor)
+    }
+    fn body_slot(
+        &mut self,
+        spec: ContainerBodySpec,
+        body: &mut dyn FnMut(&mut dyn UiBackend),
+    ) -> f32 {
+        (**self).body_slot(spec, body)
+    }
+    fn paint_on_z_layer(&mut self, id: Id, tier: u16, rect: Rect, opacity: f32, cmd: PaintCmd) {
+        (**self).paint_on_z_layer(id, tier, rect, opacity, cmd)
+    }
+    fn available_text_family(&self, family: TextFamily) -> TextFamily {
+        (**self).available_text_family(family)
+    }
     fn begin_area(&mut self, host: AreaHost, rect: Rect) {
         (**self).begin_area(host, rect)
     }
@@ -902,17 +1502,73 @@ impl<T: UiBackend + ?Sized> UiBackend for &mut T {
     fn fill_paint_slot(&mut self, slot: PaintSlot, cmd: Option<PaintCmd>) {
         (**self).fill_paint_slot(slot, cmd)
     }
+    fn inline_picker_scope(
+        &mut self,
+        spec: InlinePickerSpec,
+        body: &mut dyn FnMut(&mut dyn UiBackend),
+    ) {
+        (**self).inline_picker_scope(spec, body)
+    }
+    fn constrain_to(&mut self, rect: Rect) {
+        (**self).constrain_to(rect)
+    }
+    fn set_cursor_icon(&mut self, cursor: CursorIcon) {
+        (**self).set_cursor_icon(cursor)
+    }
+    fn hover_cursor(&mut self, response: &MaraResponse, cursor: CursorIcon) {
+        (**self).hover_cursor(response, cursor)
+    }
     fn hover_text(&mut self, response: &MaraResponse, text: &str) {
         (**self).hover_text(response, text)
     }
     fn is_rect_visible(&self, rect: Rect) -> bool {
         (**self).is_rect_visible(rect)
     }
-    fn egui_ui_mut(&mut self) -> Option<&mut egui::Ui> {
-        (**self).egui_ui_mut()
+    #[cfg(feature = "backend-egui-conv")]
+    fn __internal_egui_ui_mut(&mut self) -> Option<&mut egui::Ui> {
+        (**self).__internal_egui_ui_mut()
     }
-    fn egui_ui_ref(&self) -> Option<&egui::Ui> {
-        (**self).egui_ui_ref()
+    fn load_texture(
+        &mut self,
+        name: &str,
+        image: crate::vocab::ColorImage,
+        options: crate::vocab::TextureOptions,
+    ) -> Option<crate::vocab::TextureHandle> {
+        (**self).load_texture(name, image, options)
+    }
+    fn framed(
+        &mut self,
+        spec: crate::style::FrameSpec,
+        body: &mut dyn FnMut(&mut dyn UiBackend),
+    ) -> Rect {
+        (**self).framed(spec, body)
+    }
+    fn scale_style(&mut self, factor: f32) {
+        (**self).scale_style(factor)
+    }
+    fn in_row(&mut self, size: Vec2, align: CrossAlign, body: &mut dyn FnMut(&mut dyn UiBackend)) {
+        (**self).in_row(size, align, body)
+    }
+    fn overlay_at(&mut self, id: Id, pos: Pos2, body: &mut dyn FnMut(&mut dyn UiBackend)) {
+        (**self).overlay_at(id, pos, body)
+    }
+    fn set_layer_transform(&mut self, transform: crate::transform::Transform) {
+        (**self).set_layer_transform(transform)
+    }
+    fn child_at(&mut self, rect: Rect, body: &mut dyn FnMut(&mut dyn UiBackend)) {
+        (**self).child_at(rect, body)
+    }
+    fn advance_cursor_past(&mut self, rect: Rect) {
+        (**self).advance_cursor_past(rect)
+    }
+    fn expand_to_include(&mut self, rect: Rect) {
+        (**self).expand_to_include(rect)
+    }
+    fn occupied_rect(&self) -> Rect {
+        (**self).occupied_rect()
+    }
+    fn cursor(&self) -> Pos2 {
+        (**self).cursor()
     }
     fn in_child(&mut self, id: Id, inset_left: f32, body: &mut dyn FnMut(&mut dyn UiBackend)) {
         (**self).in_child(id, inset_left, body)
@@ -920,14 +1576,67 @@ impl<T: UiBackend + ?Sized> UiBackend for &mut T {
     fn in_scope(&mut self, horizontal: bool, body: &mut dyn FnMut(&mut dyn UiBackend)) {
         (**self).in_scope(horizontal, body)
     }
+    fn in_wrapped_row(&mut self, body: &mut dyn FnMut(&mut dyn UiBackend)) {
+        (**self).in_wrapped_row(body)
+    }
+    fn text_input(
+        &mut self,
+        text: &mut String,
+        placeholder: &str,
+        height: f32,
+        accent: Color32,
+    ) -> MaraResponse {
+        (**self).text_input(text, placeholder, height, accent)
+    }
+    fn dropdown(
+        &mut self,
+        id_salt: Id,
+        selected: &mut usize,
+        options: &[&str],
+        accent: Color32,
+    ) -> MaraResponse {
+        (**self).dropdown(id_salt, selected, options, accent)
+    }
+    fn text_edit_at(
+        &mut self,
+        text: &mut String,
+        spec: TextEditSpec,
+        focus_when_unfocused: bool,
+    ) -> MaraResponse {
+        (**self).text_edit_at(text, spec, focus_when_unfocused)
+    }
+    fn frame_host(
+        &mut self,
+        spec: FrameHostSpec,
+        body: &mut dyn FnMut(&mut dyn UiBackend),
+    ) -> Rect {
+        (**self).frame_host(spec, body)
+    }
+    fn context_menu(
+        &mut self,
+        response: &MaraResponse,
+        accent: Color32,
+        body: &mut dyn FnMut(&mut dyn UiBackend),
+    ) {
+        (**self).context_menu(response, accent, body)
+    }
     fn make_painter(&self, spec: PaintSurfaceSpec) -> crate::mui::MaraPainter {
         (**self).make_painter(spec)
     }
     fn now(&self) -> f64 {
         (**self).now()
     }
+    fn text_typed(&self) -> String {
+        (**self).text_typed()
+    }
+    fn pixels_per_point(&self) -> f32 {
+        (**self).pixels_per_point()
+    }
     fn request_repaint(&self) {
         (**self).request_repaint()
+    }
+    fn request_repaint_after(&self, after: std::time::Duration) {
+        (**self).request_repaint_after(after)
     }
     fn scroll_region(&mut self, region: ScrollRegion, body: &mut dyn FnMut(&mut dyn UiBackend)) {
         (**self).scroll_region(region, body)
@@ -942,19 +1651,12 @@ impl<T: UiBackend + ?Sized> UiBackend for &mut T {
 /// backend-interpreted; [`PaintSlot::INLINE`] is the sentinel the
 /// default (non-deferring) implementation returns.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct PaintSlot(pub(crate) usize);
+pub struct PaintSlot(#[doc(hidden)] pub usize);
 
 impl PaintSlot {
     pub(crate) const INLINE: PaintSlot = PaintSlot(usize::MAX);
 }
 
-/// Hidden egui measurement adapter for first-party crates that have
-/// already expressed text measurement as Mara-owned data but still run
-/// on the current egui backend.
-#[doc(hidden)]
-pub fn __internal_measure_text_egui(painter: &egui::Painter, spec: &TextMeasureSpec) -> Vec2 {
-    crate::backend::egui::measure_text_for_spec(painter, spec)
-}
 
 #[cfg(test)]
 mod tests {

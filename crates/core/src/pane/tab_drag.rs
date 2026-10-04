@@ -9,10 +9,11 @@
 
 use std::collections::{HashMap, HashSet};
 
-use egui::{Color32, Context, Id, Pos2, Rect};
+use crate::vocab::Id;
+use crate::vocab::{Pos2, Rect};
 
 use crate::icons::Icon;
-use crate::layout::{AreaHost, Layer, UiBackend};
+use crate::layout::{AreaHost, Layer};
 use crate::paint::PaintCmd;
 use crate::vocab::{
     Color32 as MaraColor32, CornerRadius as MaraCornerRadius, Pos2 as MaraPos2, Rect as MaraRect,
@@ -81,16 +82,16 @@ fn active_tab_id_key(container_id: Id) -> Id {
 
 // ─── Drag state accessors ──────────────────────────────────────────
 
-pub fn drag_state(ctx: &Context, pane_id: Id) -> Option<TabDragState> {
-    crate::memory::MaraMemoryCtx::new(ctx).get_temp::<TabDragState>(drag_key(pane_id))
+pub fn drag_state(ctx: &dyn crate::context::MaraCtx, pane_id: Id) -> Option<TabDragState> {
+    ctx.memory().get_temp::<TabDragState>(drag_key(pane_id))
 }
 
-pub fn set_drag(ctx: &Context, pane_id: Id, state: TabDragState) {
-    crate::memory::MaraMemoryCtx::new(ctx).set_temp(drag_key(pane_id), state);
+pub fn set_drag(ctx: &dyn crate::context::MaraCtx, pane_id: Id, state: TabDragState) {
+    ctx.memory().set_temp(drag_key(pane_id), state);
 }
 
-pub fn clear_drag(ctx: &Context, pane_id: Id) {
-    crate::memory::MaraMemoryCtx::new(ctx).remove_temp::<TabDragState>(drag_key(pane_id));
+pub fn clear_drag(ctx: &dyn crate::context::MaraCtx, pane_id: Id) {
+    ctx.memory().remove_temp::<TabDragState>(drag_key(pane_id));
 }
 
 // ─── Strip + button rect cache ─────────────────────────────────────
@@ -99,15 +100,15 @@ pub fn clear_drag(ctx: &Context, pane_id: Id) {
 /// `push_button` and `push_strip` already replace any stale entry
 /// keyed by `(container_id, tab_id)` / `container_id`, so the
 /// caches stay coherent across frames without an explicit clear.
-pub fn begin_frame(_ctx: &Context, _pane_id: Id) {}
+pub fn begin_frame(_ctx: &dyn crate::context::MaraCtx, _pane_id: Id) {}
 
 /// Drop every cached button entry for `container_id` before that
 /// container's tab strip paints its current-frame buttons. Without
 /// this, a tab that moved out of `container_id` last frame would
 /// leave a stale entry in the cache and skew `find_drop_target`'s
 /// slot computation by one.
-pub fn reset_container_buttons(ctx: &Context, pane_id: Id, container_id: Id) {
-    let mut memory = crate::memory::MaraMemoryCtx::new(ctx);
+pub fn reset_container_buttons(ctx: &dyn crate::context::MaraCtx, pane_id: Id, container_id: Id) {
+    let mut memory = ctx.memory();
     let mut cache: Vec<TabButtonEntry> = memory
         .get_temp(button_cache_key(pane_id))
         .unwrap_or_default();
@@ -115,8 +116,8 @@ pub fn reset_container_buttons(ctx: &Context, pane_id: Id, container_id: Id) {
     memory.set_temp(button_cache_key(pane_id), cache);
 }
 
-pub fn push_strip(ctx: &Context, pane_id: Id, entry: TabStripEntry) {
-    let mut memory = crate::memory::MaraMemoryCtx::new(ctx);
+pub fn push_strip(ctx: &dyn crate::context::MaraCtx, pane_id: Id, entry: TabStripEntry) {
+    let mut memory = ctx.memory();
     let mut cache: Vec<TabStripEntry> = memory
         .get_temp(strip_cache_key(pane_id))
         .unwrap_or_default();
@@ -125,8 +126,8 @@ pub fn push_strip(ctx: &Context, pane_id: Id, entry: TabStripEntry) {
     memory.set_temp(strip_cache_key(pane_id), cache);
 }
 
-pub fn push_button(ctx: &Context, pane_id: Id, entry: TabButtonEntry) {
-    let mut memory = crate::memory::MaraMemoryCtx::new(ctx);
+pub fn push_button(ctx: &dyn crate::context::MaraCtx, pane_id: Id, entry: TabButtonEntry) {
+    let mut memory = ctx.memory();
     let mut cache: Vec<TabButtonEntry> = memory
         .get_temp(button_cache_key(pane_id))
         .unwrap_or_default();
@@ -135,25 +136,25 @@ pub fn push_button(ctx: &Context, pane_id: Id, entry: TabButtonEntry) {
     memory.set_temp(button_cache_key(pane_id), cache);
 }
 
-pub fn strip_cache(ctx: &Context, pane_id: Id) -> Vec<TabStripEntry> {
-    crate::memory::MaraMemoryCtx::new(ctx)
+pub fn strip_cache(ctx: &dyn crate::context::MaraCtx, pane_id: Id) -> Vec<TabStripEntry> {
+    ctx.memory()
         .get_temp(strip_cache_key(pane_id))
         .unwrap_or_default()
 }
 
-pub fn button_cache(ctx: &Context, pane_id: Id) -> Vec<TabButtonEntry> {
-    crate::memory::MaraMemoryCtx::new(ctx)
+pub fn button_cache(ctx: &dyn crate::context::MaraCtx, pane_id: Id) -> Vec<TabButtonEntry> {
+    ctx.memory()
         .get_temp(button_cache_key(pane_id))
         .unwrap_or_default()
 }
 
 pub(crate) fn retain_containers(
-    ctx: &Context,
+    ctx: &dyn crate::context::MaraCtx,
     pane_id: Id,
     containers: impl IntoIterator<Item = Id>,
 ) {
     let keep: HashSet<Id> = containers.into_iter().collect();
-    let mut memory = crate::memory::MaraMemoryCtx::new(ctx);
+    let mut memory = ctx.memory();
     let mut strips: Vec<TabStripEntry> = memory
         .get_temp(strip_cache_key(pane_id))
         .unwrap_or_default();
@@ -169,27 +170,33 @@ pub(crate) fn retain_containers(
 
 // ─── Routing persistence ───────────────────────────────────────────
 
-fn read_owner(ctx: &Context, pane_id: Id) -> HashMap<Id, Id> {
-    crate::memory::MaraMemoryCtx::new(ctx)
+fn read_owner(ctx: &dyn crate::context::MaraCtx, pane_id: Id) -> HashMap<Id, Id> {
+    ctx.memory()
         .get_persisted(owner_key(pane_id))
         .unwrap_or_default()
 }
 
-fn write_owner(ctx: &Context, pane_id: Id, map: HashMap<Id, Id>) {
-    crate::memory::MaraMemoryCtx::new(ctx).set_persisted(owner_key(pane_id), map);
+fn write_owner(ctx: &dyn crate::context::MaraCtx, pane_id: Id, map: HashMap<Id, Id>) {
+    ctx.memory().set_persisted(owner_key(pane_id), map);
 }
 
-fn read_moved_out(ctx: &Context, container_id: Id) -> HashSet<Id> {
-    crate::memory::MaraMemoryCtx::new(ctx)
+fn read_moved_out(ctx: &dyn crate::context::MaraCtx, container_id: Id) -> HashSet<Id> {
+    ctx.memory()
         .get_persisted(moved_out_key(container_id))
         .unwrap_or_default()
 }
 
-fn write_moved_out(ctx: &Context, container_id: Id, tabs: HashSet<Id>) {
-    crate::memory::MaraMemoryCtx::new(ctx).set_persisted(moved_out_key(container_id), tabs);
+fn write_moved_out(ctx: &dyn crate::context::MaraCtx, container_id: Id, tabs: HashSet<Id>) {
+    ctx.memory()
+        .set_persisted(moved_out_key(container_id), tabs);
 }
 
-fn mark_moved_out(ctx: &Context, source_container: Id, target_container: Id, tab_id: Id) {
+fn mark_moved_out(
+    ctx: &dyn crate::context::MaraCtx,
+    source_container: Id,
+    target_container: Id,
+    tab_id: Id,
+) {
     if source_container != target_container {
         let mut source_moved = read_moved_out(ctx, source_container);
         source_moved.insert(tab_id);
@@ -201,8 +208,8 @@ fn mark_moved_out(ctx: &Context, source_container: Id, target_container: Id, tab
     }
 }
 
-fn read_order(ctx: &Context, pane_id: Id) -> HashMap<Id, Vec<Id>> {
-    crate::memory::MaraMemoryCtx::new(ctx)
+fn read_order(ctx: &dyn crate::context::MaraCtx, pane_id: Id) -> HashMap<Id, Vec<Id>> {
+    ctx.memory()
         .get_persisted(order_key(pane_id))
         .unwrap_or_default()
 }
@@ -217,12 +224,12 @@ fn dedupe_ids(ids: impl IntoIterator<Item = Id>) -> Vec<Id> {
     out
 }
 
-fn write_order(ctx: &Context, pane_id: Id, map: HashMap<Id, Vec<Id>>) {
+fn write_order(ctx: &dyn crate::context::MaraCtx, pane_id: Id, map: HashMap<Id, Vec<Id>>) {
     let map: HashMap<Id, Vec<Id>> = map
         .into_iter()
         .map(|(container_id, ids)| (container_id, dedupe_ids(ids)))
         .collect();
-    crate::memory::MaraMemoryCtx::new(ctx).set_persisted(order_key(pane_id), map);
+    ctx.memory().set_persisted(order_key(pane_id), map);
 }
 
 /// For one container: the ordered tab ids belonging to it, derived
@@ -232,7 +239,7 @@ fn write_order(ctx: &Context, pane_id: Id, map: HashMap<Id, Vec<Id>>) {
 /// container are filtered out; tabs the persisted owner map assigns
 /// TO this container from elsewhere are pulled in.
 pub fn route(
-    ctx: &Context,
+    ctx: &dyn crate::context::MaraCtx,
     pane_id: Id,
     container_id: Id,
     default_tabs_here: &[Id],
@@ -292,7 +299,7 @@ pub fn route(
 }
 
 fn live_strip_tab_order(
-    ctx: &Context,
+    ctx: &dyn crate::context::MaraCtx,
     pane_id: Id,
     container_id: Id,
     drag: TabDragState,
@@ -332,7 +339,7 @@ fn live_strip_tab_order(
 /// `target_container` at slot `target_slot` (0 = first). Updates
 /// both the owner map and the per-container order.
 pub fn commit_drop(
-    ctx: &Context,
+    ctx: &dyn crate::context::MaraCtx,
     pane_id: Id,
     tab_id: Id,
     source_container: Id,
@@ -379,8 +386,9 @@ pub fn commit_drop(
     target_order.insert(slot, tab_id);
     order.insert(target_container, target_order);
     write_order(ctx, pane_id, order);
-    crate::memory::MaraMemoryCtx::new(ctx).set_persisted(active_tab_key(target_container), slot);
-    crate::memory::MaraMemoryCtx::new(ctx)
+    ctx.memory()
+        .set_persisted(active_tab_key(target_container), slot);
+    ctx.memory()
         .set_persisted(active_tab_id_key(target_container), tab_id);
 }
 
@@ -390,12 +398,16 @@ pub fn commit_drop(
 /// would receive the drop. Returns `None` if the cursor isn't over
 /// any registered tab strip in this pane.
 #[cfg(test)]
-fn find_drop_target(ctx: &Context, pane_id: Id, cursor: Pos2) -> Option<(Id, usize)> {
+fn find_drop_target(
+    ctx: &dyn crate::context::MaraCtx,
+    pane_id: Id,
+    cursor: Pos2,
+) -> Option<(Id, usize)> {
     find_drop_target_filtered(ctx, pane_id, cursor, None)
 }
 
 pub fn find_drop_target_for_drag(
-    ctx: &Context,
+    ctx: &dyn crate::context::MaraCtx,
     pane_id: Id,
     cursor: Pos2,
     drag: TabDragState,
@@ -404,7 +416,7 @@ pub fn find_drop_target_for_drag(
 }
 
 fn find_drop_target_filtered(
-    ctx: &Context,
+    ctx: &dyn crate::context::MaraCtx,
     pane_id: Id,
     cursor: Pos2,
     drag: Option<TabDragState>,
@@ -460,11 +472,11 @@ fn find_drop_target_filtered(
 /// Paint the dragged tab's preview at the cursor on Mara's overlay
 /// layer — floats above every pane / container layer.
 pub fn paint_drag_preview(
-    ctx: &Context,
+    ctx: &dyn crate::context::MaraCtx,
     pane_id: Id,
     button_size: MaraVec2,
     cursor: Pos2,
-    accent: Color32,
+    accent: MaraColor32,
     label: &str,
     icon: Option<Icon<'static>>,
 ) {
@@ -474,14 +486,12 @@ pub fn paint_drag_preview(
         cursor.y - button_size.y * 0.5,
     );
     let area_id = pane_id.with("mara_tab_drag_preview");
-    crate::backend::egui::show_area_for_host(
-        ctx,
-        AreaHost::new(area_id.into(), pos, Layer::Overlay).non_interactive(),
-        |ui| {
+    ctx.area(
+        AreaHost::new(area_id, pos, Layer::Overlay).non_interactive(),
+        &mut |ui| {
             let rect = MaraRect::from_min_size(pos, button_size);
-            let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
-            for cmd in tab_drag_preview_paint_cmds(rect, accent.into()) {
-                backend.paint(cmd);
+            for cmd in tab_drag_preview_paint_cmds(rect, accent) {
+                ui.paint(cmd);
             }
             // Glyph + label, centred. Best-effort; icon may be empty.
             if let Some(icon) = icon {
@@ -497,7 +507,7 @@ pub fn paint_drag_preview(
                     icon_size,
                     crate::style::on_panel(),
                 ) {
-                    backend.paint(cmd);
+                    ui.paint(cmd);
                 }
             }
             let _ = label;
@@ -525,11 +535,11 @@ fn tab_drag_preview_paint_cmds(rect: MaraRect, accent: MaraColor32) -> [PaintCmd
 #[cfg(test)]
 mod tests {
     use super::*;
-    use egui::{Context, pos2, vec2};
+    use crate::vocab::{pos2, vec2};
 
     #[test]
     fn drag_target_ignores_source_tab_button_for_same_strip_slots() {
-        let ctx = Context::default();
+        let ctx = headless_ctx();
         let pane_id = Id::new("pane");
         let container_id = Id::new("container");
         let first = Id::new("first");
@@ -603,7 +613,7 @@ mod tests {
 
     #[test]
     fn drag_target_ignores_source_tab_button_for_vertical_same_strip_slots() {
-        let ctx = Context::default();
+        let ctx = headless_ctx();
         let pane_id = Id::new("pane");
         let container_id = Id::new("container");
         let first = Id::new("first");
@@ -649,7 +659,7 @@ mod tests {
 
     #[test]
     fn drag_target_keeps_foreign_strip_buttons() {
-        let ctx = Context::default();
+        let ctx = headless_ctx();
         let pane_id = Id::new("pane");
         let source_container = Id::new("source");
         let target_container = Id::new("target");
@@ -696,7 +706,7 @@ mod tests {
 
     #[test]
     fn retain_containers_prunes_stale_tab_drop_targets() {
-        let ctx = Context::default();
+        let ctx = headless_ctx();
         let pane_id = Id::new("pane");
         let current = Id::new("current");
         let stale = Id::new("removed");
@@ -738,7 +748,7 @@ mod tests {
 
     #[test]
     fn commit_drop_seeds_empty_target_order_from_live_tabs() {
-        let ctx = Context::default();
+        let ctx = headless_ctx();
         let pane_id = Id::new("pane");
         let source = Id::new("source");
         let target = Id::new("target");
@@ -788,7 +798,7 @@ mod tests {
 
     #[test]
     fn route_repairs_duplicate_and_stale_persisted_tab_order() {
-        let ctx = Context::default();
+        let ctx = headless_ctx();
         let pane_id = Id::new("pane");
         let container = Id::new("container");
         let first = Id::new("first");
@@ -815,7 +825,7 @@ mod tests {
 
     #[test]
     fn route_ignores_stale_persisted_owner_containers() {
-        let ctx = Context::default();
+        let ctx = headless_ctx();
         let pane_id = Id::new("pane");
         let container = Id::new("container");
         let removed_container = Id::new("removed-container");
@@ -834,7 +844,7 @@ mod tests {
 
     #[test]
     fn moved_out_tabs_do_not_reappear_when_source_container_changes_pane() {
-        let ctx = Context::default();
+        let ctx = headless_ctx();
         let first_pane = Id::new("first-pane");
         let second_pane = Id::new("second-pane");
         let source = Id::new("source-container");
@@ -859,7 +869,7 @@ mod tests {
 
     #[test]
     fn commit_drop_uses_vertical_live_target_order() {
-        let ctx = Context::default();
+        let ctx = headless_ctx();
         let pane_id = Id::new("pane");
         let source = Id::new("source");
         let target = Id::new("target");
@@ -905,7 +915,7 @@ mod tests {
 
     #[test]
     fn commit_drop_same_container_reorders_from_live_tabs_without_duplication() {
-        let ctx = Context::default();
+        let ctx = headless_ctx();
         let pane_id = Id::new("pane");
         let container = Id::new("container");
         let first = Id::new("first");
@@ -950,7 +960,7 @@ mod tests {
 
     #[test]
     fn commit_drop_selects_dropped_tab_in_target_container() {
-        let ctx = Context::default();
+        let ctx = headless_ctx();
         let pane_id = Id::new("pane");
         let source = Id::new("source");
         let target = Id::new("target");
@@ -982,9 +992,9 @@ mod tests {
         commit_drop(&ctx, pane_id, dragged, source, target, 1);
 
         let active =
-            crate::memory::MaraMemoryCtx::new(&ctx).get_persisted::<usize>(active_tab_key(target));
+            crate::context::MaraCtx::memory(&ctx).get_persisted::<usize>(active_tab_key(target));
         let active_id =
-            crate::memory::MaraMemoryCtx::new(&ctx).get_persisted::<Id>(active_tab_id_key(target));
+            crate::context::MaraCtx::memory(&ctx).get_persisted::<Id>(active_tab_id_key(target));
         assert_eq!(
             active,
             Some(1),
@@ -999,7 +1009,7 @@ mod tests {
 
     #[test]
     fn commit_drop_same_container_selects_reordered_tab() {
-        let ctx = Context::default();
+        let ctx = headless_ctx();
         let pane_id = Id::new("pane");
         let container = Id::new("container");
         let first = Id::new("first");
@@ -1029,10 +1039,10 @@ mod tests {
 
         commit_drop(&ctx, pane_id, dragged, container, container, 2);
 
-        let active = crate::memory::MaraMemoryCtx::new(&ctx)
-            .get_persisted::<usize>(active_tab_key(container));
-        let active_id = crate::memory::MaraMemoryCtx::new(&ctx)
-            .get_persisted::<Id>(active_tab_id_key(container));
+        let active =
+            crate::context::MaraCtx::memory(&ctx).get_persisted::<usize>(active_tab_key(container));
+        let active_id =
+            crate::context::MaraCtx::memory(&ctx).get_persisted::<Id>(active_tab_id_key(container));
         assert_eq!(
             active,
             Some(2),
@@ -1040,4 +1050,15 @@ mod tests {
         );
         assert_eq!(active_id, Some(dragged));
     }
+}
+
+/// A context for state-only assertions — see the note in
+/// `shelf::tests`. The recording backend is a `MaraCtx`, so tests that
+/// only exercise Mara's own bookkeeping need no backend.
+#[cfg(test)]
+fn headless_ctx() -> crate::backend::record::RecordingBackend {
+    crate::backend::record::RecordingBackend::at(crate::vocab::Rect::from_min_size(
+        crate::vocab::Pos2::ZERO,
+        crate::vocab::Vec2::new(1280.0, 800.0),
+    ))
 }

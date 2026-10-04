@@ -3,7 +3,7 @@
 //! border. Attach to any `egui::Response` (tree row body, button,
 //! inspector cell) and the menu opens on right-click / long-press.
 
-use crate::{
+use mara_core::{
     layout::ItemSpacingSpec,
     style::{FrameRole, frame_for, glass_alpha_card},
     vocab::{Color32, Vec2},
@@ -21,9 +21,9 @@ pub(crate) fn context_menu_mara(
     let frame = frame_for(FrameRole::Popup, accent);
 
     egui::Popup::context_menu(resp)
-        .frame(crate::backend::egui::egui_frame_for_style_spec(frame))
+        .frame(crate::egui_frame_for_style_spec(frame))
         .show(|ui| {
-            crate::backend::egui::apply_item_spacing_spec(ui, context_menu_item_spacing_spec());
+            crate::apply_item_spacing_spec(ui, context_menu_item_spacing_spec());
             let _ = glass_alpha_card();
             add_contents(ui);
         });

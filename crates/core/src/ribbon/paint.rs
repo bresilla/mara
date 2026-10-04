@@ -3,8 +3,6 @@
 //! static ribbons and the drag-aware layout both route here so the
 //! pixel-level look stays identical whichever path the caller took.
 
-use egui;
-
 use crate::paint::PaintCmd;
 use crate::style::{
     BG_1_PANEL, BG_2_RAISED, BORDER_SUBTLE, RadiusRole, StrokeRole, glass_alpha_card,
@@ -17,11 +15,9 @@ use crate::vocab::{
 /// sRGB lerp on RGB channels, alpha left at 255. Local copy so the
 /// ribbon paint module doesn't reach into `style`'s private helpers.
 pub(crate) fn lerp_rgb(a: MaraColor32, b: MaraColor32, t: f32) -> MaraColor32 {
-    let a: egui::Color32 = a.into();
-    let b: egui::Color32 = b.into();
     let t = t.clamp(0.0, 1.0);
     let mix = |x: u8, y: u8| ((x as f32) * (1.0 - t) + (y as f32) * t).round() as u8;
-    egui::Color32::from_rgb(mix(a.r(), b.r()), mix(a.g(), b.g()), mix(a.b(), b.b())).into()
+    MaraColor32::from_rgb(mix(a.r(), b.r()), mix(a.g(), b.g()), mix(a.b(), b.b()))
 }
 
 /// Foreground (glyph / label) colour matching the recipe in
@@ -34,7 +30,7 @@ pub(crate) fn lerp_rgb(a: MaraColor32, b: MaraColor32, t: f32) -> MaraColor32 {
 /// Centred on `rect`'s middle; size = 14 px (text/icon) or rect
 /// shrunk by 6 px (svg). Tinted in `fg`.
 pub(crate) fn paint_ribbon_glyph(
-    ui: &mut egui::Ui,
+    ui: &mut crate::MaraUi<'_>,
     rect: MaraRect,
     glyph: super::chrome::RibbonGlyph,
     fg: MaraColor32,
@@ -43,7 +39,7 @@ pub(crate) fn paint_ribbon_glyph(
         return;
     }
     if let Some(cmd) = ribbon_glyph_paint_cmd(rect, glyph, fg) {
-        crate::backend::egui::render_paint_cmd_ui(ui, cmd);
+        ui.paint(cmd);
     }
 }
 
@@ -157,7 +153,7 @@ pub(crate) fn ribbon_button_paint_cmds(
 ) -> Vec<PaintCmd> {
     let theme = crate::style::theme();
     let radius = radius_for(RadiusRole::Section);
-    let accent_raw: egui::Color32 = accent.into();
+    let accent_raw: MaraColor32 = accent;
 
     if theme.ribbon.button_accent_fill {
         // Three filled tiers, no stroke / halo / border. Active uses
@@ -204,7 +200,7 @@ pub(crate) fn ribbon_button_paint_cmds(
     let bg_idle = theme.bg_panel;
     let bg: MaraColor32 = if is_active {
         let blend = |a: u8, b: u8| ((a as f32) * 0.75 + (b as f32) * 0.25).round() as u8;
-        let tinted = egui::Color32::from_rgb(
+        let tinted = MaraColor32::from_rgb(
             blend(bg_raised.r(), accent_raw.r()),
             blend(bg_raised.g(), accent_raw.g()),
             blend(bg_raised.b(), accent_raw.b()),

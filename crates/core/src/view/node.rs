@@ -225,27 +225,33 @@ fn show_split_divider(
     salt: MaraId,
     divider: &super::layout::SplitDivider,
 ) -> Option<f32> {
-    use crate::layout::{AreaHost, AreaSlotSpec, CursorIcon, Layer, Sense, UiBackend};
+    use crate::layout::{AreaHost, AreaSlotSpec, CursorIcon, Layer, Sense};
 
-    let egui_ctx = ctx.__internal_egui_ctx();
+    // The node already carries a seam context — reaching for the raw
+    // handle here only to hand it straight back to `area_slot` was a
+    // round trip through the backend for nothing.
+    let seam = ctx.__internal_seam_ctx();
     let id = MaraId::new(("mara_split_divider", salt, &divider.path, divider.boundary));
     let strip = divider.strip;
     let vertical_line = divider.vertical_line;
-    let response = crate::backend::egui::show_area_slot(
-        egui_ctx,
-        AreaSlotSpec::new(AreaHost::new(id, strip.min, Layer::Foreground), strip.size()),
-        |ui| {
-            let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
-            let response = backend.interact(strip, id.with("hit"), Sense::ClickAndDrag);
+    // The divider's interaction is produced inside the area body, so it
+    // comes back through a capture rather than a return value — the
+    // seam takes `&mut dyn FnMut`, which cannot be generic over it.
+    let mut divider_response = None;
+    crate::context::MaraCtx::area_slot(
+        seam,
+        AreaSlotSpec::new(
+            AreaHost::new(id, strip.min, Layer::Foreground),
+            strip.size(),
+        ),
+        &mut |ui| {
+            let response = ui.interact(strip, id.with("hit"), Sense::ClickAndDrag);
             if response.hovered() || response.dragged() {
-                crate::backend::egui::set_cursor_icon_for_ui(
-                    ui,
-                    if vertical_line {
-                        CursorIcon::ResizeHorizontal
-                    } else {
-                        CursorIcon::ResizeVertical
-                    },
-                );
+                ui.set_cursor_icon(if vertical_line {
+                    CursorIcon::ResizeHorizontal
+                } else {
+                    CursorIcon::ResizeVertical
+                });
                 let center = strip.center();
                 let (a, b) = if vertical_line {
                     (
@@ -258,18 +264,15 @@ fn show_split_divider(
                         crate::vocab::Pos2::new(strip.right(), center.y),
                     )
                 };
-                crate::backend::egui::render_paint_cmd_ui(
-                    ui,
-                    crate::paint::PaintCmd::Polyline {
-                        points: vec![a, b],
-                        stroke: crate::vocab::Stroke::new(2.0, crate::style::active_accent()),
-                    },
-                );
+                ui.paint(crate::paint::PaintCmd::Polyline {
+                    points: vec![a, b],
+                    stroke: crate::vocab::Stroke::new(2.0, crate::style::active_accent()),
+                });
             }
-            response
+            divider_response = Some(response);
         },
-    )
-    .inner;
+    );
+    let response = divider_response.expect("area_slot must run its body exactly once");
     if response.dragged() {
         response
             .interact_pointer

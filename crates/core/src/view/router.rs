@@ -34,7 +34,7 @@ impl ViewEntry {
             title,
             icon,
             shared_surface,
-            workspace: WorkspaceStack::new(egui::Id::new(("mara_view_workspace", id.0))),
+            workspace: WorkspaceStack::new(crate::vocab::Id::new(("mara_view_workspace", id.0))),
             view: Box::new(view),
         }
     }

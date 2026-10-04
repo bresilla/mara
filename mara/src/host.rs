@@ -210,6 +210,16 @@ fn ribbon_cluster_for_pane_anchor(
 }
 
 impl<'a> MaraHostCtx<'a> {
+    /// The seam view of this frame's context.
+    ///
+    /// Returned by value because the wrapper owns an `Arc` handle —
+    /// callers bind it and lend `&seam` where a `&dyn MaraCtx` is
+    /// wanted. `MaraHostCtx` stays `Copy` this way.
+    #[must_use]
+    pub fn seam(&self) -> mara_backend_egui::EguiCtx {
+        mara_backend_egui::EguiCtx::new(self.egui)
+    }
+
     pub fn new(
         egui: &'a egui::Context,
         render_state: Option<&'a egui_wgpu::RenderState>,
@@ -243,8 +253,36 @@ impl<'a> MaraHostCtx<'a> {
         self.egui
     }
 
-    pub fn render_state(&self) -> Option<&'a egui_wgpu::RenderState> {
+    /// Internal first-party accessor — exposes the raw egui-wgpu render
+    /// state, so it is hidden and not semver-stable. Sealed consumers
+    /// get GPU wiring through the published context state
+    /// (`view_ctx` publishes the target format) instead.
+    #[doc(hidden)]
+    pub fn __internal_render_state(&self) -> Option<&'a egui_wgpu::RenderState> {
         self.render_state
+    }
+
+    /// Opaque GPU handle for GPU-module `show` calls (Bevy viewport,
+    /// 3D). Sealed: the app passes it through without ever seeing the
+    /// underlying egui-wgpu types (ADR 0002).
+    #[must_use]
+    pub fn gpu(&self) -> Option<mara_gpu::MaraRenderState<'a>> {
+        self.render_state
+            .map(mara_gpu::MaraRenderState::__internal_new)
+    }
+
+    /// Render the enforced shell top bar and return its events — the
+    /// sealed path for hosts without a runner/plugin doing it for them
+    /// (e.g. plain eframe/web shells). Wraps the bar's internal egui
+    /// hook so the app never holds the backend context itself.
+    pub fn show_shell_bar(
+        &self,
+        bar: &mut mara_core::ShellBar,
+        open: &mut mara_core::RibbonOpen,
+        placement: &mut mara_core::RibbonPlacement,
+        drag: &mut mara_core::RibbonDrag,
+    ) -> Vec<mara_core::ShellEvent> {
+        bar.__internal_show_egui(&self.seam(), open, placement, drag)
     }
 
     pub fn window(&self) -> MaraWindowHost {
@@ -273,14 +311,17 @@ impl<'a> MaraHostCtx<'a> {
         mara_core::layout_shelves(self.content_rect(), shelves, state, &shelf_theme)
     }
 
-    /// Paint shelves through the current host backend.
+    /// Paint shelves through the current host backend; returns every
+    /// shelf-hosted pod's response, keyed the same way
+    /// [`crate::pane::PaneBody::render`] keys a floating pane's — by the
+    /// container id passed to [`mara_core::shelf::ShelfContainer::tabbed`].
     pub fn show_shelves(
         &self,
         layout: mara_core::ShelfLayout,
         shelves: Vec<mara_core::ShelfDef<'_>>,
         state: &mut mara_core::ShelfState,
-    ) {
-        mara_core::shelf::__internal_show_shelves_egui(self.egui, layout, shelves, state);
+    ) -> std::collections::HashMap<mara_core::vocab::Id, Vec<mara_core::pod::PodResponse>> {
+        mara_core::shelf::__internal_show_shelves_egui(&self.seam(), layout, shelves, state)
     }
 
     /// Show a root-level Mara body in the host content panel.
@@ -292,7 +333,7 @@ impl<'a> MaraHostCtx<'a> {
         accent: impl Into<mara_core::vocab::Color32>,
         body: impl FnOnce(&mut mara_core::MaraUi<'_>, mara_core::vocab::Rect) -> R,
     ) -> R {
-        mara_core::enforce::__internal_enforce_defaults(self.egui);
+        mara_backend_egui::theme::__internal_enforce_defaults(&self.seam());
         let accent = accent.into();
         // The body gets the FULL content rect (edge to edge, top to
         // bottom) so a root surface can paint full-bleed *behind* the
@@ -303,9 +344,9 @@ impl<'a> MaraHostCtx<'a> {
         {
             egui::CentralPanel::default()
                 .frame(egui::Frame::new().fill(egui::Color32::TRANSPARENT))
-                .show(self.egui, |ui| {
+                .show(&self.seam(), |ui| {
                     let screen_rect = ui.max_rect().into();
-                    let mut __raw = mara_core::MaraUi::__internal_backend_from_raw(ui);
+                    let mut __raw = mara_backend_egui::__internal_backend_from_raw(ui);
                     let mut mui = mara_core::MaraUi::__internal_over(&mut __raw, accent);
                     body(&mut mui, screen_rect)
                 })
@@ -329,7 +370,12 @@ impl<'a> MaraHostCtx<'a> {
         // click twice — for a shelf toggle that means it flips on then off
         // in the same interaction (net no-op), so the shelves never toggle.
         mara_core::ribbon::__internal_draw_slot_ribbons_featureful_no_system_egui(
-            self.egui, accent, ribbons, open, placement, drag,
+            &self.seam(),
+            accent,
+            ribbons,
+            open,
+            placement,
+            drag,
         )
     }
 
@@ -362,7 +408,7 @@ impl<'a> MaraHostCtx<'a> {
                 d.insert_temp(egui::Id::new("mara_gpu_target_format"), state.target_format);
             });
         }
-        mara_core::ViewCtx::__internal_new(self.egui, workspace, accent, ribbon_avoidance)
+        mara_backend_egui::theme::__internal_view_ctx(self.egui, workspace, accent, ribbon_avoidance)
     }
 
     /// Publish the layout rectangle left after structural shelves reserve
@@ -370,7 +416,7 @@ impl<'a> MaraHostCtx<'a> {
     /// `ShelfLayout::full(host.content_rect())` through this facade; real
     /// shelf renderers publish automatically.
     pub fn publish_shelf_layout(&self, layout: mara_core::ShelfLayout) {
-        mara_core::shelf::__internal_publish_shelf_layout(self.egui, layout);
+        mara_core::shelf::__internal_publish_shelf_layout(&self.seam(), layout);
     }
 
     /// Publish a no-shelf layout covering the live host content rect.
@@ -386,7 +432,7 @@ impl<'a> MaraHostCtx<'a> {
         pane: mara_core::pane::Pane,
         body: impl FnOnce(&mut mara_core::pane::PaneBody<'_, 'spec>),
     ) {
-        pane.__internal_show(self.egui, self.content_rect(), body);
+        pane.__internal_show(&self.seam(), self.content_rect(), body);
     }
 
     /// Publish the pane ids reachable from the current ribbon set.
@@ -397,7 +443,7 @@ impl<'a> MaraHostCtx<'a> {
         &self,
         ids: impl IntoIterator<Item = impl Into<mara_core::vocab::Id>>,
     ) {
-        mara_core::pane::__internal_publish_ribbon_pane_ids(self.egui, ids);
+        mara_core::pane::__internal_publish_ribbon_pane_ids(&self.seam(), ids);
     }
 
     /// Draw the command palette through the sealed host facade.
@@ -411,13 +457,18 @@ impl<'a> MaraHostCtx<'a> {
         items: &[mara_core::PaletteItem],
         accent: impl Into<mara_core::vocab::Color32>,
     ) -> Option<&'static str> {
-        mara_core::command_palette::__internal_command_palette_egui(self.egui, state, items, accent)
+        mara_core::command_palette::__internal_command_palette_egui(
+            &self.seam(),
+            state,
+            items,
+            accent,
+        )
     }
 
     /// Current maximized-widget owner, if a maximizable Mara surface
     /// owns the full host content area this frame.
     pub fn fullscreen_owner(&self) -> Option<mara_core::vocab::Id> {
-        mara_core::embed::__internal_fullscreen_owner(self.egui)
+        mara_core::embed::__internal_fullscreen_owner(&self.seam())
     }
 
     /// `true` when any maximizable Mara surface owns the full host
@@ -431,14 +482,14 @@ impl<'a> MaraHostCtx<'a> {
     /// app/module bar can hide the floating chip and route restore
     /// through their normal chrome.
     pub fn set_fullscreen_minimize_chip_visible(&self, visible: bool) {
-        mara_core::embed::__internal_set_fullscreen_minimize_chip_visible(self.egui, visible);
+        mara_core::embed::__internal_set_fullscreen_minimize_chip_visible(&self.seam(), visible);
     }
 
     /// Restore the active full-window maximizable widget, if one
     /// exists. Returns `true` when a fullscreen owner was found and
     /// toggled off.
     pub fn restore_fullscreen(&self) -> bool {
-        mara_core::embed::__internal_restore_fullscreen(self.egui)
+        mara_core::embed::__internal_restore_fullscreen(&self.seam())
     }
 
     /// Apply the current Mara theme with default host state.
@@ -462,9 +513,9 @@ impl<'a> MaraHostCtx<'a> {
         glass: mara_core::style::GlassOpacity,
     ) {
         mara_core::style::set_glass_opacity(glass.0);
-        mara_core::style::__internal_apply_theme(self.egui, accent, glass);
+        mara_backend_egui::theme::__internal_apply_theme(&self.seam(), accent, glass);
         mara_core::window_chrome::__internal_publish_window_chrome_host_capabilities(
-            self.egui,
+            &self.seam(),
             mara_core::WindowChromeHostCapabilities {
                 native_move: self.window.native_move(),
                 native_resize: self.window.native_resize(),
@@ -484,7 +535,7 @@ impl<'a> MaraHostCtx<'a> {
     /// calling it and the bar comes back. Host runners honor it too:
     /// they skip their own bar render for an opted-out frame.
     pub fn opt_out_shell_bar(&self) {
-        mara_core::enforce::__internal_opt_out_shell(self.egui);
+        mara_core::enforce::__internal_opt_out_shell(&self.seam());
     }
 
     /// Request the top-level host window to close.
@@ -506,11 +557,43 @@ impl<'a> MaraHostCtx<'a> {
     /// has a native egui-wgpu render state available.
     #[cfg(feature = "graph")]
     pub fn node_view_backend(&self) -> Option<EframeNodeViewBackend<'a>> {
-        self.render_state.map(EframeNodeViewBackend::new)
+        self.gpu().map(EframeNodeViewBackend::new)
     }
 }
 
 impl MaraHostCtx<'_> {
+    /// Whether `pane` is the open pane of the rail `rail`.
+    #[must_use]
+    pub fn rail_pane_open(&self, rail: &'static str, pane: &'static str) -> bool {
+        let key = egui::Id::new(("mara_host_ribbon_rail_state", rail));
+        self.egui
+            .data_mut(|data| data.get_persisted::<HostRibbonRailState>(key))
+            .is_some_and(|state| state.open.is_open(rail, pane))
+    }
+
+    /// Open or close `pane` on the rail `rail` from app code (a hotkey, a
+    /// selection made in the scene). Takes effect at the rail's next show.
+    pub fn set_rail_pane_open(&self, rail: &'static str, pane: &'static str, open: bool) {
+        let key = egui::Id::new(("mara_host_ribbon_rail_state", rail));
+        let mut state = self
+            .egui
+            .data_mut(|data| data.get_persisted::<HostRibbonRailState>(key))
+            .unwrap_or_default();
+        state.initialized = true;
+        if open {
+            state.open.set(rail, pane);
+        } else if state.open.is_open(rail, pane) {
+            state.open.per_ribbon.remove(rail);
+        }
+        self.egui.data_mut(|data| data.insert_persisted(key, state));
+    }
+
+    /// Toggle `pane` on the rail `rail`; see [`Self::set_rail_pane_open`].
+    pub fn toggle_rail_pane(&self, rail: &'static str, pane: &'static str) {
+        let open = self.rail_pane_open(rail, pane);
+        self.set_rail_pane_open(rail, pane, !open);
+    }
+
     /// Show a high-level rail declaration.
     ///
     /// This paints open panes first, then the ribbon rail, because the
@@ -698,8 +781,12 @@ pub struct EframeNodeViewBackend<'a> {
 
 #[cfg(feature = "graph")]
 impl<'a> EframeNodeViewBackend<'a> {
-    pub fn new(render_state: &'a egui_wgpu::RenderState) -> Self {
-        Self { render_state }
+    /// Build from the opaque host GPU handle (`MaraHostCtx::gpu()`),
+    /// so wiring the graph backend never touches egui-wgpu types.
+    pub fn new(render_state: mara_gpu::MaraRenderState<'a>) -> Self {
+        Self {
+            render_state: render_state.__internal_raw(),
+        }
     }
 }
 

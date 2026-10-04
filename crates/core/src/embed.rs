@@ -6,8 +6,8 @@
 //! module provides exactly that, in a widget-agnostic form:
 //!
 //! ```ignore
-//! maximizable(ui, "my_widget", accent, mara::ui::vocab::Vec2::new(w, 300.0), |ui| {
-//!     // Render your widget into this inner `ui` — it's either
+//! __internal_maximizable_egui(mara, "my_widget", accent, mara::mara::vocab::Vec2::new(w, 300.0), |mara| {
+//!     // Render your widget into this inner `mara` — it's either
 //!     // the inline rect the caller wanted, or a full-window
 //!     // overlay depending on the maximise state.
 //! });
@@ -35,11 +35,7 @@
 
 use std::hash::Hash;
 
-use egui;
-
-use crate::layout::{
-    AreaHost, ChildRegion, CursorIcon, Layer, Sense as MaraSense, StackAlign, UiBackend,
-};
+use crate::layout::{AreaHost, ChildRegion, CursorIcon, Layer, Sense as MaraSense, StackAlign};
 use crate::paint::PaintCmd;
 use crate::ribbon::{RibbonCluster, RibbonEdge};
 use crate::style::{
@@ -99,19 +95,26 @@ impl OverlayOpts {
     }
 }
 
-/// The egui data key that [`maximizable`] uses to store the
+/// The egui data key that [`__internal_maximizable_egui`] uses to store the
 /// maximise-flag for a given `id_salt`. Exposed so callers can do
 /// context-sensitive routing without poking inside the widget.
 pub fn maximize_state_key(id_salt: impl std::hash::Hash) -> MaraId {
     MaraId::new(("mara_maximize", id_salt))
 }
 
-fn pending_restore_fullscreen_key() -> egui::Id {
-    egui::Id::new("mara_pending_restore_fullscreen")
+fn pending_restore_fullscreen_key() -> crate::vocab::Id {
+    crate::vocab::Id::new("mara_pending_restore_fullscreen")
 }
 
-fn current_node_region_key() -> egui::Id {
-    egui::Id::new("mara_current_node_region")
+fn current_node_region_key() -> crate::vocab::Id {
+    crate::vocab::Id::new("mara_current_node_region")
+}
+
+/// The single key for the global "who owns the fullscreen overlay this
+/// pass" record — reader and every writer construct it HERE, never
+/// inline, so they can't drift apart.
+fn maximize_global_key() -> crate::vocab::Id {
+    crate::vocab::Id::new("mara_maximize_global")
 }
 
 /// The rect the current view node renders into, if a scoped node
@@ -119,8 +122,8 @@ fn current_node_region_key() -> egui::Id {
 /// of the whole window, and per-view ribbons anchor here, so a leaf's
 /// chrome stays inside its cell. `None` (outside any node render) means
 /// whole-window.
-pub(crate) fn current_node_region(ctx: &egui::Context) -> Option<MaraRect> {
-    ctx.data(|d| d.get_temp::<MaraRect>(current_node_region_key()))
+pub(crate) fn current_node_region(ctx: &dyn crate::context::MaraCtx) -> Option<MaraRect> {
+    ctx.memory().get_temp::<MaraRect>(current_node_region_key())
 }
 
 /// Publish `region` as the current node region for the duration of
@@ -129,22 +132,20 @@ pub(crate) fn current_node_region(ctx: &egui::Context) -> Option<MaraRect> {
 /// `ViewCtx` around its render entry points.
 #[doc(hidden)]
 pub fn __internal_with_node_region<R>(
-    ctx: &egui::Context,
+    ctx: &dyn crate::context::MaraCtx,
     region: MaraRect,
     body: impl FnOnce() -> R,
 ) -> R {
     let key = current_node_region_key();
-    let prev = ctx.data(|d| d.get_temp::<MaraRect>(key));
-    ctx.data_mut(|d| d.insert_temp(key, region));
+    let mut memory = ctx.memory();
+    let prev = memory.get_temp::<MaraRect>(key);
+    memory.set_temp(key, region);
     let out = body();
-    ctx.data_mut(|d| match prev {
-        Some(rect) => {
-            d.insert_temp(key, rect);
-        }
-        None => {
-            d.remove::<MaraRect>(key);
-        }
-    });
+    let mut memory = ctx.memory();
+    match prev {
+        Some(rect) => memory.set_temp(key, rect),
+        None => memory.remove_temp::<MaraRect>(key),
+    }
     out
 }
 
@@ -153,10 +154,10 @@ pub fn __internal_with_node_region<R>(
 /// Public app code should reach this through a sealed host/view
 /// context method, not by receiving a raw `egui::Context`.
 #[doc(hidden)]
-pub fn __internal_fullscreen_owner(ctx: &egui::Context) -> Option<MaraId> {
-    let global_key = egui::Id::new("mara_maximize_global");
-    let pass_nr = ctx.cumulative_pass_nr();
-    let stored: Option<(u64, MaraId)> = crate::memory::MaraMemoryCtx::new(ctx).get_temp(global_key);
+pub fn __internal_fullscreen_owner(ctx: &dyn crate::context::MaraCtx) -> Option<MaraId> {
+    let global_key = maximize_global_key();
+    let pass_nr = ctx.pass_nr();
+    let stored: Option<(u64, MaraId)> = ctx.memory().get_temp(global_key);
     match stored {
         Some((f, id)) if f == pass_nr || f + 1 == pass_nr => Some(id),
         _ => None,
@@ -165,20 +166,23 @@ pub fn __internal_fullscreen_owner(ctx: &egui::Context) -> Option<MaraId> {
 
 /// Internal fullscreen-active predicate for first-party host adapters.
 #[doc(hidden)]
-pub fn __internal_is_any_fullscreen(ctx: &egui::Context) -> bool {
+pub fn __internal_is_any_fullscreen(ctx: &dyn crate::context::MaraCtx) -> bool {
     __internal_fullscreen_owner(ctx).is_some()
 }
 
-fn suppress_fullscreen_minimize_chip_key() -> egui::Id {
-    egui::Id::new("mara_suppress_fullscreen_minimize_chip")
+fn suppress_fullscreen_minimize_chip_key() -> crate::vocab::Id {
+    crate::vocab::Id::new("mara_suppress_fullscreen_minimize_chip")
 }
 
 /// Internal fullscreen restore-chip visibility setter for
 /// first-party host adapters.
 #[doc(hidden)]
-pub fn __internal_set_fullscreen_minimize_chip_visible(ctx: &egui::Context, visible: bool) {
+pub fn __internal_set_fullscreen_minimize_chip_visible(
+    ctx: &dyn crate::context::MaraCtx,
+    visible: bool,
+) {
     {
-        let mut memory = crate::memory::MaraMemoryCtx::new(ctx);
+        let mut memory = ctx.memory();
         memory.set_temp::<bool>(suppress_fullscreen_minimize_chip_key(), !visible);
     };
 }
@@ -187,12 +191,12 @@ pub fn __internal_set_fullscreen_minimize_chip_visible(ctx: &egui::Context, visi
 ///
 /// Returns `true` when a fullscreen owner was found and toggled off.
 #[doc(hidden)]
-pub fn __internal_restore_fullscreen(ctx: &egui::Context) -> bool {
+pub fn __internal_restore_fullscreen(ctx: &dyn crate::context::MaraCtx) -> bool {
     let Some(owner) = __internal_fullscreen_owner(ctx) else {
         return false;
     };
     {
-        let mut memory = crate::memory::MaraMemoryCtx::new(ctx);
+        let mut memory = ctx.memory();
         memory.set_temp::<MaraId>(pending_restore_fullscreen_key(), owner);
     };
     true
@@ -203,52 +207,66 @@ pub fn __internal_restore_fullscreen(ctx: &egui::Context) -> bool {
 /// Call once per frame with the same `id_salt`. `min_size` is the
 /// rect the body renders into while inline; when maximised the
 /// body fills the host content rect instead.
-pub fn maximizable(
-    ui: &mut egui::Ui,
+///
+/// First-party egui hook: takes and yields a raw `egui::Ui`, so it is
+/// hidden — sealed consumers reach maximise behaviour through the
+/// widgets that embed it (graph/code extras), never directly.
+#[doc(hidden)]
+pub fn __internal_maximizable_egui(
+    mara: &mut crate::MaraUi<'_>,
     id_salt: impl Hash + Copy,
     accent: impl Into<MaraColor32>,
     min_size: impl Into<MaraVec2>,
-    body: impl FnOnce(&mut egui::Ui),
+    body: impl FnOnce(&mut crate::MaraUi<'_>),
 ) {
-    maximizable_with_opts(ui, id_salt, accent, min_size, OverlayOpts::default(), body)
+    __internal_maximizable_with_opts_egui(
+        mara,
+        id_salt,
+        accent,
+        min_size,
+        OverlayOpts::default(),
+        body,
+    )
 }
 
-/// Same as [`maximizable`] but accepts [`OverlayOpts`] to control
+/// Same as [`__internal_maximizable_egui`] but accepts [`OverlayOpts`] to control
 /// where the minimize button lands on the fullscreen overlay. Use
 /// this when you want a non-default position — e.g. minimize on
 /// the bottom-left corner instead of the top-right.
-pub fn maximizable_with_opts(
-    ui: &mut egui::Ui,
+#[doc(hidden)]
+pub fn __internal_maximizable_with_opts_egui(
+    mara: &mut crate::MaraUi<'_>,
     id_salt: impl Hash + Copy,
     accent: impl Into<MaraColor32>,
     min_size: impl Into<MaraVec2>,
     opts: OverlayOpts,
-    body: impl FnOnce(&mut egui::Ui),
+    body: impl FnOnce(&mut crate::MaraUi<'_>),
 ) {
     let accent = accent.into();
     let min_size = min_size.into();
     // Maximise state keyed purely on the caller's `id_salt` — no
-    // `ui.id()` mixed in — so the host can reconstruct the same
+    // `mara.id()` mixed in — so the host can reconstruct the same
     // key from the outside via [`is_maximized`] and route Ctrl+K
     // / context-sensitive logic based on "is THIS widget
     // currently full-window?".
     let max_id = maximize_state_key(id_salt);
-    let max_key: egui::Id = max_id.into();
-    let mut maximized: bool = ui
+    let max_key: crate::vocab::Id = max_id.into();
+    let mut maximized: bool = mara
         .ctx()
-        .data(|d| d.get_temp::<bool>(max_key))
+        .memory()
+        .get_temp::<bool>(max_key)
         .unwrap_or(false);
-    let pending_restore = ui
+    let pending_restore = mara
         .ctx()
-        .data(|d| d.get_temp::<MaraId>(pending_restore_fullscreen_key()))
+        .memory()
+        .get_temp::<MaraId>(pending_restore_fullscreen_key())
         == Some(max_id);
     if pending_restore {
         maximized = false;
-        ui.ctx().data_mut(|d| {
-            d.insert_temp::<bool>(max_key, false);
-            d.remove::<MaraId>(pending_restore_fullscreen_key());
-            d.remove::<(u64, MaraId)>(egui::Id::new("mara_maximize_global"));
-        });
+        let mut memory = mara.ctx().memory();
+        memory.set_temp::<bool>(max_key, false);
+        memory.remove_temp::<MaraId>(pending_restore_fullscreen_key());
+        memory.remove_temp::<(u64, MaraId)>(maximize_global_key());
     }
     let mut toggle = false;
 
@@ -260,16 +278,15 @@ pub fn maximizable_with_opts(
     // full-window — otherwise `Order::Tooltip` button areas from
     // inline-in-a-pane widgets would still paint on top of the
     // overlay.
-    let global_key = egui::Id::new("mara_maximize_global");
-    let pass_nr = ui.ctx().cumulative_pass_nr();
-    let stored_global: Option<(u64, MaraId)> = ui.ctx().data(|d| d.get_temp(global_key));
+    let global_key = maximize_global_key();
+    let pass_nr = mara.ctx().pass_nr();
+    let stored_global: Option<(u64, MaraId)> = mara.ctx().memory().get_temp(global_key);
     let some_other_maximized = match stored_global {
         Some((f, id)) => (f == pass_nr || f + 1 == pass_nr) && id != max_id,
         None => false,
     };
     if maximized {
-        ui.ctx()
-            .data_mut(|d| d.insert_temp(global_key, (pass_nr, max_id)));
+        mara.ctx().memory().set_temp(global_key, (pass_nr, max_id));
     }
 
     let overlay = crate::style::theme().overlay;
@@ -278,12 +295,11 @@ pub fn maximizable_with_opts(
         // Placeholder in the caller's layout so the surrounding
         // section / pane keep their footprint while the widget is
         // detached into the overlay.
-        let rect = {
-            let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
-            backend.allocate(min_size, MaraSense::Hover).rect
-        };
-        if ui.is_rect_visible(rect.into()) {
-            paint_maximize_placeholder(ui, rect, overlay.placeholder_text);
+        {
+            let rect = mara.allocate(min_size, MaraSense::Hover).rect;
+            if mara.is_rect_visible(rect) {
+                paint_maximize_placeholder(mara, rect, overlay.placeholder_text);
+            }
         }
 
         // Full-window overlay at `Order::Foreground` — paints
@@ -297,40 +313,41 @@ pub fn maximizable_with_opts(
         // later-registered Areas at the same Order on top of
         // earlier ones). Frame has NO corner radius / stroke /
         // inner margin so the overlay covers edge-to-edge.
-        let ctx = ui.ctx().clone();
         // Fullscreen within the current view node's region (a cell), or
         // the whole window when no node is scoping (the root / host).
-        let screen = current_node_region(&ctx)
-            .unwrap_or_else(|| crate::backend::egui::context_content_rect(&ctx));
+        let screen = current_node_region(mara.ctx()).unwrap_or_else(|| mara.ctx().content_rect());
         let content = opts.content_avoidance.apply_to_rect(screen);
-        crate::backend::egui::show_area_for_host(
-            &ctx,
+        crate::context::MaraCtx::area(
+            mara.ctx(),
             AreaHost::new(
-                ui.id().with(("mara_maximize_overlay", id_salt)).into(),
+                mara.id().with(("mara_maximize_overlay", id_salt)),
                 screen.min,
                 Layer::Foreground,
             ),
-            |ui| {
-                crate::backend::egui::constrain_ui_to_rect(ui, screen);
+            &mut |mara| {
+                mara.constrain_to(screen);
                 let bg = crate::style::theme().bg_panel;
                 let opaque_bg = MaraColor32::from_rgb(bg.r(), bg.g(), bg.b());
-                paint_cmd(ui, maximize_overlay_background_cmd(screen, opaque_bg));
-                let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
-                let _ = backend.allocate(screen.size(), MaraSense::Hover);
+                mara.paint(maximize_overlay_background_cmd(screen, opaque_bg));
+                // Swallow clicks that land on the backdrop rather than
+                // the detached widget.
+                let _ = mara.allocate(screen.size(), MaraSense::Hover);
             },
         );
-        crate::backend::egui::show_area_for_host(
-            &ctx,
+        let mut pending = Some(body);
+        crate::context::MaraCtx::area(
+            mara.ctx(),
             AreaHost::new(
-                ui.id()
-                    .with(("mara_maximize_overlay_content", id_salt))
-                    .into(),
+                mara.id().with(("mara_maximize_overlay_content", id_salt)),
                 content.min,
                 Layer::Foreground,
             ),
-            |ui| {
-                crate::backend::egui::constrain_ui_to_rect(ui, content);
-                body(ui);
+            &mut |mara| {
+                let Some(body) = pending.take() else {
+                    return;
+                };
+                mara.constrain_to(content);
+                body(mara);
             },
         );
         // Minimize button — a draggable ribbon-styled chip. The
@@ -339,12 +356,14 @@ pub fn maximizable_with_opts(
         // points, and that choice persists in ctx data across
         // frames. Painted in its OWN `Order::Tooltip` Area so it
         // sits on top of the `Foreground` overlay above.
-        let suppress_minimize_chip: bool = ctx
-            .data(|d| d.get_temp(suppress_fullscreen_minimize_chip_key()))
+        let suppress_minimize_chip: bool = mara
+            .ctx()
+            .memory()
+            .get_temp(suppress_fullscreen_minimize_chip_key())
             .unwrap_or(false);
         if !suppress_minimize_chip
             && fullscreen_minimize_button(
-                &ctx,
+                mara.ctx(),
                 screen,
                 opts,
                 overlay.fullscreen_button_size,
@@ -362,31 +381,28 @@ pub fn maximizable_with_opts(
         // maximised), so the affordance is consistent regardless of
         // mode and lives *inside* the widget's canvas — section
         // headers no longer reserve any actions slot.
-        let desired = MaraVec2::new(ui.available_width().max(min_size.x), min_size.y);
-        let rect = {
-            let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
-            backend.allocate(desired, MaraSense::Hover).rect
-        };
-        let mut child = crate::backend::egui::child_ui_for_region(
-            ui,
-            ChildRegion::top_down(rect, StackAlign::Min),
-        );
-        body(&mut child);
+        let desired = MaraVec2::new(mara.available_rect().width().max(min_size.x), min_size.y);
+        let rect = mara.allocate(desired, MaraSense::Hover).rect;
+        let mut pending = Some(body);
+        mara.in_region(ChildRegion::top_down(rect, StackAlign::Min), &mut |mara| {
+            if let Some(body) = pending.take() {
+                body(mara);
+            }
+        });
 
         // Suppress the chip while another widget is full-window —
         // its overlay covers the screen and our `Order::Tooltip` chip
         // would otherwise paint on top of nothing.
         if !some_other_maximized {
             let chip_pos = inline_chip_pos(rect, overlay.inline_chip_size, overlay.inline_chip_pad);
-            if max_button_overlay(ui.ctx(), chip_pos, false, accent, id_salt).clicked() {
+            if max_button_overlay(mara.ctx(), chip_pos, false, accent, id_salt).clicked() {
                 toggle = true;
             }
         }
     }
 
     if toggle {
-        ui.ctx()
-            .data_mut(|d| d.insert_temp::<bool>(max_key, !maximized));
+        mara.ctx().memory().set_temp::<bool>(max_key, !maximized);
     }
 }
 
@@ -396,7 +412,7 @@ pub fn maximizable_with_opts(
 /// `Foreground` order would get shadowed by canvas widgets like
 /// the graph graph that register their own foreground sub-layers.
 fn max_button_overlay(
-    ctx: &egui::Context,
+    ctx: &dyn crate::context::MaraCtx,
     pos: MaraPos2,
     maximized: bool,
     accent: impl Into<MaraColor32>,
@@ -405,51 +421,43 @@ fn max_button_overlay(
     let accent = accent.into();
     let btn = crate::style::theme().overlay.inline_chip_size;
     let area_id = MaraId::new("mara_maximize_btn").with(id_salt);
-    let inner = crate::backend::egui::show_area_for_host(
+    // The chip's interaction is produced inside the area body, so it
+    // comes back through a capture — the seam's body is `&mut dyn
+    // FnMut`, which cannot be generic over a return value.
+    let mut chip_response = None;
+    crate::context::MaraCtx::area(
         ctx,
         AreaHost::new(area_id, pos, Layer::Overlay),
-        |ui| {
-            let resp = {
-                let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
-                backend.allocate(MaraVec2::new(btn, btn), MaraSense::Click)
-            };
-            crate::backend::egui::hover_cursor_for_ui_response(ui, &resp, CursorIcon::PointingHand);
-            crate::backend::egui::hover_text_for_ui_response(
-                ui,
-                &resp,
-                if maximized { "Restore" } else { "Maximize" },
-            );
+        &mut |mara| {
+            let resp = mara.allocate(MaraVec2::new(btn, btn), MaraSense::Click);
+            mara.hover_cursor(&resp, CursorIcon::PointingHand);
+            mara.hover_text(&resp, if maximized { "Restore" } else { "Maximize" });
             let rect = resp.rect;
-            if ui.is_rect_visible(rect.into()) {
+            if mara.is_rect_visible(rect) {
                 let hovered = resp.hovered();
                 paint_ribbon_style_chip(
-                    ui, rect, accent, /* active */ maximized, /* hovered */ hovered,
+                    mara, rect, accent, /* active */ maximized, /* hovered */ hovered,
                 );
                 paint_fullscreen_arrows(
-                    ui, rect, accent, /* inward */ maximized, /* hovered */ hovered,
+                    mara, rect, accent, /* inward */ maximized, /* hovered */ hovered,
                 );
             }
-            resp
+            chip_response = Some(resp);
         },
     );
-    inner.inner
+    chip_response.expect("area must run its body exactly once")
 }
 
 fn inline_chip_pos(body_rect: MaraRect, chip_size: f32, pad: f32) -> MaraPos2 {
     MaraPos2::new(body_rect.max.x - chip_size - pad, body_rect.min.y + pad)
 }
 
-/// Submit a single Mara paint command through the egui backend.
-fn paint_cmd(ui: &mut egui::Ui, cmd: PaintCmd) {
-    let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
-    crate::layout::UiBackend::paint(&mut backend, cmd);
-}
-
-fn paint_maximize_placeholder(ui: &mut egui::Ui, rect: MaraRect, text: &str) {
-    paint_cmd(
-        ui,
-        maximize_placeholder_text_cmd(rect, text, crate::style::on_section_dim()),
-    );
+fn paint_maximize_placeholder(mara: &mut crate::MaraUi<'_>, rect: MaraRect, text: &str) {
+    mara.paint(maximize_placeholder_text_cmd(
+        rect,
+        text,
+        crate::style::on_section_dim(),
+    ));
 }
 
 fn maximize_placeholder_text_cmd(rect: MaraRect, text: &str, color: MaraColor32) -> PaintCmd {
@@ -564,7 +572,7 @@ fn compute_chip_pos(
 /// widget enters fullscreen the chip reappears where the user left
 /// it. Returns `true` on a regular click (= restore).
 fn fullscreen_minimize_button(
-    ctx: &egui::Context,
+    ctx: &dyn crate::context::MaraCtx,
     screen: MaraRect,
     opts: OverlayOpts,
     btn_size: f32,
@@ -573,19 +581,16 @@ fn fullscreen_minimize_button(
     id_salt: impl Hash + Copy,
 ) -> bool {
     let accent = accent.into();
-    let accent_egui = crate::backend::egui::color32_for_backend(accent);
     // Persisted user-chosen anchor (set on drag-release). When
     // empty, fall back to the caller-supplied `opts`.
-    let anchor_key = egui::Id::new("mara_maximize_chip_anchor").with(id_salt);
-    let stored: Option<(RibbonEdge, RibbonCluster)> =
-        crate::memory::MaraMemoryCtx::new(ctx).get_temp(anchor_key);
+    let anchor_key = crate::vocab::Id::new("mara_maximize_chip_anchor").with(id_salt);
+    let stored: Option<(RibbonEdge, RibbonCluster)> = ctx.memory().get_temp(anchor_key);
     let active_anchor = stored.unwrap_or((opts.minimize_edge, opts.minimize_cluster));
     // While the user is mid-drag, override the chip position with
     // the cursor (so the chip follows the pointer) — keyed by the
     // SAME id so the value clears on release.
-    let drag_pos_key = egui::Id::new("mara_maximize_chip_drag_pos").with(id_salt);
-    let drag_cursor: Option<MaraPos2> =
-        crate::memory::MaraMemoryCtx::new(ctx).get_temp(drag_pos_key);
+    let drag_pos_key = crate::vocab::Id::new("mara_maximize_chip_drag_pos").with(id_salt);
+    let drag_cursor: Option<MaraPos2> = ctx.memory().get_temp(drag_pos_key);
     let chip_pos: MaraPos2 = if let Some(c) = drag_cursor {
         MaraPos2::new(c.x - btn_size * 0.5, c.y - btn_size * 0.5)
     } else {
@@ -593,29 +598,28 @@ fn fullscreen_minimize_button(
     };
 
     let area_id = MaraId::new("mara_maximize_minimize").with(id_salt);
-    let inner = crate::backend::egui::show_area_for_host(
+    let mut chip_response = None;
+    let mut ghost: Option<MaraRect> = None;
+    crate::context::MaraCtx::area(
         ctx,
         AreaHost::new(area_id, chip_pos, Layer::Overlay),
-        |ui| {
-            let resp = {
-                let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
-                backend.allocate(MaraVec2::new(btn_size, btn_size), MaraSense::ClickAndDrag)
-            };
+        &mut |mara| {
+            let resp = mara.allocate(MaraVec2::new(btn_size, btn_size), MaraSense::ClickAndDrag);
             // Cursor stays the default pointing-hand egui picks for
             // clickable widgets — same as the main-page ribbon
             // buttons. The button is click-first, drag-second; the
             // user shouldn't see a "grab" cursor on hover that
             // suggests "drag-only".
-            crate::backend::egui::hover_text_for_ui_response(ui, &resp, "Restore");
+            mara.hover_text(&resp, "Restore");
             let rect = resp.rect;
             // Drag tracking — write the cursor position to ctx data
             // each frame the chip is being dragged. On release,
             // snap to the nearest anchor and persist it.
             let mut ghost_target: Option<MaraRect> = None;
             if resp.dragged()
-                && let Some(p) = crate::backend::egui::pointer_interact_pos(ui.ctx())
+                && let Some(p) = crate::context::MaraCtx::input(ctx).interact_pointer
             {
-                ui.ctx().data_mut(|d| d.insert_temp(drag_pos_key, p));
+                crate::context::MaraCtx::memory(ctx).set_temp(drag_pos_key, p);
                 // Compute the live snap target so we can paint
                 // a ghost outline showing where the chip WILL
                 // land on release.
@@ -627,51 +631,55 @@ fn fullscreen_minimize_button(
                 ));
             }
             if resp.drag_stopped() {
-                let cursor = crate::backend::egui::pointer_interact_pos(ui.ctx())
+                let cursor = crate::context::MaraCtx::input(ctx)
+                    .interact_pointer
                     .unwrap_or_else(|| rect.center());
                 let snapped = nearest_anchor(screen, cursor, btn_size, edge_gap);
-                ui.ctx().data_mut(|d| {
-                    d.insert_temp(anchor_key, snapped);
-                    d.remove::<MaraPos2>(drag_pos_key);
-                });
+                {
+                    let mut memory = crate::context::MaraCtx::memory(ctx);
+                    memory.set_temp(anchor_key, snapped);
+                    memory.remove_temp::<MaraPos2>(drag_pos_key);
+                }
             }
-            if ui.is_rect_visible(rect.into()) {
+            if mara.is_rect_visible(rect) {
                 paint_ribbon_style_chip(
-                    ui,
+                    mara,
                     rect,
                     accent,
                     /* active */ true,
                     /* hovered */ resp.hovered(),
                 );
                 let glyph_col = if resp.hovered() {
-                    crate::style::contrast_text_for(accent_egui).into()
+                    crate::style::contrast_text_for(accent)
                 } else {
-                    egui::Color32::from_rgba_unmultiplied(
-                        accent_egui.r(),
-                        accent_egui.g(),
-                        accent_egui.b(),
-                        220,
-                    )
+                    MaraColor32::from_rgba_unmultiplied(accent.r(), accent.g(), accent.b(), 220)
                 };
                 if crate::icons::icon_fonts_ready()
-                    && let Some(cmd) =
-                        minimize_chip_icon_paint_cmd(rect, btn_size, glyph_col.into())
+                    && let Some(cmd) = minimize_chip_icon_paint_cmd(rect, btn_size, glyph_col)
                 {
-                    paint_cmd(ui, cmd);
+                    mara.paint(cmd);
                 }
             }
-            // Ghost preview at the snap target — a low-alpha
-            // accent rect with a dashed-style accent border, painted
-            // on its OWN tooltip-layer painter (clip = full screen)
-            // so it doesn't get clipped by the chip's tiny area.
-            if let Some(g) = ghost_target {
-                let ghost_painter = crate::backend::egui::context_painter_for_layer(
-                    ui.ctx(),
-                    Layer::Overlay,
-                    MaraId::new(("mara_maximize_chip_ghost", id_salt)),
-                    screen,
-                );
-                let overlay = crate::style::theme().overlay;
+            ghost = ghost_target;
+            chip_response = Some(resp);
+        },
+    );
+    // Ghost preview at the snap target — a low-alpha accent rect with
+    // an accent border. It gets its OWN full-screen overlay area
+    // rather than being drawn inside the chip's, whose tiny rect would
+    // clip it away.
+    if let Some(g) = ghost {
+        let overlay = crate::style::theme().overlay;
+        crate::context::MaraCtx::area(
+            ctx,
+            AreaHost::new(
+                MaraId::new(("mara_maximize_chip_ghost", id_salt)),
+                screen.min,
+                Layer::Overlay,
+            )
+            .non_interactive(),
+            &mut |mara| {
+                mara.constrain_to(screen);
                 for cmd in maximize_chip_ghost_paint_cmds(
                     g,
                     accent,
@@ -679,14 +687,13 @@ fn fullscreen_minimize_button(
                     overlay.ghost_fill_alpha,
                     overlay.ghost_stroke_width,
                 ) {
-                    crate::backend::egui::render_paint_cmd(&ghost_painter, cmd);
+                    mara.paint(cmd);
                 }
-            }
-            resp
-        },
-    );
+            },
+        );
+    }
     // Only treat as a "restore" click when the gesture wasn't a drag.
-    let resp = inner.inner;
+    let resp = chip_response.expect("area must run its body exactly once");
     resp.clicked() && drag_cursor.is_none()
 }
 
@@ -731,14 +738,14 @@ fn nearest_anchor(
 /// tiers and active / hover transitions — keeps the chip in the
 /// ribbon button family.
 fn paint_ribbon_style_chip(
-    ui: &mut egui::Ui,
+    mara: &mut crate::MaraUi<'_>,
     rect: MaraRect,
     accent: impl Into<MaraColor32>,
     active: bool,
     hovered: bool,
 ) {
     for cmd in ribbon_style_chip_paint_cmds(rect, accent.into(), active, hovered) {
-        paint_cmd(ui, cmd);
+        mara.paint(cmd);
     }
 }
 
@@ -748,32 +755,27 @@ fn ribbon_style_chip_paint_cmds(
     active: bool,
     hovered: bool,
 ) -> [PaintCmd; 2] {
-    let accent_egui = crate::backend::egui::color32_for_backend(accent);
     let bg = if active {
         let blend = |a: u8, b: u8| ((a as f32) * 0.75 + (b as f32) * 0.25).round() as u8;
-        let tinted = egui::Color32::from_rgb(
-            blend(crate::style::theme().bg_raised.r(), accent_egui.r()),
-            blend(crate::style::theme().bg_raised.g(), accent_egui.g()),
-            blend(crate::style::theme().bg_raised.b(), accent_egui.b()),
+        let tinted = MaraColor32::from_rgb(
+            blend(crate::style::theme().bg_raised.r(), accent.r()),
+            blend(crate::style::theme().bg_raised.g(), accent.g()),
+            blend(crate::style::theme().bg_raised.b(), accent.b()),
         );
-        glass_fill(tinted, accent_egui, glass_alpha_window())
+        glass_fill(tinted, accent, glass_alpha_window())
     } else if hovered {
         glass_fill(
             crate::style::theme().bg_raised,
-            accent_egui,
+            accent,
             glass_alpha_window(),
         )
     } else {
-        glass_fill(
-            crate::style::theme().bg_panel,
-            accent_egui,
-            glass_alpha_window(),
-        )
+        glass_fill(crate::style::theme().bg_panel, accent, glass_alpha_window())
     };
     let stroke = if active {
         MaraStroke::new(crate::style::theme().stroke.border_width, accent)
     } else {
-        stroke_for(StrokeRole::WidgetBorder, accent_egui)
+        stroke_for(StrokeRole::WidgetBorder, accent)
     };
     let corner: MaraCornerRadius = radius_for(RadiusRole::Section);
     [
@@ -794,14 +796,14 @@ fn ribbon_style_chip_paint_cmds(
 /// chip's centre, arrowheads at each end. `inward = false` heads
 /// point OUT (maximise); `inward = true` heads point IN (restore).
 fn paint_fullscreen_arrows(
-    ui: &mut egui::Ui,
+    mara: &mut crate::MaraUi<'_>,
     rect: MaraRect,
     accent: impl Into<MaraColor32>,
     inward: bool,
     hovered: bool,
 ) {
     for cmd in fullscreen_arrow_paint_cmds(rect, accent.into(), inward, hovered) {
-        paint_cmd(ui, cmd);
+        mara.paint(cmd);
     }
 }
 
@@ -926,7 +928,7 @@ mod tests {
 
     #[test]
     fn node_region_nests_and_restores() {
-        let ctx = egui::Context::default();
+        let ctx = headless_ctx();
         let outer = Rect::from_min_size(Pos2::new(0.0, 0.0), Vec2::new(100.0, 100.0));
         let inner = Rect::from_min_size(Pos2::new(10.0, 10.0), Vec2::new(20.0, 20.0));
 
@@ -1087,4 +1089,15 @@ mod tests {
             } if points.len() == 3 && *fill == accent && *stroke == MaraStroke::NONE
         ));
     }
+}
+
+/// A context for state-only assertions — see the note in
+/// `shelf::tests`. The recording backend is a `MaraCtx`, so tests that
+/// only exercise Mara's own bookkeeping need no backend.
+#[cfg(test)]
+fn headless_ctx() -> crate::backend::record::RecordingBackend {
+    crate::backend::record::RecordingBackend::at(crate::vocab::Rect::from_min_size(
+        crate::vocab::Pos2::ZERO,
+        crate::vocab::Vec2::new(1280.0, 800.0),
+    ))
 }

@@ -18,7 +18,7 @@
 //! if resp[0].buttons.first().map_or(false, |b| b.clicked) { ... }
 //! ```
 
-use egui::{Id, Ui};
+use crate::vocab::Id;
 
 use crate::container::SeparatorStyle;
 use crate::memory::MaraMemory;
@@ -31,13 +31,11 @@ use crate::widget::{
     chip::{chip_colored_backend, chip_fill},
     color::{color_rgb, color_rgba},
     drag_value::drag_value_backend,
-    dropdown::dropdown,
     keybinding::keybinding_row_backend,
     progressbar::progressbar_backend,
     readout::readout_backend,
     select::{hybrid_select_row_backend, select_row_backend},
     slider::slider_backend,
-    text_input::text_input,
     toggle::toggle_backend,
 };
 
@@ -507,7 +505,7 @@ enum WidgetSpec {
     /// exposing arbitrary egui hooks.
     Custom {
         units: usize,
-        paint: Box<dyn FnOnce(&mut Ui) + Send + Sync>,
+        paint: Box<dyn FnOnce(&mut crate::MaraUi<'_>) + Send + Sync>,
     },
 }
 
@@ -738,15 +736,13 @@ impl Pod {
     /// the search slot within `pod_id` — `0` for the first
     /// `with_search`, `1` for the second, etc.
     pub fn search_query(
-        ctx: &egui::Context,
+        ctx: &dyn crate::context::MaraCtx,
         pod_id: impl Into<MaraId>,
         search_idx: usize,
     ) -> String {
         let pod_id: Id = pod_id.into().into();
         let key = pod_id.with(("mara_pod_search_buf", search_idx));
-        crate::memory::MaraMemoryCtx::new(ctx)
-            .get_temp::<String>(key)
-            .unwrap_or_default()
+        ctx.memory().get_temp::<String>(key).unwrap_or_default()
     }
 
     /// Ctx-data key the container writes the fill pod's computed
@@ -1415,9 +1411,8 @@ impl Pod {
     where
         F: FnOnce(&mut crate::widget::TreeBody) + Send + Sync + 'static,
     {
-        self.with_custom_units(units, move |ui| {
-            let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
-            let mut tb = crate::widget::TreeBody::new(&mut backend);
+        self.with_custom_units(units, move |mara| {
+            let mut tb = crate::widget::TreeBody::new(mara.backend_mut());
             body(&mut tb);
         })
     }
@@ -1427,10 +1422,11 @@ impl Pod {
     /// inter-pod resize-handle to share drag delta across pods
     /// proportionally to their content size. Public APIs should
     /// expose typed wrappers instead of raw egui closures.
-    pub(crate) fn with_custom_units(
+    #[doc(hidden)]
+    pub fn with_custom_units(
         mut self,
         units: usize,
-        paint: impl FnOnce(&mut Ui) + Send + Sync + 'static,
+        paint: impl FnOnce(&mut crate::MaraUi<'_>) + Send + Sync + 'static,
     ) -> Self {
         self.widgets.push(WidgetSpec::Custom {
             units: units.max(1),
@@ -1442,7 +1438,7 @@ impl Pod {
     /// Render the pod into the current egui backend. Public app
     /// code reaches this through [`crate::mui::MaraUi::pod`] or a
     /// Mara container, not by passing around a raw `egui::Ui`.
-    pub(crate) fn show(self, ui: &mut Ui) -> PodResponse {
+    pub(crate) fn show(self, mara: &mut crate::MaraUi<'_>) -> PodResponse {
         let pod_id = self.id;
         let mut response = PodResponse::default();
         // Two paths share the same ScrollArea-clipped viewport
@@ -1459,8 +1455,9 @@ impl Pod {
             // so the pod still renders.
             let key: Id = Self::forced_height_key(pod_id).into();
             Some(
-                ui.ctx()
-                    .data(|d| d.get_temp::<f32>(key))
+                mara.ctx()
+                    .memory()
+                    .get_temp::<f32>(key)
                     .unwrap_or_else(|| self.natural_h())
                     .max(theme().pod.min_widget_h),
             )
@@ -1468,8 +1465,9 @@ impl Pod {
             let natural_h = self.natural_h();
             let key: Id = Self::widget_height_key(pod_id).into();
             Some(
-                ui.ctx()
-                    .data_mut(|d| d.get_persisted::<f32>(key))
+                mara.ctx()
+                    .memory()
+                    .get_persisted::<f32>(key)
                     .unwrap_or(natural_h)
                     .clamp(theme().pod.min_widget_h, theme().pod.max_widget_h),
             )
@@ -1477,60 +1475,65 @@ impl Pod {
             None
         };
         if let Some(viewport_h) = viewport_h {
-            let avail_w = ui.available_width().max(1.0);
-            let slot_rect = {
-                let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
-                crate::layout::UiBackend::allocate(
-                    &mut backend,
+            let avail_w = mara.available_rect().width().max(1.0);
+            let slot_rect = mara
+                .allocate(
                     crate::vocab::Vec2::new(avail_w, viewport_h),
                     crate::layout::Sense::Hover,
                 )
-                .rect
-            };
-            let mut child = crate::backend::egui::child_ui_for_region(
-                ui,
+                .rect;
+            let scrolled = self.resizable && !self.fill;
+            // `widgets` owns a move-only `Custom` closure, so it cannot
+            // be borrowed into the nested scopes below — it is handed
+            // inward one level at a time instead.
+            let mut widgets = Some(self.widgets);
+            mara.in_region(
                 crate::layout::ChildRegion::top_down(slot_rect, crate::layout::StackAlign::Min),
-            );
-            // `shrink_clip_rect` (= intersect with current clip) so a
-            // pod inside an already-clipped container can never grow
-            // its own clip. Hierarchy stays intact:
-            //   widget rect ⊆ pod slot ⊆ container body ⊆ pane.
-            child.shrink_clip_rect(slot_rect.into());
-            let widgets = self.widgets;
-            if self.resizable && !self.fill {
-                // Resizable pods get a vertical `ScrollArea` so when
-                // content exceeds the user-dragged viewport, the bar
-                // appears and rows scroll. `auto_shrink([false,
-                // false])` keeps the area filling the slot;
-                // `min_scrolled_height(0.0)` disables egui's default
-                // 64-px floor.
-                egui::ScrollArea::vertical()
-                    .id_salt(pod_id.with("mara_pod_scroll"))
-                    .auto_shrink([false, false])
-                    .min_scrolled_height(0.0)
-                    .show(&mut child, |inner| {
-                        let mut backend = crate::backend::egui::EguiUiBackend::new(inner);
-                        paint_widgets(widgets, &mut backend, &mut response, pod_id);
+                &mut |mara| {
+                    let Some(widgets) = widgets.take() else {
+                        return;
+                    };
+                    // Clipping INTERSECTS the parent's, so a pod inside
+                    // an already-clipped container can never grow its
+                    // own clip. Hierarchy stays intact:
+                    //   widget rect ⊆ pod slot ⊆ container body ⊆ pane.
+                    mara.clipped(slot_rect, |mara| {
+                        if scrolled {
+                            // Resizable pods scroll when content exceeds
+                            // the user-dragged viewport. The zero
+                            // minimum matters: without it the host's own
+                            // floor (egui: 64 px) would inflate a pod
+                            // deliberately sized smaller.
+                            let region = crate::layout::ScrollRegion::vertical(
+                                pod_id.with("mara_pod_scroll"),
+                                [false, false],
+                                f32::INFINITY,
+                                crate::vocab::Vec2::ZERO,
+                            )
+                            .min_scrolled_extent(0.0);
+                            let mut widgets = Some(widgets);
+                            mara.scroll_region(region, &mut |mara| {
+                                if let Some(widgets) = widgets.take() {
+                                    response = paint_widgets(widgets, mara.backend_mut(), pod_id);
+                                }
+                            });
+                        } else {
+                            // Fill pods skip the scroll region — the slot
+                            // is already exactly the size the container
+                            // computed, and embedded scrollable widgets
+                            // (node graph, code editor) own their internal
+                            // pan/zoom. Nesting a scroll region here makes
+                            // those widgets fight the bar: their reported
+                            // size oscillates as it appears / disappears,
+                            // triggering their own re-layout, which makes
+                            // the pod re-measure → loop.
+                            response = paint_widgets(widgets, mara.backend_mut(), pod_id);
+                        }
                     });
-            } else {
-                // Fill pods skip the ScrollArea — the slot is already
-                // exactly the size the container computed, and
-                // embedded scrollable widgets (node graph, code
-                // editor) own their internal pan/zoom. Nesting a
-                // ScrollArea here makes those widgets fight the bar:
-                // their reported size oscillates as the bar appears /
-                // disappears, triggering their own re-layout (e.g.
-                // graph's `initial placing` request_discard spam),
-                // which causes the pod to re-measure → loop. Plain
-                // `paint_widgets` inside the clipped `child` is
-                // exactly what fill pods want: hard clip, no
-                // outer-scroll feedback.
-                let mut backend = crate::backend::egui::EguiUiBackend::new(&mut child);
-                paint_widgets(widgets, &mut backend, &mut response, pod_id);
-            }
+                },
+            );
         } else {
-            let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
-            paint_widgets(self.widgets, &mut backend, &mut response, pod_id);
+            response = paint_widgets(self.widgets, mara.backend_mut(), pod_id);
         }
         response
     }
@@ -1545,13 +1548,24 @@ pub const POD_WIDGET_SPACING: f32 = 4.0;
 /// into `response`. Shared between [`Pod::show`]'s plain (parent ui)
 /// and resizable (clipped child + ScrollArea) paths so the per-widget
 /// rendering logic lives in exactly one place.
+/// Paint every widget in `widgets`, returning the responses they
+/// produced.
+///
+/// Returns rather than accumulating through `&mut`: the pod body runs
+/// inside nested `&mut dyn FnMut` scopes (child region, clip, scroll),
+/// and a mutable borrow captured across all of them cannot be made to
+/// work. `widgets` stays owned — [`WidgetSpec::Custom`] carries a
+/// move-only closure, so it cannot be borrowed.
 fn paint_widgets(
     widgets: Vec<WidgetSpec>,
     backend: &mut dyn crate::layout::UiBackend,
-    response: &mut PodResponse,
     pod_id: Id,
-) {
+) -> PodResponse {
+    let mut response = PodResponse::default();
     let widget_spacing = theme().pod.widget_spacing;
+    // A custom slot paints its own content, so it gets the ambient
+    // accent rather than a widget-specific one.
+    let accent_for_custom = crate::style::active_accent();
     // Per-kind stable indices: the Nth `with_search` keeps its
     // own state key independent of any buttons / toggles /
     // progress bars declared between them.
@@ -1583,7 +1597,7 @@ fn paint_widgets(
         // pods that happen to share the same label — the pushed
         // id (= pod_id ⊕ slot_idx) is unique per (pod, widget
         // slot), so every child id inherits uniqueness.
-        let salt: MaraId = egui::Id::new((pod_id, slot_idx)).into();
+        let salt = MaraId::new((pod_id, slot_idx));
         // `spec` is moved into the id-scope body; `in_id_scope`
         // takes an `FnMut`, so bridge the one-shot move through an
         // `Option::take`.
@@ -1594,32 +1608,31 @@ fn paint_widgets(
                 .expect("in_id_scope body runs exactly once");
             match spec {
                 WidgetSpec::Search(cfg) => {
-                    if let Some(ui) = backend.egui_ui_mut() {
-                        let buf_key = pod_id.with(("mara_pod_search_buf", search_idx));
-                        let mut buf: String = ui
-                            .ctx()
-                            .data(|d| d.get_temp::<String>(buf_key))
-                            .unwrap_or_default();
-                        let resp = text_input(ui, &mut buf, &cfg.placeholder, cfg.accent);
-                        let changed = resp.changed();
-                        if changed {
-                            ui.ctx().data_mut(|d| d.insert_temp(buf_key, buf.clone()));
-                        }
-                        crate::debug::tag(
-                            ui,
-                            resp.rect.into(),
-                            format!("widget[text_input/search #{}]", search_idx),
-                        );
-                        response.searches.push(SearchResponse {
-                            query: buf,
-                            changed,
-                        });
-                    } else {
-                        response.searches.push(SearchResponse {
-                            query: String::new(),
-                            changed: false,
-                        });
+                    let buf_key = pod_id.with(("mara_pod_search_buf", search_idx));
+                    let mut buf: String = backend
+                        .ctx()
+                        .memory()
+                        .get_temp::<String>(buf_key)
+                        .unwrap_or_default();
+                    let resp = backend.text_input(
+                        &mut buf,
+                        &cfg.placeholder,
+                        crate::style::UNIT,
+                        cfg.accent,
+                    );
+                    let changed = resp.changed();
+                    if changed {
+                        backend.ctx().memory().set_temp(buf_key, buf.clone());
                     }
+                    crate::debug::tag(
+                        backend.ctx(),
+                        resp.rect.into(),
+                        format!("widget[text_input/search #{}]", search_idx),
+                    );
+                    response.searches.push(SearchResponse {
+                        query: buf,
+                        changed,
+                    });
                     search_idx += 1;
                 }
                 WidgetSpec::Button(cfg) => {
@@ -1811,40 +1824,33 @@ fn paint_widgets(
                     drag_value_idx += 1;
                 }
                 WidgetSpec::Dropdown(cfg) => {
-                    if let Some(ui) = backend.egui_ui_mut() {
-                        let val_key = pod_id.with(("mara_pod_dropdown_idx", dropdown_idx));
-                        let mut sel: usize = ui
-                            .ctx()
-                            .data_mut(|d| d.get_persisted::<usize>(val_key))
-                            .unwrap_or(cfg.initial)
-                            .min(cfg.options.len().saturating_sub(1));
-                        let opts: Vec<&str> = cfg.options.iter().map(String::as_str).collect();
-                        let resp = dropdown(
-                            ui,
-                            ("mara_pod_dropdown", dropdown_idx),
-                            &mut sel,
-                            &opts,
-                            cfg.accent,
-                        );
-                        let changed = resp.changed();
-                        if changed {
-                            ui.ctx().data_mut(|d| d.insert_persisted(val_key, sel));
-                        }
-                        crate::debug::tag(
-                            ui,
-                            resp.rect.into(),
-                            format!("widget[dropdown #{}]", dropdown_idx),
-                        );
-                        response.dropdowns.push(DropdownResponse {
-                            selected: sel,
-                            changed,
-                        });
-                    } else {
-                        response.dropdowns.push(DropdownResponse {
-                            selected: cfg.initial,
-                            changed: false,
-                        });
+                    let val_key = pod_id.with(("mara_pod_dropdown_idx", dropdown_idx));
+                    let mut sel: usize = backend
+                        .ctx()
+                        .memory()
+                        .get_persisted::<usize>(val_key)
+                        .unwrap_or(cfg.initial)
+                        .min(cfg.options.len().saturating_sub(1));
+                    let opts: Vec<&str> = cfg.options.iter().map(String::as_str).collect();
+                    let resp = backend.dropdown(
+                        Id::new((pod_id, "mara_pod_dropdown", dropdown_idx)),
+                        &mut sel,
+                        &opts,
+                        cfg.accent,
+                    );
+                    let changed = resp.changed();
+                    if changed {
+                        backend.ctx().memory().set_persisted(val_key, sel);
                     }
+                    crate::debug::tag(
+                        backend.ctx(),
+                        resp.rect.into(),
+                        format!("widget[dropdown #{}]", dropdown_idx),
+                    );
+                    response.dropdowns.push(DropdownResponse {
+                        selected: sel,
+                        changed,
+                    });
                     dropdown_idx += 1;
                 }
                 WidgetSpec::Select(cfg) => {
@@ -1855,7 +1861,7 @@ fn paint_widgets(
                         .unwrap_or(cfg.selected_initial);
                     let resp = select_row_backend(
                         &mut backend,
-                        ("mara_pod_select", select_idx),
+                        (pod_id, "mara_pod_select", select_idx),
                         &cfg.label,
                         cfg.trailing.as_deref(),
                         selected,
@@ -1895,7 +1901,7 @@ fn paint_widgets(
                         .unwrap_or(cfg.radio_initial);
                     let resp = hybrid_select_row_backend(
                         &mut backend,
-                        ("mara_pod_hybrid", hybrid_select_idx),
+                        (pod_id, "mara_pod_hybrid", hybrid_select_idx),
                         &cfg.label,
                         cfg.trailing.as_deref(),
                         selected,
@@ -1926,44 +1932,44 @@ fn paint_widgets(
                     hybrid_select_idx += 1;
                 }
                 WidgetSpec::Color(cfg) => {
-                    if let Some(ui) = backend.egui_ui_mut() {
-                        let val_key = pod_id.with(("mara_pod_color_val", color_idx));
-                        let mut rgba: [f32; 4] = ui
-                            .ctx()
-                            .data_mut(|d| d.get_persisted::<[f32; 4]>(val_key))
-                            .unwrap_or(cfg.initial);
-                        let changed = if cfg.alpha {
-                            let resp = color_rgba(ui, &cfg.label, &mut rgba, cfg.accent);
-                            crate::debug::tag(
-                                ui,
-                                resp.rect.into(),
-                                format!("widget[color_rgba #{}]", color_idx),
-                            );
-                            resp.changed()
-                        } else {
-                            let mut rgb = [rgba[0], rgba[1], rgba[2]];
-                            let resp = color_rgb(ui, &cfg.label, &mut rgb, cfg.accent);
-                            rgba[0] = rgb[0];
-                            rgba[1] = rgb[1];
-                            rgba[2] = rgb[2];
-                            rgba[3] = 1.0;
-                            crate::debug::tag(
-                                ui,
-                                resp.rect.into(),
-                                format!("widget[color_rgb #{}]", color_idx),
-                            );
-                            resp.changed()
+                    let val_key = pod_id.with(("mara_pod_color_val", color_idx));
+                    let mut rgba: [f32; 4] = backend
+                        .ctx()
+                        .memory()
+                        .get_persisted::<[f32; 4]>(val_key)
+                        .unwrap_or(cfg.initial);
+                    let changed = if cfg.alpha {
+                        let resp = {
+                            let mut mara = crate::MaraUi::over(&mut *backend, cfg.accent);
+                            color_rgba(&mut mara, &cfg.label, &mut rgba, cfg.accent)
                         };
-                        if changed {
-                            ui.ctx().data_mut(|d| d.insert_persisted(val_key, rgba));
-                        }
-                        response.colors.push(ColorResponse { rgba, changed });
+                        crate::debug::tag(
+                            backend.ctx(),
+                            resp.rect.into(),
+                            format!("widget[color_rgba #{}]", color_idx),
+                        );
+                        resp.changed()
                     } else {
-                        response.colors.push(ColorResponse {
-                            rgba: cfg.initial,
-                            changed: false,
-                        });
+                        let mut rgb = [rgba[0], rgba[1], rgba[2]];
+                        let resp = {
+                            let mut mara = crate::MaraUi::over(&mut *backend, cfg.accent);
+                            color_rgb(&mut mara, &cfg.label, &mut rgb, cfg.accent)
+                        };
+                        rgba[0] = rgb[0];
+                        rgba[1] = rgb[1];
+                        rgba[2] = rgb[2];
+                        rgba[3] = 1.0;
+                        crate::debug::tag(
+                            backend.ctx(),
+                            resp.rect.into(),
+                            format!("widget[color_rgb #{}]", color_idx),
+                        );
+                        resp.changed()
+                    };
+                    if changed {
+                        backend.ctx().memory().set_persisted(val_key, rgba);
                     }
+                    response.colors.push(ColorResponse { rgba, changed });
                     color_idx += 1;
                 }
                 WidgetSpec::Readout(cfg) => {
@@ -1995,7 +2001,7 @@ fn paint_widgets(
                         let trailing = cfg.trailing.as_ref().map(|t| t[i].as_str());
                         let resp = select_row_backend(
                             &mut backend,
-                            ("mara_pod_select_list", select_list_idx, i),
+                            (pod_id, "mara_pod_select_list", select_list_idx, i),
                             label,
                             trailing,
                             selected == Some(i),
@@ -2042,7 +2048,7 @@ fn paint_widgets(
                         let trailing = cfg.trailing.as_ref().map(|t| t[i].as_str());
                         let resp = hybrid_select_row_backend(
                             &mut backend,
-                            ("mara_pod_hybrid_select_list", hybrid_select_list_idx, i),
+                            (pod_id, "mara_pod_hybrid_select_list", hybrid_select_list_idx, i),
                             label,
                             trailing,
                             selected == Some(i),
@@ -2082,17 +2088,17 @@ fn paint_widgets(
                 }
                 WidgetSpec::Tags(cfg) => {
                     let mut clicked: Option<usize> = None;
-                    if let Some(ui) = backend.egui_ui_mut() {
-                        ui.horizontal_wrapped(|ui| {
-                            crate::backend::egui::apply_item_spacing_spec(
-                                ui,
-                                crate::layout::ItemSpacingSpec::new(crate::vocab::Vec2::new(
-                                    3.0, 3.0,
-                                )),
-                            );
+                    {
+                        backend.in_wrapped_row(&mut |backend| {
+                            backend.set_item_spacing(crate::layout::ItemSpacingSpec::new(
+                                crate::vocab::Vec2::new(3.0, 3.0),
+                            ));
                             for (i, item) in cfg.items.iter().enumerate() {
-                                let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
                                 let fill = item.fill.unwrap_or_else(|| chip_fill(cfg.accent));
+                                // `chip_colored_backend` is generic over a
+                                // sized backend; reborrow so the fat
+                                // pointer itself is what gets passed.
+                                let mut backend = &mut *backend;
                                 let resp = chip_colored_backend(
                                     &mut backend,
                                     &item.label,
@@ -2169,13 +2175,12 @@ fn paint_widgets(
                     module_idx += 1;
                 }
                 WidgetSpec::Custom { paint, .. } => {
-                    if let Some(ui) = backend.egui_ui_mut() {
-                        paint(ui);
-                    }
+                    paint(&mut crate::MaraUi::over(backend, accent_for_custom));
                 }
             }
         });
     }
+    response
 }
 
 #[cfg(test)]
@@ -2462,13 +2467,7 @@ mod tests {
                 value: "ready".into(),
             }),
         ];
-        let mut response = PodResponse::default();
-        paint_widgets(
-            widgets,
-            &mut backend,
-            &mut response,
-            Id::new("headless_pod"),
-        );
+        let response = paint_widgets(widgets, &mut backend, Id::new("headless_pod"));
 
         assert!(
             !backend.paints.is_empty(),

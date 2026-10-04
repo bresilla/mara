@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
-use egui::{Color32, Id, Pos2, Rect, Vec2};
+use crate::vocab::{Color32 as MaraColor32, Id};
+use crate::vocab::{Pos2, Rect, Vec2};
 
 use super::{ShelfEdge, sanitize_extent, shelf_active_container_key_for};
 
@@ -52,7 +53,7 @@ pub(super) struct ShelfPaneInfo {
     pub(super) content_rect: Rect,
     pub(super) screen_rect: Rect,
     pub(super) screen_offset: Vec2,
-    pub(super) accent: Color32,
+    pub(super) accent: MaraColor32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -200,11 +201,13 @@ impl ShelfState {
         self.active_containers.remove(&shelf_id);
     }
 
-    pub(super) fn active_container_for_group(&self, group_id: Id) -> Option<Id> {
+    #[doc(hidden)]
+    pub fn active_container_for_group(&self, group_id: Id) -> Option<Id> {
         self.active_containers.get(&group_id).copied()
     }
 
-    pub(super) fn set_active_container_for_group(&mut self, group_id: Id, container_id: Id) {
+    #[doc(hidden)]
+    pub fn set_active_container_for_group(&mut self, group_id: Id, container_id: Id) {
         self.active_containers.insert(group_id, container_id);
     }
 

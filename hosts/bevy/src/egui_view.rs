@@ -18,29 +18,47 @@ use crate::{BevyEmbeddedView, BevyViewportInput, BevyViewportWgpuResources};
 /// egui region, asks the embedded Bevy bridge to render into an
 /// offscreen target, uploads the latest RGBA frame as an egui texture,
 /// and forwards pointer/scroll interaction into the Bevy camera.
-#[derive(Default)]
 pub struct MaraBevyViewport {
+    /// Per-instance salt for egui area/interact ids, so two viewports
+    /// in one context never collide on shared area memory or input.
+    instance: u64,
     bevy: BevyEmbeddedView,
     texture: Option<egui::TextureHandle>,
     last_pixels: [u32; 2],
     resize_target_pixels: [u32; 2],
     resize_settle_until: f64,
     last_render_time: f64,
+    continuous_rendering: bool,
     last_pointer_pos: Option<egui::Pos2>,
     primary_drag_active: bool,
     native_texture: Option<egui::TextureId>,
     native_texture_size: [usize; 2],
 }
 
+impl Default for MaraBevyViewport {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Monotonic per-instance salt so every viewport gets unique egui ids.
+fn next_viewport_instance() -> u64 {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    NEXT.fetch_add(1, Ordering::Relaxed)
+}
+
 impl MaraBevyViewport {
     pub fn new() -> Self {
         Self {
+            instance: next_viewport_instance(),
             bevy: BevyEmbeddedView::new(),
             texture: None,
             last_pixels: [0, 0],
             resize_target_pixels: [0, 0],
             resize_settle_until: f64::NEG_INFINITY,
             last_render_time: f64::NEG_INFINITY,
+            continuous_rendering: false,
             last_pointer_pos: None,
             primary_drag_active: false,
             native_texture: None,
@@ -52,12 +70,14 @@ impl MaraBevyViewport {
         configure_app: impl Fn(&mut bevy::prelude::App) + Send + Sync + 'static,
     ) -> Self {
         Self {
+            instance: next_viewport_instance(),
             bevy: BevyEmbeddedView::with_app_config(configure_app),
             texture: None,
             last_pixels: [0, 0],
             resize_target_pixels: [0, 0],
             resize_settle_until: f64::NEG_INFINITY,
             last_render_time: f64::NEG_INFINITY,
+            continuous_rendering: false,
             last_pointer_pos: None,
             primary_drag_active: false,
             native_texture: None,
@@ -76,12 +96,14 @@ impl MaraBevyViewport {
             })
             .unwrap_or_default();
         Self {
+            instance: next_viewport_instance(),
             bevy,
             texture: None,
             last_pixels: [0, 0],
             resize_target_pixels: [0, 0],
             resize_settle_until: f64::NEG_INFINITY,
             last_render_time: f64::NEG_INFINITY,
+            continuous_rendering: false,
             last_pointer_pos: None,
             primary_drag_active: false,
             native_texture: None,
@@ -106,12 +128,14 @@ impl MaraBevyViewport {
             BevyEmbeddedView::with_app_config(configure_app)
         };
         Self {
+            instance: next_viewport_instance(),
             bevy,
             texture: None,
             last_pixels: [0, 0],
             resize_target_pixels: [0, 0],
             resize_settle_until: f64::NEG_INFINITY,
             last_render_time: f64::NEG_INFINITY,
+            continuous_rendering: false,
             last_pointer_pos: None,
             primary_drag_active: false,
             native_texture: None,
@@ -138,21 +162,51 @@ impl MaraBevyViewport {
         self.bevy.rendering_enabled()
     }
 
+    /// The embedded app's world, once the renderer exists (after the
+    /// first `show`). Hosts drive their panes against it between frames.
+    pub fn world_mut(&mut self) -> Option<&mut bevy::prelude::World> {
+        self.bevy.world_mut()
+    }
+
+    /// Like [`Self::with_render_state_and_content`], with a hook that adjusts
+    /// the embedded app's `DefaultPlugins` before they are added.
+    pub fn with_render_state_plugins_and_content(
+        render_state: Option<&egui_wgpu::RenderState>,
+        configure_plugins: impl Fn(bevy::app::PluginGroupBuilder) -> bevy::app::PluginGroupBuilder
+        + Send
+        + Sync
+        + 'static,
+        configure_app: impl Fn(&mut bevy::prelude::App) + Send + Sync + 'static,
+    ) -> Self {
+        let mut view = Self::with_render_state_and_content(render_state, configure_app);
+        view.bevy.set_plugins_config(configure_plugins);
+        view
+    }
+
+    /// Use the active frame rate for animated content without pointer input.
+    pub fn set_continuous_rendering(&mut self, enabled: bool) {
+        self.continuous_rendering = enabled;
+    }
+
     pub fn show(
         &mut self,
         ctx: &mut ViewCtx<'_>,
-        render_state: Option<&egui_wgpu::RenderState>,
+        render_state: Option<mara_gpu::MaraRenderState<'_>>,
         accent: impl Into<MaraColor32>,
     ) -> Option<MaraColor32> {
+        let render_state: Option<&egui_wgpu::RenderState> =
+            render_state.map(|state| state.__internal_raw());
         let accent = accent.into();
         self.set_active(true);
         let mut picked_color = None;
-        #[allow(deprecated)]
+        let region_rect: egui::Rect = ctx.screen_rect().into();
         {
-            egui::CentralPanel::default()
-                .frame(egui::Frame::new().fill(egui::Color32::TRANSPARENT))
+            egui::Area::new(egui::Id::new(("mara_bevy_viewport_area", self.instance)))
+                .order(egui::Order::Background)
+                .fixed_pos(region_rect.min)
                 .show(ctx.__internal_egui_ctx(), |ui| {
-                    let rect = ui.max_rect();
+                    ui.set_clip_rect(region_rect);
+                    let rect = region_rect;
                     let painter = ui.painter_at(rect);
                     let theme = mara_core::style::theme();
                     painter.rect_filled(rect, 0.0, theme.palette.bg_panel);
@@ -184,7 +238,7 @@ impl MaraBevyViewport {
 
                     let response = ui.interact(
                         rect,
-                        egui::Id::new("mara_embedded_bevy_viewport_interact"),
+                        egui::Id::new(("mara_embedded_bevy_viewport_interact", self.instance)),
                         egui::Sense::click_and_drag(),
                     );
                     let ppp = ui.ctx().pixels_per_point();
@@ -315,15 +369,10 @@ impl MaraBevyViewport {
                     let active_interval = 1.0 / 30.0;
                     #[cfg(not(target_arch = "wasm32"))]
                     let active_interval = 1.0 / 60.0;
-                    let target_interval = if input_active
+                    let target_interval = frame_interval(self.continuous_rendering, input_active
                         || resize_pending
                         || texture_needs_committed_frame
-                        || !has_texture
-                    {
-                        active_interval
-                    } else {
-                        idle_interval
-                    };
+                        || !has_texture, active_interval, idle_interval);
                     let elapsed = now - self.last_render_time;
                     let should_render = resize_pending
                         || !has_texture
@@ -446,7 +495,10 @@ impl MaraBevyViewport {
                         next = next.min((self.resize_settle_until - now).max(0.0));
                     }
                     ui.ctx()
-                        .request_repaint_after(Duration::from_secs_f64(next));
+                        .request_repaint_after(repaint_delay(
+                            next,
+                            ui.ctx().input(|input| input.predicted_dt),
+                        ));
                 });
         }
         picked_color
@@ -484,6 +536,57 @@ impl MaraBevyViewport {
             egui::FontId::proportional(13.0),
             mara_core::style::on_panel().into(),
         );
+    }
+}
+
+fn frame_interval(continuous: bool, interactive: bool, active: f64, idle: f64) -> f64 {
+    if continuous || interactive { active } else { idle }
+}
+
+fn repaint_delay(seconds: f64, predicted_dt: f32) -> Duration {
+    let interval = Duration::try_from_secs_f64(seconds).unwrap_or_default();
+    if interval.is_zero() {
+        return Duration::ZERO;
+    }
+    interval.saturating_add(Duration::try_from_secs_f32(predicted_dt).unwrap_or_default())
+}
+
+#[cfg(test)]
+mod pacing_tests {
+    #[test]
+    fn animation_uses_active_rate_without_input() {
+        for (active, idle) in [(1.0 / 60.0, 1.0 / 24.0), (1.0 / 30.0, 1.0 / 12.0)] {
+            assert_eq!(super::frame_interval(false, false, active, idle), idle);
+            assert_eq!(super::frame_interval(true, false, active, idle), active);
+            assert_eq!(super::frame_interval(false, true, active, idle), active);
+            assert_eq!(super::frame_interval(true, true, active, idle), active);
+        }
+    }
+    use super::*;
+
+    #[test]
+    fn repaint_interval_survives_egui_prediction() {
+        for predicted_dt in [0.0, 1.0 / 60.0, 1.0 / 144.0] {
+            let ctx = egui::Context::default();
+            let mut output = egui::FullOutput::default();
+            for _ in 0..5 {
+                output = ctx.run_ui(egui::RawInput { predicted_dt, ..Default::default() }, |ui| {
+                    ui.ctx().request_repaint_after(repaint_delay(1.0 / 60.0, predicted_dt));
+                });
+            }
+            let delay = output.viewport_output[&egui::ViewportId::ROOT].repaint_delay;
+            assert!((Duration::from_millis(16)..=Duration::from_millis(17)).contains(&delay));
+        }
+    }
+
+    #[test]
+    fn immediate_and_invalid_intervals_remain_immediate() {
+        for seconds in [0.0, -1.0, f64::NAN, f64::INFINITY] {
+            assert_eq!(repaint_delay(seconds, 1.0 / 60.0), Duration::ZERO);
+        }
+        for predicted in [-1.0, f32::NAN, f32::INFINITY] {
+            assert_eq!(repaint_delay(0.1, predicted), Duration::from_millis(100));
+        }
     }
 }
 

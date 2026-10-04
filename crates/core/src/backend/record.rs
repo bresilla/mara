@@ -17,7 +17,7 @@
 //!   These constants are a contract; changing them invalidates every
 //!   golden snapshot.
 
-use std::any::Any;
+use std::any::TypeId;
 use std::collections::HashMap;
 
 use crate::layout::{AreaHost, Sense, UiBackend};
@@ -29,10 +29,15 @@ use crate::vocab::{Id, Pos2, Rect, Vec2};
 /// Headless [`MaraMemory`] store — a type-erased `HashMap` per lane.
 /// The backend-neutral state cores (popup/focus/scroll) and widget
 /// tests persist through this without an egui context.
+///
+/// Keyed by id **and** type, matching the egui store. Keying on id
+/// alone would let a headless run silently overwrite a value that the
+/// same code keeps distinct on a real backend — a divergence that
+/// shows up as a test passing for the wrong reason.
 #[derive(Default)]
 pub struct RecordingMemory {
-    temp: HashMap<Id, Box<dyn Any + Send + Sync>>,
-    persisted: HashMap<Id, Box<dyn Any + Send + Sync>>,
+    temp: HashMap<(Id, TypeId), crate::memory::StateCell>,
+    persisted: HashMap<(Id, TypeId), crate::memory::StateCell>,
 }
 
 /// Headless animation: completes instantly. Goldens and tests pin the
@@ -58,7 +63,7 @@ impl MaraMemory for RecordingMemory {
         T: Clone + Send + Sync + 'static,
     {
         self.persisted
-            .get(&id)
+            .get(&(id, TypeId::of::<T>()))
             .and_then(|value| value.downcast_ref::<T>())
             .cloned()
     }
@@ -67,7 +72,8 @@ impl MaraMemory for RecordingMemory {
     where
         T: Clone + Send + Sync + 'static,
     {
-        self.persisted.insert(id, Box::new(value));
+        self.persisted
+            .insert((id, TypeId::of::<T>()), std::sync::Arc::new(value));
     }
 
     fn get_temp<T>(&self, id: Id) -> Option<T>
@@ -75,7 +81,7 @@ impl MaraMemory for RecordingMemory {
         T: Clone + Send + Sync + 'static,
     {
         self.temp
-            .get(&id)
+            .get(&(id, TypeId::of::<T>()))
             .and_then(|value| value.downcast_ref::<T>())
             .cloned()
     }
@@ -84,16 +90,60 @@ impl MaraMemory for RecordingMemory {
     where
         T: Clone + Send + Sync + 'static,
     {
-        self.temp.insert(id, Box::new(value));
+        self.temp
+            .insert((id, TypeId::of::<T>()), std::sync::Arc::new(value));
     }
 
-    /// Id-keyed (the store holds one value per id, unlike egui's
-    /// id+type keying — Mara code never stores two types under one id).
     fn remove_temp<T>(&mut self, id: Id)
     where
         T: Clone + Send + Sync + 'static,
     {
-        self.temp.remove(&id);
+        self.temp.remove(&(id, TypeId::of::<T>()));
+    }
+}
+
+/// Headless animation is instant, so the store needs no clock — but it
+/// still has to answer as a [`MaraStore`](crate::memory::MaraStore) so
+/// a recording surface can vend a real [`MaraMemoryCtx`].
+impl crate::memory::MaraStore for std::cell::RefCell<RecordingMemory> {
+    fn get_any(&self, id: Id, persisted: bool, ty: TypeId) -> Option<crate::memory::StateCell> {
+        let memory = self.borrow();
+        let lane = if persisted {
+            &memory.persisted
+        } else {
+            &memory.temp
+        };
+        lane.get(&(id, ty)).cloned()
+    }
+
+    fn set_any(&self, id: Id, persisted: bool, ty: TypeId, value: crate::memory::StateCell) {
+        let mut memory = self.borrow_mut();
+        let lane = if persisted {
+            &mut memory.persisted
+        } else {
+            &mut memory.temp
+        };
+        lane.insert((id, ty), value);
+    }
+
+    fn remove_any(&self, id: Id, ty: TypeId) {
+        self.borrow_mut().temp.remove(&(id, ty));
+    }
+
+    fn animate_bool(&self, _id: Id, value: bool, _animation_time: f32) -> f32 {
+        if value { 1.0 } else { 0.0 }
+    }
+
+    fn animate_value(&self, _id: Id, target: f32, _animation_time: f32) -> f32 {
+        target
+    }
+
+    fn animate_bool_responsive(&self, _id: Id, value: bool) -> f32 {
+        if value { 1.0 } else { 0.0 }
+    }
+
+    fn pass_nr(&self) -> u64 {
+        0
     }
 }
 
@@ -112,9 +162,14 @@ pub struct RecordingBackend {
     /// region's top-left by `begin_area`.
     pub cursor: Pos2,
     /// Append-only log of every clip rect pushed. `pop_clip` does NOT
-    /// remove entries — assertions want the full push history, and no
-    /// trait consumer reads the live clip state back.
+    /// remove entries — assertions want the full push history.
     pub clips: Vec<Rect>,
+    /// Live clip stack, kept alongside the history because a scoped
+    /// clip has to be readable back: a surface asks what it is clipped
+    /// to, and a headless backend that always answered "everything"
+    /// would let a clipping bug pass its own tests.
+    #[doc(hidden)]
+    pub clip_stack: Vec<Rect>,
     /// Every paint command emitted, in order.
     pub paints: Vec<PaintCmd>,
     /// When set, `interact` returns a clone of this response instead of
@@ -131,6 +186,15 @@ pub struct RecordingBackend {
     /// Nested id-scope salts pushed by [`UiBackend::in_id_scope`], so
     /// `id()` yields unique ids per scope (egui's id stack, headless).
     pub id_stack: Vec<Id>,
+    /// Every overlay opened this pass, so a headless test can assert a
+    /// menu appeared and where it was anchored.
+    pub overlays: Vec<(Id, Pos2)>,
+    /// Last transform applied via [`UiBackend::set_layer_transform`],
+    /// so a headless test can assert a surface panned/zoomed.
+    pub layer_transform: Option<crate::transform::Transform>,
+    /// Bounds actually occupied so far — `None` until something is
+    /// allocated or explicitly expanded into.
+    pub occupied: Option<Rect>,
     /// Every canvas painter handed out by [`UiBackend::make_painter`],
     /// retained so a test can read back what a module's `on_draw` /
     /// canvas body emitted. `MaraPainter` is `Clone` and shares its
@@ -178,6 +242,54 @@ impl RecordingBackend {
     }
 }
 
+/// A recording surface is its own context.
+///
+/// Every surface can hand out a [`MaraCtx`](crate::context::MaraCtx) —
+/// that is what lets render code reach frame state without being given
+/// a backend handle. Headless, "the frame" is just this backend: the
+/// region it was told to fill, the store it already owns, and a clock
+/// that never advances.
+impl crate::context::MaraCtx for RecordingBackend {
+    fn input(&self) -> crate::mui::MaraInput {
+        crate::mui::MaraInput::default()
+    }
+
+    fn pass_nr(&self) -> u64 {
+        0
+    }
+
+    fn content_rect(&self) -> Rect {
+        self.available
+    }
+
+    fn pixels_per_point(&self) -> f32 {
+        1.0
+    }
+
+    fn request_repaint(&self) {}
+
+    fn request_repaint_after(&self, _after: std::time::Duration) {}
+
+    fn now(&self) -> f64 {
+        0.0
+    }
+
+    fn dt(&self) -> f32 {
+        0.0
+    }
+
+    fn memory(&self) -> crate::memory::MaraMemoryCtx<'_> {
+        crate::memory::MaraMemoryCtx::__internal_from_backend_ctx(&self.memory)
+    }
+
+    /// Headless: a fresh recorder over the same region. The clone does
+    /// not share the store — nothing reads a headless context's state
+    /// back through a scoped child.
+    fn boxed_clone(&self) -> Box<dyn crate::context::MaraCtx + '_> {
+        Box::new(RecordingBackend::at(self.available))
+    }
+}
+
 impl UiBackend for RecordingBackend {
     fn begin_area(&mut self, _host: AreaHost, rect: Rect) {
         self.available = rect;
@@ -207,11 +319,35 @@ impl UiBackend for RecordingBackend {
         Rect::from_min_max(self.cursor, self.available.max)
     }
 
-    fn push_clip(&mut self, rect: Rect) {
-        self.clips.push(rect);
+    fn inline_picker_scope(
+        &mut self,
+        _spec: crate::layout::InlinePickerSpec,
+        body: &mut dyn FnMut(&mut dyn UiBackend),
+    ) {
+        // No per-scope style here; the picker still draws.
+        body(self);
     }
 
-    fn pop_clip(&mut self) {}
+    fn constrain_to(&mut self, rect: Rect) {
+        // Headless: the surface's own extent *is* its available rect,
+        // so pinning it is what "constrained" means here.
+        self.available = rect;
+        self.cursor = rect.min;
+    }
+
+    fn push_clip(&mut self, rect: Rect) {
+        self.clips.push(rect);
+        // Clips only ever shrink.
+        let effective = match self.clip_stack.last() {
+            Some(current) => current.intersect(rect),
+            None => rect,
+        };
+        self.clip_stack.push(effective);
+    }
+
+    fn pop_clip(&mut self) {
+        self.clip_stack.pop();
+    }
 
     fn measure_text(&self, text: &str, size: f32, _mono: bool) -> Vec2 {
         Vec2::new(text.chars().count() as f32 * size * 0.5, size)
@@ -227,7 +363,11 @@ impl UiBackend for RecordingBackend {
         // caller drew (the default impl drops the only handle).
         let clip = match spec.region {
             crate::layout::PaintSurfaceRegion::ClipRect(rect) => rect,
-            crate::layout::PaintSurfaceRegion::RemainingAvailable => self.available_rect(),
+            crate::layout::PaintSurfaceRegion::RemainingAvailable => self
+                .clip_stack
+                .last()
+                .copied()
+                .unwrap_or_else(|| self.available_rect()),
         };
         let painter = crate::mui::MaraPainter::recording(clip);
         self.canvas_painters.borrow_mut().push(painter.clone());
@@ -261,6 +401,182 @@ impl UiBackend for RecordingBackend {
 
     fn memory(&self) -> crate::memory::BackendMemory<'_> {
         crate::memory::BackendMemory::Recording(&self.memory)
+    }
+
+    fn ctx(&self) -> &dyn crate::context::MaraCtx {
+        self
+    }
+
+    fn canvas_commands(&self) -> Vec<PaintCmd> {
+        RecordingBackend::canvas_commands(self)
+    }
+
+    /// Headless: the host frame is the surface itself, so `body` lays
+    /// out in place and the rect used is what it advanced through.
+    fn frame_host(
+        &mut self,
+        _spec: crate::layout::FrameHostSpec,
+        body: &mut dyn FnMut(&mut dyn UiBackend),
+    ) -> Rect {
+        body(self);
+        self.min_rect()
+    }
+
+    /// Headless: the pane body slot is the surface itself — nothing
+    /// scrolls, so content lays out in place.
+    fn pane_body_slot(
+        &mut self,
+        _spec: crate::layout::PaneBodyScrollSpec,
+        body: &mut dyn FnMut(&mut dyn UiBackend),
+    ) {
+        body(self);
+    }
+
+    /// Headless: the body slot is the surface itself. Nothing scrolls,
+    /// so content lays out in place and its height is what the cursor
+    /// advanced by.
+    fn body_slot(
+        &mut self,
+        _spec: crate::layout::ContainerBodySpec,
+        body: &mut dyn FnMut(&mut dyn UiBackend),
+    ) -> f32 {
+        let start = self.cursor.y;
+        body(self);
+        (self.cursor.y - start).max(0.0)
+    }
+
+    /// Headless: the child surface is this one, scoped to the region
+    /// and restored afterwards so the parent's flow continues.
+    fn in_region(
+        &mut self,
+        region: crate::layout::ChildRegion,
+        body: &mut dyn FnMut(&mut dyn UiBackend),
+    ) {
+        let saved = (self.available, self.cursor);
+        self.available = region.rect;
+        self.cursor = region.rect.min;
+        body(self);
+        self.available = saved.0;
+        self.cursor = saved.1;
+    }
+
+    fn framed(
+        &mut self,
+        spec: crate::style::FrameSpec,
+        body: &mut dyn FnMut(&mut dyn UiBackend),
+    ) -> Rect {
+        // Reserve a paint slot so the frame lands *behind* the body —
+        // painting it first would work here but not on a backend that
+        // batches, and the ordering is the contract.
+        let slot = self.reserve_paint_slot();
+        let margin = spec.inner_margin;
+        let outer = spec.outer_margin;
+        // The outer margin sits between the parent's cursor and the
+        // frame's border, so the border starts inside it.
+        let start = Pos2::new(
+            self.cursor.x + outer.left as f32,
+            self.cursor.y + outer.top as f32,
+        );
+        self.cursor = Pos2::new(start.x + margin.left as f32, start.y + margin.top as f32);
+        body(self);
+        let content_bottom = self.cursor.y + margin.bottom as f32;
+        let rect = Rect::from_min_max(start, Pos2::new(self.available.max.x, content_bottom));
+        self.cursor = Pos2::new(self.cursor.x, content_bottom + outer.bottom as f32);
+        self.fill_paint_slot(
+            slot,
+            Some(PaintCmd::RectFilled {
+                rect,
+                corner: spec.corner,
+                fill: spec.fill,
+            }),
+        );
+        self.cursor = Pos2::new(start.x, content_bottom);
+        self.expand_to_include(rect);
+        rect
+    }
+
+    fn in_row(
+        &mut self,
+        size: Vec2,
+        align: crate::layout::CrossAlign,
+        body: &mut dyn FnMut(&mut dyn UiBackend),
+    ) {
+        let rect = self.advance(size);
+        let saved_cursor = self.cursor;
+        let saved_flow = self.flow_horizontal;
+        let saved_row = self.row_bottom;
+        // Items flow rightward from the row's left edge, offset on the
+        // cross axis so `Center` sits mid-row rather than at the top.
+        self.cursor = Pos2::new(
+            rect.min.x,
+            match align {
+                crate::layout::CrossAlign::Start => rect.min.y,
+                crate::layout::CrossAlign::Center => rect.min.y + rect.height() * 0.5,
+                crate::layout::CrossAlign::End => rect.max.y,
+            },
+        );
+        self.flow_horizontal = true;
+        self.row_bottom = rect.max.y;
+        body(self);
+        self.cursor = saved_cursor;
+        self.flow_horizontal = saved_flow;
+        self.row_bottom = saved_row;
+        self.expand_to_include(rect);
+    }
+
+    fn overlay_at(&mut self, id: Id, pos: Pos2, body: &mut dyn FnMut(&mut dyn UiBackend)) {
+        self.overlays.push((id, pos));
+        // Run inline so a headless assertion still sees the contents.
+        body(self);
+    }
+
+    fn set_layer_transform(&mut self, transform: crate::transform::Transform) {
+        self.layer_transform = Some(transform);
+    }
+
+    fn child_at(&mut self, rect: Rect, body: &mut dyn FnMut(&mut dyn UiBackend)) {
+        // An explicit-rect child gets its own cursor and must not
+        // disturb where the parent places its next widget.
+        let saved_available = self.available;
+        let saved_cursor = self.cursor;
+        let saved_horizontal = self.flow_horizontal;
+        self.available = rect;
+        self.cursor = rect.min;
+        self.flow_horizontal = false;
+        body(self);
+        self.available = saved_available;
+        self.cursor = saved_cursor;
+        self.flow_horizontal = saved_horizontal;
+        self.expand_to_include(rect);
+    }
+
+    fn advance_cursor_past(&mut self, rect: Rect) {
+        if self.flow_horizontal {
+            self.cursor.x = self.cursor.x.max(rect.max.x);
+            self.row_bottom = self.row_bottom.max(rect.max.y);
+        } else {
+            self.cursor.y = self.cursor.y.max(rect.max.y);
+        }
+        self.expand_to_include(rect);
+    }
+
+    fn expand_to_include(&mut self, rect: Rect) {
+        self.occupied = Some(match self.occupied {
+            Some(current) => Rect::from_min_max(
+                Pos2::new(current.min.x.min(rect.min.x), current.min.y.min(rect.min.y)),
+                Pos2::new(current.max.x.max(rect.max.x), current.max.y.max(rect.max.y)),
+            ),
+            None => rect,
+        });
+    }
+
+    fn occupied_rect(&self) -> Rect {
+        self.occupied
+            .unwrap_or_else(|| Rect::from_min_size(self.available.min, Vec2::ZERO))
+    }
+
+    fn cursor(&self) -> Pos2 {
+        self.cursor
     }
 
     fn in_child(
@@ -490,9 +806,9 @@ mod golden {
     /// recording backend with zero egui in the call path.
     #[test]
     fn golden_mara_ui_over_recording() {
-        use crate::mui::{MaraBackend, MaraUi};
+        use crate::mui::MaraUi;
 
-        let mut backend = MaraBackend::Recording(Box::new(frame()));
+        let mut backend = frame();
         {
             let mut mui = MaraUi::over(&mut backend, ACCENT);
             mui.label("headless");
@@ -502,9 +818,6 @@ mod golden {
             let mut value = 0.5_f64;
             mui.slider("gain", &mut value, 0.0..=1.0, 2, "");
         }
-        let MaraBackend::Recording(recorded) = backend else {
-            unreachable!("constructed with the recording backend");
-        };
-        golden_check("mara_ui_over_recording", &recorded.paints);
+        golden_check("mara_ui_over_recording", &backend.paints);
     }
 }

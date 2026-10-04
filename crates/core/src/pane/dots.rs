@@ -23,11 +23,11 @@
 
 use std::hash::Hash;
 
-use egui::{Context, Id, Ui};
+use crate::vocab::Id;
 
 use crate::container::SeparatorOrient;
 use crate::{
-    layout::{CursorIcon, Sense, UiBackend},
+    layout::{CursorIcon, Sense},
     mui::MaraResponse,
     paint::PaintCmd,
     style,
@@ -59,13 +59,14 @@ const DOTS_ALPHA: u8 = 160;
 /// black-tinted on Light). Cursor flips to the matching resize
 /// glyph for the orientation.
 pub(crate) fn paint_container_dots(
-    ui: &mut Ui,
+    ui: &mut crate::MaraUi<'_>,
     orient: SeparatorOrient,
     id_salt: impl Hash,
     accent: impl Into<MaraColor32>,
 ) -> MaraResponse {
     let accent = accent.into();
     let rect = allocate_strip(ui, orient);
+    let ctx = ui.ctx();
     // Register the strip's flow-axis size with the active pane so
     // pane auto-flow accounting includes this handle in
     // the pane's outer height. Without this, the pane would be
@@ -73,11 +74,8 @@ pub(crate) fn paint_container_dots(
     // ONLY — the dot-handle strip per container would extend past
     // the pane's painted edge and the visible gaps between
     // containers would compress / clip variably.
-    if let Some(pane_id) = ui
-        .ctx()
-        .data(|d| d.get_temp::<Id>(super::active_pane_key()))
-    {
-        record_container_dot_rect(ui.ctx(), pane_id, rect);
+    if let Some(pane_id) = ctx.memory().get_temp::<Id>(super::active_pane_key()) {
+        record_container_dot_rect(ctx, pane_id, rect);
         // The strip consumes `DOTS_STRIP_H` along the pane's flow
         // axis regardless of orientation: in a horizontal-strip
         // pane (containers stack on Y), the strip is
@@ -85,17 +83,16 @@ pub(crate) fn paint_container_dots(
         // (= the flow axis); in a vertical-strip pane the strip
         // is `(DOTS_STRIP_H, h)` so it occupies `DOTS_STRIP_H` on
         // X (= the flow axis). Same value either way.
-        super::publish_body_extra_flow(ui.ctx(), pane_id, DOTS_STRIP_H);
+        super::publish_body_extra_flow(ctx, pane_id, DOTS_STRIP_H);
     }
     let id = ui.id().with(("mara_pane_container_dots", id_salt));
     let cursor = match orient {
         SeparatorOrient::Horizontal => CursorIcon::ResizeVertical,
         SeparatorOrient::Vertical => CursorIcon::ResizeHorizontal,
     };
-    let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
-    let resp = backend.interact(rect, id.into(), Sense::Drag);
-    crate::backend::egui::hover_cursor_for_response(ui.ctx(), &resp, cursor);
-    if !crate::backend::egui::is_ui_rect_visible(ui, rect) {
+    let resp = ui.interact(rect, id, Sense::Drag);
+    ui.hover_cursor(&resp, cursor);
+    if !ui.is_rect_visible(rect) {
         return resp;
     }
     let bright = resp.hovered() || resp.dragged();
@@ -113,26 +110,31 @@ fn dot_rects_key(pane_id: Id) -> Id {
     pane_id.with("mara_pane_container_dot_rects")
 }
 
-pub(crate) fn clear_container_dot_rects(ctx: &Context, pane_id: Id) {
-    crate::memory::MaraMemoryCtx::new(ctx).remove_temp::<Vec<MaraRect>>(dot_rects_key(pane_id));
+pub(crate) fn clear_container_dot_rects(ctx: &dyn crate::context::MaraCtx, pane_id: Id) {
+    ctx.memory()
+        .remove_temp::<Vec<MaraRect>>(dot_rects_key(pane_id));
 }
 
-pub(crate) fn record_container_dot_rect(ctx: &Context, pane_id: Id, rect: impl Into<MaraRect>) {
+pub(crate) fn record_container_dot_rect(
+    ctx: &dyn crate::context::MaraCtx,
+    pane_id: Id,
+    rect: impl Into<MaraRect>,
+) {
     let rect = rect.into();
-    let mut memory = crate::memory::MaraMemoryCtx::new(ctx);
+    let mut memory = ctx.memory();
     let mut rects: Vec<MaraRect> = memory.get_temp(dot_rects_key(pane_id)).unwrap_or_default();
     rects.push(rect);
     memory.set_temp(dot_rects_key(pane_id), rects);
 }
 
 pub(crate) fn pointer_over_container_dots(
-    ctx: &Context,
+    ctx: &dyn crate::context::MaraCtx,
     pane_id: Id,
     pos: impl Into<MaraPos2>,
 ) -> bool {
     let pos = pos.into();
     {
-        let memory = crate::memory::MaraMemoryCtx::new(ctx);
+        let memory = ctx.memory();
         memory
             .get_temp::<Vec<MaraRect>>(dot_rects_key(pane_id))
             .unwrap_or_default()
@@ -141,14 +143,13 @@ pub(crate) fn pointer_over_container_dots(
     }
 }
 
-fn allocate_strip(ui: &mut Ui, orient: SeparatorOrient) -> MaraRect {
-    let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
-    let available = backend.available_rect();
+fn allocate_strip(ui: &mut crate::MaraUi<'_>, orient: SeparatorOrient) -> MaraRect {
+    let available = ui.available_rect();
     let size = match orient {
         SeparatorOrient::Horizontal => MaraVec2::new(available.width(), DOTS_STRIP_H),
         SeparatorOrient::Vertical => MaraVec2::new(DOTS_STRIP_H, available.height()),
     };
-    backend.allocate(size, Sense::Hover).rect
+    ui.allocate(size, Sense::Hover).rect
 }
 
 fn pane_dot_paint_cmds(rect: MaraRect, orient: SeparatorOrient, ink: MaraColor32) -> [PaintCmd; 3] {
@@ -171,10 +172,14 @@ fn pane_dot_paint_cmds(rect: MaraRect, orient: SeparatorOrient, ink: MaraColor32
     }
 }
 
-fn paint_dots(ui: &mut Ui, rect: MaraRect, orient: SeparatorOrient, ink: MaraColor32) {
+fn paint_dots(
+    ui: &mut crate::MaraUi<'_>,
+    rect: MaraRect,
+    orient: SeparatorOrient,
+    ink: MaraColor32,
+) {
     for cmd in pane_dot_paint_cmds(rect, orient, ink) {
-        let mut backend = crate::backend::egui::EguiUiBackend::new(ui);
-        crate::layout::UiBackend::paint(&mut backend, cmd);
+        ui.paint(cmd);
     }
 }
 
@@ -184,7 +189,7 @@ mod tests {
 
     #[test]
     fn dot_hit_rects_are_frame_local() {
-        let ctx = egui::Context::default();
+        let ctx = headless_ctx();
         let pane_id = Id::new("pane");
         let rect = MaraRect::from_min_size(MaraPos2::new(10.0, 20.0), MaraVec2::new(30.0, 6.0));
 
@@ -197,7 +202,7 @@ mod tests {
 
     #[test]
     fn dot_hit_rects_are_scoped_per_pane() {
-        let ctx = egui::Context::default();
+        let ctx = headless_ctx();
         let first = Id::new("first-pane");
         let second = Id::new("second-pane");
         let rect = MaraRect::from_min_size(MaraPos2::new(10.0, 20.0), MaraVec2::new(30.0, 6.0));
@@ -232,4 +237,15 @@ mod tests {
             assert_eq!(fill, MaraColor32::WHITE);
         }
     }
+}
+
+/// A context for state-only assertions — see the note in
+/// `shelf::tests`. The recording backend is a `MaraCtx`, so tests that
+/// only exercise Mara's own bookkeeping need no backend.
+#[cfg(test)]
+fn headless_ctx() -> crate::backend::record::RecordingBackend {
+    crate::backend::record::RecordingBackend::at(crate::vocab::Rect::from_min_size(
+        crate::vocab::Pos2::ZERO,
+        crate::vocab::Vec2::new(1280.0, 800.0),
+    ))
 }

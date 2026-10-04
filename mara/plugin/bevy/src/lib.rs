@@ -22,7 +22,6 @@ pub use mara_bevy::{
     MaraBevySceneHelpersPlugin, MaraBevyViewport, apply_rig, apply_viewport_camera_input_system,
     make_viewport_render_target, spawn_viewport_camera,
 };
-pub use mara_core::extras;
 
 // Re-export `mara_core` for consumers that were importing Mara types
 // from this adapter. The canonical app-facing path remains `mara::ui`.

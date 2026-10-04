@@ -3,17 +3,15 @@
 use std::{collections::HashMap, hash::Hash};
 
 use egui::{
-    Align, Color32, CornerRadius, Frame, Id, LayerId, Layout, Margin, Modifiers, PointerButton,
-    Pos2, Rect, Scene, Sense, Shape, Stroke, StrokeKind, Style, Ui, UiBuilder, UiKind, UiStackInfo,
-    Vec2,
+    Align, CornerRadius, Id, LayerId, Layout, Margin, Modifiers, PointerButton, Scene, Sense,
+    StrokeKind, Style, Ui, UiBuilder, UiKind, UiStackInfo,
     collapsing_header::paint_default_icon,
     emath::{GuiRounding, TSTransform},
-    epaint::Shadow,
-    pos2,
     response::Flags,
-    vec2,
 };
-use egui_scale::EguiScale;
+use mara_core::MaraResponse;
+use mara_core::style::{FrameRole, FrameSpec, frame_for};
+use mara_core::vocab::{Color32, Pos2, Rect, Stroke, Vec2, pos2, vec2};
 use smallvec::SmallVec;
 
 use crate::vendored::{Graph, InPin, InPinId, Node, NodeId, OutPin, OutPinId, ui::wire::WireId};
@@ -25,6 +23,7 @@ mod state;
 mod viewer;
 mod wire;
 
+use self::scale::Scale;
 use self::{
     pin::AnyPin,
     state::{NewWires, NodeState, RowHeights},
@@ -371,13 +370,9 @@ pub struct GraphStyle {
     /// Defaults to [`Frame::window`] constructed from current ui's style.
     #[cfg_attr(
         feature = "serde",
-        serde(
-            skip_serializing_if = "Option::is_none",
-            default,
-            with = "serde_frame_option"
-        )
+        serde(skip_serializing_if = "Option::is_none", default)
     )]
-    pub node_frame: Option<Frame>,
+    pub node_frame: Option<FrameSpec>,
 
     /// Frame used to draw node headers.
     /// Defaults to [`node_frame`] without shadow and transparent fill.
@@ -386,13 +381,9 @@ pub struct GraphStyle {
     /// unless layering of header fill color with node fill color is desired.
     #[cfg_attr(
         feature = "serde",
-        serde(
-            skip_serializing_if = "Option::is_none",
-            default,
-            with = "serde_frame_option"
-        )
+        serde(skip_serializing_if = "Option::is_none", default)
     )]
-    pub header_frame: Option<Frame>,
+    pub header_frame: Option<FrameSpec>,
 
     /// Blank space for dragging node by its header.
     /// Elements in the header are placed after this space.
@@ -547,13 +538,9 @@ pub struct GraphStyle {
     /// Frame used to draw background
     #[cfg_attr(
         feature = "serde",
-        serde(
-            skip_serializing_if = "Option::is_none",
-            default,
-            with = "serde_frame_option"
-        )
+        serde(skip_serializing_if = "Option::is_none", default)
     )]
-    pub bg_frame: Option<Frame>,
+    pub bg_frame: Option<FrameSpec>,
 
     /// Background pattern.
     /// Defaults to [`BackgroundPattern::Grid`].
@@ -650,14 +637,14 @@ impl GraphStyle {
 
     fn get_pin_fill(&self, style: &Style) -> Color32 {
         self.pin_fill
-            .unwrap_or(style.visuals.widgets.active.bg_fill)
+            .unwrap_or_else(|| style.visuals.widgets.active.bg_fill.into())
     }
 
     fn get_pin_stroke(&self, style: &Style) -> Stroke {
         self.pin_stroke.unwrap_or_else(|| {
             Stroke::new(
                 style.visuals.widgets.active.bg_stroke.width,
-                style.visuals.widgets.active.bg_stroke.color,
+                style.visuals.widgets.active.bg_stroke.color.into(),
             )
         })
     }
@@ -723,13 +710,14 @@ impl GraphStyle {
         self.collapsible.unwrap_or(true)
     }
 
-    fn get_bg_frame(&self, style: &Style) -> Frame {
-        self.bg_frame.unwrap_or_else(|| Frame::canvas(style))
+    fn get_bg_frame(&self, accent: mara_core::vocab::Color32) -> FrameSpec {
+        self.bg_frame
+            .unwrap_or_else(|| frame_for(FrameRole::Canvas, accent))
     }
 
     fn get_bg_pattern_stroke(&self, style: &Style) -> Stroke {
         self.bg_pattern_stroke
-            .unwrap_or(style.visuals.widgets.noninteractive.bg_stroke)
+            .unwrap_or_else(|| style.visuals.widgets.noninteractive.bg_stroke.into())
     }
 
     fn get_min_scale(&self) -> f32 {
@@ -740,13 +728,19 @@ impl GraphStyle {
         self.max_scale.unwrap_or(2.0)
     }
 
-    fn get_node_frame(&self, style: &Style) -> Frame {
-        self.node_frame.unwrap_or_else(|| Frame::window(style))
+    fn get_node_frame(&self, accent: mara_core::vocab::Color32) -> FrameSpec {
+        self.node_frame
+            .unwrap_or_else(|| frame_for(FrameRole::Window, accent))
     }
 
-    fn get_header_frame(&self, style: &Style) -> Frame {
-        self.header_frame
-            .unwrap_or_else(|| self.get_node_frame(style).shadow(Shadow::NONE))
+    /// The header sits on top of the node body, so it must not cast its
+    /// own shadow over it.
+    fn get_header_frame(&self, accent: mara_core::vocab::Color32) -> FrameSpec {
+        self.header_frame.unwrap_or_else(|| {
+            let mut frame = self.get_node_frame(accent);
+            frame.shadow = None;
+            frame
+        })
     }
 
     fn get_centering(&self) -> bool {
@@ -757,14 +751,20 @@ impl GraphStyle {
         self.select_stoke.unwrap_or_else(|| {
             Stroke::new(
                 style.visuals.selection.stroke.width,
-                style.visuals.selection.stroke.color.gamma_multiply(0.5),
+                style
+                    .visuals
+                    .selection
+                    .stroke
+                    .color
+                    .gamma_multiply(0.5)
+                    .into(),
             )
         })
     }
 
     fn get_select_fill(&self, style: &Style) -> Color32 {
         self.select_fill
-            .unwrap_or_else(|| style.visuals.selection.bg_fill.gamma_multiply(0.3))
+            .unwrap_or_else(|| style.visuals.selection.bg_fill.gamma_multiply(0.3).into())
     }
 
     fn get_select_rect_contained(&self) -> bool {
@@ -786,55 +786,6 @@ impl GraphStyle {
 
     fn get_wire_smoothness(&self) -> f32 {
         self.wire_smoothness.unwrap_or(1.0)
-    }
-}
-
-#[cfg(feature = "serde")]
-mod serde_frame_option {
-    use serde::{Deserialize, Deserializer, Serialize, Serializer};
-
-    #[derive(Serialize, Deserialize)]
-    pub struct Frame {
-        pub inner_margin: egui::Margin,
-        pub outer_margin: egui::Margin,
-        pub rounding: egui::CornerRadius,
-        pub shadow: egui::epaint::Shadow,
-        pub fill: egui::Color32,
-        pub stroke: egui::Stroke,
-    }
-
-    #[allow(clippy::ref_option)]
-    pub fn serialize<S>(frame: &Option<egui::Frame>, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        match frame {
-            Some(frame) => Frame {
-                inner_margin: frame.inner_margin,
-                outer_margin: frame.outer_margin,
-                rounding: frame.corner_radius,
-                shadow: frame.shadow,
-                fill: frame.fill,
-                stroke: frame.stroke,
-            }
-            .serialize(serializer),
-            None => serializer.serialize_none(),
-        }
-    }
-
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<Option<egui::Frame>, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let frame_opt = Option::<Frame>::deserialize(deserializer)?;
-        Ok(frame_opt.map(|frame| egui::Frame {
-            inner_margin: frame.inner_margin,
-            outer_margin: frame.outer_margin,
-            corner_radius: frame.rounding,
-            shadow: frame.shadow,
-            fill: frame.fill,
-            stroke: frame.stroke,
-        }))
     }
 }
 
@@ -1002,8 +953,12 @@ impl GraphWidget {
     }
 
     /// Render [`Graph`] using given viewer and style into the [`Ui`].
+    ///
+    /// Returns the graph area's interaction, in Mara vocabulary — a
+    /// caller never has to name a backend response type to ask whether
+    /// the canvas was clicked or dragged.
     #[inline]
-    pub fn show<T, V>(&self, graph: &mut Graph<T>, viewer: &mut V, ui: &mut Ui) -> egui::Response
+    pub fn show<T, V>(&self, graph: &mut Graph<T>, viewer: &mut V, ui: &mut Ui) -> MaraResponse
     where
         V: NodeViewer<T>,
     {
@@ -1030,7 +985,7 @@ fn show_graph<T, V>(
     graph: &mut Graph<T>,
     viewer: &mut V,
     ui: &mut Ui,
-) -> egui::Response
+) -> MaraResponse
 where
     V: NodeViewer<T>,
 {
@@ -1038,15 +993,22 @@ where
 
     let (mut latest_pos, modifiers) = ui.ctx().input(|i| (i.pointer.latest_pos(), i.modifiers));
 
-    let bg_frame = style.get_bg_frame(ui.style());
+    let bg_frame = style.get_bg_frame(mara_core::style::active_accent());
+    let bg_frame_backend = mara_backend_egui::egui_frame_for_style_spec(bg_frame);
 
-    let outer_size_bounds = ui.available_size_before_wrap().max(min_size).min(max_size);
+    let outer_size_bounds = egui::Vec2::from(
+        Vec2::from(ui.available_size_before_wrap())
+            .max(min_size)
+            .min(max_size),
+    );
 
     let outer_resp = ui.allocate_response(outer_size_bounds, Sense::hover());
 
-    ui.painter().add(bg_frame.paint(outer_resp.rect));
+    ui.painter().add(bg_frame_backend.paint(outer_resp.rect));
 
-    let mut content_rect = outer_resp.rect - bg_frame.total_margin();
+    let mut content_rect = egui::Rect::from(
+        mara_core::vocab::Rect::from(outer_resp.rect).shrink_by(bg_frame.total_margin()),
+    );
 
     // Make sure we don't shrink to the negative:
     content_rect.max.x = content_rect.max.x.max(content_rect.min.x);
@@ -1069,26 +1031,39 @@ where
 
     let mut ui = ui.new_child(
         UiBuilder::new()
-            .ui_stack_info(UiStackInfo::new(UiKind::Frame).with_frame(bg_frame))
+            .ui_stack_info(UiStackInfo::new(UiKind::Frame).with_frame(bg_frame_backend))
             .layer_id(graph_layer_id)
-            .max_rect(Rect::EVERYTHING)
+            .max_rect(egui::Rect::from(Rect::EVERYTHING))
             .sense(Sense::click_and_drag()),
     );
 
     if style.get_crisp_magnified_text() {
         style.scale(max_scale);
-        ui.style_mut().scale(max_scale);
+        let mut raw = mara_backend_egui::__internal_backend_from_raw(&mut ui);
+        mara_core::MaraUi::__internal_over(&mut raw, mara_core::vocab::Color32::WHITE)
+            .scale_style(max_scale);
 
         min_scale /= max_scale;
         max_scale = 1.0;
     }
 
-    clamp_scale(&mut to_global, min_scale, max_scale, ui_rect);
+    clamp_scale(&mut to_global, min_scale, max_scale, ui_rect.into());
 
     let mut graph_resp = ui.response();
+    // `to_global` is Mara-typed everywhere else; the backend's gesture
+    // driver is the one place that still needs its own transform type,
+    // so convert across that call and back.
+    let mut backend_transform = TSTransform {
+        scaling: to_global.scaling,
+        translation: to_global.translation.into(),
+    };
     Scene::new()
         .zoom_range(min_scale..=max_scale)
-        .register_pan_and_zoom(&ui, &mut graph_resp, &mut to_global);
+        .register_pan_and_zoom(&ui, &mut graph_resp, &mut backend_transform);
+    to_global = mara_core::transform::Transform::new(
+        backend_transform.translation.into(),
+        backend_transform.scaling,
+    );
 
     if graph_resp.changed() {
         ui.ctx().request_repaint();
@@ -1103,21 +1078,21 @@ where
     let from_global = to_global.inverse();
 
     // Graph viewport
-    let viewport = (from_global * ui_rect).round_ui();
-    let viewport_clip = from_global * clip_rect;
+    let viewport = egui::Rect::from(from_global.mul_rect(ui_rect.into())).round_ui();
+    let viewport_clip = egui::Rect::from(from_global.mul_rect(clip_rect.into()));
 
     ui.set_clip_rect(viewport.intersect(viewport_clip));
     ui.expand_to_include_rect(viewport);
 
     // Set transform for graph layer.
-    ui.ctx().set_transform_layer(graph_layer_id, to_global);
+    with_mara_ui(&mut ui, |mara| mara.set_layer_transform(to_global));
 
     // Map latest pointer position to graph space.
-    latest_pos = latest_pos.map(|pos| from_global * pos);
+    latest_pos = latest_pos.map(|pos| egui::Pos2::from(from_global.mul_pos(pos.into())));
 
     viewer.draw_background(
         style.bg_pattern.as_ref(),
-        &viewport,
+        &viewport.into(),
         &style,
         ui.style(),
         ui.painter(),
@@ -1155,7 +1130,7 @@ where
     let wire_threshold = style.get_wire_smoothness();
 
     let wire_shape_idx = match style.get_wire_layer() {
-        WireLayer::BehindNodes => Some(ui.painter().add(Shape::Noop)),
+        WireLayer::BehindNodes => Some(with_mara_ui(&mut ui, |mara| mara.reserve_paint_slot())),
         WireLayer::AboveNodes => None,
     };
 
@@ -1210,7 +1185,13 @@ where
 
     let mut hovered_wire = None;
     let mut hovered_wire_disconnect = false;
-    let mut wire_shapes = Vec::new();
+    let mut wire_shapes: Vec<mara_core::paint::PaintCmd> = Vec::new();
+    // The seam while `ui.rs` is still egui-typed (PLAN.md WS-D1.3):
+    // `wire.rs` speaks Mara memory + a clip rect, so build them once.
+    let wire_store = mara_backend_egui::EguiCtx::new(ui.ctx());
+    let mut wire_memory =
+        mara_core::memory::MaraMemoryCtx::__internal_from_backend_ctx(&wire_store);
+    let wire_clip: mara_core::vocab::Rect = ui.clip_rect().into();
 
     // Draw and interact with wires
     for wire in graph.wires.iter() {
@@ -1228,18 +1209,18 @@ where
 
             if let Some(latest_pos) = latest_pos {
                 let wire_hit = hit_wire(
-                    ui.ctx(),
+                    &mut wire_memory,
                     WireId::Connected {
-                        graph_id,
+                        graph_id: graph_id.into(),
                         out_pin: wire.out_pin,
                         in_pin: wire.in_pin,
                     },
                     wire_frame_size,
                     style.get_upscale_wire_frame(),
                     style.get_downscale_wire_frame(),
-                    from_r.pos,
-                    to_r.pos,
-                    latest_pos,
+                    from_r.pos.into(),
+                    to_r.pos.into(),
+                    latest_pos.into(),
                     wire_width.max(2.0),
                     pick_wire_style(from_r.wire_style, to_r.wire_style),
                 );
@@ -1282,9 +1263,10 @@ where
             for (w_mul, a_mul) in GLOW_LAYERS {
                 let layer_color = with_alpha_factor(color, a_mul * glow);
                 draw_wire(
-                    &ui,
+                    &mut wire_memory,
+                    wire_clip,
                     WireId::Connected {
-                        graph_id,
+                        graph_id: graph_id.into(),
                         out_pin: wire.out_pin,
                         in_pin: wire.in_pin,
                     },
@@ -1292,9 +1274,12 @@ where
                     wire_frame_size,
                     style.get_upscale_wire_frame(),
                     style.get_downscale_wire_frame(),
-                    from_r.pos,
-                    to_r.pos,
-                    Stroke::new(draw_width * w_mul, layer_color),
+                    from_r.pos.into(),
+                    to_r.pos.into(),
+                    mara_core::vocab::Stroke::new(
+                        draw_width * w_mul,
+                        mara_core::vocab::Color32::from(layer_color),
+                    ),
                     wire_threshold,
                     pick_wire_style(from_r.wire_style, to_r.wire_style),
                 );
@@ -1303,9 +1288,10 @@ where
 
         // Crisp wire on top.
         draw_wire(
-            &ui,
+            &mut wire_memory,
+            wire_clip,
             WireId::Connected {
-                graph_id,
+                graph_id: graph_id.into(),
                 out_pin: wire.out_pin,
                 in_pin: wire.in_pin,
             },
@@ -1313,9 +1299,9 @@ where
             wire_frame_size,
             style.get_upscale_wire_frame(),
             style.get_downscale_wire_frame(),
-            from_r.pos,
-            to_r.pos,
-            Stroke::new(draw_width, color),
+            from_r.pos.into(),
+            to_r.pos.into(),
+            mara_core::vocab::Stroke::new(draw_width, mara_core::vocab::Color32::from(color)),
             wire_threshold,
             pick_wire_style(from_r.wire_style, to_r.wire_style),
         );
@@ -1331,9 +1317,9 @@ where
     if let Some(select_rect) = rect_selection_ended {
         let select_nodes = node_rects.into_iter().filter_map(|(id, rect)| {
             let select = if style.get_select_rect_contained() {
-                select_rect.contains_rect(rect)
+                select_rect.contains_rect(rect.into())
             } else {
-                select_rect.intersects(rect)
+                select_rect.intersects(rect.into())
             };
 
             if select { Some(id) } else { None }
@@ -1371,7 +1357,7 @@ where
     // Do centering unless no nodes are present.
     if style.get_centering() && graph_resp.double_clicked() && nodes_bb.is_finite() {
         let nodes_bb = nodes_bb.expand(100.0);
-        graph_state.look_at(nodes_bb, ui_rect, min_scale, max_scale);
+        graph_state.look_at(nodes_bb.into(), ui_rect, min_scale, max_scale);
     }
 
     if modifiers.command && graph_resp.clicked_by(PointerButton::Primary) {
@@ -1438,13 +1424,15 @@ where
                         NewWires::Out(x) => AnyPins::Out(x),
                     };
 
-                    let menu_pos = from_global * ui.cursor().min;
+                    let menu_pos = egui::Pos2::from(from_global.mul_pos(ui.cursor().min.into()));
 
                     // Override wire end position when the wire-drop context menu is opened.
                     wire_end_pos = menu_pos;
 
                     // The context menu is opened as *link* graph menu.
-                    viewer.show_dropped_wire_menu(menu_pos, ui, pins, graph);
+                    with_mara_ui(ui, |mui| {
+                        viewer.show_dropped_wire_menu(menu_pos.into(), mui, pins, graph)
+                    });
 
                     // Even though menu could be closed in `show_dropped_wire_menu`,
                     // we need to revert the new wires here, because menu state is inaccessible.
@@ -1452,11 +1440,13 @@ where
                     graph_state.set_new_wires_menu(new_wires);
                 });
             }
-        } else if viewer.has_graph_menu(interact_pos, graph) {
+        } else if viewer.has_graph_menu(interact_pos.into(), graph) {
             graph_resp.context_menu(|ui| {
-                let menu_pos = from_global * ui.cursor().min;
+                let menu_pos = egui::Pos2::from(from_global.mul_pos(ui.cursor().min.into()));
 
-                viewer.show_graph_menu(menu_pos, ui, graph);
+                with_mara_ui(ui, |mui| {
+                    viewer.show_graph_menu(menu_pos.into(), mui, graph)
+                });
             });
         }
     }
@@ -1469,15 +1459,22 @@ where
                 let to_r = &input_info[&in_pin];
 
                 draw_wire(
-                    &ui,
-                    WireId::NewInput { graph_id, in_pin },
+                    &mut wire_memory,
+                    wire_clip,
+                    WireId::NewInput {
+                        graph_id: graph_id.into(),
+                        in_pin,
+                    },
                     &mut wire_shapes,
                     wire_frame_size,
                     style.get_upscale_wire_frame(),
                     style.get_downscale_wire_frame(),
-                    from_pos,
-                    to_r.pos,
-                    Stroke::new(wire_width, to_r.wire_color),
+                    from_pos.into(),
+                    to_r.pos.into(),
+                    mara_core::vocab::Stroke::new(
+                        wire_width,
+                        mara_core::vocab::Color32::from(to_r.wire_color),
+                    ),
                     wire_threshold,
                     to_r.wire_style,
                 );
@@ -1489,15 +1486,22 @@ where
                 let to_pos = wire_end_pos;
 
                 draw_wire(
-                    &ui,
-                    WireId::NewOutput { graph_id, out_pin },
+                    &mut wire_memory,
+                    wire_clip,
+                    WireId::NewOutput {
+                        graph_id: graph_id.into(),
+                        out_pin,
+                    },
                     &mut wire_shapes,
                     wire_frame_size,
                     style.get_upscale_wire_frame(),
                     style.get_downscale_wire_frame(),
-                    from_r.pos,
-                    to_pos,
-                    Stroke::new(wire_width, from_r.wire_color),
+                    from_r.pos.into(),
+                    to_pos.into(),
+                    mara_core::vocab::Stroke::new(
+                        wire_width,
+                        mara_core::vocab::Color32::from(from_r.wire_color),
+                    ),
                     wire_threshold,
                     from_r.wire_style,
                 );
@@ -1507,14 +1511,22 @@ where
 
     match wire_shape_idx {
         None => {
-            ui.painter().add(Shape::Vec(wire_shapes));
+            let painter = with_mara_ui(&mut ui, |mara| mara.painter());
+            for cmd in wire_shapes {
+                painter.paint_cmd(cmd);
+            }
         }
-        Some(idx) => {
-            ui.painter().set(idx, Shape::Vec(wire_shapes));
+        Some(slot) => {
+            with_mara_ui(&mut ui, |mara| {
+                mara.fill_paint_slot(slot, Some(mara_core::paint::PaintCmd::Group(wire_shapes)));
+            });
         }
     }
 
-    ui.advance_cursor_after_rect(Rect::from_min_size(graph_resp.rect.min, Vec2::ZERO));
+    ui.advance_cursor_after_rect(egui::Rect::from_min_size(
+        graph_resp.rect.min,
+        egui::Vec2::ZERO,
+    ));
 
     if let Some(node) = node_to_top
         && graph.nodes.contains(node.0)
@@ -1529,17 +1541,17 @@ where
         if graph_state.selected_nodes().contains(&node) {
             for node in graph_state.selected_nodes() {
                 let node = &mut graph.nodes[node.0];
-                node.pos += delta;
+                node.pos += mara_core::vocab::Vec2::from(delta);
             }
         } else {
             let node = &mut graph.nodes[node.0];
-            node.pos += delta;
+            node.pos += mara_core::vocab::Vec2::from(delta);
         }
     }
 
     graph_state.store(graph, ui.ctx());
 
-    graph_resp
+    mara_backend_egui::mara_response_from(&graph_resp)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1572,13 +1584,13 @@ where
     // Input pins on the left.
     let mut inputs_ui = node_ui.new_child(
         UiBuilder::new()
-            .max_rect(inputs_rect.round_ui())
+            .max_rect(egui::Rect::from(inputs_rect).round_ui())
             .layout(Layout::top_down(Align::Min))
             .id_salt("inputs"),
     );
 
     let graph_clip_rect = node_ui.clip_rect();
-    inputs_ui.shrink_clip_rect(payload_clip_rect);
+    inputs_ui.shrink_clip_rect(payload_clip_rect.into());
 
     let pin_layout = Layout::left_to_right(Align::Min);
     let mut new_heights = SmallVec::with_capacity(inputs.len());
@@ -1590,16 +1602,16 @@ where
 
         let margin = (height_outer - height) / 2.0;
         let outer_rect = cursor.with_max_y(cursor.top() + height_outer);
-        let inner_rect = outer_rect.shrink2(vec2(0.0, margin));
+        let inner_rect = outer_rect.shrink2(egui::Vec2::from(vec2(0.0, margin)));
 
         let builder = UiBuilder::new().layout(pin_layout).max_rect(inner_rect);
 
         inputs_ui.scope_builder(builder, |pin_ui| {
             if let Some(input_spacing) = input_spacing {
                 let min = pin_ui.next_widget_position();
-                pin_ui.advance_cursor_after_rect(Rect::from_min_size(
+                pin_ui.advance_cursor_after_rect(egui::Rect::from_min_size(
                     min,
-                    vec2(input_spacing, pin_size),
+                    egui::Vec2::from(vec2(input_spacing, pin_size)),
                 ));
             }
 
@@ -1607,7 +1619,12 @@ where
             let y1 = pin_ui.max_rect().max.y;
 
             // Show input content
-            let node_pin = viewer.show_input(in_pin, pin_ui, graph);
+            let node_pin = {
+                let accent = mara_core::style::active_accent();
+                let mut raw = mara_backend_egui::__internal_backend_from_raw(pin_ui);
+                let mut mui = mara_core::MaraUi::__internal_over(&mut raw, accent);
+                viewer.show_input(in_pin, &mut mui, graph)
+            };
             if !graph.nodes.contains(node.0) {
                 // If removed
                 return;
@@ -1623,7 +1640,11 @@ where
             // Interact with pin shape.
             pin_ui.set_clip_rect(graph_clip_rect);
 
-            let r = pin_ui.interact(pin_rect, pin_ui.next_auto_id(), Sense::click_and_drag());
+            let r = pin_ui.interact(
+                pin_rect.into(),
+                pin_ui.next_auto_id(),
+                Sense::click_and_drag(),
+            );
 
             pin_ui.skip_ahead_auto_ids(1);
 
@@ -1672,30 +1693,37 @@ where
                 visual_pin_rect = visual_pin_rect.scale_from_center(1.2);
             }
 
-            let wire_info = node_pin.draw(style, pin_ui.style(), visual_pin_rect, pin_ui.painter());
+            let wire_info = node_pin.draw(
+                style,
+                pin_ui.style(),
+                visual_pin_rect.into(),
+                &mara_backend_egui::__internal_painter_from_egui(pin_ui.painter().clone()),
+            );
 
             input_positions.insert(
                 in_pin.id,
                 PinResponse {
-                    pos: r.rect.center(),
-                    wire_color: wire_info.color,
+                    pos: r.rect.center().into(),
+                    wire_color: wire_info.color.into(),
                     wire_style: wire_info.style,
                 },
             );
 
-            new_heights.push(pin_ui.min_rect().height());
+            new_heights.push(with_mara_ui(pin_ui, |mara| mara.occupied_rect()).height());
 
             pin_ui.expand_to_include_y(outer_rect.bottom());
         });
     }
 
-    let final_rect = inputs_ui.min_rect();
-    node_ui.expand_to_include_rect(final_rect.intersect(payload_clip_rect));
+    let final_rect = with_mara_ui(&mut inputs_ui, |mara| mara.occupied_rect());
+    with_mara_ui(node_ui, |mara| {
+        mara.expand_to_include(final_rect.intersect(payload_clip_rect))
+    });
 
     DrawPinsResponse {
         drag_released,
         pin_hovered,
-        final_rect,
+        final_rect: final_rect.into(),
         new_heights,
     }
 }
@@ -1729,13 +1757,13 @@ where
 
     let mut outputs_ui = node_ui.new_child(
         UiBuilder::new()
-            .max_rect(outputs_rect.round_ui())
+            .max_rect(egui::Rect::from(outputs_rect).round_ui())
             .layout(Layout::top_down(Align::Max))
             .id_salt("outputs"),
     );
 
     let graph_clip_rect = node_ui.clip_rect();
-    outputs_ui.shrink_clip_rect(payload_clip_rect);
+    outputs_ui.shrink_clip_rect(payload_clip_rect.into());
 
     let pin_layout = Layout::right_to_left(Align::Min);
     let mut new_heights = SmallVec::with_capacity(outputs.len());
@@ -1748,7 +1776,7 @@ where
 
         let margin = (height_outer - height) / 2.0;
         let outer_rect = cursor.with_max_y(cursor.top() + height_outer);
-        let inner_rect = outer_rect.shrink2(vec2(0.0, margin));
+        let inner_rect = outer_rect.shrink2(egui::Vec2::from(vec2(0.0, margin)));
 
         let builder = UiBuilder::new().layout(pin_layout).max_rect(inner_rect);
 
@@ -1756,9 +1784,9 @@ where
             // Allocate space for pin shape.
             if let Some(output_spacing) = output_spacing {
                 let min = pin_ui.next_widget_position();
-                pin_ui.advance_cursor_after_rect(Rect::from_min_size(
+                pin_ui.advance_cursor_after_rect(egui::Rect::from_min_size(
                     min,
-                    vec2(output_spacing, pin_size),
+                    egui::Vec2::from(vec2(output_spacing, pin_size)),
                 ));
             }
 
@@ -1766,7 +1794,12 @@ where
             let y1 = pin_ui.max_rect().max.y;
 
             // Show output content
-            let node_pin = viewer.show_output(out_pin, pin_ui, graph);
+            let node_pin = {
+                let accent = mara_core::style::active_accent();
+                let mut raw = mara_backend_egui::__internal_backend_from_raw(pin_ui);
+                let mut mui = mara_core::MaraUi::__internal_over(&mut raw, accent);
+                viewer.show_output(out_pin, &mut mui, graph)
+            };
             if !graph.nodes.contains(node.0) {
                 // If removed
                 return;
@@ -1781,7 +1814,11 @@ where
 
             pin_ui.set_clip_rect(graph_clip_rect);
 
-            let r = pin_ui.interact(pin_rect, pin_ui.next_auto_id(), Sense::click_and_drag());
+            let r = pin_ui.interact(
+                pin_rect.into(),
+                pin_ui.next_auto_id(),
+                Sense::click_and_drag(),
+            );
 
             pin_ui.skip_ahead_auto_ids(1);
 
@@ -1831,29 +1868,36 @@ where
                 visual_pin_rect = visual_pin_rect.scale_from_center(1.2);
             }
 
-            let wire_info = node_pin.draw(style, pin_ui.style(), visual_pin_rect, pin_ui.painter());
+            let wire_info = node_pin.draw(
+                style,
+                pin_ui.style(),
+                visual_pin_rect.into(),
+                &mara_backend_egui::__internal_painter_from_egui(pin_ui.painter().clone()),
+            );
 
             output_positions.insert(
                 out_pin.id,
                 PinResponse {
-                    pos: r.rect.center(),
-                    wire_color: wire_info.color,
+                    pos: r.rect.center().into(),
+                    wire_color: wire_info.color.into(),
                     wire_style: wire_info.style,
                 },
             );
 
-            new_heights.push(pin_ui.min_rect().height());
+            new_heights.push(with_mara_ui(pin_ui, |mara| mara.occupied_rect()).height());
 
             pin_ui.expand_to_include_y(outer_rect.bottom());
         });
     }
-    let final_rect = outputs_ui.min_rect();
-    node_ui.expand_to_include_rect(final_rect.intersect(payload_clip_rect));
+    let final_rect = with_mara_ui(&mut outputs_ui, |mara| mara.occupied_rect());
+    with_mara_ui(node_ui, |mara| {
+        mara.expand_to_include(final_rect.intersect(payload_clip_rect))
+    });
 
     DrawPinsResponse {
         drag_released,
         pin_hovered,
-        final_rect,
+        final_rect: final_rect.into(),
         new_heights,
     }
 }
@@ -1875,20 +1919,26 @@ where
 {
     let mut body_ui = ui.new_child(
         UiBuilder::new()
-            .max_rect(body_rect.round_ui())
+            .max_rect(egui::Rect::from(body_rect).round_ui())
             .layout(Layout::left_to_right(Align::Min))
             .id_salt("body"),
     );
 
-    body_ui.shrink_clip_rect(payload_clip_rect);
+    body_ui.shrink_clip_rect(payload_clip_rect.into());
 
-    viewer.show_body(node, inputs, outputs, &mut body_ui, graph);
+    with_mara_ui(&mut body_ui, |mui| {
+        viewer.show_body(node, inputs, outputs, mui, graph)
+    });
 
-    let final_rect = body_ui.min_rect();
-    ui.expand_to_include_rect(final_rect.intersect(payload_clip_rect));
+    let final_rect = with_mara_ui(&mut body_ui, |mara| mara.occupied_rect());
+    with_mara_ui(ui, |mara| {
+        mara.expand_to_include(final_rect.intersect(payload_clip_rect))
+    });
     // node_state.set_body_width(body_size.x);
 
-    DrawBodyResponse { final_rect }
+    DrawBodyResponse {
+        final_rect: final_rect.into(),
+    }
 }
 
 //First step for split big function to parts
@@ -1929,7 +1979,7 @@ where
         .map(|idx| OutPin::new(graph, OutPinId { node, output: idx }))
         .collect::<Vec<_>>();
 
-    let node_pos = pos.round_ui();
+    let node_pos = egui::Pos2::from(pos).round_ui();
 
     // Generate persistent id for the node.
     let node_id = graph_id.with(("graph-node", node));
@@ -1946,7 +1996,7 @@ where
     let mut pin_hovered = None;
 
     let node_frame = viewer.node_frame(
-        style.get_node_frame(ui.style()),
+        style.get_node_frame(mara_core::style::active_accent()),
         node,
         &inputs,
         &outputs,
@@ -1954,7 +2004,7 @@ where
     );
 
     let header_frame = viewer.header_frame(
-        style.get_header_frame(ui.style()),
+        style.get_header_frame(mara_core::style::active_accent()),
         node,
         &inputs,
         &outputs,
@@ -1962,7 +2012,9 @@ where
     );
 
     // Rect for node + frame margin.
-    let node_frame_rect = node_rect + node_frame.total_margin();
+    let node_frame_rect = egui::Rect::from(
+        mara_core::vocab::Rect::from(node_rect).expand_by(node_frame.total_margin()),
+    );
 
     if graph_state.selected_nodes().contains(&node) {
         let select_style = style.get_select_style(ui.style());
@@ -1994,7 +2046,7 @@ where
     );
 
     if !modifiers.shift && !modifiers.command && r.dragged_by(PointerButton::Primary) {
-        node_moved = Some((node, r.drag_delta()));
+        node_moved = Some((node, r.drag_delta().into()));
     }
 
     if r.clicked_by(PointerButton::Primary) || r.dragged_by(PointerButton::Primary) {
@@ -2011,7 +2063,9 @@ where
 
     if viewer.has_node_menu(&graph.nodes[node.0].value) {
         r.context_menu(|ui| {
-            viewer.show_node_menu(node, &inputs, &outputs, ui, graph);
+            with_mara_ui(ui, |mui| {
+                viewer.show_node_menu(node, &inputs, &outputs, mui, graph)
+            });
         });
     }
 
@@ -2023,7 +2077,9 @@ where
 
     if viewer.has_on_hover_popup(&graph.nodes[node.0].value) {
         r.on_hover_ui_at_pointer(|ui| {
-            viewer.show_on_hover_popup(node, &inputs, &outputs, ui, graph);
+            with_mara_ui(ui, |mui| {
+                viewer.show_on_hover_popup(node, &inputs, &outputs, mui, graph)
+            });
         });
     }
 
@@ -2050,9 +2106,9 @@ where
     // body rect.
     let halo_slot = style
         .node_halo
-        .map(|_| node_ui.painter().add(egui::Shape::Noop));
+        .map(|_| with_mara_ui(node_ui, |mara| mara.reserve_paint_slot()));
 
-    let r = node_frame.show(node_ui, |ui| {
+    let r = mara_backend_egui::egui_frame_for_style_spec(node_frame).show(node_ui, |ui| {
         if viewer.has_node_style(node, &inputs, &outputs, graph) {
             viewer.apply_node_style(ui.style_mut(), node, &inputs, &outputs, graph);
         }
@@ -2119,18 +2175,21 @@ where
                 node_rect.min.x,
                 node_rect.min.y
                     + node_state.header_height()
-                    + header_frame.total_margin().bottom
+                    + header_frame.total_margin().bottomf()
                     + ui.spacing().item_spacing.y
                     - node_state.payload_offset(openness),
-            ),
-            node_rect.max,
+            )
+            .into(),
+            node_rect.max.into(),
         );
 
         let node_layout =
             viewer.node_layout(style.get_node_layout(), node, &inputs, &outputs, graph);
 
-        let payload_clip_rect =
-            Rect::from_min_max(node_rect.min, pos2(node_rect.max.x, f32::INFINITY));
+        let payload_clip_rect = Rect::from_min_max(
+            node_rect.min.into(),
+            pos2(node_rect.max.x, f32::INFINITY).into(),
+        );
 
         let pins_rect = match node_layout.kind {
             NodeLayoutKind::Coil => {
@@ -2225,11 +2284,13 @@ where
                         pos2(
                             inputs_rect.right() + ui.spacing().item_spacing.x,
                             payload_rect.top(),
-                        ),
+                        )
+                        .into(),
                         pos2(
                             outputs_rect.left() - ui.spacing().item_spacing.x,
                             payload_rect.bottom(),
-                        ),
+                        )
+                        .into(),
                     );
 
                     let r = draw_body(
@@ -2290,7 +2351,7 @@ where
 
                 let inputs_rect = r.final_rect;
 
-                new_pins_size = inputs_rect.size();
+                new_pins_size = inputs_rect.size().into();
 
                 let mut next_y = inputs_rect.bottom() + ui.spacing().item_spacing.y;
 
@@ -2414,7 +2475,7 @@ where
 
                 let outputs_rect = r.final_rect;
 
-                new_pins_size = outputs_rect.size();
+                new_pins_size = outputs_rect.size().into();
 
                 let mut next_y = outputs_rect.bottom() + ui.spacing().item_spacing.y;
 
@@ -2511,22 +2572,27 @@ where
                 pos2(
                     node_rect.left(),
                     pins_rect.bottom() + ui.spacing().item_spacing.y,
-                ),
-                pos2(node_rect.right(), node_rect.bottom()),
+                )
+                .into(),
+                pos2(node_rect.right(), node_rect.bottom()).into(),
             );
 
             let mut footer_ui = ui.new_child(
                 UiBuilder::new()
-                    .max_rect(footer_rect.round_ui())
+                    .max_rect(egui::Rect::from(footer_rect).round_ui())
                     .layout(Layout::left_to_right(Align::Min))
                     .id_salt("footer"),
             );
-            footer_ui.shrink_clip_rect(payload_clip_rect);
+            footer_ui.shrink_clip_rect(payload_clip_rect.into());
 
-            viewer.show_footer(node, &inputs, &outputs, &mut footer_ui, graph);
+            with_mara_ui(&mut footer_ui, |mui| {
+                viewer.show_footer(node, &inputs, &outputs, mui, graph)
+            });
 
-            let final_rect = footer_ui.min_rect();
-            ui.expand_to_include_rect(final_rect.intersect(payload_clip_rect));
+            let final_rect = with_mara_ui(&mut footer_ui, |mara| mara.occupied_rect());
+            with_mara_ui(ui, |mara| {
+                mara.expand_to_include(final_rect.intersect(payload_clip_rect))
+            });
             let footer_size = final_rect.size();
 
             new_pins_size.x = f32::max(new_pins_size.x, footer_size.x);
@@ -2541,7 +2607,7 @@ where
         // Render header frame.
         let mut header_rect = Rect::NAN;
 
-        let mut header_frame_rect = Rect::NAN; //node_rect + header_frame.total_margin();
+        let mut header_frame_rect = Rect::NAN; //node_rect + egui::Margin::from(header_frame.total_margin());
 
         // Show node's header
         //
@@ -2559,55 +2625,67 @@ where
         // node editor does.
         let header_ui: &mut Ui = &mut ui.new_child(
             UiBuilder::new()
-                .max_rect(node_rect.round_ui() + header_frame.total_margin())
+                .max_rect(egui::Rect::from(
+                    mara_core::vocab::Rect::from(node_rect.round_ui())
+                        .expand_by(header_frame.total_margin()),
+                ))
                 .layout(Layout::top_down(Align::Min))
                 .id_salt("header"),
         );
 
-        header_frame.show(header_ui, |ui: &mut Ui| {
-            ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-                if style.get_collapsible() {
-                    let (_, r) = ui.allocate_exact_size(
-                        vec2(ui.spacing().icon_width, ui.spacing().icon_width),
-                        Sense::click(),
-                    );
-                    paint_default_icon(ui, openness, &r);
+        mara_backend_egui::egui_frame_for_style_spec(header_frame).show(
+            header_ui,
+            |ui: &mut Ui| {
+                ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+                    if style.get_collapsible() {
+                        let (_, r) = ui.allocate_exact_size(
+                            egui::Vec2::from(vec2(
+                                ui.spacing().icon_width,
+                                ui.spacing().icon_width,
+                            )),
+                            Sense::click(),
+                        );
+                        paint_default_icon(ui, openness, &r);
 
-                    if r.clicked_by(PointerButton::Primary) {
-                        // Toggle node's openness.
-                        graph.open_node(node, !open);
+                        if r.clicked_by(PointerButton::Primary) {
+                            // Toggle node's openness.
+                            graph.open_node(node, !open);
+                        }
                     }
-                }
 
-                ui.allocate_exact_size(header_drag_space, Sense::hover());
+                    ui.allocate_exact_size(egui::Vec2::from(header_drag_space), Sense::hover());
 
-                viewer.show_header(node, &inputs, &outputs, ui, graph);
+                    with_mara_ui(ui, |mui| {
+                        viewer.show_header(node, &inputs, &outputs, mui, graph)
+                    });
 
-                header_rect = ui.min_rect();
-            });
+                    header_rect = with_mara_ui(ui, |mara| mara.occupied_rect());
+                });
 
-            header_frame_rect = header_rect + header_frame.total_margin();
+                header_frame_rect = header_rect.expand_by(header_frame.total_margin());
 
-            ui.advance_cursor_after_rect(Rect::from_min_max(
-                header_rect.min,
-                pos2(
-                    f32::max(header_rect.max.x, node_rect.max.x),
-                    header_rect.min.y,
-                ),
-            ));
-        });
+                ui.advance_cursor_after_rect(egui::Rect::from_min_max(
+                    header_rect.min.into(),
+                    pos2(
+                        f32::max(header_rect.max.x, node_rect.max.x),
+                        header_rect.min.y,
+                    )
+                    .into(),
+                ));
+            },
+        );
 
-        ui.expand_to_include_rect(header_rect);
+        with_mara_ui(ui, |mara| mara.expand_to_include(header_rect));
         let header_size = header_rect.size();
         node_state.set_header_height(header_size.y);
 
-        node_state.set_size(vec2(
+        node_state.set_size(egui::Vec2::from(vec2(
             f32::max(header_size.x, new_pins_size.x),
             header_size.y
-                + header_frame.total_margin().bottom
+                + header_frame.total_margin().bottomf()
                 + ui.spacing().item_spacing.y
                 + new_pins_size.y,
-        ));
+        )));
     });
 
     // Fill the reserved halo slot now that we know the final
@@ -2615,16 +2693,19 @@ where
     // render the node frame.
     if let (Some(slot), Some(halo)) = (halo_slot, style.node_halo) {
         let halo_rect = r.response.rect.expand(halo.gap);
-        node_ui.painter().set(
-            slot,
-            egui::epaint::RectShape::new(
-                halo_rect,
-                egui::CornerRadius::same(halo.radius),
-                Color32::TRANSPARENT,
-                Stroke::new(halo.width, halo.color),
-                egui::epaint::StrokeKind::Inside,
-            ),
-        );
+        with_mara_ui(node_ui, |mara| {
+            mara.fill_paint_slot(
+                slot,
+                Some(mara_core::paint::PaintCmd::RectStroke {
+                    rect: halo_rect.into(),
+                    corner: mara_core::vocab::CornerRadius::same(halo.radius),
+                    stroke: mara_core::vocab::Stroke::new(
+                        halo.width,
+                        mara_core::vocab::Color32::from(halo.color),
+                    ),
+                }),
+            );
+        });
     }
 
     if !graph.nodes.contains(node.0) {
@@ -2634,7 +2715,10 @@ where
         return None;
     }
 
-    viewer.final_node_rect(node, r.response.rect, ui, graph);
+    let final_rect = r.response.rect;
+    with_mara_ui(ui, |mui| {
+        viewer.final_node_rect(node, final_rect.into(), mui, graph)
+    });
 
     node_state.store(ui.ctx());
     Some(DrawNodeResponse {
@@ -2642,7 +2726,7 @@ where
         node_to_top,
         drag_released,
         pin_hovered,
-        final_rect: r.response.rect,
+        final_rect: r.response.rect.into(),
     })
 }
 
@@ -2753,34 +2837,42 @@ impl<T> Graph<T> {
     }
 }
 
+/// Clamp the view scale, rescaling about the viewport centre so the
+/// content under the middle of the screen stays put.
+///
+/// The maths lives in [`mara_core::transform::Transform`] now (WS-E1.4) rather than
+/// in three local helpers over the backend's transform type; this only
+/// converts at the boundary, and that conversion disappears when the
+/// rest of this file ports.
 #[inline]
-fn clamp_scale(to_global: &mut TSTransform, min_scale: f32, max_scale: f32, ui_rect: Rect) {
+fn clamp_scale(
+    to_global: &mut mara_core::transform::Transform,
+    min_scale: f32,
+    max_scale: f32,
+    ui_rect: Rect,
+) {
     if to_global.scaling >= min_scale && to_global.scaling <= max_scale {
         return;
     }
 
     let new_scaling = to_global.scaling.clamp(min_scale, max_scale);
-    *to_global = scale_transform_around(to_global, new_scaling, ui_rect.center());
-}
-
-#[inline]
-#[must_use]
-fn transform_matching_points(from: Pos2, to: Pos2, scaling: f32) -> TSTransform {
-    TSTransform {
-        scaling,
-        translation: to.to_vec2() - from.to_vec2() * scaling,
-    }
-}
-
-#[inline]
-#[must_use]
-fn scale_transform_around(transform: &TSTransform, scaling: f32, point: Pos2) -> TSTransform {
-    let from = (point - transform.translation) / transform.scaling;
-    transform_matching_points(from, point, scaling)
+    *to_global = to_global.scaled_around(new_scaling, ui_rect.center().into());
 }
 
 #[test]
 const fn graph_style_is_send_sync() {
     const fn is_send_sync<T: Send + Sync>() {}
     is_send_sync::<GraphStyle>();
+}
+
+/// Run `body` with the sealed surface over a backend `Ui`.
+///
+/// `NodeViewer` speaks `MaraUi` since WS-D1.4, while this file's render
+/// path is still backend-typed. Wrapping here keeps the two changes
+/// separable; the helper disappears when the render path ports.
+fn with_mara_ui<R>(ui: &mut Ui, body: impl for<'a> FnOnce(&mut mara_core::MaraUi<'a>) -> R) -> R {
+    let accent = mara_core::style::active_accent();
+    let mut raw = mara_backend_egui::__internal_backend_from_raw(ui);
+    let mut mara = mara_core::MaraUi::__internal_over(&mut raw, accent);
+    body(&mut mara)
 }

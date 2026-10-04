@@ -6,24 +6,38 @@
 # The directory stays as `crates/core/`; the crate identifier is
 # `mara_core`, matching the `mara_graph` / `mara_code` siblings.
 name = "mara_core"
-description = "UI core for the mara editor kit — pane system, ribbon strips, containers, pods, widgets, theme runtime, bundled Iosevka fonts, and an embed mechanism that lets host widgets (node graph, code editor, …) toggle between inline and full-window. Optional `graph` and `code` features pull in `mara_graph` / `mara_code` and expose mara-tinted wrappers."
+description = "UI core for the mara editor kit — pane system, ribbon strips, containers, pods, widgets, theme runtime, bundled Iosevka fonts, and an embed mechanism that lets host widgets (node graph, code editor, …) toggle between inline and full-window. Depends on no widget crate: the mara-tinted `graph`/`code` wrappers live in the `mara` facade, which is what lets those crates depend on `mara_core` in turn."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
 [dependencies]
-egui = { workspace = true, default-features = false, features = ["default_fonts"] }
+# Optional, and pulled in only by `backend-egui-conv`. `mara_core` names
+# no egui type outside that feature's conversion impls — the backend
+# lives in `mara_backend_egui`. Keeping the *dependency* optional too is
+# what makes `cargo tree -p mara_core --no-default-features` show no egui
+# edge at all, rather than an unused one.
+egui = { workspace = true, default-features = false, features = [
+    "default_fonts",
+], optional = true }
+# Ids hash with the backend's algorithm and seeds so the two agree —
+# verified by `e4_id_hash_matches_the_backend`.
+ahash = { version = "0.8", default-features = false, features = ["std"] }
+serde = { version = "1", features = ["derive"], optional = true }
+# `PaintCmd::Svg` rasterises in `mara_backend_egui`, which owns the
+# `egui_extras` dependency. Core keeps the feature as a pass-through so a
+# consumer still enables SVG once, on `mara_core`.
+
 # Filled Fluent UI System Icons — used by `icons.rs` + `ribbon::paint`.
 iconflow = { version = "1.0", default-features = false, features = ["pack-fluentui"] }
 # Lab-space colour manipulation — `style.rs` uses it to adapt
 # accents into the readable luma band per theme mode.
 pastel = { version = "0.12", default-features = false }
-# Optional standalone-extra crates. When the matching feature is
-# enabled, the corresponding `mara_core::extras::*` re-export + the
-# mara-tinted wrapper become available.
-mara_graph = { workspace = true, optional = true }
-mara_code = { workspace = true, optional = true }
+# Offscreen UI surfaces (WS-A7) need a wgpu device + an egui-wgpu
+# renderer to rasterise a subtree into its own texture. Optional so a
+# UI-only build stays GPU-free.
+mara_gpu = { workspace = true, optional = true }
 # Optional Bevy integration. When OFF, the crate compiles as a
 # pure-egui crate. When ON, `AccentColor` / `GlassOpacity` /
 # ribbon resources derive `bevy::Resource`.
@@ -34,9 +48,42 @@ bevy = { workspace = true, optional = true }
 # about the embedded host widgets still get the same surface as
 # before. Apps that want a slim UI-only build drop them via
 # `default-features = false`.
-default = ["graph", "code"]
-graph = ["dep:mara_graph"]
-code = ["dep:mara_code"]
+default = ["svg", "backend-egui-conv"]
+# Rasterise `PaintCmd::Svg`. Off means SVG paint commands draw nothing
+# (the pre-0.4.2 behaviour), which is a real saving: `resvg` is a large
+# dependency and most apps never draw an SVG.
+svg = []
+# Serialize the plain-data spec types (`FrameSpec`, `MarginSpec`,
+# `FrameShadowSpec`) and the vocab newtypes they contain, so a module
+# can persist a sealed style without naming a backend type. Pulls
+# `egui/serde` because the newtypes wrap egui types today.
+serde = ["dep:serde", "egui?/serde"]
+# `From`/`Into` between vocab types and the egui types they mirror.
+# On today (the workspace has one backend); the point of the flag is
+# that a vocab type compiles WITHOUT it, which is the WS-G1 split
+# criterion. Conversions must live here rather than in the backend
+# crate: there both types would be foreign and the orphan rule forbids
+# the impl.
+backend-egui-conv = ["dep:egui"]
+# `ViewCtx::offscreen` — render a sealed UI body into its own texture at
+# an independent scale. Off by default: it pulls wgpu, and only surfaces
+# that need scale-independent rasterisation (node graphs, thumbnails)
+# use it.
+gpu = ["dep:mara_gpu"]
 # Enables `#[derive(bevy::Resource)]` + `bevy::SystemSet` on state
 # types so they slot into a Bevy app as resources without wrappers.
 bevy = ["dep:bevy"]
+
+[dev-dependencies]
+# Integration tests (`tests/*.rs`) are separate crates, so depending on
+# the backend here is not the unit-test cycle — they link one
+# `mara_core`, the same one the backend links.
+mara_backend_egui = { workspace = true }
+# `mara_gpu` types appear in the WS-A7 signature test even when the
+# `gpu` feature is off for the library build.
+mara_gpu = { workspace = true }
+# Drives the `serde` round-trip test for the sealed spec types.
+serde_json = "1"
+# Checks that Mara ids would hash identically to the backend's — the
+# premise of the native-`Id` migration (PLAN.md WS-E4).
+ahash = "0.8"

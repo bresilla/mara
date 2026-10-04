@@ -715,7 +715,7 @@ fn glyph_or_icon_paint_cmd(
     size: f32,
     color: MaraColor32,
 ) -> Option<PaintCmd> {
-    if crate::icons::icon(glyph).is_some() {
+    if crate::icons::icon_glyph(glyph).is_some() {
         crate::icons::icon_paint_cmd(crate::icons::Icon::Name(glyph), pos, anchor, size, color)
     } else {
         Some(PaintCmd::Text {

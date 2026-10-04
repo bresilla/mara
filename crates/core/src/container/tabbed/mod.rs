@@ -22,10 +22,37 @@ pub struct Tab {
     /// owner container)` and per-container tab order are persisted
     /// under this id. Pass a value that survives renames (e.g.
     /// `"position"`, not the user-visible title).
-    pub(crate) id: egui::Id,
+    pub(crate) id: MaraId,
     pub(crate) title: String,
     pub(crate) icon: Icon<'static>,
     pub(crate) pods: Vec<Pod>,
+    pub(crate) containers: Vec<TabContainer>,
+}
+
+/// A collapsible titled container nested inside a [`Tab`]'s body,
+/// below the tab's own pods. Its pod responses are appended to the
+/// tab's response list in declaration order.
+pub struct TabContainer {
+    pub(crate) id: MaraId,
+    pub(crate) title: String,
+    pub(crate) icon: Icon<'static>,
+    pub(crate) pods: Vec<Pod>,
+}
+
+impl TabContainer {
+    pub fn new(
+        id: impl Into<MaraId>,
+        title: impl Into<String>,
+        icon: impl Into<Icon<'static>>,
+        pods: impl IntoIterator<Item = Pod>,
+    ) -> Self {
+        Self {
+            id: id.into(),
+            title: title.into(),
+            icon: icon.into(),
+            pods: pods.into_iter().collect(),
+        }
+    }
 }
 
 impl Tab {
@@ -45,11 +72,18 @@ impl Tab {
             "tab containers require every tab to have a non-empty icon"
         );
         Self {
-            id: id.into().into(),
+            id: id.into(),
             title,
             icon,
             pods: Vec::new(),
+            containers: Vec::new(),
         }
+    }
+
+    /// Collapsible containers shown in this tab's body, after its pods.
+    pub fn containers(mut self, containers: impl IntoIterator<Item = TabContainer>) -> Self {
+        self.containers = containers.into_iter().collect();
+        self
     }
 
     pub fn pods(mut self, pods: impl IntoIterator<Item = Pod>) -> Self {
@@ -60,10 +94,6 @@ impl Tab {
     /// The stable id passed to [`Tab::new`].
     #[must_use]
     pub fn id(&self) -> MaraId {
-        self.id.into()
-    }
-
-    pub(crate) fn egui_id(&self) -> egui::Id {
         self.id
     }
 }
@@ -108,7 +138,7 @@ mod tests {
         let tab = Tab::new("tab-id", "Valid", "settings");
         let id: MaraId = tab.id();
 
-        assert_eq!(egui::Id::from(id), tab.egui_id());
+        assert_eq!(id, tab.id());
     }
 
     #[test]
