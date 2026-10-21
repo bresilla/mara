@@ -505,9 +505,9 @@ fn sharp_zoom_graph(
     // mid-resolve rect.
     const RESIZE_THRESHOLD: f32 = 8.0;
     const SETTLE_FRAMES: u32 = 2;
-    let version_id = ui.id().with(("mara_node_graph_version", id_for_graph_base));
-    let last_sz_id = ui.id().with(("mara_node_graph_last_sz", id_for_graph_base));
-    let settle_id = ui.id().with(("mara_node_graph_settle", id_for_graph_base));
+    let version_id = ui.scope_id().with(("mara_node_graph_version", id_for_graph_base));
+    let last_sz_id = ui.scope_id().with(("mara_node_graph_last_sz", id_for_graph_base));
+    let settle_id = ui.scope_id().with(("mara_node_graph_settle", id_for_graph_base));
 
     // `maximizable_with_opts` paints the maximize chip and, when
     // active, swaps to a fullscreen body — its body callback gets

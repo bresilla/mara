@@ -221,7 +221,7 @@ fn f3_svg_paint_command_reaches_a_rasteriser() {
     // concluding anything — one pass is expected to report Pending.
     let mut resolved = false;
     for _ in 0..64 {
-        let _ = ctx.run_ui(Default::default(), |ui| {
+        ctx.run_ui(Default::default(), |ui| {
             mara_backend_egui::__internal_render_paint_cmd_egui(
                 ui.painter(),
                 PaintCmd::Svg {
@@ -230,7 +230,7 @@ fn f3_svg_paint_command_reaches_a_rasteriser() {
                     tint: Color32::WHITE,
                 },
             );
-        });
+        }).textures_delta.clear();
         let uri = format!(
             "bytes://mara_svg_paint_{:016x}.svg",
             MARKER.bytes().fold(5381u64, |h, b| h
@@ -404,7 +404,7 @@ fn d13_cache_sweeps_once_per_frame_not_once_per_access() {
     let ctx = egui::Context::default();
     let key = mara_core::vocab::Id::new("wires");
 
-    let _ = ctx.run_ui(Default::default(), |ui| {
+    ctx.run_ui(Default::default(), |ui| {
         let store = mara_backend_egui::EguiCtx::new(ui.ctx());
         let mut memory = MaraMemoryCtx::__internal_from_backend_ctx(&store);
         // Three accesses inside one frame must produce exactly one sweep.
@@ -418,9 +418,9 @@ fn d13_cache_sweeps_once_per_frame_not_once_per_access() {
             Some(1),
             "repeated access within a frame must not re-sweep"
         );
-    });
+    }).textures_delta.clear();
 
-    let _ = ctx.run_ui(Default::default(), |ui| {
+    ctx.run_ui(Default::default(), |ui| {
         let store = mara_backend_egui::EguiCtx::new(ui.ctx());
         let mut memory = MaraMemoryCtx::__internal_from_backend_ctx(&store);
         let cache = memory.cache::<Counted>(key);
@@ -434,7 +434,7 @@ fn d13_cache_sweeps_once_per_frame_not_once_per_access() {
             Some(1),
             "the entry touched last frame survives one sweep"
         );
-    });
+    }).textures_delta.clear();
 }
 
 // ─── E1.4 · cursor-region layout ──────────────────────────────────
@@ -830,7 +830,7 @@ fn e4_id_hash_matches_the_backend() {
     ] {
         assert_eq!(
             std::hash::BuildHasher::hash_one(&state, source),
-            egui::Id::new(source).value(),
+            egui::Id::unique(source).value(),
             "hashing {source:?} disagrees with the backend"
         );
     }
@@ -839,7 +839,7 @@ fn e4_id_hash_matches_the_backend() {
     for n in [0_u64, 1, 42, u64::MAX] {
         assert_eq!(
             std::hash::BuildHasher::hash_one(&state, n),
-            egui::Id::new(n).value()
+            egui::Id::unique(n).value()
         );
     }
 }
@@ -884,12 +884,12 @@ fn e4_id_is_lossless_inbound_and_rehashes_outbound() {
 
     for source in ["a_widget", "mara.shelf.layout", "", "another/one"] {
         // Same source, same number — the premise of the native `Id`.
-        assert_eq!(Id::new(source).value(), egui::Id::new(source).value());
+        assert_eq!(Id::new(source).value(), egui::Id::unique(source).value());
 
         // Backend -> Mara -> backend-comparison is lossless.
-        let from_backend: Id = egui::Id::new(source).into();
+        let from_backend: Id = egui::Id::unique(source).into();
         assert_eq!(from_backend, Id::new(source));
-        assert!(from_backend == egui::Id::new(source));
+        assert!(from_backend == egui::Id::unique(source));
 
         // Mara -> backend is a re-hash, deterministic but not an
         // inverse. Anything persisting a Mara id as a backend id must
@@ -897,7 +897,7 @@ fn e4_id_is_lossless_inbound_and_rehashes_outbound() {
         let out: egui::Id = Id::new(source).into();
         assert_ne!(
             out,
-            egui::Id::new(source),
+            egui::Id::unique(source),
             "if this ever became equal the outbound conversion would be an inverse"
         );
         let back: Id = out.into();

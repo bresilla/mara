@@ -347,7 +347,9 @@ fn render_into_target(
     // render pass — the renderer needs all the new glyph atlases
     // available before it tessellates draw calls.
     for (id, image_delta) in &textures_delta.set {
-        renderer.update_texture(&device, &queue, *id, image_delta);
+        for delta in image_delta {
+            renderer.update_texture(&device, &queue, *id, delta);
+        }
     }
     let screen_descriptor = egui_wgpu::ScreenDescriptor {
         size_in_pixels: size_pixels,
@@ -589,7 +591,10 @@ pub fn show_with_anchor<R>(
             ..Default::default()
         },
     );
-    raw.modifiers = parent_ui.ctx().input(|i| i.modifiers);
+    // egui 0.37 dropped `RawInput::modifiers`; modifiers now travel as an event.
+    raw.events.push(egui::Event::ModifiersChanged(
+        parent_ui.ctx().input(|i| i.modifiers),
+    ));
     if pointer_over_sub {
         // `events_for_sub` was pre-extracted above (with mouse-
         // wheel Line/Page events stripped — those drive zoom
@@ -626,16 +631,18 @@ pub fn show_with_anchor<R>(
     state.ensure_renderer(backend);
     state.ensure_target(backend, size_pixels);
     let sub_ctx = state.sub_ctx.clone();
-    sub_ctx.begin_pass(raw);
-    #[allow(deprecated)]
-    {
-        egui::CentralPanel::default()
-            .frame(egui::Frame::new())
-            .show(&sub_ctx, |ui| {
-                body(ui);
-            });
-    }
-    let full = sub_ctx.end_pass();
+    // `Panel::show` now takes a `Ui`, so the sub-context runs through
+    // `run_ui` and the central panel is laid out inside its root `Ui`.
+    let mut body = Some(body);
+    let full = sub_ctx.run_ui(raw, |ui| {
+        if let Some(body) = body.take() {
+            egui::CentralPanel::default()
+                .frame(egui::Frame::new())
+                .show(ui, |ui| {
+                    body(ui);
+                });
+        }
+    });
     let primitives = sub_ctx.tessellate(full.shapes, sub_ppp);
     render_into_target(
         state,

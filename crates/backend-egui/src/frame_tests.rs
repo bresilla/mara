@@ -21,7 +21,10 @@ mod enforce {
         };
         ctx.begin_pass(input);
         f();
-        ctx.end_pass()
+        // Headless: no renderer consumes the texture deltas.
+        let mut out = ctx.end_pass();
+        out.textures_delta.clear();
+        out
     }
 
     /// A consumer that draws Mara surfaces but never renders the bar
@@ -272,7 +275,7 @@ mod ribbon_chrome {
         // Simulate the renderer writing the key (what froze it before).
         let first = fresh_chrome_bounds(&ctx);
         mara_core::memory::MaraMemoryCtx::new(&ctx).set_temp(chrome_bounds_key(), first);
-        let _ = ctx.end_pass();
+        ctx.end_pass().textures_delta.clear();
 
         // Window grows on the next pass.
         ctx.begin_pass(egui::RawInput {
@@ -283,7 +286,7 @@ mod ribbon_chrome {
             ..Default::default()
         });
         let second = fresh_chrome_bounds(&ctx);
-        let _ = ctx.end_pass();
+        ctx.end_pass().textures_delta.clear();
 
         assert_eq!(
             second,
@@ -321,7 +324,7 @@ mod ribbon_chrome {
                 egui::pos2(740.0, 480.0)
             ))
         );
-        let _ = ctx.end_pass();
+        ctx.end_pass().textures_delta.clear();
     }
 
     #[test]
@@ -563,7 +566,7 @@ mod shell {
         ctx.begin_pass(egui::RawInput::default());
         let mut bar = bar;
         let events = bar.__internal_show_egui(&ctx, &mut open, &mut placement, &mut drag);
-        let _ = ctx.end_pass();
+        ctx.end_pass().textures_delta.clear();
         // No interaction in a headless pass → no events.
         assert!(events.is_empty());
     }
@@ -584,7 +587,8 @@ mod shell {
         let mut drag = RibbonDrag::default();
         ctx.begin_pass(egui::RawInput::default());
         let events = bar.__internal_show_egui(&ctx, &mut open, &mut placement, &mut drag);
-        let output = ctx.end_pass();
+        let mut output = ctx.end_pass();
+        output.textures_delta.clear();
         assert!(events.is_empty());
         assert!(
             !output.shapes.is_empty(),
@@ -655,7 +659,6 @@ mod ribbon_slot_paint {
     /// area egui actually places must be contained by the cell rect,
     /// nowhere near the window edges.
     #[test]
-    #[allow(deprecated)]
     fn view_ribbons_land_inside_the_node_region() {
         use mara_core::ribbon::{RibbonOverridePolicy, RibbonSlot, RibbonSlotDef, RibbonSlotId};
         use mara_core::vocab::Id;
@@ -689,7 +692,7 @@ mod ribbon_slot_paint {
             egui::Pos2::ZERO,
             egui::vec2(1600.0, 900.0),
         ));
-        let _ = raw.run(input, |ctx| {
+        raw.run_pass(input, |ctx| {
             let _ = __internal_draw_view_ribbons(
                 &crate::EguiCtx::new(ctx),
                 region,
@@ -697,7 +700,9 @@ mod ribbon_slot_paint {
                 MaraColor32::WHITE,
                 std::slice::from_ref(&def),
             );
-        });
+        })
+        .textures_delta
+        .clear();
 
         let ribbon_id = MaraId::new((def.id, def.cluster));
         let area_id: egui::Id = MaraId::new(("mara_slot_ribbon", ribbon_id, Id::new("pen"))).into();
@@ -1033,7 +1038,7 @@ mod ribbon_slot_paint {
 }
 
 mod pane_body {
-    #![allow(deprecated)]
+    use super::central_panel;
     use mara_core::container::Tab;
     use mara_core::pane::body::*;
     use mara_core::pane::{ContainerSpec, PaneAnchor, TabRoutingScope};
@@ -1137,7 +1142,7 @@ mod pane_body {
             ..Default::default()
         });
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            egui::CentralPanel::default().show(&ctx, |ui| {
+            central_panel(&ctx, |ui| {
                 mara_core::memory::MaraMemoryCtx::new(&crate::store_for_ui(ui))
                     .set_temp(mara_core::pane::__internal_active_pane_key(), pane_id);
                 let mut backend = crate::EguiUiBackend::new(ui);
@@ -1165,7 +1170,7 @@ mod pane_body {
                 );
             });
         }));
-        let _ = ctx.end_pass();
+        ctx.end_pass().textures_delta.clear();
 
         assert!(
             result.is_err(),
@@ -1186,7 +1191,7 @@ mod pane_body {
             ..Default::default()
         });
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            egui::CentralPanel::default().show(&ctx, |ui| {
+            central_panel(&ctx, |ui| {
                 mara_core::memory::MaraMemoryCtx::new(&crate::store_for_ui(ui))
                     .set_temp(mara_core::pane::__internal_active_pane_key(), pane_id);
                 let mut backend = crate::EguiUiBackend::new(ui);
@@ -1204,7 +1209,7 @@ mod pane_body {
                 );
             });
         }));
-        let _ = ctx.end_pass();
+        ctx.end_pass().textures_delta.clear();
 
         assert!(
             result.is_err(),
@@ -1225,7 +1230,7 @@ mod pane_body {
             )),
             ..Default::default()
         });
-        egui::CentralPanel::default().show(&ctx, |ui| {
+        central_panel(&ctx, |ui| {
             mara_core::memory::MaraMemoryCtx::new(&crate::store_for_ui(ui))
                 .set_temp(mara_core::pane::__internal_active_pane_key(), pane_id);
             let mut backend = crate::EguiUiBackend::new(ui);
@@ -1262,7 +1267,7 @@ mod pane_body {
                 "single-tab tabbed containers must still expose one tab button"
             );
         });
-        let _ = ctx.end_pass();
+        ctx.end_pass().textures_delta.clear();
     }
 
     #[test]
@@ -1323,7 +1328,7 @@ mod pane_body {
             )),
             ..Default::default()
         });
-        egui::CentralPanel::default().show(&ctx, |ui| {
+        central_panel(&ctx, |ui| {
             mara_core::memory::MaraMemoryCtx::new(&crate::store_for_ui(ui)).set_temp(mara_core::pane::__internal_active_pane_key(), target_pane);
             let mut backend =
                 crate::EguiUiBackend::new(ui);
@@ -1357,7 +1362,7 @@ mod pane_body {
                 "a tab dropped into a container must render with that container after the container moves to a different Shelf pane"
             );
         });
-        let _ = ctx.end_pass();
+        ctx.end_pass().textures_delta.clear();
     }
 }
 
@@ -1398,7 +1403,7 @@ mod shelf {
             ..Default::default()
         });
         __internal_show_shelves_egui(&ctx, layout, shelves, &mut state);
-        let _ = ctx.end_pass();
+        ctx.end_pass().textures_delta.clear();
 
         assert_eq!(
             state.active_container(shelf_id),
@@ -1442,7 +1447,7 @@ mod shelf {
             ..Default::default()
         });
         __internal_show_shelves_egui(&ctx, layout, shelves, &mut state);
-        let _ = ctx.end_pass();
+        ctx.end_pass().textures_delta.clear();
 
         assert_eq!(
             state.active_container(shelf_id),
@@ -1476,7 +1481,7 @@ mod shelf {
             ..Default::default()
         });
         __internal_show_shelves_egui(&ctx, layout, shelves, &mut state);
-        let _ = ctx.end_pass();
+        ctx.end_pass().textures_delta.clear();
 
         assert_eq!(
             state.active_container(shelf_id),
@@ -1540,13 +1545,12 @@ mod pane_fit {
         Id::new(("fit.container", c))
     }
 
-    #[allow(deprecated)]
     fn show_pane(raw: &egui::Context, sections: usize, rows: usize) -> egui::FullOutput {
         let input = egui::RawInput {
             screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(W, H))),
             ..Default::default()
         };
-        raw.run(input, |ctx| {
+        let mut out = raw.run_pass(input, |ctx| {
             let ctx = crate::EguiCtx::new(ctx);
             // Left rail plus top bar, no bottom ribbon: the gearbox layout.
             MaraMemoryCtx::new(&ctx).set_temp::<[bool; 4]>(
@@ -1570,7 +1574,10 @@ mod pane_fit {
                 }
                 let _ = body.render();
             });
-        })
+        });
+        // Headless: no renderer consumes the texture deltas.
+        out.textures_delta.clear();
+        out
     }
 
     /// Lowest visible pixel over every clipped shape of the pass.
@@ -1675,7 +1682,7 @@ mod retained_texture {
             "load_texture allocates a fresh texture — that is what set avoids"
         );
 
-        let _ = raw.end_pass();
+        raw.end_pass().textures_delta.clear();
     }
 
     /// The size a handle reports is the size it was uploaded at; `set`
@@ -1702,7 +1709,7 @@ mod retained_texture {
         );
         assert_eq!(handle.size(), [4, 2]);
 
-        let _ = raw.end_pass();
+        raw.end_pass().textures_delta.clear();
     }
 }
 
@@ -1808,5 +1815,144 @@ mod theme_accent_agreement {
                 "the selection outline is the adapted accent"
             );
         }
+    }
+}
+
+/// Runs `add` inside a `CentralPanel` on the pass's root `Ui`.
+fn central_panel(ctx: &egui::Context, add: impl FnOnce(&mut egui::Ui)) {
+    ctx.root_ui(|root| {
+        egui::CentralPanel::default().show(root, |ui| add(ui));
+    });
+}
+
+mod sticky_scroll {
+    use crate::scroll::{StickyScrollAxis, show_sticky_scroll_area};
+    use mara_core::vocab::Id;
+
+    const VIEWPORT: egui::Vec2 = egui::vec2(300.0, 200.0);
+    const ROW: f32 = 20.0;
+    const ROWS: usize = 60;
+
+    fn inside() -> Option<egui::Pos2> {
+        Some(egui::pos2(60.0, 60.0))
+    }
+
+    fn outside() -> Option<egui::Pos2> {
+        Some(egui::pos2(700.0, 850.0))
+    }
+
+    /// One frame showing a sticky vertical area per key, in order, stacked
+    /// at the top-left. Returns `(clamped offset, max offset)` per area.
+    fn frame(
+        ctx: &egui::Context,
+        time: f64,
+        pointer: Option<egui::Pos2>,
+        wheel_y: f32,
+        keys: &[Id],
+    ) -> Vec<(f32, f32)> {
+        let events = pointer.map(egui::Event::PointerMoved).into_iter().collect();
+        ctx.begin_pass(egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(800.0, 900.0),
+            )),
+            time: Some(time),
+            events,
+            ..Default::default()
+        });
+        ctx.input_mut(|i| i.smooth_scroll_delta = egui::vec2(0.0, wheel_y));
+        let mut root = egui::Ui::new(
+            ctx.clone(),
+            egui::Id::unique("root"),
+            egui::UiBuilder::new(),
+        );
+        let mut seen = Vec::new();
+        egui::CentralPanel::default().show(&mut root, |ui| {
+            for &key in keys {
+                ui.allocate_ui(VIEWPORT, |ui| {
+                    let out = show_sticky_scroll_area(
+                        ui,
+                        key,
+                        StickyScrollAxis::Vertical,
+                        egui::ScrollArea::vertical().id_salt(Into::<egui::Id>::into(key)),
+                        |ui| {
+                            for _ in 0..ROWS {
+                                ui.allocate_space(egui::vec2(VIEWPORT.x, ROW));
+                            }
+                        },
+                    );
+                    let max = (out.content_size.y - out.inner_rect.height()).max(0.0);
+                    seen.push((out.state.clamped_offset().y, max));
+                });
+            }
+        });
+        ctx.end_pass().textures_delta.clear();
+        seen
+    }
+
+    /// A wheel delta seen while the pointer is outside is applied on the
+    /// next frame, not the frame it arrives in.
+    #[test]
+    fn wheel_offset_lands_one_frame_after_the_delta() {
+        let ctx = egui::Context::default();
+        let a = Id::new("sticky.test.one");
+        frame(&ctx, 0.0, inside(), 0.0, &[a]);
+
+        let before = frame(&ctx, 0.1, outside(), -120.0, &[a])[0].0;
+        assert_eq!(before, 0.0, "the delta is queued, not applied, in its own frame");
+
+        let after = frame(&ctx, 0.2, outside(), 0.0, &[a])[0].0;
+        assert!(
+            (after - 120.0).abs() < 0.5,
+            "the queued offset applies on the next frame, got {after}"
+        );
+    }
+
+    /// Another area's queued offset must not be taken by a sibling that is
+    /// shown first in the frame it is applied.
+    #[test]
+    fn a_sibling_area_does_not_take_another_areas_offset() {
+        let ctx = egui::Context::default();
+        let (a, b) = (Id::new("sticky.test.a"), Id::new("sticky.test.b"));
+        frame(&ctx, 0.0, inside(), 0.0, &[a, b]);
+        frame(&ctx, 0.1, outside(), -120.0, &[a, b]);
+
+        let seen = frame(&ctx, 0.2, outside(), 0.0, &[b, a]);
+        assert_eq!(seen[0].0, 0.0, "b must not consume a's queued offset");
+        assert!(
+            (seen[1].0 - 120.0).abs() < 0.5,
+            "a applies its own offset, got {}",
+            seen[1].0
+        );
+    }
+
+    /// Once the pointer has been away longer than the activity window, the
+    /// wheel no longer moves the area.
+    #[test]
+    fn stale_activity_ignores_the_wheel() {
+        let ctx = egui::Context::default();
+        let a = Id::new("sticky.test.stale");
+        frame(&ctx, 0.0, inside(), 0.0, &[a]);
+
+        // 1.0s later is past the 0.75s window.
+        frame(&ctx, 1.0, outside(), -120.0, &[a]);
+        let after = frame(&ctx, 1.1, outside(), 0.0, &[a])[0].0;
+        assert_eq!(after, 0.0, "the area stays where it was");
+    }
+
+    /// A large wheel delta is clamped to the scrollable range.
+    #[test]
+    fn queued_offset_is_clamped_to_the_content() {
+        let ctx = egui::Context::default();
+        let a = Id::new("sticky.test.clamp");
+        frame(&ctx, 0.0, inside(), 0.0, &[a]);
+        frame(&ctx, 0.1, outside(), -5000.0, &[a]);
+
+        let (offset, max) = frame(&ctx, 0.2, outside(), 0.0, &[a])[0];
+        assert!(max > 0.0, "the test content must be scrollable");
+        assert!(
+            (offset - max).abs() < 0.5,
+            "offset {offset} must clamp to the maximum {max}"
+        );
     }
 }

@@ -58,8 +58,7 @@ fn the_graph_style_emits_more_than_black() {
             screen_rect: Some(screen),
             ..Default::default()
         });
-        #[allow(deprecated)]
-        egui::CentralPanel::default().show(&ctx, |ui| {
+        central_panel(&ctx, |ui| {
             let mut b = mara_backend_egui::EguiUiBackend::new(ui);
             MaraUi::__internal_over_backend_ret(&mut b, accent, |mara| {
                 let _ = mara::extras::graph::GraphWidget::new()
@@ -68,7 +67,8 @@ fn the_graph_style_emits_more_than_black() {
                     .show(&mut graph, &mut V, mara);
             });
         });
-        let out = ctx.end_pass();
+        let mut out = ctx.end_pass();
+        out.textures_delta.clear();
         let prims = ctx.tessellate(out.shapes, out.pixels_per_point);
         counts.clear();
         for p in &prims {
@@ -98,4 +98,11 @@ fn the_graph_style_emits_more_than_black() {
         non_black * 4 > total,
         "over three quarters of painted vertices are black: {non_black}/{total}"
     );
+}
+
+/// Runs `add` inside a `CentralPanel` on the pass's root `Ui`.
+fn central_panel(ctx: &egui::Context, add: impl FnOnce(&mut egui::Ui)) {
+    ctx.root_ui(|root| {
+        egui::CentralPanel::default().show(root, |ui| add(ui));
+    });
 }

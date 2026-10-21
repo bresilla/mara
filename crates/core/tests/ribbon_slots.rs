@@ -55,7 +55,7 @@ fn item(id: &'static str, icon: &'static str) -> RibbonSlotItem {
 fn ribbon_slot_items_require_non_empty_icons() {
     let result = std::panic::catch_unwind(|| {
         let _ = RibbonSlotItem::new(
-            egui::Id::new("missing-icon"),
+            egui::Id::unique("missing-icon"),
             "  ",
             "Missing icon",
             "Missing icon",
@@ -70,7 +70,7 @@ fn ribbon_slot_items_require_non_empty_icons() {
 fn ribbon_slot_items_require_resolvable_font_or_svg_icons() {
     let missing_font_icon = std::panic::catch_unwind(|| {
         let _ = RibbonSlotItem::new(
-            egui::Id::new("missing-font-icon"),
+            egui::Id::unique("missing-font-icon"),
             "not_a_real_fluent_icon",
             "Missing icon",
             "Missing icon",
@@ -80,7 +80,7 @@ fn ribbon_slot_items_require_resolvable_font_or_svg_icons() {
     assert!(missing_font_icon.is_err());
 
     let svg_icon = RibbonSlotItem::new(
-        egui::Id::new("svg-icon"),
+        egui::Id::unique("svg-icon"),
         r#"<svg viewBox="0 0 16 16"></svg>"#,
         "SVG",
         "SVG",
@@ -93,7 +93,7 @@ fn ribbon_slot_items_require_resolvable_font_or_svg_icons() {
 fn ribbon_slot_items_require_label_and_tooltip() {
     let missing_label = std::panic::catch_unwind(|| {
         let _ = RibbonSlotItem::new(
-            egui::Id::new("missing-label"),
+            egui::Id::unique("missing-label"),
             "info",
             " ",
             "Tooltip",
@@ -102,7 +102,7 @@ fn ribbon_slot_items_require_label_and_tooltip() {
     });
     let missing_tooltip = std::panic::catch_unwind(|| {
         let _ = RibbonSlotItem::new(
-            egui::Id::new("missing-tooltip"),
+            egui::Id::unique("missing-tooltip"),
             "info",
             "Info",
             " ",
@@ -162,7 +162,7 @@ fn featureful_ribbon_items_require_chrome_metadata() {
 fn featureful_ribbon_defs_require_chrome_metadata() {
     let blank_chrome_id = std::panic::catch_unwind(|| {
         let _ = mara_core::RibbonSlotDef::new(
-            egui::Id::new("blank-chrome-ribbon"),
+            egui::Id::unique("blank-chrome-ribbon"),
             mara_core::RibbonScope::Permanent,
             mara_core::RibbonEdge::Top,
             mara_core::RibbonCluster::Start,
@@ -172,7 +172,7 @@ fn featureful_ribbon_defs_require_chrome_metadata() {
     });
     let blank_accept_tag = std::panic::catch_unwind(|| {
         let _ = mara_core::RibbonSlotDef::new(
-            egui::Id::new("blank-accept-ribbon"),
+            egui::Id::unique("blank-accept-ribbon"),
             mara_core::RibbonScope::Permanent,
             mara_core::RibbonEdge::Top,
             mara_core::RibbonCluster::Start,
@@ -190,7 +190,7 @@ fn ribbon_definitions_reject_duplicate_slot_ids() {
     let slot_id = RibbonSlotId::new("duplicate");
     let result = std::panic::catch_unwind(|| {
         let _ = mara_core::RibbonSlotDef::new(
-            egui::Id::new("broken-ribbon"),
+            egui::Id::unique("broken-ribbon"),
             mara_core::RibbonScope::Permanent,
             mara_core::RibbonEdge::Top,
             mara_core::RibbonCluster::Start,
@@ -313,7 +313,7 @@ fn deeper_workspace_override_beats_view_override() {
     let view_layer = RibbonOverrideLayer::new(vec![RibbonSlotOverride::new(
         slot_id,
         RibbonSlotItem::new(
-            egui::Id::new("view-settings"),
+            egui::Id::unique("view-settings"),
             "settings",
             "settings",
             "settings",
@@ -323,7 +323,7 @@ fn deeper_workspace_override_beats_view_override() {
     let l1_layer = RibbonOverrideLayer::new(vec![RibbonSlotOverride::new(
         slot_id,
         RibbonSlotItem::new(
-            egui::Id::new("restore"),
+            egui::Id::unique("restore"),
             "arrow-minimize",
             "restore",
             "restore",

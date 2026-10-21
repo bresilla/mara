@@ -163,7 +163,7 @@ mod gpu_configuration_tests {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
         let adapter = pollster::block_on(instance.request_adapter(&Default::default())).unwrap();
         let mut config = egui_wgpu::WgpuConfiguration::default();
-        config.present_mode = wgpu::PresentMode::AutoNoVsync;
+        config.surface.present_mode = wgpu::PresentMode::AutoNoVsync;
         let egui_wgpu::WgpuSetup::CreateNew(setup) = &mut config.wgpu_setup else {
             panic!("expected new device");
         };
@@ -177,7 +177,7 @@ mod gpu_configuration_tests {
         let mut expected = (setup.device_descriptor)(&adapter);
         ComputeApp::configure_gpu_limits(&adapter.limits(), &mut expected.required_limits);
         let config = app_gpu_configuration::<ComputeApp>(config);
-        assert_eq!(config.present_mode, wgpu::PresentMode::AutoNoVsync);
+        assert_eq!(config.surface.present_mode, wgpu::PresentMode::AutoNoVsync);
         let egui_wgpu::WgpuSetup::CreateNew(setup) = config.wgpu_setup else {
             panic!("expected new device");
         };

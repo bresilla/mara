@@ -2,3 +2,4 @@ MARA_ADDITIONS.md
 
 # Trunk wasm build output
 dist/
+target/

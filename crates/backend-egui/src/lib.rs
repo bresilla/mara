@@ -761,7 +761,7 @@ type PoseLog = std::sync::Arc<std::sync::Mutex<Vec<mara_core::probe::ElementPose
 static PROBE_ENABLED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 fn pose_log_key() -> egui::Id {
-    egui::Id::new("mara.probe.pose_log")
+    egui::Id::unique("mara.probe.pose_log")
 }
 
 /// Install a fresh empty pose log (enable) or remove it (disable).
@@ -1224,6 +1224,7 @@ pub(crate) fn show_pane_body_scroll_slot<R>(
 
     crate::scroll::show_sticky_scroll_area(
         ui,
+        spec.id,
         match spec.axis {
             PaneBodyScrollAxis::FlowVertical => crate::scroll::StickyScrollAxis::Vertical,
             PaneBodyScrollAxis::FlowHorizontal => crate::scroll::StickyScrollAxis::Horizontal,
@@ -1531,7 +1532,7 @@ pub(crate) fn ui_available_height(ui: &egui::Ui) -> f32 {
 }
 
 pub(crate) fn ui_id(ui: &egui::Ui) -> vocab::Id {
-    ui.id().into()
+    ui.scope_id().into()
 }
 
 pub(crate) fn painter_for_ui_clip(ui: &egui::Ui, rect: vocab::Rect) -> egui::Painter {
@@ -2215,14 +2216,14 @@ mod tests {
         let raw = egui::Context::default();
         let ctx = crate::EguiCtx::new(&raw);
         let mut seen = None;
-        let _ = ctx.run_ui(Default::default(), |ui| {
+        ctx.run_ui(Default::default(), |ui| {
             MaraCtx::area(
                 &EguiCtx::new(ui.ctx()),
                 AreaHost::new(vocab::Id::new("accented"), Pos2::ZERO, Layer::Foreground)
                     .accent(want),
                 &mut |mara| seen = Some(mara.accent()),
             );
-        });
+        }).textures_delta.clear();
 
         assert_eq!(seen, Some(want));
     }
@@ -2437,7 +2438,7 @@ mod offscreen {
     struct OffscreenRegistry(Arc<Mutex<HashMap<vocab::Id, OffscreenSurface>>>);
 
     fn registry(ctx: &egui::Context) -> OffscreenRegistry {
-        let key = egui::Id::new("mara_offscreen_registry");
+        let key = egui::Id::unique("mara_offscreen_registry");
         if let Some(existing) = ctx.data(|data| data.get_temp::<OffscreenRegistry>(key)) {
             return existing;
         }
@@ -2506,21 +2507,7 @@ mod offscreen {
         // Drive the sub-context at the requested scale, then lower its
         // output into our own target rather than the window's surface.
         surface.ctx.set_pixels_per_point(scale);
-        let raw_input = egui::RawInput {
-            screen_rect: Some(egui::Rect::from_min_size(
-                egui::pos2(0.0, 0.0),
-                egui::vec2(size_points.x, size_points.y),
-            )),
-            events: offscreen_events(&input),
-            modifiers: egui::Modifiers {
-                shift: input.modifiers_shift,
-                ctrl: input.modifiers_ctrl,
-                alt: input.modifiers_alt,
-                command: input.modifiers_command,
-                mac_cmd: false,
-            },
-            ..Default::default()
-        };
+        let raw_input = offscreen_raw_input(&input, size_points);
         // The sub-context is not the parent's: it needs Mara's fonts and
         // visuals installed on it directly, or the body draws with egui's
         // defaults and no icons.
@@ -2550,10 +2537,12 @@ mod offscreen {
             size_in_pixels: pixels,
             pixels_per_point: scale,
         };
-        for (texture_id, delta) in &output.textures_delta.set {
-            surface
-                .renderer
-                .update_texture(&device, &queue, *texture_id, delta);
+        for (texture_id, deltas) in &output.textures_delta.set {
+            for delta in deltas {
+                surface
+                    .renderer
+                    .update_texture(&device, &queue, *texture_id, delta);
+            }
         }
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("mara_offscreen_encoder"),
@@ -2593,6 +2582,31 @@ mod offscreen {
     /// Translate [`OffscreenInput`] into the event stream the sub-context
     /// expects. Buttons become press/release pairs around the pointer
     /// position, which is what an immediate-mode context needs to see.
+    /// The `RawInput` the sub-context runs on. egui 0.37 carries modifier state as
+    /// an event rather than on `RawInput`, so it is sent first and every event after
+    /// it is read with the current modifiers.
+    pub(super) fn offscreen_raw_input(input: &OffscreenInput, size_points: vocab::Vec2) -> egui::RawInput {
+        let mut events = offscreen_events(input);
+        events.insert(
+            0,
+            egui::Event::ModifiersChanged(egui::Modifiers {
+                shift: input.modifiers_shift,
+                ctrl: input.modifiers_ctrl,
+                alt: input.modifiers_alt,
+                command: input.modifiers_command,
+                mac_cmd: false,
+            }),
+        );
+        egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::pos2(0.0, 0.0),
+                egui::vec2(size_points.x, size_points.y),
+            )),
+            events,
+            ..Default::default()
+        }
+    }
+
     pub(super) fn offscreen_events(input: &OffscreenInput) -> Vec<egui::Event> {
         let mut events = Vec::new();
         let Some(pointer) = input.pointer else {
@@ -2648,6 +2662,8 @@ mod offscreen {
                 // The host has already smoothed the delta; the sub-context
                 // only needs a phase it can treat as an ordinary scroll.
                 phase: egui::TouchPhase::Move,
+                // The host does not report what drives the wheel.
+                source: egui::MouseWheelSource::Unknown,
                 modifiers,
             });
         }
@@ -2800,6 +2816,51 @@ mod offscreen_input_parity {
         assert!(!kinds.contains(&"MouseWheel"), "got {kinds:?}");
         assert!(!kinds.contains(&"Touch"), "got {kinds:?}");
     }
+
+    /// Modifier state reaches the sub-context before any event that depends
+    /// on it, and the screen rect is the surface size.
+    #[test]
+    fn modifiers_lead_the_raw_input_and_the_rect_is_the_surface() {
+        let input = OffscreenInput {
+            modifiers_shift: true,
+            modifiers_command: true,
+            pointer: Some(Pos2::new(10.0, 20.0)),
+            primary_down: true,
+            ..Default::default()
+        };
+        let raw = super::offscreen::offscreen_raw_input(&input, Vec2::new(300.0, 200.0));
+
+        match raw.events.first() {
+            Some(egui::Event::ModifiersChanged(m)) => {
+                assert!(m.shift, "shift must be carried");
+                assert!(m.command, "command must be carried");
+                assert!(!m.ctrl && !m.alt, "unset modifiers stay unset");
+            }
+            other => panic!("first event must be ModifiersChanged, got {other:?}"),
+        }
+        assert!(raw.events.len() > 1, "the pointer events follow the modifiers");
+        assert_eq!(
+            raw.screen_rect,
+            Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(300.0, 200.0)
+            ))
+        );
+    }
+
+    /// With no modifiers held the event is still sent, cleared, so a stale
+    /// modifier from an earlier frame cannot linger.
+    #[test]
+    fn cleared_modifiers_are_sent_explicitly() {
+        let input = OffscreenInput::default();
+        let raw = super::offscreen::offscreen_raw_input(&input, Vec2::new(10.0, 10.0));
+        match raw.events.first() {
+            Some(egui::Event::ModifiersChanged(m)) => {
+                assert!(!m.shift && !m.ctrl && !m.alt && !m.command);
+            }
+            other => panic!("first event must be ModifiersChanged, got {other:?}"),
+        }
+    }
 }
 
 // ─── The context seam (PLAN.md WS-E3) ─────────────────────────────
@@ -2833,7 +2894,7 @@ struct MaraStateMap(
 );
 
 fn mara_state_map_key() -> egui::Id {
-    egui::Id::new("mara_state_map")
+    egui::Id::unique("mara_state_map")
 }
 
 /// The context's state map, created on first use.
@@ -3070,6 +3131,6 @@ pub fn order_for(tier: u16) -> egui::Order {
 /// tier number is folded into the id so two callers at different
 /// tiers always resolve to distinct sublayers even if they share
 /// `salt`.
-pub fn layer_id(salt: impl std::hash::Hash, tier: u16) -> egui::LayerId {
-    egui::LayerId::new(order_for(tier), egui::Id::new(("mara_z", tier, salt)))
+pub fn layer_id(salt: impl std::hash::Hash + std::fmt::Debug, tier: u16) -> egui::LayerId {
+    egui::LayerId::new(order_for(tier), egui::Id::unique(("mara_z", tier, salt)))
 }

@@ -13,7 +13,7 @@ fn workspace_stack_tracks_root_and_module_levels() {
     assert!(stack.current_policy().allow_shelves);
     assert!(!stack.current_policy().inherit_root_shelves);
 
-    let l1 = stack.push_module(egui::Id::new("graph"));
+    let l1 = stack.push_module(egui::Id::unique("graph"));
     assert_eq!(l1.depth, 1);
     assert_eq!(stack.depth(), 1);
     assert!(!stack.is_root_active());
@@ -25,7 +25,7 @@ fn workspace_stack_tracks_root_and_module_levels() {
     assert!(stack.current_policy().inherit_root_shelves);
     assert!(stack.current_policy().restore_to_parent);
 
-    let l2 = stack.push_module(egui::Id::new("image"));
+    let l2 = stack.push_module(egui::Id::unique("image"));
     assert_eq!(l2.depth, 2);
     assert_eq!(stack.depth(), 2);
 
@@ -41,7 +41,7 @@ fn workspace_stack_tracks_root_and_module_levels() {
 #[test]
 fn module_workspace_levels_must_be_l1_or_deeper() {
     let result = std::panic::catch_unwind(|| {
-        let _ = WorkspaceLevelState::module(egui::Id::new("bad-level"), 0, egui::Id::new("module"));
+        let _ = WorkspaceLevelState::module(egui::Id::unique("bad-level"), 0, egui::Id::unique("module"));
     });
 
     assert!(result.is_err());
@@ -51,12 +51,12 @@ fn module_workspace_levels_must_be_l1_or_deeper() {
 fn workspace_stack_rejects_depth_overflow() {
     let mut stack = WorkspaceStack::new("root");
     for index in 1..=u8::MAX {
-        let level = stack.push_module(egui::Id::new(("module", index)));
+        let level = stack.push_module(egui::Id::unique(("module", index)));
         assert_eq!(level.depth, index);
     }
 
     let overflow = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let _ = stack.push_module(egui::Id::new("overflow"));
+        let _ = stack.push_module(egui::Id::unique("overflow"));
     }));
 
     assert!(overflow.is_err());

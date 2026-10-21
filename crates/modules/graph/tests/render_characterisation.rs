@@ -19,7 +19,6 @@
 //! says, that wires appear only for real connections, and that the
 //! widget is deterministic across identical passes.
 
-#![allow(deprecated)]
 
 use mara_graph::{Graph, GraphWidget, InPin, NodePin, NodeViewer, OutPin, PinInfo};
 
@@ -93,7 +92,7 @@ fn render_styled(graph: &mut Graph<DemoNode>, style: mara_graph::GraphStyle) -> 
             ..Default::default()
         });
 
-        egui::CentralPanel::default().show(&ctx, |ui| {
+        central_panel(&ctx, |ui| {
             // `GraphWidget::show` takes a `MaraUi` now (WS-D1.4); the
             // fixture wraps the raw one the panel hands it.
             let mut backend = mara_backend_egui::EguiUiBackend::new(ui);
@@ -110,7 +109,9 @@ fn render_styled(graph: &mut Graph<DemoNode>, style: mara_graph::GraphStyle) -> 
             );
         });
 
-        let output = ctx.end_pass();
+        let mut output = ctx.end_pass();
+
+        output.textures_delta.clear();
         let primitives = ctx.tessellate(output.shapes, output.pixels_per_point);
 
         summary = RenderSummary::default();
@@ -148,8 +149,9 @@ fn render_bare() -> RenderSummary {
             )),
             ..Default::default()
         });
-        egui::CentralPanel::default().show(&ctx, |_ui| {});
-        let output = ctx.end_pass();
+        central_panel(&ctx, |_ui| {});
+        let mut output = ctx.end_pass();
+        output.textures_delta.clear();
         let primitives = ctx.tessellate(output.shapes, output.pixels_per_point);
 
         summary = RenderSummary::default();
@@ -503,4 +505,11 @@ fn an_unfilled_underlay_slot_paints_nothing() {
         explicit_none.vertex_count, default_style.vertex_count,
         "reserving a slot and never filling it must cost no geometry"
     );
+}
+
+/// Runs `add` inside a `CentralPanel` on the pass's root `Ui`.
+fn central_panel(ctx: &egui::Context, add: impl FnOnce(&mut egui::Ui)) {
+    ctx.root_ui(|root| {
+        egui::CentralPanel::default().show(root, |ui| add(ui));
+    });
 }

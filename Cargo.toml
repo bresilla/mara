@@ -29,17 +29,17 @@ repository = "https://github.com/bresilla/bevy_mara"
 # Shared egui / egui-ecosystem dependency versions — every member
 # crate pulls egui through `workspace = true` so the workspace
 # compiles against a single resolved egui.
-egui = { version = "0.34", default-features = false }
+egui = { version = "0.37", default-features = false }
 # egui-wgpu — used by `mara_graph::node_view` to render a
 # secondary egui::Context into an offscreen wgpu texture, so node
 # graph editors stay sharp at any zoom level (sub-context's
 # pixels_per_point compensates for zoom). Mara owns egui, so this
 # stays in the Mara/egui stack instead of routing through a Bevy
 # egui bridge.
-egui-wgpu = { version = "0.34", default-features = false }
-wgpu = { version = "29", default-features = false }
+egui-wgpu = { version = "0.37", default-features = false }
+wgpu = { version = "30", default-features = false }
 # Bevy is used as embedded viewport/content, not as Mara's egui host.
-bevy = { version = "0.19", default-features = false }
+bevy = { version = "0.20", default-features = false }
 
 # Internal crates.
 #

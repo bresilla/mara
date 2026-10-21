@@ -71,7 +71,7 @@ impl MaraView for ShellView {
 
 fn permanent_main_with_system_control() -> Vec<RibbonSlotDef> {
     vec![RibbonSlotDef::new(
-        egui::Id::new("main.bar"),
+        egui::Id::unique("main.bar"),
         RibbonScope::Permanent,
         RibbonEdge::Top,
         RibbonCluster::Middle,
@@ -81,7 +81,7 @@ fn permanent_main_with_system_control() -> Vec<RibbonSlotDef> {
 
 fn empty_permanent_ribbon(id: &'static str) -> RibbonSlotDef {
     RibbonSlotDef::new(
-        egui::Id::new(id),
+        egui::Id::unique(id),
         RibbonScope::Permanent,
         RibbonEdge::Top,
         RibbonCluster::Middle,
@@ -91,7 +91,7 @@ fn empty_permanent_ribbon(id: &'static str) -> RibbonSlotDef {
 
 fn permanent_ribbon_on_edge(id: &'static str, edge: RibbonEdge) -> RibbonSlotDef {
     RibbonSlotDef::new(
-        egui::Id::new(id),
+        egui::Id::unique(id),
         RibbonScope::Permanent,
         edge,
         RibbonCluster::Middle,
@@ -151,7 +151,7 @@ fn app_shell_rejects_non_top_permanent_ribbons() {
         assert!(matches!(
             error,
             AppShellError::PermanentRibbonNotTop { id, edge: actual_edge }
-                if id == egui::Id::new(name) && actual_edge == edge
+                if id == egui::Id::unique(name) && actual_edge == edge
         ));
     }
 }
@@ -165,7 +165,7 @@ fn app_shell_rejects_permanent_ribbon_that_accepts_icon_drops() {
     assert!(matches!(
         error,
         AppShellError::PermanentRibbonMustBeFixed { id }
-            if id == egui::Id::new("main.drop.target.bar")
+            if id == egui::Id::unique("main.drop.target.bar")
     ));
 }
 
@@ -196,7 +196,7 @@ fn app_shell_rejects_active_view_ribbons_with_wrong_scope() {
         fn show(&mut self, _ctx: &mut ViewCtx<'_>) {}
     }
 
-    let bad_ribbon_id = egui::Id::new("bad.view.ribbon.scope");
+    let bad_ribbon_id = egui::Id::unique("bad.view.ribbon.scope");
     let mut router = ViewRouter::new(WrongScopedView {
         id: ViewId::new("bevy"),
         ribbon: RibbonSlotDef::new(
@@ -318,12 +318,12 @@ fn workspace_supplied_layers_can_override_active_l1_slots() {
     router
         .active_workspace_mut()
         .unwrap()
-        .push_module(egui::Id::new("graph"));
+        .push_module(egui::Id::unique("graph"));
     let permanent = permanent_main_with_system_control();
     let workspace_layer = RibbonOverrideLayer::new(vec![RibbonSlotOverride::new(
         mara_core::system_close_or_restore_slot_id(),
         RibbonSlotItem::new(
-            egui::Id::new("module.custom.restore"),
+            egui::Id::unique("module.custom.restore"),
             "arrow-minimize",
             "Back",
             "Back from module",
@@ -438,7 +438,7 @@ fn app_shell_calls_workspace_renderer_for_l1() {
 
 fn main_bar_with_slots(slots: Vec<RibbonSlot>) -> mara_core::AppShellChrome {
     mara_core::AppShellChrome::new(RibbonSlotDef::new(
-        egui::Id::new("main.bar"),
+        egui::Id::unique("main.bar"),
         RibbonScope::Permanent,
         RibbonEdge::Top,
         RibbonCluster::Middle,
@@ -453,7 +453,7 @@ fn app_shell_chrome_enforces_persistent_main_bar() {
     let slot = RibbonSlot::new(
         RibbonSlotId::new("view.bevy"),
         Some(RibbonSlotItem::new(
-            egui::Id::new("view.bevy.item"),
+            egui::Id::unique("view.bevy.item"),
             "cube",
             "Bevy",
             "Bevy view",
@@ -487,7 +487,7 @@ fn app_shell_chrome_enforces_persistent_main_bar() {
 fn app_shell_chrome_rejects_non_permanent_main_bar() {
     let result = std::panic::catch_unwind(|| {
         let _ = mara_core::AppShellChrome::new(RibbonSlotDef::new(
-            egui::Id::new("main.view.scoped.bar"),
+            egui::Id::unique("main.view.scoped.bar"),
             RibbonScope::View(ViewId::new("canvas")),
             RibbonEdge::Top,
             RibbonCluster::Middle,
@@ -522,7 +522,7 @@ fn persistent_main_bar_slot_requires_explicit_hide_override() {
         resolved.ribbons[0]
             .items
             .iter()
-            .all(|item| item.id != egui::Id::new("global.about.item")),
+            .all(|item| item.id != egui::Id::unique("global.about.item")),
         "the view override should hide only the requested inherited slot"
     );
     assert!(
@@ -579,7 +579,7 @@ fn app_shell_chrome_includes_app_menu_by_default() {
     let menu = permanent
         .items
         .iter()
-        .find(|item| item.id == egui::Id::new("system.app_menu.item"))
+        .find(|item| item.id == egui::Id::unique("system.app_menu.item"))
         .unwrap();
 
     assert_eq!(menu.icon, "line-horizontal-3");
@@ -596,7 +596,7 @@ fn app_shell_chrome_rejects_non_top_main_bars() {
     for edge in [RibbonEdge::Left, RibbonEdge::Right, RibbonEdge::Bottom] {
         let result = std::panic::catch_unwind(|| {
             let _ = mara_core::AppShellChrome::new(RibbonSlotDef::new(
-                egui::Id::new(("main.non.top.bar", format!("{edge:?}"))),
+                egui::Id::unique(("main.non.top.bar", format!("{edge:?}"))),
                 RibbonScope::Permanent,
                 edge,
                 RibbonCluster::Middle,
@@ -613,7 +613,7 @@ fn app_shell_chrome_rejects_main_bar_that_accepts_icon_drops() {
     let result = std::panic::catch_unwind(|| {
         let _ = mara_core::AppShellChrome::new(
             RibbonSlotDef::new(
-                egui::Id::new("main.drop.target.bar"),
+                egui::Id::unique("main.drop.target.bar"),
                 RibbonScope::Permanent,
                 RibbonEdge::Top,
                 RibbonCluster::Middle,
@@ -665,7 +665,7 @@ fn app_shell_chrome_can_opt_out_of_app_menu_only() {
         permanent
             .items
             .iter()
-            .all(|item| item.id != egui::Id::new("system.app_menu.item"))
+            .all(|item| item.id != egui::Id::unique("system.app_menu.item"))
     );
     assert!(
         permanent

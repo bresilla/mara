@@ -1088,7 +1088,7 @@ impl GraphWidget {
     #[must_use]
     pub fn new() -> Self {
         GraphWidget {
-            id_salt: Id::new(":graph:"),
+            id_salt: Id::unique(":graph:"),
             id: None,
             style: GraphStyle::new(),
             min_size: Vec2::ZERO,
@@ -1116,8 +1116,8 @@ impl GraphWidget {
     /// Ignored if [`GraphWidget::id`] was set.
     #[inline]
     #[must_use]
-    pub fn id_salt(mut self, id_salt: impl Hash) -> Self {
-        self.id_salt = Id::new(id_salt);
+    pub fn id_salt(mut self, id_salt: impl Hash + std::fmt::Debug) -> Self {
+        self.id_salt = Id::unique(id_salt);
         self
     }
 
@@ -1179,7 +1179,7 @@ impl GraphWidget {
         V: NodeViewer<T>,
     {
         let ui = mara.__internal_raw_ui();
-        let graph_id = self.get_id(ui.id());
+        let graph_id = self.get_id(ui.scope_id());
 
         show_graph(
             graph_id,
@@ -3920,7 +3920,7 @@ impl GraphWidget {
         use crate::vendored::nav::NodePath;
 
         let ui = mara.__internal_raw_ui();
-        let base_id = self.get_id(ui.id());
+        let base_id = self.get_id(ui.scope_id());
         let seam = mara_backend_egui::EguiCtx::new(ui.ctx());
 
         // A saved path can outlive the instance it points through.
