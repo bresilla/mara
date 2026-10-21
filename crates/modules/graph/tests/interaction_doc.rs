@@ -101,8 +101,7 @@ fn render(doc: &mut GraphDoc<N>, frames: usize) -> (usize, NodePath) {
             time: Some(time),
             ..Default::default()
         });
-        #[allow(deprecated)]
-        egui::CentralPanel::default().show(&ctx, |ui| {
+        central_panel(&ctx, |ui| {
             let mut backend = mara_backend_egui::EguiUiBackend::new(ui);
             MaraUi::__internal_over_backend_ret(
                 &mut backend,
@@ -115,7 +114,8 @@ fn render(doc: &mut GraphDoc<N>, frames: usize) -> (usize, NodePath) {
                 },
             );
         });
-        let output = ctx.end_pass();
+        let mut output = ctx.end_pass();
+        output.textures_delta.clear();
         let prims = ctx.tessellate(output.shapes, output.pixels_per_point);
         vertices = prims
             .iter()
@@ -196,8 +196,7 @@ fn an_instance_takes_its_pin_count_from_the_definition_not_the_viewer() {
             screen_rect: Some(screen),
             ..Default::default()
         });
-        #[allow(deprecated)]
-        egui::CentralPanel::default().show(&ctx, |ui| {
+        central_panel(&ctx, |ui| {
             let mut backend = mara_backend_egui::EguiUiBackend::new(ui);
             MaraUi::__internal_over_backend_ret(
                 &mut backend,
@@ -209,7 +208,8 @@ fn an_instance_takes_its_pin_count_from_the_definition_not_the_viewer() {
                 },
             );
         });
-        let out = ctx.end_pass();
+        let mut out = ctx.end_pass();
+        out.textures_delta.clear();
         let _ = ctx.tessellate(out.shapes, out.pixels_per_point);
     }
 
@@ -267,4 +267,11 @@ fn the_breadcrumb_names_every_level_from_the_root() {
     let crumbs = doc.breadcrumb(&NodePath::root().child(uid));
     let names: Vec<&str> = crumbs.iter().map(|c| c.name.as_str()).collect();
     assert_eq!(names, vec!["Root", "chip"]);
+}
+
+/// Runs `add` inside a `CentralPanel` on the pass's root `Ui`.
+fn central_panel(ctx: &egui::Context, add: impl FnOnce(&mut egui::Ui)) {
+    ctx.root_ui(|root| {
+        egui::CentralPanel::default().show(root, |ui| add(ui));
+    });
 }

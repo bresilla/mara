@@ -55,6 +55,36 @@ REJECTED (with one-line rationale).
   with a single migration note (the known downstream is the
   `bevy_openusd` viewer per `MARA_ADDITIONS.md`).
 
+## Completed outside the table
+
+- **Version migration to egui 0.37 / egui-wgpu 0.37 / egui_extras 0.37 /
+  eframe 0.37 / egui_plot 0.38 / egui-winit 0.37 / wgpu 30 / bevy 0.20.**
+  - `egui-scale` is consumed as a git dependency
+    (`dave-gray101/egui-scale`, branch `feat-egui-37`), not vendored.
+  - Deprecated `egui::Id::new` calls are now `Id::unique` (or `IdSalt::new`
+    where the field is a salt); deprecated `Ui::id()` is now
+    `Ui::scope_id()`. Both renames are behaviour-preserving: `Id::new`
+    forwards to `Id::unique`, which hashes with fixed seeds.
+  - egui 0.37 `epaint::TexturesDelta` panics in debug builds when dropped with
+    unapplied deltas. Test harnesses that read the deltas directly must clear
+    them after use. `mara/tests/render_snapshot.rs` is a CPU rasterizer that
+    reads the font atlas itself: egui uploads the atlas once and patches it
+    later (`pos: Some`), so that harness keeps a persistent atlas across
+    passes. The production renderer is unaffected: it passes every delta to
+    `egui_wgpu`'s `update_texture` (`crates/backend-egui/src/lib.rs`).
+  - The bevy host's `repaint_delay` helper (`hosts/bevy/src/egui_view.rs`) no
+    longer adds `predicted_dt` to the repaint interval. In egui 0.37,
+    `predicted_dt` is read only by the animation manager.
+  - Offscreen GPU path: modifiers are sent as `Event::ModifiersChanged`,
+    `MouseWheel` carries a `source`, and texture deltas are per-id lists.
+  - Verified 2026-10-21: `cargo check --workspace --all-targets` and
+    `--all-features` report zero warnings and zero errors. `cargo test
+    --workspace` passed; the snapshot harness was edited afterwards and its
+    ignored test was run directly.
+- **Stroke scaling (`egui-scale`):** `Stroke::scale` on the `feat-egui-37`
+  branch of `egui-scale` discarded the `gamma_multiply` result for sub-pixel
+  strokes. The branch has the fix, and `Cargo.lock` pins its current head.
+
 ## Findings considered and rejected (do not re-audit)
 
 - **`ureq` + `ehttp` duplication in `mara_map`** — ehttp wraps ureq on
@@ -78,9 +108,8 @@ REJECTED (with one-line rationale).
 - **"Four divergent docking copies" hypothesis** — investigated and
   disproved: shelf/pane genuinely share `container::Tab`/`ContainerSpec`;
   the real debt is the `normal` god object (plan 014).
-- **`egui 0.34` / `wgpu 29` / `bevy 0.19` version-lag migration** — could
-  not verify lag offline; lockfile is internally consistent with no
-  duplicate majors. Re-check at next release prep.
+- ~~**`egui 0.34` / `wgpu 29` / `bevy 0.19` version-lag migration**~~ —
+  **DONE 2026-10-21** (see "Completed outside the table" above).
 - **`make docs` target auto-commits** (`git add --all && git commit`) inside
   a build target — surprising but deliberate-looking; flag to the maintainer
   rather than plan around it.

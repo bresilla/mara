@@ -231,13 +231,13 @@ fn snapshot_the_graph() {
     );
 
     let mut buf = vec![[18_u8, 18, 20, 255]; W * H];
+    let mut atlas = egui::ColorImage::new([1, 1], vec![egui::Color32::WHITE]);
     for _ in 0..3 {
         ctx.begin_pass(egui::RawInput {
             screen_rect: Some(screen),
             ..Default::default()
         });
-        #[allow(deprecated)]
-        egui::CentralPanel::default().show(&ctx, |ui| {
+        central_panel(&ctx, |ui| {
             let mut b = mara_backend_egui::EguiUiBackend::new(ui);
             MaraUi::__internal_over_backend_ret(&mut b, accent, |mara| {
                 let _ = mara::extras::graph::GraphWidget::new()
@@ -246,17 +246,28 @@ fn snapshot_the_graph() {
                     .show(&mut graph, &mut V, mara);
             });
         });
-        let out = ctx.end_pass();
+        let mut out = ctx.end_pass();
 
-        let atlas = out
-            .textures_delta
-            .set
-            .iter()
-            .find_map(|(_, d)| match &d.image {
-                egui::ImageData::Color(c) => Some((**c).clone()),
-                _ => None,
-            })
-            .unwrap_or_else(|| egui::ColorImage::new([1, 1], vec![egui::Color32::WHITE]));
+        // The font atlas is uploaded once, then patched incrementally, so keep
+        // a persistent copy: a later pass may carry no delta at all.
+        for (_, deltas) in &out.textures_delta.set {
+            for d in deltas {
+                let egui::ImageData::Color(c) = &d.image;
+                match d.pos {
+                    None => atlas = (**c).clone(),
+                    Some([x, y]) => {
+                        let w = atlas.size[0];
+                        for row in 0..c.size[1] {
+                            for col in 0..c.size[0] {
+                                atlas.pixels[(y + row) * w + x + col] =
+                                    c.pixels[row * c.size[0] + col];
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        out.textures_delta.clear();
 
         buf.iter_mut().for_each(|p| *p = [18, 18, 20, 255]);
         for prim in ctx.tessellate(out.shapes, out.pixels_per_point) {
@@ -272,4 +283,11 @@ fn snapshot_the_graph() {
     image::save_buffer(&path, &flat, W as u32, H as u32, image::ColorType::Rgba8)
         .expect("write png");
     eprintln!("wrote {path}");
+}
+
+/// Runs `add` inside a `CentralPanel` on the pass's root `Ui`.
+fn central_panel(ctx: &egui::Context, add: impl FnOnce(&mut egui::Ui)) {
+    ctx.root_ui(|root| {
+        egui::CentralPanel::default().show(root, |ui| add(ui));
+    });
 }

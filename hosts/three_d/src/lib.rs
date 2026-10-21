@@ -385,9 +385,9 @@ pub struct View3d {
 
 impl View3d {
     #[must_use]
-    pub fn new(id: impl std::hash::Hash, scene: Scene3d) -> Self {
+    pub fn new(id: impl std::hash::Hash + std::fmt::Debug, scene: Scene3d) -> Self {
         Self {
-            id: egui::Id::new(id),
+            id: egui::Id::unique(id),
             scene,
             orbit: Orbit3d::default(),
             preview_texture: None,
@@ -1903,7 +1903,7 @@ impl MaraView for View3d {
         #[cfg(feature = "gpu-preview")]
         if let Some(format) = ctx
             .__internal_egui_ctx()
-            .data(|d| d.get_temp::<wgpu::TextureFormat>(egui::Id::new("mara_gpu_target_format")))
+            .data(|d| d.get_temp::<wgpu::TextureFormat>(egui::Id::unique("mara_gpu_target_format")))
         {
             self.gpu_target_format = Some(format);
         }
@@ -1916,7 +1916,7 @@ impl MaraView for View3d {
         // trade a direct `egui::Area` for the sealed-tier escape, which
         // is worse by the guard's own standard. Unblocked by C2.5, which
         // ports the GPU preview off `egui_wgpu::CallbackTrait`.
-        egui::Area::new(egui::Id::new(("mara_three_d_view", self.id)))
+        egui::Area::new(egui::Id::unique(("mara_three_d_view", self.id)))
             .order(egui::Order::Background)
             .fixed_pos(Into::<egui::Pos2>::into(rect.min))
             .show(ctx.__internal_egui_ctx(), |ui| {
@@ -1956,7 +1956,7 @@ impl MaraModule for View3d {
 
     fn workspace(&mut self, ws: &mut WorkspaceCtx<'_>) {
         ws.add_bar(WorkspaceBar::new(
-            egui::Id::new(("three_d.workspace.bar", self.id)),
+            egui::Id::unique(("three_d.workspace.bar", self.id)),
             WorkspaceBarEdge::Top,
             WorkspaceBarCluster::Middle,
         ));
@@ -2841,7 +2841,7 @@ impl GpuPreviewResources {
             vertex: wgpu::VertexState {
                 module: &shader,
                 entry_point: Some("vs_main"),
-                buffers: &[wgpu::VertexBufferLayout {
+                buffers: &[Some(wgpu::VertexBufferLayout {
                     array_stride: std::mem::size_of::<GpuPreviewVertex>() as wgpu::BufferAddress,
                     step_mode: wgpu::VertexStepMode::Vertex,
                     attributes: &wgpu::vertex_attr_array![
@@ -2849,7 +2849,7 @@ impl GpuPreviewResources {
                         1 => Float32x2,
                         2 => Uint32
                     ],
-                }],
+                })],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
             },
             primitive: wgpu::PrimitiveState {
@@ -2899,7 +2899,7 @@ impl GpuPreviewResources {
             vertex: wgpu::VertexState {
                 module: &shader,
                 entry_point: Some("vs_scene"),
-                buffers: &[wgpu::VertexBufferLayout {
+                buffers: &[Some(wgpu::VertexBufferLayout {
                     array_stride: std::mem::size_of::<GpuSceneVertex>() as wgpu::BufferAddress,
                     step_mode: wgpu::VertexStepMode::Vertex,
                     attributes: &wgpu::vertex_attr_array![
@@ -2908,7 +2908,7 @@ impl GpuPreviewResources {
                         2 => Float32x2,
                         3 => Uint32
                     ],
-                }],
+                })],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
             },
             primitive: wgpu::PrimitiveState {
@@ -3062,7 +3062,10 @@ fn create_vertex_buffer(device: &wgpu::Device, label: &str, bytes: &[u8]) -> wgp
         mapped_at_creation: true,
     });
     {
-        let mut mapped = buffer.slice(..).get_mapped_range_mut();
+        let mut mapped = buffer
+            .slice(..)
+            .get_mapped_range_mut()
+            .expect("freshly created buffer is mapped at creation");
         mapped.slice(..bytes.len()).copy_from_slice(bytes);
     }
     buffer.unmap();
@@ -3078,7 +3081,10 @@ fn create_uniform_buffer(device: &wgpu::Device, label: &str, bytes: &[u8]) -> wg
         mapped_at_creation: true,
     });
     {
-        let mut mapped = buffer.slice(..).get_mapped_range_mut();
+        let mut mapped = buffer
+            .slice(..)
+            .get_mapped_range_mut()
+            .expect("freshly created buffer is mapped at creation");
         mapped.slice(..bytes.len()).copy_from_slice(bytes);
     }
     buffer.unmap();

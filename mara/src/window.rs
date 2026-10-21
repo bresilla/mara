@@ -173,7 +173,10 @@ impl<A: WindowApp> NativeWinitApp<A> {
         // non-blocking present mode so the UI thread never waits on the
         // swapchain.
         let wgpu_config = egui_wgpu::WgpuConfiguration {
-            present_mode: wgpu::PresentMode::AutoNoVsync,
+            surface: egui_wgpu::SurfaceConfig {
+                present_mode: wgpu::PresentMode::AutoNoVsync,
+                ..egui_wgpu::WgpuConfiguration::default().surface
+            },
             ..egui_wgpu::WgpuConfiguration::default()
         };
         #[cfg(feature = "bevy")]
@@ -321,7 +324,6 @@ impl<A: WindowApp> NativeWinitApp<A> {
         raw_input
             .viewports
             .insert(ViewportId::ROOT, viewport_info.clone());
-        painter.handle_screenshots(&mut raw_input.events);
 
         let Some(render_state) = painter.render_state() else {
             return;
@@ -400,7 +402,7 @@ impl<A: WindowApp> NativeWinitApp<A> {
 
         let egui::FullOutput {
             platform_output,
-            textures_delta,
+            mut textures_delta,
             shapes,
             pixels_per_point,
             viewport_output,
@@ -444,7 +446,7 @@ impl<A: WindowApp> NativeWinitApp<A> {
             pixels_per_point,
             clear_color,
             &clipped_primitives,
-            &textures_delta,
+            &mut textures_delta,
             viewport_output
                 .get(&ViewportId::ROOT)
                 .into_iter()
@@ -454,6 +456,7 @@ impl<A: WindowApp> NativeWinitApp<A> {
                     _ => None,
                 })
                 .collect(),
+            window,
         );
         if frame_timing {
             let paint_ms = paint_t0.elapsed().as_secs_f32() * 1000.0;

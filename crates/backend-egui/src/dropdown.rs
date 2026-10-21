@@ -317,8 +317,8 @@ mod tests {
             events,
             ..Default::default()
         });
-        let mut root = egui::Ui::new(ctx.clone(), egui::Id::new("root"), egui::UiBuilder::new());
-        let inner = egui::CentralPanel::default().show_inside(&mut root, |ui| {
+        let mut root = egui::Ui::new(ctx.clone(), egui::Id::unique("root"), egui::UiBuilder::new());
+        let inner = egui::CentralPanel::default().show(&mut root, |ui| {
             ui.set_width(200.0);
             let response = dropdown(ui, "test", selected, &["First", "Second"], Color32::WHITE);
             let popup_id = crate::ui_id(ui).with(("mara_dropdown", &"test"));
@@ -327,7 +327,10 @@ mod tests {
             let open = mara_core::popup::PopupState::load(&memory, popup_id).is_open();
             (response, open)
         });
-        (inner.inner.0, inner.inner.1, ctx.end_pass())
+        // Headless: no renderer consumes the texture deltas.
+        let mut output = ctx.end_pass();
+        output.textures_delta.clear();
+        (inner.inner.0, inner.inner.1, output)
     }
 
     fn pointer_button(pos: egui::Pos2, pressed: bool) -> Vec<egui::Event> {
@@ -387,8 +390,8 @@ mod tests {
     fn response_handle_recovers_original_backend_response() {
         let ctx = egui::Context::default();
         ctx.begin_pass(egui::RawInput::default());
-        let mut root = egui::Ui::new(ctx.clone(), egui::Id::new("root"), egui::UiBuilder::new());
-        egui::CentralPanel::default().show_inside(&mut root, |ui| {
+        let mut root = egui::Ui::new(ctx.clone(), egui::Id::unique("root"), egui::UiBuilder::new());
+        egui::CentralPanel::default().show(&mut root, |ui| {
             let raw = ui.button("Trigger");
             let response = crate::mara_response_from(&raw);
             let recovered = crate::with_response(&ctx, response.backend_response_id(), |stored| {
@@ -396,7 +399,7 @@ mod tests {
             });
             assert_eq!(recovered, Some((raw.id, raw.rect)));
         });
-        let _ = ctx.end_pass();
+        ctx.end_pass().textures_delta.clear();
     }
 
     #[test]

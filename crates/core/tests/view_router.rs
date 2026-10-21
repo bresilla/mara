@@ -90,7 +90,7 @@ fn switching_preserves_each_views_workspace_stack() {
     router
         .active_workspace_mut()
         .unwrap()
-        .push_module(egui::Id::new("inline_graph"));
+        .push_module(egui::Id::unique("inline_graph"));
     assert_eq!(router.active_workspace().unwrap().depth(), 1);
 
     router.set_active(graph).unwrap();
@@ -98,7 +98,7 @@ fn switching_preserves_each_views_workspace_stack() {
     router
         .active_workspace_mut()
         .unwrap()
-        .push_module(egui::Id::new("image"));
+        .push_module(egui::Id::unique("image"));
     assert_eq!(router.active_workspace().unwrap().depth(), 1);
 
     router.set_active(bevy).unwrap();

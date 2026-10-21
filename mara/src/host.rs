@@ -331,18 +331,19 @@ impl<'a> MaraHostCtx<'a> {
         // glass top bar — the canvas shows through the bar instead of a
         // flat panel colour sitting under it. The enforced top bar and the
         // shelves render over this body.
-        #[allow(deprecated)]
-        {
+        // `Panel::show` takes a `Ui`; the pass's root `Ui` is reached through
+        // `Context::root_ui`, which is valid anywhere during the frame.
+        self.seam().root_ui(|ui| {
             egui::CentralPanel::default()
                 .frame(egui::Frame::new().fill(egui::Color32::TRANSPARENT))
-                .show(&self.seam(), |ui| {
+                .show(ui, |ui| {
                     let screen_rect = ui.max_rect().into();
                     let mut __raw = mara_backend_egui::__internal_backend_from_raw(ui);
                     let mut mui = mara_core::MaraUi::__internal_over(&mut __raw, accent);
                     body(&mut mui, screen_rect)
                 })
                 .inner
-        }
+        })
     }
 
     /// Draw already-resolved featureful slot ribbons through the
@@ -396,7 +397,7 @@ impl<'a> MaraHostCtx<'a> {
         // `ViewNode` leaves, instead of needing a per-frame setter call.
         if let Some(state) = self.render_state {
             self.egui.data_mut(|d| {
-                d.insert_temp(egui::Id::new("mara_gpu_target_format"), state.target_format);
+                d.insert_temp(egui::Id::unique("mara_gpu_target_format"), state.target_format);
             });
         }
         mara_backend_egui::theme::__internal_view_ctx(
@@ -570,7 +571,7 @@ impl MaraHostCtx<'_> {
     /// Whether `pane` is the open pane of the rail `rail`.
     #[must_use]
     pub fn rail_pane_open(&self, rail: &'static str, pane: &'static str) -> bool {
-        let key = egui::Id::new(("mara_host_ribbon_rail_state", rail));
+        let key = egui::Id::unique(("mara_host_ribbon_rail_state", rail));
         self.egui
             .data_mut(|data| data.get_persisted::<HostRibbonRailState>(key))
             .is_some_and(|state| state.open.is_open(rail, pane))
@@ -579,7 +580,7 @@ impl MaraHostCtx<'_> {
     /// Open or close `pane` on the rail `rail` from app code (a hotkey, a
     /// selection made in the scene). Takes effect at the rail's next show.
     pub fn set_rail_pane_open(&self, rail: &'static str, pane: &'static str, open: bool) {
-        let key = egui::Id::new(("mara_host_ribbon_rail_state", rail));
+        let key = egui::Id::unique(("mara_host_ribbon_rail_state", rail));
         let mut state = self
             .egui
             .data_mut(|data| data.get_persisted::<HostRibbonRailState>(key))
@@ -611,7 +612,7 @@ impl MaraHostCtx<'_> {
         accent: impl Into<mara_core::vocab::Color32>,
     ) -> Vec<mara_core::ribbon::RibbonSlotClick> {
         let accent = accent.into();
-        let key = egui::Id::new(("mara_host_ribbon_rail_state", rail.id));
+        let key = egui::Id::unique(("mara_host_ribbon_rail_state", rail.id));
         let mut state = self
             .egui
             .data_mut(|data| data.get_persisted::<HostRibbonRailState>(key))

@@ -42,6 +42,11 @@ fn pid(pane: &str, name: &str, i: usize) -> egui::Id { egui::Id::new((pane, name
 ```
 
   (Signatures approximate — read the live helpers; they may use vocab `Id`.)
+  **Stale as of 2026-10-21:** the helpers are now at `example/src/app.rs:4825`
+  and return `MaraId`. The egui `Id::new` calls in this file were renamed to
+  `Id::unique` during the egui 0.37 migration; the `Id::new(` grep below now
+  matches `MaraId::new` / vocab `Id::new` as well, so use `grep -c 'cid(\|pid('`
+  for the baseline (currently 239 matches for `Id::new(\|cid(\|pid(`).
   218 `Id::new(/cid(/pid(` call sites in `app.rs`.
 
 - `Pod::new(id)` — sole constructor (`grep -n 'pub fn new' crates/core/src/pod/mod.rs`).

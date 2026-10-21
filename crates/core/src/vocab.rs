@@ -632,7 +632,7 @@ impl From<egui::Id> for Id {
 #[cfg(feature = "backend-egui-conv")]
 impl From<Id> for egui::Id {
     fn from(id: Id) -> Self {
-        egui::Id::new(id.0)
+        egui::Id::unique(id.0)
     }
 }
 

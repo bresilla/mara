@@ -163,12 +163,12 @@ pub fn drive(frames: Vec<egui::RawInput>, mut body: impl FnMut(&mut MaraUi<'_>))
     for mut input in frames {
         input.screen_rect = Some(screen);
         ctx.begin_pass(input);
-        #[allow(deprecated)]
-        egui::CentralPanel::default().show(&ctx, |ui| {
+        central_panel(&ctx, |ui| {
             let mut b = mara_backend_egui::EguiUiBackend::new(ui);
             MaraUi::__internal_over_backend_ret(&mut b, accent, |mara| body(mara));
         });
-        let _ = ctx.end_pass();
+        // Headless: no renderer consumes the texture deltas.
+        ctx.end_pass().textures_delta.clear();
     }
 }
 
@@ -228,8 +228,7 @@ pub fn snapshot(path: &str, accent: mara_core::vocab::Color32, mut body: impl Fn
             screen_rect: Some(screen),
             ..Default::default()
         });
-        #[allow(deprecated)]
-        egui::CentralPanel::default().show(&ctx, |ui| {
+        central_panel(&ctx, |ui| {
             let mut b = mara_backend_egui::EguiUiBackend::new(ui);
             MaraUi::__internal_over_backend_ret(&mut b, accent, |mara| body(mara));
         });
@@ -240,7 +239,7 @@ pub fn snapshot(path: &str, accent: mara_core::vocab::Color32, mut body: impl Fn
         // patch as the entire atlas puts every glyph UV in the wrong
         // place, which is why text rendered as solid blobs and cost a
         // wrong diagnosis of the icon font.
-        for (_, d) in &out.textures_delta.set {
+        for d in out.textures_delta.set.values().flatten() {
             let egui::ImageData::Color(src) = &d.image;
             match d.pos {
                 None => atlas = (**src).clone(),
@@ -271,4 +270,11 @@ pub fn snapshot(path: &str, accent: mara_core::vocab::Color32, mut body: impl Fn
     image::save_buffer(path, &flat, W as u32, H as u32, image::ColorType::Rgba8)
         .expect("write png");
     eprintln!("wrote {path}");
+}
+
+/// Runs `add` inside a `CentralPanel` on the pass's root `Ui`.
+fn central_panel(ctx: &egui::Context, add: impl FnOnce(&mut egui::Ui)) {
+    ctx.root_ui(|root| {
+        egui::CentralPanel::default().show(root, |ui| add(ui));
+    });
 }

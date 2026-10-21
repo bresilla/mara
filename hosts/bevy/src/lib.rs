@@ -33,7 +33,7 @@ use bevy::render::{
     },
     renderer::{
         PendingCommandBuffers, RenderAdapter, RenderAdapterInfo, RenderDevice, RenderGraph,
-        RenderGraphSystems, RenderInstance, RenderQueue, WgpuWrapper,
+        RenderGraphSystems, RenderInstance, RenderQueue,
     },
     settings::RenderCreation,
     texture::{ManualTextureView, ManualTextureViews},
@@ -750,10 +750,10 @@ impl BevyViewportRenderer {
             default_plugins = default_plugins.set(RenderPlugin {
                 render_creation: RenderCreation::manual(
                     RenderDevice::from(resources.device),
-                    RenderQueue(Arc::new(WgpuWrapper::new(resources.queue))),
-                    RenderAdapterInfo(WgpuWrapper::new(adapter_info)),
-                    RenderAdapter(Arc::new(WgpuWrapper::new(resources.adapter))),
-                    RenderInstance(Arc::new(WgpuWrapper::new(instance))),
+                    RenderQueue::new(resources.queue),
+                    RenderAdapterInfo::new(adapter_info),
+                    RenderAdapter::new(resources.adapter),
+                    RenderInstance::new(instance),
                 ),
                 ..default()
             });
@@ -1277,7 +1277,7 @@ fn copy_embedded_viewport_textures_system(
     }
 
     if any {
-        pending_buffers.push_encoder(encoder);
+        pending_buffers.push_encoder(encoder, "embedded_viewport_readback");
     }
 }
 fn receive_embedded_viewport_frames(
@@ -1289,7 +1289,11 @@ fn receive_embedded_viewport_frames(
 
     while let Ok(mapped_frame) = mapped_receiver.try_recv() {
         let buffer_slice = mapped_frame.buffer.slice(..);
-        let mapped = buffer_slice.get_mapped_range();
+        // The map callback only fires after a successful `map_async`, so the
+        // range is always available here.
+        let mapped = buffer_slice
+            .get_mapped_range()
+            .expect("embedded viewport readback buffer is mapped");
         let rgba = if mapped_frame.row_bytes == mapped_frame.padded_row_bytes {
             mapped[..mapped_frame.row_bytes * mapped_frame.height as usize].to_vec()
         } else {

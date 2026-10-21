@@ -33,7 +33,6 @@
 // `CentralPanel::show` is deprecated in favour of `show_inside`, but the
 // existing render-characterisation fixture uses it and the two must
 // drive identical passes to stay comparable.
-#![allow(deprecated)]
 
 use mara_core::MaraUi;
 use mara_graph::{Graph, GraphStyle, GraphWidget, NodeViewer};
@@ -380,14 +379,15 @@ impl Harness {
         self.ctx.begin_pass(egui::RawInput {
             screen_rect: Some(self.screen),
             time: Some(self.time),
-            modifiers: self.held,
-            events,
+            events: std::iter::once(egui::Event::ModifiersChanged(self.held))
+                .chain(events)
+                .collect(),
             ..Default::default()
         });
 
         let style = self.style;
         let id = self.id;
-        egui::CentralPanel::default().show(&self.ctx, |ui| {
+        central_panel(&self.ctx, |ui| {
             let mut backend = mara_backend_egui::EguiUiBackend::new(ui);
             MaraUi::__internal_over_backend_ret(
                 &mut backend,
@@ -401,7 +401,9 @@ impl Harness {
             );
         });
 
-        let output = self.ctx.end_pass();
+        let mut output = self.ctx.end_pass();
+
+        output.textures_delta.clear();
         let primitives = self.ctx.tessellate(output.shapes, output.pixels_per_point);
 
         let mut summary = FrameSummary::default();
@@ -435,4 +437,11 @@ impl Default for FrameSummary {
             painted: egui::Rect::NOTHING,
         }
     }
+}
+
+/// Runs `add` inside a `CentralPanel` on the pass's root `Ui`.
+fn central_panel(ctx: &egui::Context, add: impl FnOnce(&mut egui::Ui)) {
+    ctx.root_ui(|root| {
+        egui::CentralPanel::default().show(root, |ui| add(ui));
+    });
 }

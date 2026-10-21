@@ -5890,7 +5890,7 @@ impl Value {
 }
 
 #[derive(Clone, Copy, PartialEq)]
-enum ScalarOp {
+pub enum ScalarOp {
     Add,
     Sub,
     Mul,
@@ -5955,7 +5955,7 @@ impl ScalarOp {
 }
 
 #[derive(Clone, Copy, PartialEq)]
-enum TrigFn {
+pub enum TrigFn {
     Sin,
     Cos,
     Tan,
@@ -6032,7 +6032,7 @@ impl TrigFn {
 }
 
 #[derive(Clone, Copy, PartialEq)]
-enum BoolOp {
+pub enum BoolOp {
     And,
     Or,
     Not,
@@ -6125,7 +6125,7 @@ impl NoiseMode {
 }
 
 #[derive(Clone, Copy, PartialEq)]
-enum WaveShape {
+pub enum WaveShape {
     Sine,
     Saw,
     Triangle,
@@ -6158,7 +6158,7 @@ impl WaveShape {
 }
 
 #[derive(Clone, Copy, PartialEq)]
-enum CompareOp {
+pub enum CompareOp {
     Lt,
     Le,
     Eq,
@@ -6190,7 +6190,7 @@ impl CompareOp {
 }
 
 #[derive(Clone, Copy, PartialEq)]
-enum VectorOp {
+pub enum VectorOp {
     Add,
     Sub,
     Mul,

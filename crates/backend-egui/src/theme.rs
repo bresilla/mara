@@ -263,15 +263,16 @@ pub fn __internal_apply_theme_to(
     visuals.faint_bg_color = glass_card.into();
     visuals.code_bg_color = glass_card.into();
     visuals.override_text_color = Some(th.palette.text_primary.into());
-    // Force the gamma-correct (linear) coverage→alpha curve for text in
-    // both modes. egui's dark-mode default is `TwoCoverageMinusCoverageSq`,
+    // Force the straight-through coverage→alpha curve for text in both modes.
+    // egui's dark-mode default is `TwoCoverageMinusCoverageSq`,
     // which deliberately fattens glyph edges to make light text on dark
     // backgrounds look bolder. On a saturated accent fill (yellow / cyan
     // / lime) that fattened edge reads as a visible coloured halo around
     // every glyph — the "border around the text" the user sees only when
-    // the accent is applied. `Linear` blends the coverage straight, so
-    // the AA edge is a single 1-px transition between text and bg.
-    visuals.text_options.alpha_from_coverage = egui::epaint::AlphaFromCoverage::Linear;
+    // the accent is applied. `Gamma(1.0)` (what `Linear` was before egui 0.37)
+    // blends the coverage straight, so the AA edge is a single 1-px transition
+    // between text and bg.
+    visuals.text_options.color_transfer_function = egui::epaint::FontColorTransferFunction::Gamma(1.0);
     // From `mara_core::style` rather than computed here, so a surface
     // drawing its own selection reads the same values instead of
     // recovering them from `egui::Style` (PLAN.md WS-D1.3).
@@ -383,6 +384,7 @@ pub fn __internal_apply_theme_to(
         bar_inner_margin: 2.0,
         bar_outer_margin: 0.0,
         foreground_color: true,
+        kinetic: Default::default(),
         dormant_background_opacity: 0.0,
         active_background_opacity: 0.0,
         interact_background_opacity: 0.0,

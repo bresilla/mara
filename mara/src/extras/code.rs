@@ -337,13 +337,13 @@ pub struct CodeEditorSurface {
 impl CodeEditorSurface {
     #[must_use]
     pub fn new(
-        id: impl Hash,
+        id: impl Hash + std::fmt::Debug,
         title: impl Into<String>,
         text: impl Into<String>,
         syntax: Syntax,
     ) -> Self {
         Self {
-            id: egui::Id::new(id),
+            id: egui::Id::unique(id),
             title: title.into(),
             text: text.into(),
             syntax,
@@ -368,7 +368,7 @@ impl CodeEditorSurface {
 
     fn toolbar(&self, scope: mara_core::RibbonScope) -> mara_core::RibbonSlotDef {
         let format = mara_core::RibbonSlotItem::new(
-            egui::Id::new(("code.format", self.id)),
+            egui::Id::unique(("code.format", self.id)),
             "code",
             "Format",
             "Format code document",
@@ -378,7 +378,7 @@ impl CodeEditorSurface {
             ))),
         );
         mara_core::RibbonSlotDef::new(
-            egui::Id::new(("code.ribbon", self.id)),
+            egui::Id::unique(("code.ribbon", self.id)),
             scope,
             mara_core::RibbonEdge::Top,
             mara_core::RibbonCluster::Middle,
@@ -432,9 +432,8 @@ impl mara_core::MaraView for CodeEditorSurface {
 
     fn show(&mut self, ctx: &mut mara_core::ViewCtx<'_>) {
         let rect = ctx.content_rect();
-        #[allow(deprecated)]
-        {
-            egui::CentralPanel::default().show(ctx.__internal_egui_ctx(), |ui| {
+        ctx.__internal_egui_ctx().root_ui(|ui| {
+            egui::CentralPanel::default().show(ui, |ui| {
                 let mut body = ui.new_child(
                     egui::UiBuilder::new()
                         .max_rect(rect.into())
@@ -442,7 +441,7 @@ impl mara_core::MaraView for CodeEditorSurface {
                 );
                 self.show_editor(&mut body);
             });
-        }
+        });
     }
 }
 
@@ -495,12 +494,12 @@ impl mara_core::MaraModule for CodeEditorSurface {
     fn workspace(&mut self, ws: &mut mara_core::WorkspaceCtx<'_>) {
         ws.add_bar(
             mara_core::WorkspaceBar::new(
-                egui::Id::new(("code.workspace.bar", self.id)),
+                egui::Id::unique(("code.workspace.bar", self.id)),
                 mara_core::WorkspaceBarEdge::Top,
                 mara_core::WorkspaceBarCluster::Middle,
             )
             .with_item(mara_core::WorkspaceBarItem::command(
-                egui::Id::new(("code.workspace.format", self.id)),
+                egui::Id::unique(("code.workspace.format", self.id)),
                 "Format",
                 Some("code"),
             )),
