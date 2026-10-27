@@ -423,6 +423,7 @@ impl MaraBevyViewport {
                         || texture_needs_committed_frame
                         || input_active
                         || elapsed >= target_interval;
+                    let render_started = bevy::platform::time::Instant::now();
 
                     if should_render {
                         self.last_render_time = now;
@@ -531,11 +532,12 @@ impl MaraBevyViewport {
                     }
 
                     picked_color = self.bevy.picked_color();
-                    let mut next = if should_render {
-                        target_interval
+                    let spent = if should_render {
+                        render_started.elapsed().as_secs_f64()
                     } else {
-                        (target_interval - elapsed).max(active_interval)
+                        elapsed
                     };
+                    let mut next = next_frame_delay(target_interval, spent);
                     if resize_pending || texture_needs_committed_frame {
                         next = next.min(active_interval);
                     }
@@ -597,6 +599,12 @@ fn frame_interval(continuous: bool, interactive: bool, active: f64, idle: f64) -
     if continuous || interactive { active } else { idle }
 }
 
+/// Seconds until the next frame is due: one interval after the last render
+/// started, less the time already spent since then.
+fn next_frame_delay(interval: f64, spent: f64) -> f64 {
+    (interval - spent).max(0.0)
+}
+
 fn repaint_delay(seconds: f64, predicted_dt: f32) -> Duration {
     let interval = Duration::try_from_secs_f64(seconds).unwrap_or_default();
     if interval.is_zero() {
@@ -617,6 +625,15 @@ mod pacing_tests {
         }
     }
     use super::*;
+
+    #[test]
+    fn frame_cost_comes_out_of_the_interval() {
+        let interval = 1.0 / 60.0;
+        assert!((next_frame_delay(interval, 0.005) - (interval - 0.005)).abs() < 1e-12);
+        assert_eq!(next_frame_delay(interval, 0.018), 0.0);
+        assert_eq!(next_frame_delay(interval, 0.0), interval);
+        assert_eq!(repaint_delay(next_frame_delay(interval, 0.018), 1.0 / 60.0), Duration::ZERO);
+    }
 
     #[test]
     fn repaint_interval_survives_egui_prediction() {
